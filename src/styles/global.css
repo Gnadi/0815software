@@ -1,23 +1,51 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-/* ─── Design tokens ──────────────────────────────────────────────────────── */
+/* ─── Design tokens (Tailwind v4 @theme) ─────────────────────────────────── */
+/* Values here are injected into :root as CSS custom properties AND          */
+/* generate utility classes (text-fg, bg-bg-2, font-mono, etc.)             */
+@theme {
+  /* Colors */
+  --color-bg:          #0A0A0A;
+  --color-bg-2:        #0C0C0C;
+  --color-bg-3:        #070707;
+  --color-fg:          #E8E4DC;
+  --color-fg-dim:      #A8A39A;
+  --color-fg-mute:     #6B675F;
+  --color-accent:      #E8E4DC;
+  --color-line:        rgba(232, 228, 220, 0.12);
+  --color-line-strong: rgba(232, 228, 220, 0.22);
+
+  /* Typography */
+  --font-sans:  "Inter Tight", system-ui, sans-serif;
+  --font-mono:  "JetBrains Mono", ui-monospace, monospace;
+  --font-serif: "Instrument Serif", Georgia, serif;
+
+  /* Border radius — intentionally sharp, DIN-spec editorial */
+  --radius-sm:  2px;
+  --radius:     2px;
+  --radius-md:  2px;
+  --radius-lg:  2px;
+  --radius-xl:  2px;
+}
+
+/* ─── Short aliases ───────────────────────────────────────────────────────── */
+/* @theme injects --color-* etc. into :root. These short aliases let          */
+/* component <style> blocks keep using var(--fg), var(--bg), etc.            */
 :root {
-  --bg:           #0A0A0A;   /* page background                              */
-  --bg-2:         #0C0C0C;   /* alt section bg (§03 managers, §06 about)     */
-  --bg-3:         #070707;   /* footer background                            */
-  --fg:           #E8E4DC;   /* primary text — warm off-white                */
-  --fg-dim:       #A8A39A;   /* secondary text                               */
-  --fg-mute:      #6B675F;   /* tertiary / meta text                         */
-  --line:         rgba(232, 228, 220, 0.12);  /* subtle 1px dividers         */
-  --line-strong:  rgba(232, 228, 220, 0.22);  /* card borders, strong dividers*/
-  --accent:       #E8E4DC;   /* default bone; swap to amber/lime/sky/etc.    */
+  --bg:          var(--color-bg);
+  --bg-2:        var(--color-bg-2);
+  --bg-3:        var(--color-bg-3);
+  --fg:          var(--color-fg);
+  --fg-dim:      var(--color-fg-dim);
+  --fg-mute:     var(--color-fg-mute);
+  --accent:      var(--color-accent);
+  --line:        var(--color-line);
+  --line-strong: var(--color-line-strong);
 
   /* Layout rhythm */
-  --pad-x:      96px;
-  --sec-y:      140px;
-  --sec-y-sm:   120px;
+  --pad-x:    96px;
+  --sec-y:    140px;
+  --sec-y-sm: 120px;
 }
 
 /* ─── Base reset ─────────────────────────────────────────────────────────── */
@@ -28,7 +56,7 @@ html { scroll-behavior: smooth; }
 body {
   background: var(--bg);
   color: var(--fg);
-  font-family: 'Inter Tight', system-ui, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   margin: 0;
@@ -42,22 +70,22 @@ img, svg { display: block; }
 
 ::selection { background: var(--accent); color: #0A0A0A; }
 
-/* ─── Shared typography helpers ─────────────────────────────────────────── */
-.mono  { font-family: 'JetBrains Mono', ui-monospace, monospace; }
-.serif { font-family: 'Instrument Serif', Georgia, serif; }
+/* ─── Shared helpers ─────────────────────────────────────────────────────── */
+.mono  { font-family: var(--font-mono); }
+.serif { font-family: var(--font-serif); }
 
 /* ─── Shared button primitives ───────────────────────────────────────────── */
 .btn {
   display: inline-flex;
   align-items: center;
   padding: 14px 22px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.5px;
   text-transform: uppercase;
   border-radius: 2px;
-  transition: opacity 100ms ease-out, filter 100ms ease-out;
+  transition: opacity 100ms ease-out;
   border: none;
 }
 .btn:hover { opacity: 0.88; }
@@ -74,7 +102,7 @@ img, svg { display: block; }
 
 /* ─── Shared section rail ────────────────────────────────────────────────── */
 .section-rail {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -84,10 +112,9 @@ img, svg { display: block; }
 .section-rail__num  { color: var(--accent); }
 .section-rail__name { color: var(--fg-mute); margin-top: 4px; }
 
-/* Mobile: show inline label above heading instead of side rail */
 .section-label-inline {
   display: none;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -96,7 +123,7 @@ img, svg { display: block; }
 }
 .section-label-inline__num { color: var(--accent); }
 
-/* ─── Responsive overrides ───────────────────────────────────────────────── */
+/* ─── Responsive layout rhythm ───────────────────────────────────────────── */
 @media (max-width: 1199px) {
   :root { --pad-x: 64px; --sec-y: 96px; --sec-y-sm: 76px; }
 }
