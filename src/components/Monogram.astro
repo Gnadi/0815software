@@ -1,0 +1,25 @@
+---
+interface Props {
+  size?: number;
+  color?: string;
+  accent?: string;
+}
+const { size = 40, color = 'var(--fg)', accent = 'var(--accent)' } = Astro.props;
+---
+
+<svg
+  width={size}
+  height={size}
+  viewBox="0 0 40 40"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+  aria-hidden="true"
+>
+  <rect x="0.5" y="0.5" width="39" height="39" rx="2" stroke={color} stroke-opacity="0.35" />
+  <text x="10" y="18" font-family="'JetBrains Mono', monospace" font-size="13" font-weight="600" fill={color} text-anchor="middle">0</text>
+  <text x="30" y="18" font-family="'JetBrains Mono', monospace" font-size="13" font-weight="600" fill={accent} text-anchor="middle">8</text>
+  <text x="10" y="33" font-family="'JetBrains Mono', monospace" font-size="13" font-weight="600" fill={color} text-anchor="middle">1</text>
+  <text x="30" y="33" font-family="'JetBrains Mono', monospace" font-size="13" font-weight="600" fill={color} text-anchor="middle">5</text>
+  <line x1="20" y1="6" x2="20" y2="34" stroke={color} stroke-opacity="0.2" stroke-width="1" />
+  <line x1="6" y1="20" x2="34" y2="20" stroke={color} stroke-opacity="0.2" stroke-width="1" />
+</svg>

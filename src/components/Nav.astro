@@ -1,0 +1,107 @@
+---
+import Monogram from './Monogram.astro';
+---
+
+<nav class="nav" aria-label="Main navigation">
+  <a href="/" class="nav__brand" aria-label="0815software home">
+    <Monogram size={32} />
+    <span class="nav__wordmark">0815software</span>
+  </a>
+
+  <div class="nav__links">
+    <a href="#products">Products</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#catch">The catch</a>
+    <a href="#compare">Compare</a>
+    <a href="#about">About</a>
+  </div>
+
+  <div class="nav__actions">
+    <a
+      href="https://github.com/0815software"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="nav__github"
+    >GitHub ↗</a>
+    <a href="#contact" class="nav__cta">START A PROJECT</a>
+  </div>
+</nav>
+
+<style>
+.nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 50;
+}
+
+.nav__brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.nav__wordmark {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--fg);
+}
+
+.nav__links {
+  display: flex;
+  gap: 36px;
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 14px;
+  color: var(--fg-dim);
+}
+
+.nav__links a {
+  transition: color 100ms ease-out;
+}
+.nav__links a:hover { color: var(--fg); }
+
+.nav__actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.nav__github {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 14px;
+  color: var(--fg-dim);
+  transition: color 100ms ease-out;
+}
+.nav__github:hover { color: var(--fg); }
+
+.nav__cta {
+  padding: 9px 16px;
+  background: var(--accent);
+  color: #0A0A0A;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border-radius: 2px;
+  border: 1px solid var(--accent);
+  transition: opacity 100ms ease-out;
+}
+.nav__cta:hover { opacity: 0.88; }
+
+@media (max-width: 1199px) {
+  .nav { padding: 20px var(--pad-x); }
+}
+
+@media (max-width: 767px) {
+  .nav__links { display: none; }
+  .nav { padding: 18px var(--pad-x); gap: 12px; }
+}
+</style>

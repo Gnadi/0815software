@@ -1,0 +1,195 @@
+---
+// §01 — Hero / Manifest
+// Grid: 120px | 1fr | 320px
+---
+
+<section id="hero" class="hero">
+  <div class="hero__grid">
+
+    <!-- Left rail -->
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 01</div>
+      <div class="section-rail__name">Manifest</div>
+    </div>
+
+    <!-- Center -->
+    <div class="hero__center">
+      <!-- Inline label for tablet/mobile -->
+      <div class="section-label-inline" aria-hidden="true">
+        <span class="section-label-inline__num">§ 01</span> · Manifest
+      </div>
+
+      <p class="hero__eyebrow">
+        <span class="hero__dot">●</span> Index 0815 — the standard spec
+      </p>
+
+      <h1 class="hero__h1">
+        Standard software,<br />
+        built to a <em class="hero__serif">higher</em> standard.
+      </h1>
+
+      <p class="hero__subhead">
+        The CRUD apps, dashboards, storefronts and internal tools your team already
+        knows how to describe — shipped in weeks, licensed under MIT, with every line
+        of source code in your hands on day one.
+      </p>
+
+      <div class="hero__ctas">
+        <a href="#contact" class="btn btn--primary">Request a build →</a>
+        <a
+          href="https://github.com/0815software"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn btn--ghost"
+        >Read the source ↗</a>
+      </div>
+    </div>
+
+    <!-- Right: spec sheet card -->
+    <aside class="spec-card" aria-label="Project specification">
+      <div class="spec-card__header">
+        <span>SPECIFICATION</span>
+        <span>0815/A</span>
+      </div>
+      <dl class="spec-card__list">
+        {[
+          ['LICENSE',   'MIT'],
+          ['PRICE',     '€0.00',           true],
+          ['SOURCE',    'GitHub / public'],
+          ['AUDIT',     'Continuous'],
+          ['LOCK-IN',   'None'],
+          ['HAND-OFF',  'Full code + docs'],
+          ['SUPPORT',   'Optional, paid'],
+        ].map(([k, v, isAccent]) => (
+          <div class="spec-card__row">
+            <dt class="spec-card__key">{k}</dt>
+            <dd class={`spec-card__val${isAccent ? ' spec-card__val--accent' : ''}`}>{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </aside>
+  </div>
+</section>
+
+<style>
+.hero {
+  padding: var(--sec-y) var(--pad-x) var(--sec-y-sm);
+  border-bottom: 1px solid var(--line);
+}
+
+.hero__grid {
+  display: grid;
+  grid-template-columns: 120px 1fr 320px;
+  gap: 48px;
+  align-items: start;
+}
+
+/* Eyebrow */
+.hero__eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 32px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hero__dot { color: var(--accent); }
+
+/* H1 */
+.hero__h1 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 104px;
+  font-weight: 500;
+  line-height: 0.92;
+  letter-spacing: -3.5px;
+  max-width: 900px;
+  color: var(--fg);
+}
+.hero__serif {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* Subhead */
+.hero__subhead {
+  margin-top: 40px;
+  font-size: 19px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  max-width: 620px;
+}
+
+/* CTAs */
+.hero__ctas {
+  display: flex;
+  gap: 12px;
+  margin-top: 48px;
+  flex-wrap: wrap;
+}
+
+/* ─── Spec card ──────────────────────────────────────────────────── */
+.spec-card {
+  border: 1px solid var(--line-strong);
+  padding: 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.9;
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.spec-card__header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 1px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.spec-card__list {
+  display: flex;
+  flex-direction: column;
+}
+
+.spec-card__row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.spec-card__key  { color: var(--fg-mute); }
+.spec-card__val  { color: var(--fg); }
+.spec-card__val--accent { color: var(--accent); }
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  .hero__grid {
+    grid-template-columns: 120px 1fr 280px;
+    gap: 40px;
+  }
+  .hero__h1 { font-size: 80px; letter-spacing: -2.5px; }
+}
+
+@media (max-width: 999px) {
+  .hero__grid {
+    grid-template-columns: 1fr;
+  }
+  .hero__h1 { font-size: 64px; letter-spacing: -2px; }
+  .spec-card { margin-top: 8px; }
+}
+
+@media (max-width: 767px) {
+  .hero__h1 {
+    font-size: 48px;
+    letter-spacing: -1.5px;
+    line-height: 0.96;
+  }
+  .hero__subhead { font-size: 17px; }
+  .hero__ctas { flex-direction: column; align-items: flex-start; }
+}
+</style>

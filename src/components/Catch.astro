@@ -1,0 +1,139 @@
+---
+// §04 — "What's the catch?"
+// 2×2 FAQ grid with 1px gap dividers
+
+const faqs = [
+  {
+    q: 'So how do you make money?',
+    a: 'Implementation, customisation, training, and optional SLAs. The software is the free sample. Deep work on top of it is what we sell.',
+  },
+  {
+    q: "Is the software any good if it's free?",
+    a: "The same engineers write both the free core and the paid customisation. It's in our interest for the core to be production-grade.",
+  },
+  {
+    q: 'What happens if you go out of business?',
+    a: 'Nothing, for you. The code is MIT-licensed and mirrored across thousands of forks. Any developer can pick up maintenance.',
+  },
+  {
+    q: "Why 'always free' and not 'freemium'?",
+    a: "Because 'freemium' means 'we haven't shown you the price tag yet'. We'd rather be straight with you from the start.",
+  },
+];
+---
+
+<section id="catch" class="catch">
+  <div class="catch__inner">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 04</div>
+      <div class="section-rail__name">The catch</div>
+    </div>
+
+    <div class="catch__content">
+      <div class="section-label-inline" aria-hidden="true">
+        <span class="section-label-inline__num">§ 04</span> · The catch
+      </div>
+
+      <h2 class="catch__h2">"What's the catch?"</h2>
+
+      <p class="catch__intro">
+        Fair question. We'd ask it too. Here's the honest answer — the same one we
+        give in every first call, before anyone signs anything.
+      </p>
+
+      <div class="faq-grid" role="list">
+        {faqs.map((f, i) => (
+          <article class="faq-cell" role="listitem">
+            <div class="faq-cell__num">Q.0{i + 1}</div>
+            <h3 class="faq-cell__q">{f.q}</h3>
+            <p class="faq-cell__a">{f.a}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+.catch {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+
+.catch__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.catch__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 56px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -1.8px;
+  margin-bottom: 40px;
+}
+
+.catch__intro {
+  font-size: 20px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  max-width: 760px;
+  margin-bottom: 56px;
+}
+
+/* 2×2 FAQ grid — 1px gap creates hairline dividers */
+.faq-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+
+.faq-cell {
+  padding: 32px;
+  background: var(--bg);
+}
+
+.faq-cell__num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.6px;
+  margin-bottom: 14px;
+}
+
+.faq-cell__q {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  margin-bottom: 12px;
+}
+
+.faq-cell__a {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  .catch__inner { grid-template-columns: 120px 1fr; }
+  .catch__h2 { font-size: 44px; letter-spacing: -1.4px; }
+}
+
+@media (max-width: 999px) {
+  .catch__inner { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 767px) {
+  .catch__h2 { font-size: 36px; letter-spacing: -1px; }
+  .catch__intro { font-size: 17px; margin-bottom: 40px; }
+  .faq-grid { grid-template-columns: 1fr; }
+  .faq-cell { padding: 24px; }
+}
+</style>

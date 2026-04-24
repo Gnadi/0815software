@@ -1,0 +1,35 @@
+---
+// Top meta strip: DIN 0815 · STANDARD SOFTWARE  |  REV 2026.04  ● LIVE
+---
+
+<div class="meta-strip">
+  <span>DIN&nbsp;0815 · STANDARD SOFTWARE</span>
+  <span class="meta-strip__right">
+    <span>REV&nbsp;2026.04</span>
+    <span class="meta-strip__live">● LIVE</span>
+  </span>
+</div>
+
+<style>
+.meta-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px var(--pad-x);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+  border-bottom: 1px solid var(--line);
+}
+
+.meta-strip__right {
+  display: flex;
+  gap: 24px;
+}
+
+.meta-strip__live {
+  color: var(--accent);
+}
+</style>

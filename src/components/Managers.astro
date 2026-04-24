@@ -1,0 +1,185 @@
+---
+// §03 — For managers (Business case)
+// Background: #0C0C0C. Grid: 120px | 1fr | 1fr
+
+const tableRows = [
+  ['€12,000 / year / seat',    '€0 forever'],
+  ['Months of procurement',    'Ship in weeks'],
+  ['Black-box binaries',       'Public source'],
+  ['Account manager calls',    'Pull requests'],
+  ['Renegotiate every year',   "It's just yours"],
+  ['Churn risk if they pivot', 'Code outlives us'],
+];
+
+const roiRows = [
+  {
+    key: 'Risk',
+    val: 'You own the code. If we disappear tomorrow, your software keeps running and any developer on earth can maintain it.',
+  },
+  {
+    key: 'Speed',
+    val: "Standard scopes ship in 2–6 weeks. We don't reinvent CRUD — we've already built it a hundred times.",
+  },
+  {
+    key: 'Cost',
+    val: 'The software is free. You pay — optionally — for implementation, customisation, or an SLA. Walk away any time.',
+  },
+];
+---
+<section id="compare" class="managers">
+  <!-- Heading -->
+  <div class="managers__head">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 03</div>
+      <div class="section-rail__name">For managers</div>
+    </div>
+    <div>
+      <div class="section-label-inline" aria-hidden="true">
+        <span class="section-label-inline__num">§ 03</span> · For managers
+      </div>
+      <h2 class="managers__h2">
+        The business case fits<br />
+        on a single slide.
+      </h2>
+    </div>
+  </div>
+
+  <!-- Two-panel -->
+  <div class="managers__panels">
+    <div class="managers__spacer" aria-hidden="true"></div>
+
+    <!-- Comparison table -->
+    <div class="compare-table" aria-label="Proprietary vendor vs 0815software">
+      <div class="compare-table__header">
+        <span>PROPRIETARY VENDOR</span>
+        <span class="compare-table__our-col">0815SOFTWARE</span>
+      </div>
+      {tableRows.map(([bad, good], i) => (
+        <div class={`compare-table__row${i === tableRows.length - 1 ? ' compare-table__row--last' : ''}`}>
+          <span class="compare-table__bad">{bad}</span>
+          <span class="compare-table__good">{good}</span>
+        </div>
+      ))}
+    </div>
+
+    <!-- ROI callouts -->
+    <div class="roi-list">
+      {roiRows.map((r) => (
+        <div class="roi-item">
+          <div class="roi-item__key">{r.key}</div>
+          <p class="roi-item__val">{r.val}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+.managers {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+.managers__head {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  margin-bottom: 56px;
+  align-items: start;
+}
+
+.managers__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 44px;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -1.2px;
+  max-width: 720px;
+}
+
+.managers__panels {
+  display: grid;
+  grid-template-columns: 120px 1fr 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.managers__spacer { /* rail spacer */ }
+
+/* ─── Comparison table ──────────────────────────────────────────── */
+.compare-table {
+  border: 1px solid var(--line-strong);
+}
+
+.compare-table__header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--fg-mute);
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.compare-table__our-col { color: var(--accent); }
+
+.compare-table__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  font-size: 14px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.compare-table__row--last { border-bottom: none; }
+
+.compare-table__bad {
+  color: var(--fg-mute);
+  text-decoration: line-through;
+}
+.compare-table__good { color: var(--fg); }
+
+/* ─── ROI callouts ──────────────────────────────────────────────── */
+.roi-list {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.roi-item {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 24px;
+}
+
+.roi-item__key {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  padding-top: 2px;
+}
+
+.roi-item__val {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  .managers__head { grid-template-columns: 120px 1fr; }
+  .managers__panels { grid-template-columns: 120px 1fr 1fr; gap: 32px; }
+  .managers__h2 { font-size: 36px; }
+}
+
+@media (max-width: 999px) {
+  .managers__head { grid-template-columns: 1fr; }
+  .managers__panels { grid-template-columns: 1fr; }
+  .managers__spacer { display: none; }
+}
+
+@media (max-width: 767px) {
+  .managers__h2 { font-size: 28px; letter-spacing: -0.6px; }
+}
+</style>

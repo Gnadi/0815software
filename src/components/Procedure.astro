@@ -1,0 +1,116 @@
+---
+// §05 — How it works (Procedure)
+// 4-step timeline. Grid: 120px | 1fr | 1fr | 1fr | 1fr
+
+const steps = [
+  { n: '01', title: 'Scope',    duration: '~1 day',        body: "One call. You describe the thing. We tell you if it's standard." },
+  { n: '02', title: 'Build',    duration: '2–6 weeks',     body: 'We implement against an existing 0815 module. Daily public commits.' },
+  { n: '03', title: 'Hand-off', duration: '1 week',        body: 'Repo transferred to your org. Docs, deploy scripts, training.' },
+  { n: '04', title: 'Optional', duration: 'Forever / never', body: 'Keep us on retainer for changes and SLAs — or don\'t. Your call.' },
+];
+---
+
+<section id="how-it-works" class="procedure">
+  <!-- Heading row -->
+  <div class="procedure__head">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 05</div>
+      <div class="section-rail__name">Procedure</div>
+    </div>
+    <div>
+      <div class="section-label-inline" aria-hidden="true">
+        <span class="section-label-inline__num">§ 05</span> · Procedure
+      </div>
+      <h2 class="procedure__h2">How a 0815 project runs.</h2>
+    </div>
+  </div>
+
+  <!-- Steps grid -->
+  <div class="procedure__grid">
+    <div class="procedure__spacer" aria-hidden="true"></div>
+    {steps.map((s) => (
+      <article class="step">
+        <div class="step__meta">STEP {s.n} · {s.duration}</div>
+        <h3 class="step__title">{s.title}</h3>
+        <p class="step__body">{s.body}</p>
+      </article>
+    ))}
+  </div>
+</section>
+
+<style>
+.procedure {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+
+.procedure__head {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  margin-bottom: 64px;
+  align-items: start;
+}
+
+.procedure__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 44px;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -1.2px;
+}
+
+.procedure__grid {
+  display: grid;
+  grid-template-columns: 120px repeat(4, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.procedure__spacer { /* rail spacer */ }
+
+/* Step card — 2px accent top border */
+.step {
+  border-top: 2px solid var(--accent);
+  padding-top: 20px;
+}
+
+.step__meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-mute);
+  letter-spacing: 0.8px;
+  margin-bottom: 16px;
+}
+
+.step__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  margin-bottom: 12px;
+}
+
+.step__body {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  .procedure__head { grid-template-columns: 120px 1fr; }
+  .procedure__grid { grid-template-columns: 120px repeat(4, 1fr); gap: 18px; }
+  .procedure__h2 { font-size: 36px; }
+}
+
+@media (max-width: 999px) {
+  .procedure__head { grid-template-columns: 1fr; }
+  .procedure__grid { grid-template-columns: 1fr 1fr; gap: 32px; }
+  .procedure__spacer { display: none; }
+}
+
+@media (max-width: 767px) {
+  .procedure__grid { grid-template-columns: 1fr; gap: 32px; }
+  .procedure__h2 { font-size: 28px; letter-spacing: -0.6px; }
+}
+</style>
