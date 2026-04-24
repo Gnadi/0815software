@@ -1,15 +1,10 @@
 import { defineConfig } from 'astro/config';
-import tailwind from '@astrojs/tailwind';
-import vercel from '@astrojs/vercel/serverless';
+import vercel from '@astrojs/vercel';
 
-// To run locally with Node instead of Vercel:
-//   import node from '@astrojs/node';
-//   adapter: node({ mode: 'standalone' }),
+// Tailwind v3 is handled via PostCSS (postcss.config.mjs) — no Astro integration needed.
+// To run locally: npx @astrojs/node or just use `astro dev` (server rendering works in dev).
 
 export default defineConfig({
-  output: 'hybrid',
+  output: 'static',
   adapter: vercel(),
-  integrations: [
-    tailwind({ applyBaseStyles: false }),
-  ],
 });
