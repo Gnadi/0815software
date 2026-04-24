@@ -1,0 +1,137 @@
+---
+// §02 — Pillars (Three commitments)
+// Grid: 120px | 1fr | 1fr | 1fr
+
+const pillars = [
+  {
+    n: '01',
+    title: 'Open source',
+    body: 'Every repository is public, MIT-licensed, and yours to fork, audit, or walk away with. Your legal team can read the license on one page.',
+    meta: 'github.com/0815software',
+  },
+  {
+    n: '02',
+    title: 'Always free',
+    body: '€0 to build, €0 to run, €0 to keep. No seat licenses, no usage caps, no pricing pages that require a demo call to decipher.',
+    meta: 'price = 0.00',
+  },
+  {
+    n: '03',
+    title: 'Full transparency',
+    body: "Public roadmap, public issue tracker, public commit history. You will never wonder what we did, why we did it, or when we'll do the next thing.",
+    meta: 'log --all --public',
+  },
+];
+---
+
+<section id="products" class="pillars">
+  <!-- Heading row -->
+  <div class="pillars__head">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 02</div>
+      <div class="section-rail__name">Pillars</div>
+    </div>
+    <div>
+      <div class="section-label-inline" aria-hidden="true">
+        <span class="section-label-inline__num">§ 02</span> · Pillars
+      </div>
+      <h2 class="pillars__h2">
+        Three commitments. No footnotes,<br />
+        no asterisks, no upsells.
+      </h2>
+    </div>
+  </div>
+
+  <!-- Cards row -->
+  <div class="pillars__grid">
+    <div class="pillars__spacer" aria-hidden="true"></div>
+    {pillars.map((p) => (
+      <article class="pillar">
+        <div class="pillar__num">§ 02.{p.n}</div>
+        <h3 class="pillar__title">{p.title}</h3>
+        <p class="pillar__body">{p.body}</p>
+        <div class="pillar__meta">{p.meta}</div>
+      </article>
+    ))}
+  </div>
+</section>
+
+<style>
+.pillars {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+
+/* Heading row: rail + h2 */
+.pillars__head {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  margin-bottom: 64px;
+  align-items: start;
+}
+
+.pillars__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 44px;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -1.2px;
+  max-width: 720px;
+}
+
+/* Cards grid */
+.pillars__grid {
+  display: grid;
+  grid-template-columns: 120px repeat(3, 1fr);
+  gap: 48px;
+}
+.pillars__spacer { /* empty rail spacer */ }
+
+/* Pillar card */
+.pillar__num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.8px;
+  margin-bottom: 20px;
+}
+.pillar__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+  margin-bottom: 16px;
+}
+.pillar__body {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  margin-bottom: 28px;
+}
+.pillar__meta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-mute);
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  .pillars__head { grid-template-columns: 120px 1fr; }
+  .pillars__grid { grid-template-columns: 120px repeat(3, 1fr); gap: 32px; }
+  .pillars__h2 { font-size: 36px; }
+}
+
+@media (max-width: 999px) {
+  .pillars__head { grid-template-columns: 1fr; }
+  .pillars__grid { grid-template-columns: 1fr 1fr; gap: 32px; }
+  .pillars__spacer { display: none; }
+}
+
+@media (max-width: 767px) {
+  .pillars__grid { grid-template-columns: 1fr; gap: 40px; }
+  .pillars__h2 { font-size: 28px; letter-spacing: -0.6px; }
+}
+</style>

@@ -1,0 +1,286 @@
+---
+import Monogram from './Monogram.astro';
+
+const linkCols = [
+  {
+    title: 'Product',
+    links: ['Modules', 'Roadmap', 'Changelog', 'Case studies', 'GitHub'],
+  },
+  {
+    title: 'For you',
+    links: ['Managers', 'Developers', 'Legal teams', 'Procurement', 'Agencies'],
+  },
+  {
+    title: 'Company',
+    links: ['About', 'Mission', 'Team', 'Hiring', 'Journal'],
+  },
+  {
+    title: 'Resources',
+    links: ['MIT license', 'Security', 'Status page', 'Press kit', 'Imprint'],
+  },
+];
+
+const legalMeta = [
+  ['REGISTERED', '0815software GmbH'],
+  ['LOCATION',   'Berlin-Mitte, Germany'],
+  ['VAT',        'DE 0815 0815 15'],
+  ['CONTACT',    'hello@0815software.com'],
+];
+---
+
+<footer class="site-footer">
+  <!-- Giant hollow wordmark backdrop -->
+  <div class="site-footer__wordmark" aria-hidden="true">0815software.</div>
+
+  <!-- 5-column links grid -->
+  <div class="footer-links">
+    <!-- Brand col (2fr) -->
+    <div class="footer-brand">
+      <div class="footer-brand__head">
+        <Monogram size={28} />
+        <span class="footer-brand__name">0815software</span>
+      </div>
+      <p class="footer-brand__tagline">
+        Standard software, built to a higher standard. Open source, always free, fully
+        transparent — because the price of business software should be what it costs to
+        build, not what the market will bear.
+      </p>
+      <div class="footer-brand__socials">
+        <a href="https://github.com/0815software" target="_blank" rel="noopener noreferrer" class="social-pill">GitHub ↗</a>
+        <a href="https://linkedin.com/company/0815software" target="_blank" rel="noopener noreferrer" class="social-pill">LinkedIn ↗</a>
+        <a href="/feed.xml" class="social-pill">RSS ↗</a>
+      </div>
+    </div>
+
+    <!-- Link columns (1fr each) -->
+    {linkCols.map((col) => (
+      <nav aria-label={col.title}>
+        <div class="footer-col__heading">{col.title.toUpperCase()}</div>
+        <ul class="footer-col__list">
+          {col.links.map((link) => (
+            <li><a href="#" class="footer-col__link">{link}</a></li>
+          ))}
+        </ul>
+      </nav>
+    ))}
+  </div>
+
+  <!-- Legal meta grid -->
+  <dl class="footer-legal">
+    {legalMeta.map(([k, v]) => (
+      <div class="footer-legal__item">
+        <dt class="footer-legal__key">{k}</dt>
+        <dd class="footer-legal__val">{v}</dd>
+      </div>
+    ))}
+  </dl>
+
+  <!-- Bottom bar -->
+  <div class="footer-bottom">
+    <div class="footer-bottom__left">
+      <span>© 2026 0815SOFTWARE GMBH</span>
+      <span>· MIT-LICENSED</span>
+      <span>· HUMAN-WRITTEN</span>
+    </div>
+    <div class="footer-bottom__right">
+      <span class="footer-bottom__lang">
+        <span class="footer-bottom__lang-active">EN</span>
+        <span>DE</span>
+      </span>
+      <span>·</span>
+      <a href="#">PRIVACY</a>
+      <span>·</span>
+      <a href="#">IMPRINT</a>
+      <span>·</span>
+      <span class="footer-bottom__status">● ALL SYSTEMS OPEN</span>
+    </div>
+  </div>
+</footer>
+
+<style>
+.site-footer {
+  padding: 96px var(--pad-x) 28px;
+  background: var(--bg-3);
+  border-top: 1px solid var(--line-strong);
+  position: relative;
+  overflow: hidden;
+}
+
+/* ─── Hollow wordmark ───────────────────────────────────────────── */
+.site-footer__wordmark {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 220px;
+  font-weight: 500;
+  letter-spacing: -8px;
+  line-height: 0.85;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--line-strong);
+  text-stroke: 1px var(--line-strong);
+  margin-bottom: 64px;
+  user-select: none;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ─── Links grid ─────────────────────────────────────────────────── */
+.footer-links {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  gap: 48px;
+  margin-bottom: 72px;
+  align-items: start;
+}
+
+/* Brand col */
+.footer-brand__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.footer-brand__name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.footer-brand__tagline {
+  font-size: 14px;
+  color: var(--fg-dim);
+  line-height: 1.65;
+  max-width: 340px;
+  margin-bottom: 24px;
+}
+
+.footer-brand__socials {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.social-pill {
+  padding: 7px 12px;
+  border: 1px solid var(--line-strong);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  border-radius: 2px;
+  transition: color 100ms ease-out, border-color 100ms ease-out;
+}
+.social-pill:hover { color: var(--fg); border-color: var(--line-strong); }
+
+/* Link columns */
+.footer-col__heading {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 1px;
+  margin-bottom: 18px;
+}
+
+.footer-col__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.footer-col__link {
+  font-size: 13.5px;
+  color: var(--fg-dim);
+  transition: color 100ms ease-out;
+}
+.footer-col__link:hover { color: var(--fg); }
+
+/* ─── Legal meta ──────────────────────────────────────────────────── */
+.footer-legal {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 32px;
+  padding: 28px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 24px;
+}
+
+.footer-legal__key {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.footer-legal__val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--fg);
+}
+
+/* ─── Bottom bar ──────────────────────────────────────────────────── */
+.footer-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  color: var(--fg-mute);
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.footer-bottom__left {
+  display: flex;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.footer-bottom__right {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+.footer-bottom__right a {
+  transition: color 100ms ease-out;
+}
+.footer-bottom__right a:hover { color: var(--fg); }
+
+.footer-bottom__lang {
+  display: flex;
+  gap: 10px;
+}
+
+.footer-bottom__lang-active {
+  color: var(--fg);
+  border-bottom: 1px solid var(--accent);
+}
+
+.footer-bottom__status { color: var(--accent); }
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  .site-footer__wordmark { font-size: 160px; letter-spacing: -6px; }
+  .footer-links { grid-template-columns: 2fr 1fr 1fr 1fr 1fr; gap: 32px; }
+}
+
+@media (max-width: 999px) {
+  .site-footer__wordmark { font-size: 100px; letter-spacing: -4px; }
+  .footer-links { grid-template-columns: 1fr 1fr; gap: 40px; }
+  .footer-brand { grid-column: 1 / -1; }
+  .footer-legal { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 767px) {
+  .site-footer { padding: 60px var(--pad-x) 24px; }
+  .site-footer__wordmark { font-size: 60px; letter-spacing: -3px; margin-bottom: 40px; }
+  .footer-links { grid-template-columns: 1fr 1fr; gap: 32px; }
+  .footer-legal { grid-template-columns: 1fr 1fr; }
+  .footer-bottom { flex-direction: column; align-items: flex-start; gap: 12px; }
+}
+</style>

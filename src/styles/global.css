@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Design tokens ──────────────────────────────────────────────────────── */
+:root {
+  --bg:           #0A0A0A;   /* page background                              */
+  --bg-2:         #0C0C0C;   /* alt section bg (§03 managers, §06 about)     */
+  --bg-3:         #070707;   /* footer background                            */
+  --fg:           #E8E4DC;   /* primary text — warm off-white                */
+  --fg-dim:       #A8A39A;   /* secondary text                               */
+  --fg-mute:      #6B675F;   /* tertiary / meta text                         */
+  --line:         rgba(232, 228, 220, 0.12);  /* subtle 1px dividers         */
+  --line-strong:  rgba(232, 228, 220, 0.22);  /* card borders, strong dividers*/
+  --accent:       #E8E4DC;   /* default bone; swap to amber/lime/sky/etc.    */
+
+  /* Layout rhythm */
+  --pad-x:      96px;
+  --sec-y:      140px;
+  --sec-y-sm:   120px;
+}
+
+/* ─── Base reset ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: 'Inter Tight', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+}
+
+h1, h2, h3, h4, h5, h6, p { margin: 0; }
+ul, ol { margin: 0; padding: 0; list-style: none; }
+a { color: inherit; text-decoration: none; }
+button { cursor: pointer; font-family: inherit; }
+img, svg { display: block; }
+
+::selection { background: var(--accent); color: #0A0A0A; }
+
+/* ─── Shared typography helpers ─────────────────────────────────────────── */
+.mono  { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+.serif { font-family: 'Instrument Serif', Georgia, serif; }
+
+/* ─── Shared button primitives ───────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 14px 22px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border-radius: 2px;
+  transition: opacity 100ms ease-out, filter 100ms ease-out;
+  border: none;
+}
+.btn:hover { opacity: 0.88; }
+
+.btn--primary {
+  background: var(--accent);
+  color: #0A0A0A;
+}
+.btn--ghost {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+}
+
+/* ─── Shared section rail ────────────────────────────────────────────────── */
+.section-rail {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  line-height: 1.8;
+  padding-top: 10px;
+}
+.section-rail__num  { color: var(--accent); }
+.section-rail__name { color: var(--fg-mute); margin-top: 4px; }
+
+/* Mobile: show inline label above heading instead of side rail */
+.section-label-inline {
+  display: none;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+  margin-bottom: 20px;
+}
+.section-label-inline__num { color: var(--accent); }
+
+/* ─── Responsive overrides ───────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  :root { --pad-x: 64px; --sec-y: 96px; --sec-y-sm: 76px; }
+}
+
+@media (max-width: 767px) {
+  :root { --pad-x: 24px; --sec-y: 72px; --sec-y-sm: 60px; }
+
+  .section-rail { display: none; }
+  .section-label-inline { display: block; }
+}

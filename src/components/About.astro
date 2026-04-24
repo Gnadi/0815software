@@ -1,0 +1,128 @@
+---
+// §06 — About / Mission
+// Background: #0C0C0C. Grid: 120px | 1fr | 420px
+---
+
+<section id="about" class="about">
+  <div class="about__grid">
+
+    <!-- Left rail -->
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 06</div>
+      <div class="section-rail__name">About</div>
+    </div>
+
+    <!-- Center -->
+    <div class="about__center">
+      <div class="section-label-inline" aria-hidden="true">
+        <span class="section-label-inline__num">§ 06</span> · About
+      </div>
+
+      <h2 class="about__h2">
+        "0815" is German for
+        <em class="about__serif">run&#8209;of&#8209;the&#8209;mill.</em>
+        We think that's a compliment.
+      </h2>
+
+      <p class="about__body">
+        Most business software is not special. It's forms, tables, reports, checkout flows,
+        permissions. Industries have been solving these problems for thirty years and the
+        answers are well known. We don't pretend otherwise. We build the standard thing,
+        we build it fast, and we give you the keys.
+      </p>
+    </div>
+
+    <!-- Mission.txt card -->
+    <aside class="mission-card" aria-label="Mission statement">
+      <div class="mission-card__header">// MISSION.TXT</div>
+      <div class="mission-card__body">
+        Make standard business software a
+        <span class="mission-card__accent">commodity</span>, not a
+        <span class="mission-card__accent">cartel</span>.<br /><br />
+        Charge for work, not for access.<br />
+        Ship the source with the product.<br />
+        Leave customers free to leave.
+      </div>
+    </aside>
+
+  </div>
+</section>
+
+<style>
+.about {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+.about__grid {
+  display: grid;
+  grid-template-columns: 120px 1fr 420px;
+  gap: 64px;
+  align-items: start;
+}
+
+.about__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 44px;
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: -1.2px;
+  max-width: 720px;
+  margin-bottom: 32px;
+}
+
+.about__serif {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
+
+.about__body {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  max-width: 640px;
+}
+
+/* ─── Mission card ───────────────────────────────────────────────── */
+.mission-card {
+  border: 1px solid var(--line-strong);
+  padding: 28px;
+  background: var(--bg);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 2;
+}
+
+.mission-card__header {
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 1px;
+  margin-bottom: 16px;
+}
+
+.mission-card__body {
+  color: var(--fg);
+}
+
+.mission-card__accent {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  .about__grid { grid-template-columns: 120px 1fr 340px; gap: 48px; }
+  .about__h2 { font-size: 36px; }
+}
+
+@media (max-width: 999px) {
+  .about__grid { grid-template-columns: 1fr; gap: 40px; }
+}
+
+@media (max-width: 767px) {
+  .about__h2 { font-size: 28px; letter-spacing: -0.6px; }
+  .about__body { font-size: 15px; }
+}
+</style>
