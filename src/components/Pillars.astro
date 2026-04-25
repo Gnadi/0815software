@@ -35,7 +35,7 @@ const pillars = [
       <div class="section-label-inline" aria-hidden="true">
         <span class="section-label-inline__num">§ 02</span> · Pillars
       </div>
-      <h2 class="pillars__h2">
+      <h2 class="pillars__h2" data-i18n-html="pillars.h2">
         Three commitments. No footnotes,<br />
         no asterisks, no upsells.
       </h2>
@@ -45,11 +45,11 @@ const pillars = [
   <!-- Cards row -->
   <div class="pillars__grid">
     <div class="pillars__spacer" aria-hidden="true"></div>
-    {pillars.map((p) => (
+    {pillars.map((p, i) => (
       <article class="pillar">
         <div class="pillar__num">§ 02.{p.n}</div>
-        <h3 class="pillar__title">{p.title}</h3>
-        <p class="pillar__body">{p.body}</p>
+        <h3 class="pillar__title" data-i18n={`pillar.${i}.title`}>{p.title}</h3>
+        <p class="pillar__body" data-i18n={`pillar.${i}.body`}>{p.body}</p>
         <div class="pillar__meta">{p.meta}</div>
       </article>
     ))}

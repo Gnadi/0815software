@@ -21,18 +21,18 @@ const steps = [
       <div class="section-label-inline" aria-hidden="true">
         <span class="section-label-inline__num">§ 05</span> · Procedure
       </div>
-      <h2 class="procedure__h2">How a 0815 project runs.</h2>
+      <h2 class="procedure__h2" data-i18n="procedure.h2">How a 0815 project runs.</h2>
     </div>
   </div>
 
   <!-- Steps grid -->
   <div class="procedure__grid">
     <div class="procedure__spacer" aria-hidden="true"></div>
-    {steps.map((s) => (
+    {steps.map((s, i) => (
       <article class="step">
         <div class="step__meta">STEP {s.n} · {s.duration}</div>
-        <h3 class="step__title">{s.title}</h3>
-        <p class="step__body">{s.body}</p>
+        <h3 class="step__title" data-i18n={`step.${i}.title`}>{s.title}</h3>
+        <p class="step__body" data-i18n={`step.${i}.body`}>{s.body}</p>
       </article>
     ))}
   </div>

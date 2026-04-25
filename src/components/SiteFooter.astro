@@ -40,7 +40,7 @@ const legalMeta = [
         <Monogram size={28} />
         <span class="footer-brand__name">0815software</span>
       </div>
-      <p class="footer-brand__tagline">
+      <p class="footer-brand__tagline" data-i18n="footer.tagline">
         Standard software, built to a higher standard. Open source, always free, fully
         transparent — because the price of business software should be what it costs to
         build, not what the market will bear.
@@ -82,7 +82,13 @@ const legalMeta = [
       <span>· HUMAN-WRITTEN</span>
     </div>
     <div class="footer-bottom__right">
-      <span class="footer-bottom__status">● ALL SYSTEMS OPEN</span>
+      <div class="footer-bottom__lang" role="group" aria-label="Language">
+        <button class="lang-toggle lang-toggle--active" data-lang-toggle="en" aria-pressed="true">EN</button>
+        <span aria-hidden="true">·</span>
+        <button class="lang-toggle" data-lang-toggle="de" aria-pressed="false">DE</button>
+      </div>
+      <span aria-hidden="true">·</span>
+      <span class="footer-bottom__status" data-i18n="footer.status">● ALL SYSTEMS OPEN</span>
     </div>
   </div>
 </footer>
@@ -252,6 +258,24 @@ const legalMeta = [
 }
 
 .footer-bottom__status { color: var(--accent); }
+
+.lang-toggle {
+  background: none;
+  border: none;
+  padding: 0 0 1px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  color: var(--fg-mute);
+  cursor: pointer;
+  transition: color 100ms ease-out;
+  border-bottom: 1px solid transparent;
+}
+.lang-toggle:hover { color: var(--fg); }
+.lang-toggle--active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
 
 /* ─── Responsive ──────────────────────────────────────────────────── */
 @media (max-width: 1199px) {

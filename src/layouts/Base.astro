@@ -31,4 +31,53 @@ const {
   <body>
     <slot />
   </body>
+  <script>
+    import { T, LANGS } from '../i18n/translations';
+    import type { Lang } from '../i18n/translations';
+
+    function getLang(): Lang {
+      const saved = localStorage.getItem('lang') as Lang | null;
+      if (saved && (LANGS as readonly string[]).includes(saved)) return saved;
+      const browser = navigator.language.slice(0, 2) as Lang;
+      return (LANGS as readonly string[]).includes(browser) ? browser : 'en';
+    }
+
+    function applyLang(lang: Lang) {
+      const dict = T[lang];
+      document.documentElement.lang = lang;
+
+      document.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => {
+        const key = el.getAttribute('data-i18n')!;
+        if (dict[key] !== undefined) el.textContent = dict[key];
+      });
+
+      document.querySelectorAll<HTMLElement>('[data-i18n-html]').forEach((el) => {
+        const key = el.getAttribute('data-i18n-html')!;
+        if (dict[key] !== undefined) el.innerHTML = dict[key];
+      });
+
+      document.querySelectorAll<HTMLElement>('[data-i18n-placeholder]').forEach((el) => {
+        const key = el.getAttribute('data-i18n-placeholder')!;
+        if (dict[key] !== undefined) (el as HTMLInputElement).placeholder = dict[key];
+      });
+
+      document.querySelectorAll<HTMLButtonElement>('[data-lang-toggle]').forEach((btn) => {
+        const isActive = btn.getAttribute('data-lang-toggle') === lang;
+        btn.classList.toggle('lang-toggle--active', isActive);
+        btn.setAttribute('aria-pressed', String(isActive));
+      });
+    }
+
+    const lang = getLang();
+    applyLang(lang);
+
+    document.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-lang-toggle]');
+      if (!btn) return;
+      const next = btn.getAttribute('data-lang-toggle') as Lang;
+      if (!(LANGS as readonly string[]).includes(next)) return;
+      localStorage.setItem('lang', next);
+      applyLang(next);
+    });
+  </script>
 </html>
