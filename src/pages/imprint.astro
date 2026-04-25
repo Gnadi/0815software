@@ -1,0 +1,173 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const legalDetails = [
+  ['COMPANY NAME',            '0815software GmbH'],
+  ['LEGAL FORM',              'Gesellschaft mit beschränkter Haftung (GmbH)'],
+  ['REGISTERED OFFICE',       'Linz, Austria'],
+  ['COMMERCIAL REGISTER',     'Handelsgericht Linz'],
+  ['VAT IDENTIFICATION NO.',  'DE 0815 0815 15'],
+  ['MANAGING DIRECTOR',       'Gregor Nadlinger'],
+  ['RESPONSIBLE FOR CONTENT', 'Gregor Nadlinger (address as above)'],
+];
+---
+
+<SubPage
+  title="Imprint — 0815software"
+  description="Legal imprint (Impressum) for 0815software GmbH, as required under Austrian and European law."
+  section="§ R5"
+  sectionName="Imprint"
+  eyebrow="DIN 0815/R5 · IMPRINT"
+  heading="Imprint."
+  lead="Legal disclosure required under Austrian law (§ 5 ECG) and European media regulation."
+>
+
+  <!-- Legal details -->
+  <section class="imprint-details-section">
+    <div class="imprint-details__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R5.01</div>
+        <div class="section-rail__name">Company</div>
+      </div>
+      <div class="imprint-table">
+        {legalDetails.map(([key, val]) => (
+          <div class="imprint-row">
+            <dt class="imprint-row__key">{key}</dt>
+            <dd class="imprint-row__val">{val}</dd>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Contact -->
+  <section class="imprint-contact-section">
+    <div class="imprint-contact__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R5.02</div>
+        <div class="section-rail__name">Contact</div>
+      </div>
+      <dl class="imprint-contact__table">
+        <div class="imprint-row">
+          <dt class="imprint-row__key">EMAIL</dt>
+          <dd class="imprint-row__val">
+            <a href="mailto:hello@0815software.com" class="imprint-link">hello@0815software.com</a>
+          </dd>
+        </div>
+        <div class="imprint-row">
+          <dt class="imprint-row__key">LOCATION</dt>
+          <dd class="imprint-row__val">Linz, Austria · CET (UTC+1 / UTC+2 in summer)</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- Liability disclaimer -->
+  <section class="imprint-disclaimer-section">
+    <div class="imprint-disclaimer__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R5.03</div>
+        <div class="section-rail__name">Disclaimer</div>
+      </div>
+      <div class="imprint-disclaimer__content">
+        <h2 class="imprint-disclaimer__h2">Liability for content.</h2>
+        <p class="imprint-disclaimer__body">
+          The contents of this website have been prepared with the utmost care. We cannot, however, guarantee the accuracy, completeness, or timeliness of the content. As a service provider, we are responsible for our own content on these pages in accordance with general law (§ 7 para. 1 TMG). We are not, however, obliged to monitor transmitted or stored third-party information or to investigate circumstances that indicate illegal activity.
+        </p>
+        <h2 class="imprint-disclaimer__h2">Liability for links.</h2>
+        <p class="imprint-disclaimer__body">
+          Our site contains links to external websites, the content of which we have no influence over. Therefore, we cannot accept any liability for this external content. The respective provider or operator of linked pages is always responsible for the content of those pages.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.imprint-details-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.imprint-details__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.imprint-table {
+  display: flex;
+  flex-direction: column;
+  max-width: 680px;
+}
+.imprint-row {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 32px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.imprint-row__key {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+.imprint-row__val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.imprint-contact-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.imprint-contact__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.imprint-link {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--line-strong);
+}
+.imprint-link:hover { text-decoration-color: var(--fg); }
+
+.imprint-disclaimer-section { padding: var(--sec-y-sm) var(--pad-x); }
+.imprint-disclaimer__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.imprint-disclaimer__content {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  max-width: 680px;
+}
+.imprint-disclaimer__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  margin-bottom: 10px;
+}
+.imprint-disclaimer__body { font-size: 14px; line-height: 1.7; color: var(--fg-dim); }
+
+@media (max-width: 999px) {
+  .imprint-details__inner,
+  .imprint-contact__inner,
+  .imprint-disclaimer__inner { grid-template-columns: 1fr; gap: 24px; }
+  .imprint-row { grid-template-columns: 1fr; gap: 4px; }
+}
+</style>

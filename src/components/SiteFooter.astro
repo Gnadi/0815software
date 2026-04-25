@@ -16,15 +16,33 @@ const linkCols: { title: string; links: FooterLink[] }[] = [
   },
   {
     title: 'For you',
-    links: ['Managers', 'Developers', 'Legal teams', 'Procurement', 'Agencies'],
+    links: [
+      { label: 'Managers',    href: '/managers' },
+      { label: 'Developers',  href: '/developers' },
+      { label: 'Legal teams', href: '/legal-teams' },
+      { label: 'Procurement', href: '/procurement' },
+      { label: 'Agencies',    href: '/agencies' },
+    ],
   },
   {
     title: 'Company',
-    links: ['About', 'Mission', 'Team', 'Hiring', 'Journal'],
+    links: [
+      { label: 'About',   href: '/about' },
+      { label: 'Mission', href: '/mission' },
+      { label: 'Team',    href: '/team' },
+      { label: 'Hiring',  href: '/hiring' },
+      { label: 'Journal', href: '/journal' },
+    ],
   },
   {
     title: 'Resources',
-    links: ['MIT license', 'Security', 'Status page', 'Press kit', 'Imprint'],
+    links: [
+      { label: 'MIT license', href: '/mit-license' },
+      { label: 'Security',    href: '/security' },
+      { label: 'Status page', href: '/status' },
+      { label: 'Press kit',   href: '/press-kit' },
+      { label: 'Imprint',     href: '/imprint' },
+    ],
   },
 ];
 

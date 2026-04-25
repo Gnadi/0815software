@@ -1,0 +1,193 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const pricingRows = [
+  ['Software licence',     '€0',          'MIT license, permanent, no renewal'],
+  ['Implementation',       'Fixed price', 'Agreed before work starts, no change orders'],
+  ['Customisation',        'Fixed price', 'Per scope, quoted separately'],
+  ['Hosting / infrastr.',  'Your cost',   'You choose cloud, region, and provider'],
+  ['Ongoing maintenance',  'Optional',    'Retainer or time-and-materials, cancel any time'],
+  ['SLA',                  'Optional',    'Priced per engagement, not per seat'],
+];
+
+const processSteps = [
+  { n: '01', title: 'One-paragraph brief', body: 'Describe what you need. No RFP template required. A paragraph in plain language is enough to get a response.' },
+  { n: '02', title: 'Fixed-price quote',   body: 'For standard scopes, a written quote arrives within one business day. The price does not change once the scope is agreed.' },
+  { n: '03', title: 'Simple contract',     body: 'A two-page service agreement. No multi-year lock-in, no auto-renewal clause, no exhibit-A-to-schedule-B nesting.' },
+  { n: '04', title: 'Delivery and handoff', body: 'The repository transfers to your org on delivery. No dependency on our continued existence. No key-man risk.' },
+];
+---
+
+<SubPage
+  title="For Procurement — 0815software"
+  description="Fixed-price, no seat licenses, no renewal risk. What procurement teams need to know about commissioning 0815software."
+  section="§ F4"
+  sectionName="Procurement"
+  eyebrow="DIN 0815/F4 · FOR PROCUREMENT"
+  heading="Fixed price.<br />No seat licences."
+  lead="One quote, one contract, one delivery. No renewal negotiations, no per-seat pricing tiers, no account manager calls."
+>
+
+  <!-- Pricing breakdown -->
+  <section class="proc-pricing-section">
+    <div class="proc-pricing__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ F4.01</div>
+        <div class="section-rail__name">Pricing</div>
+      </div>
+      <div class="proc-table">
+        <div class="proc-table__header">
+          <span>LINE ITEM</span>
+          <span>COST</span>
+          <span>NOTE</span>
+        </div>
+        {pricingRows.map(([item, cost, note]) => (
+          <div class="proc-table__row">
+            <span class="proc-table__item">{item}</span>
+            <span class="proc-table__cost">{cost}</span>
+            <span class="proc-table__note">{note}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Process -->
+  <section class="proc-process-section">
+    <div class="proc-process__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ F4.02</div>
+        <div class="section-rail__name">Process</div>
+      </div>
+      <div class="proc-steps">
+        {processSteps.map((s) => (
+          <div class="proc-step">
+            <div class="proc-step__num">0{s.n}</div>
+            <div>
+              <h3 class="proc-step__title">{s.title}</h3>
+              <p class="proc-step__body">{s.body}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="proc-cta-section">
+    <div class="proc-cta__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ F4.03</div>
+        <div class="section-rail__name">Start</div>
+      </div>
+      <div>
+        <p class="proc-cta__body">
+          If your procurement process requires a vendor registration form, a W-9, a certificate of insurance, or a supplier questionnaire, write to <a href="mailto:hello@0815software.com" class="proc-link">hello@0815software.com</a>. We will fill it in.
+        </p>
+        <a href="/#contact" class="btn btn--primary">Request a quote →</a>
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.proc-pricing-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.proc-pricing__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.proc-table { display: flex; flex-direction: column; }
+.proc-table__header,
+.proc-table__row {
+  display: grid;
+  grid-template-columns: 1fr 140px 1fr;
+  gap: 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.proc-table__header {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--fg-mute);
+  border-bottom-color: var(--line-strong);
+}
+.proc-table__item { font-size: 14px; color: var(--fg); }
+.proc-table__cost {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.proc-table__note { font-size: 13px; color: var(--fg-mute); }
+
+.proc-process-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.proc-process__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.proc-steps {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px 64px;
+}
+.proc-step { display: flex; gap: 20px; align-items: start; }
+.proc-step__num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+.proc-step__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  margin-bottom: 8px;
+}
+.proc-step__body { font-size: 14px; line-height: 1.6; color: var(--fg-dim); }
+
+.proc-cta-section { padding: var(--sec-y-sm) var(--pad-x); }
+.proc-cta__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.proc-cta__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 560px;
+  margin-bottom: 32px;
+}
+.proc-link { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.proc-link:hover { text-decoration-color: var(--fg); }
+
+@media (max-width: 999px) {
+  .proc-pricing__inner,
+  .proc-process__inner,
+  .proc-cta__inner { grid-template-columns: 1fr; gap: 24px; }
+  .proc-steps { grid-template-columns: 1fr; gap: 28px; }
+  .proc-table__header,
+  .proc-table__row { grid-template-columns: 1fr 100px; }
+  .proc-table__note { display: none; }
+}
+</style>

@@ -1,0 +1,146 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const posts = [
+  {
+    date: '2026-03-18',
+    slug: '#',
+    title: 'Why "freemium" is not a pricing model — it is a deferred price tag.',
+    summary: 'The economics of free trials, open-core, and the moment pricing becomes visible. A long-form argument for why we publish the price before the demo.',
+    readTime: '8 min',
+  },
+  {
+    date: '2026-02-04',
+    slug: '#',
+    title: 'The case for boring technology in client work.',
+    summary: 'Framework churn is a maintenance cost that lands on the client five years later. What we mean by "boring" and why it is not a pejorative.',
+    readTime: '6 min',
+  },
+  {
+    date: '2026-01-09',
+    slug: '#',
+    title: 'MIT vs. AGPL: what the licence choice signals to your customers.',
+    summary: 'A brief comparison of open-source licences through the lens of what they cost clients to use, modify, and walk away with.',
+    readTime: '5 min',
+  },
+];
+---
+
+<SubPage
+  title="Journal — 0815software"
+  description="Long-form writing from 0815software on software, business, and the economics of the industry."
+  section="§ C5"
+  sectionName="Journal"
+  eyebrow="DIN 0815/C5 · JOURNAL"
+  heading="Writing."
+  lead="Occasional long-form on software, business, and how the industry got this way."
+>
+
+  <!-- Posts -->
+  <section class="journal-posts-section">
+    <div class="journal-posts__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ C5.01</div>
+        <div class="section-rail__name">Posts</div>
+      </div>
+      <div class="journal-list">
+        {posts.map((post) => (
+          <article class="journal-post">
+            <div class="journal-post__meta">
+              <span class="journal-post__date">{post.date}</span>
+              <span class="journal-post__read">{post.readTime} read</span>
+            </div>
+            <h2 class="journal-post__title">
+              <a href={post.slug} class="journal-post__link">{post.title}</a>
+            </h2>
+            <p class="journal-post__summary">{post.summary}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Cadence note -->
+  <section class="journal-note-section">
+    <div class="journal-note__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ C5.02</div>
+        <div class="section-rail__name">Cadence</div>
+      </div>
+      <p class="journal-note__body">
+        We publish when we have something worth writing — not on a content calendar. No newsletter. No subscriber count. The posts are here when they exist.
+      </p>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.journal-posts-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.journal-posts__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.journal-list {
+  display: flex;
+  flex-direction: column;
+}
+.journal-post {
+  padding: 36px 0;
+  border-bottom: 1px solid var(--line);
+  max-width: 720px;
+}
+.journal-post__meta {
+  display: flex;
+  gap: 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 0.8px;
+  margin-bottom: 14px;
+}
+.journal-post__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  line-height: 1.2;
+  margin-bottom: 12px;
+}
+.journal-post__link {
+  color: var(--fg);
+  transition: color 100ms ease-out;
+}
+.journal-post__link:hover { color: var(--accent); }
+.journal-post__summary {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+}
+
+.journal-note-section { padding: var(--sec-y-sm) var(--pad-x); }
+.journal-note__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.journal-note__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 520px;
+}
+
+@media (max-width: 999px) {
+  .journal-posts__inner,
+  .journal-note__inner { grid-template-columns: 1fr; gap: 24px; }
+}
+</style>

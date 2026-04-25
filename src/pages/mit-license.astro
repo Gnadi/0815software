@@ -1,0 +1,175 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const licenseText = `MIT License
+
+Copyright (c) 2025 0815software GmbH
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.`;
+
+const plainTerms = [
+  { can: true,  term: 'Use commercially' },
+  { can: true,  term: 'Modify the source' },
+  { can: true,  term: 'Distribute copies' },
+  { can: true,  term: 'Sublicense' },
+  { can: true,  term: 'Use privately' },
+  { can: true,  term: 'Use in proprietary software' },
+  { can: false, term: 'Hold us liable' },
+  { can: false, term: 'Use our trademark without permission' },
+];
+---
+
+<SubPage
+  title="MIT License — 0815software"
+  description="The MIT License that applies to all 0815software modules. The full text and a plain-language summary."
+  section="§ R1"
+  sectionName="MIT License"
+  eyebrow="DIN 0815/R1 · LICENSE"
+  heading="MIT License."
+  lead="The license that ships with every module. Four sentences. Applies to all 0815software repositories."
+>
+
+  <!-- Plain language -->
+  <section class="mit-plain-section">
+    <div class="mit-plain__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R1.01</div>
+        <div class="section-rail__name">Plain language</div>
+      </div>
+      <div class="mit-plain__content">
+        <h2 class="mit-plain__h2">What you can and cannot do.</h2>
+        <div class="mit-terms">
+          {plainTerms.map((t) => (
+            <div class="mit-term">
+              <span class={`mit-term__mark ${t.can ? 'mit-term__mark--yes' : 'mit-term__mark--no'}`}>
+                {t.can ? '✓' : '✗'}
+              </span>
+              <span class="mit-term__text">{t.term}</span>
+            </div>
+          ))}
+        </div>
+        <p class="mit-plain__note">
+          The only requirement: include the copyright notice and license text in copies of the software. That is it.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Full text -->
+  <section class="mit-text-section">
+    <div class="mit-text__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R1.02</div>
+        <div class="section-rail__name">Full text</div>
+      </div>
+      <div class="mit-text__block">
+        <div class="mit-text__header">// LICENSE</div>
+        <pre class="mit-text__pre">{licenseText}</pre>
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.mit-plain-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.mit-plain__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.mit-plain__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+  margin-bottom: 28px;
+}
+.mit-terms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  max-width: 560px;
+  margin-bottom: 28px;
+}
+.mit-term {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  color: var(--fg-dim);
+}
+.mit-term__mark {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.mit-term__mark--yes { color: var(--accent); }
+.mit-term__mark--no  { color: var(--fg-mute); }
+.mit-plain__note {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--fg-mute);
+  max-width: 520px;
+}
+
+.mit-text-section { padding: var(--sec-y-sm) var(--pad-x); }
+.mit-text__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.mit-text__block {
+  border: 1px solid var(--line-strong);
+  padding: 28px 32px;
+  background: var(--bg-2);
+  max-width: 720px;
+}
+.mit-text__header {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 1px;
+  margin-bottom: 20px;
+}
+.mit-text__pre {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--fg-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 999px) {
+  .mit-plain__inner,
+  .mit-text__inner { grid-template-columns: 1fr; gap: 24px; }
+  .mit-terms { grid-template-columns: 1fr; }
+}
+</style>

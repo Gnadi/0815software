@@ -1,0 +1,156 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const services = [
+  { name: 'GitHub repository',  status: 'operational', note: 'github.com/Gnadi/0815software' },
+  { name: 'Website',            status: 'operational', note: '0815software.com' },
+  { name: 'Contact form',       status: 'operational', note: 'hello@0815software.com' },
+  { name: 'Email (inbound)',    status: 'operational', note: '< 24h response, weekdays' },
+];
+
+const incidents: { date: string; title: string; resolved: boolean; detail: string }[] = [];
+---
+
+<SubPage
+  title="Status — 0815software"
+  description="Current operational status of 0815software services."
+  section="§ R3"
+  sectionName="Status"
+  eyebrow="DIN 0815/R3 · STATUS"
+  heading="Status."
+  lead="Current state of all systems. Updated when something changes."
+>
+
+  <!-- Service list -->
+  <section class="status-services-section">
+    <div class="status-services__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R3.01</div>
+        <div class="section-rail__name">Systems</div>
+      </div>
+      <div class="status-services__content">
+        <div class="status-overall">
+          <span class="status-overall__dot">●</span>
+          <span class="status-overall__label">ALL SYSTEMS OPERATIONAL — LAST CHECKED APRIL 2026</span>
+        </div>
+        <div class="status-table">
+          {services.map((s) => (
+            <div class="status-row">
+              <span class="status-row__name">{s.name}</span>
+              <span class="status-row__note">{s.note}</span>
+              <span class={`status-row__badge status-row__badge--${s.status}`}>
+                {s.status === 'operational' ? '● OPERATIONAL' : '○ DEGRADED'}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Incident history -->
+  <section class="status-incidents-section">
+    <div class="status-incidents__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R3.02</div>
+        <div class="section-rail__name">Incidents</div>
+      </div>
+      <div class="status-incidents__content">
+        <h2 class="status-incidents__h2">Incident history.</h2>
+        {incidents.length === 0 ? (
+          <p class="status-incidents__empty">No incidents recorded. We log them here when they occur.</p>
+        ) : (
+          incidents.map((i) => (
+            <div class="status-incident">
+              <span class="status-incident__date">{i.date}</span>
+              <span class="status-incident__title">{i.title}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.status-services-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.status-services__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.status-overall {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.6px;
+  margin-bottom: 28px;
+  padding: 12px 16px;
+  border: 1px solid rgba(232, 228, 220, 0.2);
+  width: fit-content;
+}
+.status-table {
+  display: flex;
+  flex-direction: column;
+  max-width: 720px;
+}
+.status-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 160px;
+  gap: 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: center;
+}
+.status-row__name { font-size: 14px; color: var(--fg); }
+.status-row__note {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-mute);
+}
+.status-row__badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-align: right;
+}
+.status-row__badge--operational { color: var(--accent); }
+.status-row__badge--degraded    { color: #e8b870; }
+
+.status-incidents-section { padding: var(--sec-y-sm) var(--pad-x); }
+.status-incidents__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.status-incidents__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+  margin-bottom: 20px;
+}
+.status-incidents__empty {
+  font-size: 14px;
+  color: var(--fg-mute);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+@media (max-width: 999px) {
+  .status-services__inner,
+  .status-incidents__inner { grid-template-columns: 1fr; gap: 24px; }
+  .status-row { grid-template-columns: 1fr 120px; }
+  .status-row__note { display: none; }
+}
+</style>
