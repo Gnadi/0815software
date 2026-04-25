@@ -4,7 +4,7 @@
 
 const contactMeta = [
   ['EMAIL',    'hello@0815software.com'],
-  ['OFFICE',   'Berlin, DE · CET'],
+  ['OFFICE',   'Linz, AT · CET'],
   ['GITHUB',   'github.com/0815software'],
   ['RESPONSE', '\u003c 24h, weekdays'],
 ];
@@ -25,26 +25,26 @@ const contactMeta = [
         <span class="section-label-inline__num">§ 07</span> · Contact
       </div>
 
-      <h2 class="contact__h2">
+      <h2 class="contact__h2" data-i18n-html="contact.h2">
         Start a<br />project.
       </h2>
 
-      <p class="contact__p1">
+      <p class="contact__p1" data-i18n="contact.p1">
         Describe what you need in a paragraph. We'll reply within one business day with a
         candid yes, no, or here's-what-it-takes — and a fixed-price quote if the scope is standard.
       </p>
 
-      <p class="contact__p2">
+      <p class="contact__p2" data-i18n="contact.p2">
         No NDAs to sign. No sales funnel. No calendar invite for a 45-minute discovery call
         before anyone answers a single question. Write to a human, get a human back.
       </p>
 
       <!-- Contact meta -->
       <dl class="contact__meta-grid">
-        {contactMeta.map(([k, v]) => (
+        {contactMeta.map(([k, v], i) => (
           <div class="contact__meta-item">
             <dt class="contact__meta-key">{k}</dt>
-            <dd class="contact__meta-val">{v}</dd>
+            <dd class="contact__meta-val" data-i18n={`contact.meta.${i}`}>{v}</dd>
           </div>
         ))}
       </dl>
@@ -56,26 +56,28 @@ const contactMeta = [
         <!-- Row 1: Name + Company -->
         <div class="contact-form__row-2">
           <div class="contact-form__field">
-            <label class="contact-form__label" for="cf-name">NAME</label>
+            <label class="contact-form__label" for="cf-name" data-i18n="contact.lbl.name">NAME</label>
             <input
               id="cf-name"
               name="name"
               type="text"
               class="contact-form__input"
               placeholder="Jane Doe"
+              data-i18n-placeholder="contact.ph.name"
               autocomplete="name"
               required
             />
             <span class="contact-form__error" id="cf-name-error" aria-live="polite"></span>
           </div>
           <div class="contact-form__field">
-            <label class="contact-form__label" for="cf-company">COMPANY</label>
+            <label class="contact-form__label" for="cf-company" data-i18n="contact.lbl.company">COMPANY</label>
             <input
               id="cf-company"
               name="company"
               type="text"
               class="contact-form__input"
               placeholder="Acme GmbH"
+              data-i18n-placeholder="contact.ph.company"
               autocomplete="organization"
             />
           </div>
@@ -83,13 +85,14 @@ const contactMeta = [
 
         <!-- Email -->
         <div class="contact-form__field">
-          <label class="contact-form__label" for="cf-email">EMAIL</label>
+          <label class="contact-form__label" for="cf-email" data-i18n="contact.lbl.email">EMAIL</label>
           <input
             id="cf-email"
             name="email"
             type="email"
             class="contact-form__input"
             placeholder="jane@acme.com"
+            data-i18n-placeholder="contact.ph.email"
             autocomplete="email"
             required
           />
@@ -98,12 +101,13 @@ const contactMeta = [
 
         <!-- Message -->
         <div class="contact-form__field">
-          <label class="contact-form__label" for="cf-message">WHAT DO YOU NEED?</label>
+          <label class="contact-form__label" for="cf-message" data-i18n="contact.lbl.msg">WHAT DO YOU NEED?</label>
           <textarea
             id="cf-message"
             name="message"
             class="contact-form__textarea"
             placeholder="A customer portal for order tracking…"
+            data-i18n-placeholder="contact.ph.msg"
             rows="4"
             required
           ></textarea>
@@ -111,7 +115,7 @@ const contactMeta = [
         </div>
 
         <!-- Submit -->
-        <button type="submit" class="contact-form__submit" id="cf-submit">
+        <button type="submit" class="contact-form__submit" id="cf-submit" data-i18n="contact.submit">
           Send — reply in 1 business day →
         </button>
 
@@ -345,6 +349,7 @@ form?.addEventListener('submit', async (e) => {
   }
   if (hasError) return;
 
+  const originalText = submit.textContent;
   submit.disabled = true;
   submit.textContent = 'Sending…';
 
@@ -369,7 +374,7 @@ form?.addEventListener('submit', async (e) => {
     status.className = 'contact-form__status contact-form__status--err';
   } finally {
     submit.disabled = false;
-    submit.textContent = 'Send — reply in 1 business day →';
+    submit.textContent = originalText;
   }
 });
 </script>

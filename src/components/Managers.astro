@@ -37,7 +37,7 @@ const roiRows = [
       <div class="section-label-inline" aria-hidden="true">
         <span class="section-label-inline__num">§ 03</span> · For managers
       </div>
-      <h2 class="managers__h2">
+      <h2 class="managers__h2" data-i18n-html="managers.h2">
         The business case fits<br />
         on a single slide.
       </h2>
@@ -56,18 +56,18 @@ const roiRows = [
       </div>
       {tableRows.map(([bad, good], i) => (
         <div class={`compare-table__row${i === tableRows.length - 1 ? ' compare-table__row--last' : ''}`}>
-          <span class="compare-table__bad">{bad}</span>
-          <span class="compare-table__good">{good}</span>
+          <span class="compare-table__bad" data-i18n={`cmp.bad.${i}`}>{bad}</span>
+          <span class="compare-table__good" data-i18n={`cmp.good.${i}`}>{good}</span>
         </div>
       ))}
     </div>
 
     <!-- ROI callouts -->
     <div class="roi-list">
-      {roiRows.map((r) => (
+      {roiRows.map((r, i) => (
         <div class="roi-item">
-          <div class="roi-item__key">{r.key}</div>
-          <p class="roi-item__val">{r.val}</p>
+          <div class="roi-item__key" data-i18n={`roi.${i}.key`}>{r.key}</div>
+          <p class="roi-item__val" data-i18n={`roi.${i}.val`}>{r.val}</p>
         </div>
       ))}
     </div>

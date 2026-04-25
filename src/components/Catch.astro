@@ -34,9 +34,9 @@ const faqs = [
         <span class="section-label-inline__num">§ 04</span> · The catch
       </div>
 
-      <h2 class="catch__h2">"What's the catch?"</h2>
+      <h2 class="catch__h2" data-i18n="catch.h2">"What's the catch?"</h2>
 
-      <p class="catch__intro">
+      <p class="catch__intro" data-i18n="catch.intro">
         Fair question. We'd ask it too. Here's the honest answer — the same one we
         give in every first call, before anyone signs anything.
       </p>
@@ -45,8 +45,8 @@ const faqs = [
         {faqs.map((f, i) => (
           <article class="faq-cell" role="listitem">
             <div class="faq-cell__num">Q.0{i + 1}</div>
-            <h3 class="faq-cell__q">{f.q}</h3>
-            <p class="faq-cell__a">{f.a}</p>
+            <h3 class="faq-cell__q" data-i18n={`faq.${i}.q`}>{f.q}</h3>
+            <p class="faq-cell__a" data-i18n={`faq.${i}.a`}>{f.a}</p>
           </article>
         ))}
       </div>

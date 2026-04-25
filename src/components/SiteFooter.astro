@@ -22,7 +22,7 @@ const linkCols = [
 
 const legalMeta = [
   ['REGISTERED', '0815software GmbH'],
-  ['LOCATION',   'Berlin-Mitte, Germany'],
+  ['LOCATION',   'Linz, Austria · CET'],
   ['VAT',        'DE 0815 0815 15'],
   ['CONTACT',    'hello@0815software.com'],
 ];
@@ -40,15 +40,14 @@ const legalMeta = [
         <Monogram size={28} />
         <span class="footer-brand__name">0815software</span>
       </div>
-      <p class="footer-brand__tagline">
+      <p class="footer-brand__tagline" data-i18n="footer.tagline">
         Standard software, built to a higher standard. Open source, always free, fully
         transparent — because the price of business software should be what it costs to
         build, not what the market will bear.
       </p>
       <div class="footer-brand__socials">
-        <a href="https://github.com/0815software" target="_blank" rel="noopener noreferrer" class="social-pill">GitHub ↗</a>
+        <a href="https://github.com/Gnadi/0815software" target="_blank" rel="noopener noreferrer" class="social-pill">GitHub ↗</a>
         <a href="https://linkedin.com/company/0815software" target="_blank" rel="noopener noreferrer" class="social-pill">LinkedIn ↗</a>
-        <a href="/feed.xml" class="social-pill">RSS ↗</a>
       </div>
     </div>
 
@@ -58,7 +57,7 @@ const legalMeta = [
         <div class="footer-col__heading">{col.title.toUpperCase()}</div>
         <ul class="footer-col__list">
           {col.links.map((link) => (
-            <li><a href="#" class="footer-col__link">{link}</a></li>
+            <li class="footer-col__link">{link}</li>
           ))}
         </ul>
       </nav>
@@ -83,16 +82,13 @@ const legalMeta = [
       <span>· HUMAN-WRITTEN</span>
     </div>
     <div class="footer-bottom__right">
-      <span class="footer-bottom__lang">
-        <span class="footer-bottom__lang-active">EN</span>
-        <span>DE</span>
-      </span>
-      <span>·</span>
-      <a href="#">PRIVACY</a>
-      <span>·</span>
-      <a href="#">IMPRINT</a>
-      <span>·</span>
-      <span class="footer-bottom__status">● ALL SYSTEMS OPEN</span>
+      <div class="footer-bottom__lang" role="group" aria-label="Language">
+        <button class="lang-toggle lang-toggle--active" data-lang-toggle="en" aria-pressed="true">EN</button>
+        <span aria-hidden="true">·</span>
+        <button class="lang-toggle" data-lang-toggle="de" aria-pressed="false">DE</button>
+      </div>
+      <span aria-hidden="true">·</span>
+      <span class="footer-bottom__status" data-i18n="footer.status">● ALL SYSTEMS OPEN</span>
     </div>
   </div>
 </footer>
@@ -262,6 +258,24 @@ const legalMeta = [
 }
 
 .footer-bottom__status { color: var(--accent); }
+
+.lang-toggle {
+  background: none;
+  border: none;
+  padding: 0 0 1px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  color: var(--fg-mute);
+  cursor: pointer;
+  transition: color 100ms ease-out;
+  border-bottom: 1px solid transparent;
+}
+.lang-toggle:hover { color: var(--fg); }
+.lang-toggle--active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
 
 /* ─── Responsive ──────────────────────────────────────────────────── */
 @media (max-width: 1199px) {
