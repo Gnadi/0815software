@@ -1,10 +1,18 @@
 ---
 import Monogram from './Monogram.astro';
 
-const linkCols = [
+type FooterLink = string | { label: string; href: string; external?: boolean };
+
+const linkCols: { title: string; links: FooterLink[] }[] = [
   {
     title: 'Product',
-    links: ['Modules', 'Roadmap', 'Changelog', 'Case studies', 'GitHub'],
+    links: [
+      { label: 'Modules',      href: '/modules' },
+      { label: 'Roadmap',      href: '/roadmap' },
+      { label: 'Changelog',    href: '/changelog' },
+      { label: 'Case studies', href: '/case-studies' },
+      { label: 'GitHub',       href: 'https://github.com/Gnadi/0815software', external: true },
+    ],
   },
   {
     title: 'For you',
@@ -56,9 +64,19 @@ const legalMeta = [
       <nav aria-label={col.title}>
         <div class="footer-col__heading">{col.title.toUpperCase()}</div>
         <ul class="footer-col__list">
-          {col.links.map((link) => (
-            <li class="footer-col__link">{link}</li>
-          ))}
+          {col.links.map((link) =>
+            typeof link === 'object' ? (
+              <li>
+                <a
+                  class="footer-col__link"
+                  href={link.href}
+                  {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                >{link.label}</a>
+              </li>
+            ) : (
+              <li class="footer-col__link">{link}</li>
+            )
+          )}
         </ul>
       </nav>
     ))}
@@ -188,6 +206,7 @@ const legalMeta = [
   font-size: 13.5px;
   color: var(--fg-dim);
   transition: color 100ms ease-out;
+  display: block;
 }
 .footer-col__link:hover { color: var(--fg); }
 

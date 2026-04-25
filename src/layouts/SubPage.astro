@@ -1,0 +1,98 @@
+---
+import Base from './Base.astro';
+import MetaStrip from '../components/MetaStrip.astro';
+import Nav from '../components/Nav.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description: string;
+  section: string;
+  sectionName: string;
+  eyebrow: string;
+  heading: string;
+  lead: string;
+}
+
+const { title, description, section, sectionName, eyebrow, heading, lead } = Astro.props;
+---
+
+<Base title={title} description={description}>
+  <MetaStrip />
+  <Nav />
+  <main>
+    <header class="page-header">
+      <div class="page-header__inner">
+        <div class="section-rail" aria-hidden="true">
+          <div class="section-rail__num">{section}</div>
+          <div class="section-rail__name">{sectionName}</div>
+        </div>
+        <div class="page-header__content">
+          <div class="section-label-inline" aria-hidden="true">
+            <span class="section-label-inline__num">{section}</span> · {sectionName}
+          </div>
+          <p class="page-header__eyebrow">{eyebrow}</p>
+          <h1 class="page-header__h1" set:html={heading} />
+          <p class="page-header__lead">{lead}</p>
+        </div>
+      </div>
+    </header>
+    <slot />
+  </main>
+  <SiteFooter />
+</Base>
+
+<style>
+.page-header {
+  padding: var(--sec-y) var(--pad-x) var(--sec-y-sm);
+  border-bottom: 1px solid var(--line);
+}
+
+.page-header__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.page-header__eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--fg-mute);
+  margin-bottom: 28px;
+}
+
+.page-header__h1 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 72px;
+  font-weight: 500;
+  line-height: 0.96;
+  letter-spacing: -2.4px;
+  max-width: 900px;
+  margin-bottom: 32px;
+}
+
+.page-header__lead {
+  font-size: 19px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  max-width: 620px;
+}
+
+@media (max-width: 1199px) {
+  .page-header__h1 { font-size: 56px; letter-spacing: -1.8px; }
+  .page-header__inner { gap: 32px; }
+}
+
+@media (max-width: 999px) {
+  .page-header__inner { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 767px) {
+  .page-header__h1 { font-size: 40px; letter-spacing: -1.2px; }
+  .page-header__lead { font-size: 16px; }
+}
+</style>
