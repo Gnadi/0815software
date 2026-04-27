@@ -1,0 +1,189 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const scope = [
+  ['SQL injection / XSS / CSRF',            'In scope — report via email'],
+  ['Authentication bypass',                  'In scope — report via email'],
+  ['Privilege escalation',                   'In scope — report via email'],
+  ['Data exposure in API responses',         'In scope — report via email'],
+  ['Dependency vulnerabilities (critical)',  'In scope — reference CVE if available'],
+  ['Denial of service (resource exhaustion)','Out of scope for disclosure; file a GitHub issue'],
+  ['Social engineering / phishing',         'Out of scope'],
+  ['Physical security',                      'Out of scope'],
+];
+---
+
+<SubPage
+  title="Security — 0815software"
+  description="Security policy and responsible disclosure process for 0815software."
+  section="§ R2"
+  sectionName="Security"
+  eyebrow="DIN 0815/R2 · SECURITY"
+  heading="Security."
+  lead="Responsible disclosure process and what to do if you find something."
+>
+
+  <!-- Disclosure process -->
+  <section class="sec-process-section">
+    <div class="sec-process__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R2.01</div>
+        <div class="section-rail__name">Process</div>
+      </div>
+      <div class="sec-process__content">
+        <h2 class="sec-process__h2">How to report.</h2>
+        <p class="sec-process__body">
+          Email <a href="mailto:security@0815software.com" class="sec-link">security@0815software.com</a> with a description of the issue, steps to reproduce, and the affected repository or module. We will acknowledge receipt within two business days and aim to resolve critical issues within 14 days.
+        </p>
+        <p class="sec-process__body">
+          Do not open a public GitHub issue for security vulnerabilities. Use the email address above. We will coordinate disclosure timing with you.
+        </p>
+        <div class="sec-contact">
+          <div class="sec-contact__label">SECURITY CONTACT</div>
+          <a href="mailto:security@0815software.com" class="sec-contact__email">security@0815software.com</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Scope table -->
+  <section class="sec-scope-section">
+    <div class="sec-scope__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R2.02</div>
+        <div class="section-rail__name">Scope</div>
+      </div>
+      <div class="sec-scope__content">
+        <h2 class="sec-scope__h2">What is in scope.</h2>
+        <div class="sec-scope__table">
+          {scope.map(([item, status]) => (
+            <div class="sec-scope__row">
+              <span class="sec-scope__item">{item}</span>
+              <span class={`sec-scope__status ${status.startsWith('Out') ? 'sec-scope__status--out' : ''}`}>{status}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Thanks -->
+  <section class="sec-thanks-section">
+    <div class="sec-thanks__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R2.03</div>
+        <div class="section-rail__name">Recognition</div>
+      </div>
+      <p class="sec-thanks__body">
+        We do not have a formal bug bounty programme. If you report a valid, in-scope vulnerability, we will credit you in the changelog and the repository security advisories — unless you prefer to remain anonymous.
+      </p>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.sec-process-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.sec-process__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.sec-process__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+  margin-bottom: 20px;
+}
+.sec-process__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 600px;
+  margin-bottom: 16px;
+}
+.sec-contact {
+  margin-top: 28px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.sec-contact__label {
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+.sec-contact__email {
+  font-size: 15px;
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--line-strong);
+}
+.sec-contact__email:hover { text-decoration-color: var(--fg); }
+.sec-link { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.sec-link:hover { text-decoration-color: var(--fg); }
+
+.sec-scope-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.sec-scope__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.sec-scope__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+  margin-bottom: 24px;
+}
+.sec-scope__table { display: flex; flex-direction: column; max-width: 720px; }
+.sec-scope__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.sec-scope__item { font-size: 14px; color: var(--fg-dim); }
+.sec-scope__status {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-mute);
+  letter-spacing: 0.3px;
+}
+.sec-scope__status--out { opacity: 0.5; }
+
+.sec-thanks-section { padding: var(--sec-y-sm) var(--pad-x); }
+.sec-thanks__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.sec-thanks__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 580px;
+}
+
+@media (max-width: 999px) {
+  .sec-process__inner,
+  .sec-scope__inner,
+  .sec-thanks__inner { grid-template-columns: 1fr; gap: 24px; }
+  .sec-scope__row { grid-template-columns: 1fr; gap: 4px; }
+}
+</style>

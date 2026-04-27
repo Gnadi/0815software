@@ -1,0 +1,241 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const releases = [
+  {
+    version: 'v0.3.0',
+    date: '2026-04-01',
+    title: 'Spring clean',
+    changes: [
+      { type: 'Added',    text: 'Document Management module (beta) — upload, tag, version, access control' },
+      { type: 'Added',    text: 'Reporting Suite exports to CSV and XLSX' },
+      { type: 'Fixed',    text: 'Invoice PDF rendering on Safari 17' },
+      { type: 'Fixed',    text: 'Date formatting in German locale across all modules' },
+      { type: 'Breaking', text: 'Admin Dashboard API endpoints now require JWT; cookie-based auth removed' },
+    ],
+  },
+  {
+    version: 'v0.2.1',
+    date: '2026-02-14',
+    title: 'Patch release',
+    changes: [
+      { type: 'Fixed', text: 'Customer Portal session timeout edge case on slow connections' },
+      { type: 'Fixed', text: 'Procurement Tracker approval emails not sending in EU region' },
+      { type: 'Fixed', text: 'Inventory Management SKU search returning partial matches incorrectly' },
+    ],
+  },
+  {
+    version: 'v0.2.0',
+    date: '2026-01-20',
+    title: 'CRM and billing',
+    changes: [
+      { type: 'Added',   text: 'CRM Lite module — contacts, deals, activity log, pipeline view' },
+      { type: 'Added',   text: 'Invoice & Billing module — PDF generation, payment status, customer ledger' },
+      { type: 'Changed', text: 'Project hand-off process now includes Terraform scripts for common cloud targets' },
+      { type: 'Changed', text: 'Admin Dashboard table columns now configurable without code changes' },
+    ],
+  },
+  {
+    version: 'v0.1.0',
+    date: '2025-12-01',
+    title: 'First public release',
+    changes: [
+      { type: 'Added', text: 'Customer Portal v1 — order status, documents, history' },
+      { type: 'Added', text: 'Admin Dashboard v1 — generic CRUD over any data model' },
+      { type: 'Added', text: 'Inventory Management v1 — stock, SKUs, warehouse locations' },
+      { type: 'Added', text: 'MIT license confirmed; all repositories public on GitHub' },
+      { type: 'Added', text: 'Zero external SaaS dependencies across all modules' },
+    ],
+  },
+];
+
+const typeColor: Record<string, string> = {
+  Added:    'var(--accent)',
+  Fixed:    'var(--fg-dim)',
+  Changed:  'var(--fg-dim)',
+  Breaking: '#e87070',
+};
+---
+
+<SubPage
+  title="Changelog — 0815software"
+  description="The 0815software release log. Every release, every breaking change, every fix — in order, no spin."
+  section="§ P3"
+  sectionName="Changelog"
+  eyebrow="DIN 0815/C · RELEASE LOG"
+  heading="Changelog."
+  lead="Every release, every breaking change, every fix. In order. No spin."
+>
+
+  <!-- Release entries -->
+  <section class="changelog-section">
+    <div class="changelog__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P3.01</div>
+        <div class="section-rail__name">Releases</div>
+      </div>
+      <div class="changelog__entries">
+        {releases.map((rel) => (
+          <article class="changelog-entry">
+            <div class="changelog-entry__rail">
+              <div class="changelog-entry__version">{rel.version}</div>
+              <div class="changelog-entry__date">{rel.date}</div>
+            </div>
+            <div class="changelog-entry__content">
+              <h2 class="changelog-entry__title">{rel.title}</h2>
+              <ul class="change-list">
+                {rel.changes.map((c) => (
+                  <li class="change-list__item">
+                    <span class="change-list__type" style={`color: ${typeColor[c.type] ?? 'var(--fg-mute)'}`}>{c.type}</span>
+                    <span class="change-list__text">{c.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Versioning policy -->
+  <section class="changelog-policy-section">
+    <div class="changelog-policy__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P3.02</div>
+        <div class="section-rail__name">Policy</div>
+      </div>
+      <p class="changelog-policy__body">
+        Semantic versioning. Breaking changes only in minor bumps until v1.0. After v1.0, breaking changes require a major bump and 90 days notice in writing. All deprecations are logged here — not in a newsletter, not in a forum post, not buried in release notes on a third-party platform.
+      </p>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+/* ─── Release list ────────────────────────────────────────────────── */
+.changelog-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+
+.changelog__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.changelog__entries {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Individual entry */
+.changelog-entry {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  padding: 40px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: start;
+}
+
+.changelog-entry__rail {
+  padding-top: 4px;
+}
+
+.changelog-entry__version {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.3px;
+  margin-bottom: 6px;
+}
+
+.changelog-entry__date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 0.5px;
+}
+
+.changelog-entry__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  margin-bottom: 20px;
+}
+
+/* Change list */
+.change-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.change-list__item {
+  display: flex;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 1.55;
+  align-items: baseline;
+}
+
+.change-list__item::before {
+  content: '—';
+  color: var(--fg-mute);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.change-list__type {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.change-list__text {
+  color: var(--fg-dim);
+}
+
+/* ─── Policy section ──────────────────────────────────────────────── */
+.changelog-policy-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+}
+
+.changelog-policy__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.changelog-policy__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 640px;
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 999px) {
+  .changelog__inner,
+  .changelog-policy__inner { grid-template-columns: 1fr; }
+  .changelog-entry { grid-template-columns: 1fr; gap: 16px; }
+  .changelog-entry__rail { display: flex; gap: 16px; align-items: baseline; }
+}
+
+@media (max-width: 767px) {
+  .changelog-entry { padding: 32px 0; }
+  .change-list__item { flex-wrap: wrap; gap: 6px; }
+}
+</style>

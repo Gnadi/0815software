@@ -1,0 +1,252 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const brandAssets = [
+  { name: 'Wordmark (SVG, light)',  format: 'SVG',  note: 'For use on dark backgrounds' },
+  { name: 'Wordmark (SVG, dark)',   format: 'SVG',  note: 'For use on light backgrounds' },
+  { name: 'Monogram (SVG)',         format: 'SVG',  note: 'Square icon, all sizes' },
+  { name: 'Press kit (ZIP)',        format: 'ZIP',  note: 'All assets + usage guidelines' },
+];
+
+const boilerplate = `0815software GmbH builds standard business software — CRUD applications, dashboards, storefronts, and internal tools — released under the MIT License at zero cost. Implementation, customisation, and optional SLAs are available for a fixed price. Founded in Linz, Austria.`;
+---
+
+<SubPage
+  title="Press Kit — 0815software"
+  description="Brand assets, boilerplate copy, and press contact for 0815software."
+  section="§ R4"
+  sectionName="Press kit"
+  eyebrow="DIN 0815/R4 · PRESS KIT"
+  heading="Press kit."
+  lead="Logos, boilerplate, and the right person to email. No press portal, no asset request form."
+>
+
+  <!-- Boilerplate -->
+  <section class="press-copy-section">
+    <div class="press-copy__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R4.01</div>
+        <div class="section-rail__name">Boilerplate</div>
+      </div>
+      <div class="press-copy__content">
+        <h2 class="press-copy__h2">About 0815software — approved boilerplate.</h2>
+        <blockquote class="press-boilerplate">
+          <p>{boilerplate}</p>
+        </blockquote>
+        <p class="press-copy__note">Copy and paste without modification for use in articles, press releases, and event programmes.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Brand assets -->
+  <section class="press-assets-section">
+    <div class="press-assets__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R4.02</div>
+        <div class="section-rail__name">Assets</div>
+      </div>
+      <div class="press-assets__content">
+        <h2 class="press-assets__h2">Brand assets.</h2>
+        <div class="press-assets__table">
+          {brandAssets.map((a) => (
+            <div class="press-asset__row">
+              <span class="press-asset__name">{a.name}</span>
+              <span class="press-asset__format">{a.format}</span>
+              <span class="press-asset__note">{a.note}</span>
+              <span class="press-asset__dl">Contact to request</span>
+            </div>
+          ))}
+        </div>
+        <p class="press-assets__note">
+          Write to <a href="mailto:hello@0815software.com" class="press-link">hello@0815software.com</a> with the intended usage. We will send the relevant files within one business day.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Guidelines -->
+  <section class="press-guidelines-section">
+    <div class="press-guidelines__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R4.03</div>
+        <div class="section-rail__name">Guidelines</div>
+      </div>
+      <div class="press-guidelines__list">
+        <div class="press-guideline">
+          <span class="press-guideline__mark">✓</span>
+          <span>Use "0815software" as one word with a lowercase s in running text</span>
+        </div>
+        <div class="press-guideline">
+          <span class="press-guideline__mark">✓</span>
+          <span>The full company name is "0815software GmbH" for legal and formal contexts</span>
+        </div>
+        <div class="press-guideline">
+          <span class="press-guideline__mark">✗</span>
+          <span>Do not modify the logo colours or proportions</span>
+        </div>
+        <div class="press-guideline">
+          <span class="press-guideline__mark">✗</span>
+          <span>Do not place the logo on backgrounds that reduce legibility</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Press contact -->
+  <section class="press-contact-section">
+    <div class="press-contact__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R4.04</div>
+        <div class="section-rail__name">Contact</div>
+      </div>
+      <div class="press-contact__card">
+        <div class="press-contact__label">PRESS ENQUIRIES</div>
+        <a href="mailto:hello@0815software.com" class="press-contact__email">hello@0815software.com</a>
+        <div class="press-contact__note">Response within one business day, weekdays, CET</div>
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.press-copy-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.press-copy__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.press-copy__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  margin-bottom: 20px;
+}
+.press-boilerplate {
+  border-left: 2px solid var(--line-strong);
+  padding: 16px 24px;
+  margin-bottom: 16px;
+  max-width: 640px;
+}
+.press-boilerplate p {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+}
+.press-copy__note { font-size: 13px; color: var(--fg-mute); }
+
+.press-assets-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.press-assets__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.press-assets__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  margin-bottom: 20px;
+}
+.press-assets__table { display: flex; flex-direction: column; max-width: 720px; margin-bottom: 20px; }
+.press-asset__row {
+  display: grid;
+  grid-template-columns: 1fr 60px 1fr 140px;
+  gap: 20px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: center;
+}
+.press-asset__name { font-size: 14px; color: var(--fg); }
+.press-asset__format {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 0.5px;
+}
+.press-asset__note { font-size: 13px; color: var(--fg-mute); }
+.press-asset__dl {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-mute);
+  text-align: right;
+  letter-spacing: 0.3px;
+}
+.press-assets__note { font-size: 14px; color: var(--fg-dim); line-height: 1.5; }
+.press-link { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.press-link:hover { text-decoration-color: var(--fg); }
+
+.press-guidelines-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.press-guidelines__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.press-guidelines__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 600px;
+}
+.press-guideline {
+  display: flex;
+  gap: 14px;
+  font-size: 14px;
+  color: var(--fg-dim);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.press-guideline__mark {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--fg-mute);
+  flex-shrink: 0;
+}
+
+.press-contact-section { padding: var(--sec-y-sm) var(--pad-x); }
+.press-contact__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.press-contact__card { font-family: 'JetBrains Mono', monospace; }
+.press-contact__label { font-size: 10px; color: var(--fg-mute); letter-spacing: 1px; margin-bottom: 10px; }
+.press-contact__email {
+  display: block;
+  font-size: 15px;
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--line-strong);
+  margin-bottom: 8px;
+}
+.press-contact__email:hover { text-decoration-color: var(--fg); }
+.press-contact__note { font-size: 11px; color: var(--fg-mute); letter-spacing: 0.3px; }
+
+@media (max-width: 999px) {
+  .press-copy__inner,
+  .press-assets__inner,
+  .press-guidelines__inner,
+  .press-contact__inner { grid-template-columns: 1fr; gap: 24px; }
+  .press-asset__row { grid-template-columns: 1fr 60px; }
+  .press-asset__note,
+  .press-asset__dl { display: none; }
+}
+</style>

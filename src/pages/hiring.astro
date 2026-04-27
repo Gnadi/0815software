@@ -1,0 +1,175 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const futureRoles = [
+  { role: 'Senior Full-Stack Engineer', note: 'When module volume justifies it — likely 2027' },
+  { role: 'Technical Writer',           note: 'Documentation is currently the weakest point' },
+  { role: 'Open-source Maintainer',     note: 'As community contribution increases' },
+];
+---
+
+<SubPage
+  title="Hiring — 0815software"
+  description="Current and future openings at 0815software. We are a small team and we hire slowly."
+  section="§ C4"
+  sectionName="Hiring"
+  eyebrow="DIN 0815/C4 · HIRING"
+  heading="No open roles<br />right now."
+  lead="We are a small team and we hire slowly. When that changes, it will appear here first — not on a job board."
+>
+
+  <!-- Current state -->
+  <section class="hiring-state-section">
+    <div class="hiring-state__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ C4.01</div>
+        <div class="section-rail__name">Current</div>
+      </div>
+      <div class="hiring-state__content">
+        <div class="hiring-status">
+          <span class="hiring-status__dot">○</span>
+          <span class="hiring-status__label">NO OPEN POSITIONS — LAST UPDATED APRIL 2026</span>
+        </div>
+        <p class="hiring-state__body">
+          We are two engineers. The current workload is manageable and the business model does not require rapid headcount growth. We will add people when a specific skill gap requires it, not to signal momentum.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Future roles on the horizon -->
+  <section class="hiring-future-section">
+    <div class="hiring-future__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ C4.02</div>
+        <div class="section-rail__name">Horizon</div>
+      </div>
+      <div class="hiring-future__content">
+        <h2 class="hiring-future__h2">Roles we expect to open.</h2>
+        <div class="hiring-future__table">
+          {futureRoles.map((r) => (
+            <div class="hiring-future__row">
+              <span class="hiring-future__role">{r.role}</span>
+              <span class="hiring-future__note">{r.note}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Speculative applications -->
+  <section class="hiring-speculative-section">
+    <div class="hiring-speculative__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ C4.03</div>
+        <div class="section-rail__name">Speculative</div>
+      </div>
+      <div>
+        <p class="hiring-speculative__body">
+          If you are an engineer who has built and maintained production CRUD applications, knows what boring technology means and why it matters, and would rather work on things that are useful than things that are fashionable — write to <a href="mailto:hello@0815software.com" class="hiring-link">hello@0815software.com</a> with a brief note. No CV template required.
+        </p>
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.hiring-state-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.hiring-state__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.hiring-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-mute);
+  letter-spacing: 0.6px;
+  margin-bottom: 24px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  width: fit-content;
+}
+.hiring-status__dot { font-size: 14px; }
+.hiring-state__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 600px;
+}
+
+.hiring-future-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.hiring-future__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.hiring-future__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+  margin-bottom: 28px;
+}
+.hiring-future__table {
+  display: flex;
+  flex-direction: column;
+  max-width: 680px;
+}
+.hiring-future__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.hiring-future__role {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.hiring-future__note {
+  font-size: 13px;
+  color: var(--fg-mute);
+}
+
+.hiring-speculative-section { padding: var(--sec-y-sm) var(--pad-x); }
+.hiring-speculative__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.hiring-speculative__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 580px;
+}
+.hiring-link { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.hiring-link:hover { text-decoration-color: var(--fg); }
+
+@media (max-width: 999px) {
+  .hiring-state__inner,
+  .hiring-future__inner,
+  .hiring-speculative__inner { grid-template-columns: 1fr; gap: 24px; }
+  .hiring-future__row { grid-template-columns: 1fr; gap: 4px; }
+}
+</style>

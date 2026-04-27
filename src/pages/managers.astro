@@ -1,0 +1,207 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const numbers = [
+  { key: 'Licence cost',   bad: '€12,000 / seat / year',  good: '€0 forever' },
+  { key: 'Time to ship',   bad: '6–18 months procurement', good: '2–6 weeks' },
+  { key: 'Lock-in risk',   bad: 'Vendor controls roadmap', good: 'You own the code' },
+  { key: 'Exit cost',      bad: 'Data migration + retraining', good: 'Fork and walk away' },
+  { key: 'Audit rights',   bad: 'Requires NDA + approval', good: 'Public repository' },
+  { key: 'Price in 3 yrs', bad: 'Renegotiated upward',    good: 'Still €0' },
+];
+
+const roiPoints = [
+  {
+    heading: 'You pay for work, not access.',
+    body: 'Implementation, customisation, and optional SLAs are where our invoices come from. Once the software is built, it is yours — running on your infrastructure, maintained by any developer you choose.',
+  },
+  {
+    heading: 'One meeting to a fixed price.',
+    body: 'Standard scopes get a fixed-price quote within one business day. No discovery phase, no pilot project, no change-order negotiations. The scope is agreed upfront or not at all.',
+  },
+  {
+    heading: 'No renewal risk.',
+    body: 'SaaS vendors reprice at renewal. We build software you own outright. There is nothing to renew, no account manager to manage, and no pricing page to decode every April.',
+  },
+];
+---
+
+<SubPage
+  title="For Managers — 0815software"
+  description="The business case for 0815software. Cost, risk, speed — compared honestly against the SaaS status quo."
+  section="§ F1"
+  sectionName="Managers"
+  eyebrow="DIN 0815/F1 · FOR MANAGERS"
+  heading="The business case<br />fits on one slide."
+  lead="What it costs, what it replaces, and what you own when it's done."
+>
+
+  <!-- Comparison table -->
+  <section class="mgr-compare-section">
+    <div class="mgr-compare__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ F1.01</div>
+        <div class="section-rail__name">Numbers</div>
+      </div>
+      <div class="mgr-table">
+        <div class="mgr-table__header">
+          <span>CATEGORY</span>
+          <span class="mgr-table__bad">TYPICAL SAAS VENDOR</span>
+          <span class="mgr-table__good">0815SOFTWARE</span>
+        </div>
+        {numbers.map((row) => (
+          <div class="mgr-table__row">
+            <span class="mgr-table__key">{row.key}</span>
+            <span class="mgr-table__bad">{row.bad}</span>
+            <span class="mgr-table__good">{row.good}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- ROI points -->
+  <section class="mgr-roi-section">
+    <div class="mgr-roi__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ F1.02</div>
+        <div class="section-rail__name">Why it works</div>
+      </div>
+      <div class="mgr-roi__grid">
+        {roiPoints.map((p) => (
+          <div class="mgr-roi__item">
+            <h3 class="mgr-roi__heading">{p.heading}</h3>
+            <p class="mgr-roi__body">{p.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section class="mgr-cta-section">
+    <div class="mgr-cta__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ F1.03</div>
+        <div class="section-rail__name">Next step</div>
+      </div>
+      <div>
+        <p class="mgr-cta__body">
+          Describe what you need in a paragraph. We will reply within one business day with a candid yes, no, or here-is-what-it-takes — and a fixed-price quote if the scope is standard. No NDA to sign. No sales call required.
+        </p>
+        <a href="/#contact" class="btn btn--primary">Start a project →</a>
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.mgr-compare-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.mgr-compare__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.mgr-table {
+  display: flex;
+  flex-direction: column;
+}
+.mgr-table__header,
+.mgr-table__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.mgr-table__header {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--fg-mute);
+  border-bottom-color: var(--line-strong);
+  padding-bottom: 12px;
+}
+.mgr-table__key {
+  font-size: 14px;
+  color: var(--fg-dim);
+}
+.mgr-table__bad {
+  font-size: 14px;
+  color: var(--fg-mute);
+}
+.mgr-table__good {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+.mgr-roi-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.mgr-roi__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.mgr-roi__grid {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+.mgr-roi__heading {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  margin-bottom: 10px;
+}
+.mgr-roi__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 600px;
+}
+
+.mgr-cta-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+}
+.mgr-cta__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.mgr-cta__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 560px;
+  margin-bottom: 32px;
+}
+
+@media (max-width: 999px) {
+  .mgr-compare__inner,
+  .mgr-roi__inner,
+  .mgr-cta__inner { grid-template-columns: 1fr; gap: 24px; }
+  .mgr-table__header,
+  .mgr-table__row { grid-template-columns: 1fr 1fr; }
+  .mgr-table__header span:first-child,
+  .mgr-table__key { display: none; }
+}
+@media (max-width: 767px) {
+  .mgr-table__header,
+  .mgr-table__row { grid-template-columns: 1fr 1fr; gap: 12px; }
+}
+</style>

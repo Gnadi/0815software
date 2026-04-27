@@ -1,0 +1,160 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const tenets = [
+  {
+    n: 'M-01',
+    statement: 'Make standard business software a commodity, not a cartel.',
+    detail: 'When the answers to business software problems are well-known and the marginal cost of copying is zero, keeping prices high is cartel behaviour dressed in procurement clothes. We release everything under MIT to remove ourselves from that dynamic entirely.',
+  },
+  {
+    n: 'M-02',
+    statement: 'Charge for work, not for access.',
+    detail: 'Licensing fees are a tax on knowledge that already exists. We charge for the hours of engineering work required to build, configure, and deploy software in your specific environment. Once delivered, there is no ongoing fee for access to something you already have.',
+  },
+  {
+    n: 'M-03',
+    statement: 'Ship the source with the product.',
+    detail: 'Compiled binaries without source access are a promise with no audit mechanism. Shipping source code is not a generous gesture — it is the minimum standard for software you are expected to trust with production data and business operations.',
+  },
+  {
+    n: 'M-04',
+    statement: 'Leave customers free to leave.',
+    detail: 'Lock-in is a feature that customers pay for accidentally. We design the opposite: software that runs without us, maintained by anyone, documented publicly. If we fail you, the cost is switching a vendor, not rewriting a system.',
+  },
+];
+---
+
+<SubPage
+  title="Mission — 0815software"
+  description="The 0815software mission: make standard business software a commodity, not a cartel."
+  section="§ C2"
+  sectionName="Mission"
+  eyebrow="DIN 0815/C2 · MISSION"
+  heading="The mission."
+  lead="Four tenets. Written down, not laminated."
+>
+
+  <!-- Mission statement card -->
+  <section class="mission-card-section">
+    <div class="mission-card-section__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ C2.01</div>
+        <div class="section-rail__name">Statement</div>
+      </div>
+      <aside class="mission-txt">
+        <div class="mission-txt__header">// MISSION.TXT</div>
+        <div class="mission-txt__body">
+          Make standard business software a <span class="mission-txt__accent">commodity</span>, not a <span class="mission-txt__accent">cartel</span>.<br /><br />
+          Charge for work, not for access.<br />
+          Ship the source with the product.<br />
+          Leave customers free to leave.
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- Tenets expanded -->
+  <section class="mission-tenets-section">
+    <div class="mission-tenets__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ C2.02</div>
+        <div class="section-rail__name">Explained</div>
+      </div>
+      <div class="mission-tenets__list">
+        {tenets.map((t) => (
+          <div class="mission-tenet">
+            <div class="mission-tenet__n">{t.n}</div>
+            <div>
+              <h2 class="mission-tenet__statement">{t.statement}</h2>
+              <p class="mission-tenet__detail">{t.detail}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.mission-card-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.mission-card-section__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.mission-txt {
+  border: 1px solid var(--line-strong);
+  padding: 32px;
+  background: var(--bg);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  line-height: 2.2;
+  max-width: 560px;
+}
+.mission-txt__header {
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 1px;
+  margin-bottom: 20px;
+}
+.mission-txt__body { color: var(--fg); }
+.mission-txt__accent { color: var(--accent); font-weight: 600; }
+
+.mission-tenets-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+}
+.mission-tenets__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.mission-tenets__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.mission-tenet {
+  display: flex;
+  gap: 32px;
+  padding: 36px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: start;
+}
+.mission-tenet__n {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  padding-top: 5px;
+  min-width: 48px;
+}
+.mission-tenet__statement {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  margin-bottom: 12px;
+  max-width: 600px;
+}
+.mission-tenet__detail {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 600px;
+}
+
+@media (max-width: 999px) {
+  .mission-card-section__inner,
+  .mission-tenets__inner { grid-template-columns: 1fr; gap: 24px; }
+}
+</style>

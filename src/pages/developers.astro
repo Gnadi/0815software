@@ -1,0 +1,206 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const techPoints = [
+  {
+    label: 'DEV-01',
+    heading: 'MIT, full stop.',
+    body: 'No open-core, no commercial exception, no AGPL copyleft clause. Fork it, ship it to a client, sell it, modify it. The license is four sentences. Your legal team can read it in under a minute.',
+  },
+  {
+    label: 'DEV-02',
+    heading: 'Public commits from day one.',
+    body: 'Every commit during your project is pushed to a public repository. You can see what we built, when we built it, and why. Daily commits are a contractual default — not a stretch goal.',
+  },
+  {
+    label: 'DEV-03',
+    heading: 'Standard stack, no magic.',
+    body: 'Modules are built to be maintained by whoever you hire next. We avoid clever abstractions, custom DSLs, and framework-of-the-month choices. Boring technology that works in five years is the goal.',
+  },
+  {
+    label: 'DEV-04',
+    heading: 'Handoff includes everything.',
+    body: 'Repository transfer, deploy scripts, architecture docs, and a walkthrough session. Not a ZIP file with a README. You should be able to onboard a new developer on day eight without calling us.',
+  },
+];
+
+const handoffItems = [
+  'Full repository transferred to your GitHub org',
+  'Terraform / Docker Compose deploy scripts for your target environment',
+  'Architecture decision records for non-obvious choices',
+  'API documentation for all endpoints',
+  'Seed scripts and migration files',
+  'Walkthrough session with the engineer who built it',
+];
+---
+
+<SubPage
+  title="For Developers — 0815software"
+  description="What 0815software modules look like under the hood. MIT-licensed, public commits, no black boxes."
+  section="§ F2"
+  sectionName="Developers"
+  eyebrow="DIN 0815/F2 · FOR DEVELOPERS"
+  heading="Code you can<br />actually work with."
+  lead="Public repositories, boring stack, clean handoff. What you inherit is yours to read, change, and ship."
+>
+
+  <!-- Tech points -->
+  <section class="dev-points-section">
+    <div class="dev-points__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ F2.01</div>
+        <div class="section-rail__name">Principles</div>
+      </div>
+      <div class="dev-points__grid">
+        {techPoints.map((p) => (
+          <article class="dev-point">
+            <div class="dev-point__label">{p.label}</div>
+            <h2 class="dev-point__heading">{p.heading}</h2>
+            <p class="dev-point__body">{p.body}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Handoff checklist -->
+  <section class="dev-handoff-section">
+    <div class="dev-handoff__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ F2.02</div>
+        <div class="section-rail__name">Handoff</div>
+      </div>
+      <div class="dev-handoff__content">
+        <h2 class="dev-handoff__h2">What every handoff includes.</h2>
+        <ul class="dev-handoff__list">
+          {handoffItems.map((item) => (
+            <li class="dev-handoff__item">
+              <span class="dev-handoff__bullet">→</span>
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- GitHub CTA -->
+  <section class="dev-cta-section">
+    <div class="dev-cta__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ F2.03</div>
+        <div class="section-rail__name">Source</div>
+      </div>
+      <div>
+        <p class="dev-cta__body">
+          The source is on GitHub. Read it before you decide. Open an issue if something looks wrong. We merge good PRs.
+        </p>
+        <a href="https://github.com/Gnadi/0815software" target="_blank" rel="noopener noreferrer" class="btn btn--ghost">View source on GitHub ↗</a>
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.dev-points-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.dev-points__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.dev-points__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px 64px;
+}
+.dev-point__label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.8px;
+  margin-bottom: 14px;
+}
+.dev-point__heading {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  margin-bottom: 12px;
+}
+.dev-point__body {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+}
+
+.dev-handoff-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.dev-handoff__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.dev-handoff__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+  margin-bottom: 28px;
+}
+.dev-handoff__list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dev-handoff__item {
+  display: flex;
+  gap: 14px;
+  font-size: 15px;
+  color: var(--fg-dim);
+  line-height: 1.5;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.dev-handoff__bullet {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.dev-cta-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+}
+.dev-cta__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.dev-cta__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 520px;
+  margin-bottom: 32px;
+}
+
+@media (max-width: 999px) {
+  .dev-points__inner,
+  .dev-handoff__inner,
+  .dev-cta__inner { grid-template-columns: 1fr; gap: 24px; }
+  .dev-points__grid { grid-template-columns: 1fr; gap: 32px; }
+}
+</style>

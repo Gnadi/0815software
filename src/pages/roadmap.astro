@@ -1,0 +1,263 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+type Status = 'shipped' | 'progress' | 'planned' | 'considering';
+
+const items: { status: Status; title: string; note: string; target: string }[] = [
+  { status: 'shipped',    title: 'Customer Portal v1',         note: 'Delivered with first client engagement',      target: 'Q1 2026' },
+  { status: 'shipped',    title: 'Admin Dashboard v1',         note: 'Generic CRUD interface, fully customisable',  target: 'Q1 2026' },
+  { status: 'shipped',    title: 'Inventory Management v1',    note: 'Stock, SKUs, warehouse locations',            target: 'Q1 2026' },
+  { status: 'progress',   title: 'Invoice & Billing v1',       note: 'PDF engine in review, payment hooks pending', target: 'Q2 2026' },
+  { status: 'progress',   title: 'Document Management v1',     note: 'Access control model being finalised',        target: 'Q2 2026' },
+  { status: 'planned',    title: 'CRM Lite v1',                note: 'Scope locked, build starts Q3',              target: 'Q3 2026' },
+  { status: 'planned',    title: 'Reporting Suite v1',         note: 'Charting library decision pending',           target: 'Q3 2026' },
+  { status: 'planned',    title: 'Procurement Tracker v1',     note: 'Approval workflow RFC in progress',           target: 'Q4 2026' },
+  { status: 'considering','title': 'Mobile companion apps',    note: 'Waiting on demonstrated client demand',       target: '—' },
+  { status: 'considering','title': 'Multi-tenant SaaS mode',   note: 'Architecture RFC open on GitHub',             target: '—' },
+  { status: 'considering','title': 'SSO / SAML integration',   note: 'Frequently requested, scoping effort',        target: '—' },
+];
+
+const statusLabel: Record<Status, string> = {
+  shipped:    '● SHIPPED',
+  progress:   '◑ IN PROGRESS',
+  planned:    '○ PLANNED',
+  considering:'◻ CONSIDERING',
+};
+---
+
+<SubPage
+  title="Roadmap — 0815software"
+  description="The public 0815software product roadmap. What has shipped, what is in progress, and what is planned — updated as items move."
+  section="§ P2"
+  sectionName="Roadmap"
+  eyebrow="DIN 0815/R · PUBLIC ROADMAP"
+  heading={"What's next,<br />and when."}
+  lead="No hidden backlog. No roadmap theatre. These are the items with a committed sequence — updated as they ship."
+>
+
+  <!-- Status key -->
+  <section class="roadmap-key-section">
+    <div class="roadmap-key__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P2.01</div>
+        <div class="section-rail__name">Status key</div>
+      </div>
+      <div class="roadmap-key__badges">
+        <span class="status-badge status-badge--shipped">● SHIPPED</span>
+        <span class="status-badge status-badge--progress">◑ IN PROGRESS</span>
+        <span class="status-badge status-badge--planned">○ PLANNED</span>
+        <span class="status-badge status-badge--considering">◻ CONSIDERING</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Roadmap table -->
+  <section class="roadmap-table-section">
+    <div class="roadmap-table__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P2.02</div>
+        <div class="section-rail__name">Items</div>
+      </div>
+      <div class="roadmap-table">
+        <!-- Table header -->
+        <div class="roadmap-table__header">
+          <span>STATUS</span>
+          <span>ITEM</span>
+          <span>NOTE</span>
+          <span class="roadmap-table__target-col">TARGET</span>
+        </div>
+        <!-- Table rows -->
+        {items.map((item) => (
+          <div class={`roadmap-row roadmap-row--${item.status}`}>
+            <span class={`roadmap-row__status roadmap-row__status--${item.status}`}>
+              {statusLabel[item.status]}
+            </span>
+            <span class="roadmap-row__title">{item.title}</span>
+            <span class="roadmap-row__note">{item.note}</span>
+            <span class="roadmap-row__target">{item.target}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- GitHub note -->
+  <section class="roadmap-note-section">
+    <div class="roadmap-note__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P2.03</div>
+        <div class="section-rail__name">Contribute</div>
+      </div>
+      <p class="roadmap-note__body">
+        The full issue tracker is on <a href="https://github.com/Gnadi/0815software" target="_blank" rel="noopener noreferrer" class="roadmap-note__link">GitHub ↗</a>. If you need something that is not here, open an issue or write to <a href="mailto:hello@0815software.com" class="roadmap-note__link">hello@0815software.com</a>. Items get added to this roadmap once they have a committed sequence, not before.
+      </p>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+/* ─── Status key ──────────────────────────────────────────────────── */
+.roadmap-key-section {
+  padding: 40px var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+
+.roadmap-key__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: center;
+}
+
+.roadmap-key__badges {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.status-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  color: var(--fg-mute);
+}
+
+.status-badge--shipped    { color: var(--accent); border-color: rgba(232, 228, 220, 0.35); }
+.status-badge--progress   { color: var(--fg-dim); }
+.status-badge--planned    { color: var(--fg-mute); }
+.status-badge--considering{ color: var(--fg-mute); opacity: 0.6; }
+
+/* ─── Roadmap table ───────────────────────────────────────────────── */
+.roadmap-table-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+
+.roadmap-table__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.roadmap-table {
+  display: flex;
+  flex-direction: column;
+}
+
+.roadmap-table__header {
+  display: grid;
+  grid-template-columns: 160px 1fr 1fr 80px;
+  gap: 24px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-strong);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--fg-mute);
+}
+
+.roadmap-row {
+  display: grid;
+  grid-template-columns: 160px 1fr 1fr 80px;
+  gap: 24px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+
+.roadmap-row__status {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  color: var(--fg-mute);
+}
+.roadmap-row__status--shipped    { color: var(--accent); }
+.roadmap-row__status--progress   { color: var(--fg-dim); }
+.roadmap-row__status--planned    { color: var(--fg-mute); }
+.roadmap-row__status--considering{ color: var(--fg-mute); opacity: 0.6; }
+
+.roadmap-row__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.roadmap-row--shipped .roadmap-row__title {
+  color: var(--fg-dim);
+}
+
+.roadmap-row__note {
+  font-size: 13px;
+  color: var(--fg-mute);
+  line-height: 1.5;
+}
+
+.roadmap-row__target {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-mute);
+  letter-spacing: 0.3px;
+}
+
+/* ─── GitHub note ─────────────────────────────────────────────────── */
+.roadmap-note-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+}
+
+.roadmap-note__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.roadmap-note__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 640px;
+}
+
+.roadmap-note__link {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--line-strong);
+  transition: text-decoration-color 100ms ease-out;
+}
+.roadmap-note__link:hover { text-decoration-color: var(--fg); }
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  .roadmap-table__header,
+  .roadmap-row { grid-template-columns: 140px 1fr 1fr 72px; gap: 16px; }
+  .roadmap-key__inner,
+  .roadmap-table__inner,
+  .roadmap-note__inner { gap: 32px; }
+}
+
+@media (max-width: 999px) {
+  .roadmap-key__inner,
+  .roadmap-table__inner,
+  .roadmap-note__inner { grid-template-columns: 1fr; }
+  .roadmap-table__header { display: none; }
+  .roadmap-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 20px 0;
+  }
+  .roadmap-row__target { color: var(--fg-mute); }
+  .roadmap-table__target-col { display: none; }
+}
+
+@media (max-width: 767px) {
+  .roadmap-key__badges { gap: 8px; }
+}
+</style>

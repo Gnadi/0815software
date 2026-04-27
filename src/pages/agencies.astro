@@ -1,0 +1,145 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const useCases = [
+  {
+    n: 'AG-01',
+    title: 'Client delivery',
+    body: 'Build on top of a 0815 module and deliver it to your client. MIT means you can white-label it, rebrand it, or ship it as your own work. No royalties, no attribution requirement beyond the license notice.',
+  },
+  {
+    n: 'AG-02',
+    title: 'Accelerated scoping',
+    body: 'Use our module catalogue as a scope menu with clients. "It is a Customer Portal — four weeks, fixed price" is a faster sales conversation than a custom discovery phase for every project.',
+  },
+  {
+    n: 'AG-03',
+    title: 'Subcontract to us',
+    body: 'If you have a client who needs something from the catalogue but your team is at capacity, we can build it under your brand. Repository lands in your org or your client\'s, your choice.',
+  },
+  {
+    n: 'AG-04',
+    title: 'Extend and maintain',
+    body: 'Fork a module, customise it for a vertical, and maintain the fork. The codebase is designed to be readable and extended by teams who did not write it originally.',
+  },
+];
+---
+
+<SubPage
+  title="For Agencies — 0815software"
+  description="MIT-licensed modules you can fork, brand, and ship to clients. How agencies and consultancies work with 0815software."
+  section="§ F5"
+  sectionName="Agencies"
+  eyebrow="DIN 0815/F5 · FOR AGENCIES"
+  heading="Build it for<br />your clients."
+  lead="MIT-licensed means fork it, brand it, ship it. No royalties, no restrictions, no permission required."
+>
+
+  <!-- Use cases -->
+  <section class="ag-cases-section">
+    <div class="ag-cases__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ F5.01</div>
+        <div class="section-rail__name">Use cases</div>
+      </div>
+      <div class="ag-cases__grid">
+        {useCases.map((c) => (
+          <article class="ag-case">
+            <div class="ag-case__n">{c.n}</div>
+            <h2 class="ag-case__title">{c.title}</h2>
+            <p class="ag-case__body">{c.body}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Partnership note -->
+  <section class="ag-partner-section">
+    <div class="ag-partner__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ F5.02</div>
+        <div class="section-rail__name">Partnership</div>
+      </div>
+      <div class="ag-partner__content">
+        <h2 class="ag-partner__h2">No formal partnership programme.</h2>
+        <p class="ag-partner__body">
+          We do not have a partner tier, a reseller agreement, or a certification programme. The MIT license is the partnership. If you want to discuss an ongoing subcontracting arrangement or a volume commitment, write to <a href="mailto:hello@0815software.com" class="ag-link">hello@0815software.com</a> with a brief on what you are building.
+        </p>
+        <a href="/#contact" class="btn btn--ghost">Get in touch →</a>
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.ag-cases-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.ag-cases__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.ag-cases__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px 64px;
+}
+.ag-case__n {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.8px;
+  margin-bottom: 14px;
+}
+.ag-case__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  margin-bottom: 12px;
+}
+.ag-case__body {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+}
+
+.ag-partner-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+}
+.ag-partner__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.ag-partner__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+  margin-bottom: 16px;
+}
+.ag-partner__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 560px;
+  margin-bottom: 32px;
+}
+.ag-link { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong); }
+.ag-link:hover { text-decoration-color: var(--fg); }
+
+@media (max-width: 999px) {
+  .ag-cases__inner,
+  .ag-partner__inner { grid-template-columns: 1fr; gap: 24px; }
+  .ag-cases__grid { grid-template-columns: 1fr; gap: 32px; }
+}
+</style>

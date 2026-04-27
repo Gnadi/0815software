@@ -1,0 +1,274 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const cases = [
+  {
+    id: 'CS-01',
+    industry: 'LOGISTICS',
+    duration: '4 WKS',
+    title: 'Order tracking portal for a Linz freight forwarder',
+    body: 'A regional freight forwarder had been quoted €48,000 per year for a SaaS customer portal. They needed shipment status visibility and CMR document downloads for their clients. We built a Customer Portal and Admin Dashboard on top of their existing PostgreSQL schema — no migration, no replatform. Handed off the repository in four weeks. Their running cost is the server they already owned.',
+    modules: 'Customer Portal, Admin Dashboard',
+    handoff: '4 weeks',
+    wide: false,
+  },
+  {
+    id: 'CS-02',
+    industry: 'LEGAL',
+    duration: '3 WKS',
+    title: 'Document management for a Vienna law firm',
+    body: 'A Vienna law firm needed matter-based document management with per-role access controls. Off-the-shelf DMS products required per-seat licenses at €180/seat/month across forty staff. We built a Document Management module scoped to their matter structure with PDF preview, role-based access, and a simple audit log. Three-week implementation, zero ongoing licence cost.',
+    modules: 'Document Management',
+    handoff: '3 weeks',
+    wide: false,
+  },
+  {
+    id: 'CS-03',
+    industry: 'MANUFACTURING',
+    duration: '6 WKS',
+    title: 'Procurement workflow for a Steyr precision parts manufacturer',
+    body: 'A precision parts manufacturer was running procurement through a shared Excel spreadsheet and email approval chains. Purchase orders were missed, approval history was unauditable, and their ERP vendor had quoted €22,000 for an add-on module that would have required a six-month integration project. We implemented the Procurement Tracker with a three-tier approval chain, vendor contact database, and CSV export matched to their ERP import format. Six weeks from scoping call to repository hand-off. The spreadsheet is now archived.',
+    modules: 'Procurement Tracker, Admin Dashboard',
+    handoff: '6 weeks',
+    wide: true,
+  },
+];
+---
+
+<SubPage
+  title="Case Studies — 0815software"
+  description="Real 0815software projects. What was needed, what was built, how long it took."
+  section="§ P4"
+  sectionName="Case Studies"
+  eyebrow="DIN 0815/CS · CASE STUDIES"
+  heading="Work on record."
+  lead="Standard scopes, documented. What was needed, what was built, how long it took."
+>
+
+  <!-- Case study cards -->
+  <section class="cs-section">
+    <div class="cs-section__head">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P4.01</div>
+        <div class="section-rail__name">Projects</div>
+      </div>
+      <p class="cs-section__intro">
+        All projects below were fixed-price. Scope was agreed in one meeting. Client names are withheld by default; sectors and outcomes are accurate.
+      </p>
+    </div>
+
+    <div class="cs-grid">
+      <div class="cs-grid__spacer" aria-hidden="true"></div>
+      {cases.filter(c => !c.wide).map((c) => (
+        <article class="cs-card">
+          <div class="cs-card__label">{c.id} · {c.industry} · {c.duration}</div>
+          <h2 class="cs-card__title">{c.title}</h2>
+          <p class="cs-card__body">{c.body}</p>
+          <div class="cs-card__meta">
+            <div class="cs-card__meta-item">
+              <span class="cs-card__meta-key">MODULES USED</span>
+              <span class="cs-card__meta-val">{c.modules}</span>
+            </div>
+            <div class="cs-card__meta-item">
+              <span class="cs-card__meta-key">TIME TO HAND-OFF</span>
+              <span class="cs-card__meta-val">{c.handoff}</span>
+            </div>
+          </div>
+        </article>
+      ))}
+    </div>
+
+    <!-- Wide card -->
+    {cases.filter(c => c.wide).map((c) => (
+      <div class="cs-wide-row">
+        <div class="cs-grid__spacer" aria-hidden="true"></div>
+        <article class="cs-card cs-card--wide">
+          <div class="cs-card__label">{c.id} · {c.industry} · {c.duration}</div>
+          <h2 class="cs-card__title">{c.title}</h2>
+          <p class="cs-card__body">{c.body}</p>
+          <div class="cs-card__meta">
+            <div class="cs-card__meta-item">
+              <span class="cs-card__meta-key">MODULES USED</span>
+              <span class="cs-card__meta-val">{c.modules}</span>
+            </div>
+            <div class="cs-card__meta-item">
+              <span class="cs-card__meta-key">TIME TO HAND-OFF</span>
+              <span class="cs-card__meta-val">{c.handoff}</span>
+            </div>
+          </div>
+        </article>
+      </div>
+    ))}
+  </section>
+
+  <!-- CTA -->
+  <section class="cs-cta-section">
+    <div class="cs-cta__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P4.02</div>
+        <div class="section-rail__name">Start</div>
+      </div>
+      <div class="cs-cta__content">
+        <h2 class="cs-cta__h2">Your situation probably maps to one of these.</h2>
+        <p class="cs-cta__body">
+          All projects above were fixed-price. If your scope matches, the quote will be the same. Describe what you need in a paragraph — we will reply within one business day.
+        </p>
+        <a href="/#contact" class="btn btn--ghost">Request a quote →</a>
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+/* ─── Case studies section ────────────────────────────────────────── */
+.cs-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+
+.cs-section__head {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  margin-bottom: 56px;
+  align-items: start;
+}
+
+.cs-section__intro {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 600px;
+}
+
+/* Card grids */
+.cs-grid {
+  display: grid;
+  grid-template-columns: 120px repeat(2, 1fr);
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.cs-grid__spacer { /* empty rail spacer */ }
+
+.cs-wide-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 24px;
+}
+
+/* Card */
+.cs-card {
+  border: 1px solid var(--line-strong);
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+}
+
+.cs-card__label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 1px;
+  margin-bottom: 16px;
+}
+
+.cs-card__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  margin-bottom: 16px;
+  line-height: 1.2;
+}
+
+.cs-card__body {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  flex: 1;
+  margin-bottom: 24px;
+}
+
+.cs-card__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.cs-card__meta-item {
+  display: flex;
+  gap: 16px;
+  align-items: baseline;
+}
+
+.cs-card__meta-key {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 0.8px;
+  flex-shrink: 0;
+  min-width: 140px;
+}
+
+.cs-card__meta-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+/* ─── CTA section ─────────────────────────────────────────────────── */
+.cs-cta-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+}
+
+.cs-cta__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.cs-cta__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 36px;
+  font-weight: 500;
+  letter-spacing: -0.8px;
+  margin-bottom: 20px;
+}
+
+.cs-cta__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 540px;
+  margin-bottom: 32px;
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  .cs-section__head { gap: 32px; }
+  .cs-grid { grid-template-columns: 120px repeat(2, 1fr); gap: 16px; }
+  .cs-wide-row { gap: 16px; }
+}
+
+@media (max-width: 999px) {
+  .cs-section__head { grid-template-columns: 1fr; }
+  .cs-grid { grid-template-columns: 1fr; }
+  .cs-grid__spacer { display: none; }
+  .cs-wide-row { grid-template-columns: 1fr; }
+  .cs-cta__inner { grid-template-columns: 1fr; }
+  .cs-card__meta-item { flex-direction: column; gap: 4px; }
+  .cs-card__meta-key { min-width: unset; }
+}
+
+@media (max-width: 767px) {
+  .cs-card { padding: 20px; }
+  .cs-cta__h2 { font-size: 28px; }
+}
+</style>

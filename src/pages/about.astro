@@ -1,0 +1,187 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const values = [
+  {
+    title: 'Charge for work, not for access.',
+    body: 'The software is free. The thing we sell is implementation, customisation, and expertise. Locking customers into licence agreements for software that cost nothing extra to copy is a business model we reject.',
+  },
+  {
+    title: 'Build the standard thing.',
+    body: 'Most business problems have known solutions. We implement those solutions rather than inventing new ones. "Standard" is not a pejorative — it is a promise that the thing will work, be maintainable, and outlast the hype cycle.',
+  },
+  {
+    title: 'Ship the source with the product.',
+    body: 'Source code is documentation. It is the ultimate specification. Handing over compiled binaries with no right to inspect is the norm in enterprise software. It should not be.',
+  },
+  {
+    title: 'Leave customers free to leave.',
+    body: 'The software runs on your infrastructure, is licensed under MIT, and any developer on earth can maintain it. If we fail you, you lose a vendor relationship — not a production system.',
+  },
+];
+---
+
+<SubPage
+  title="About — 0815software"
+  description="Who we are, what we believe, and why we build software the way we do."
+  section="§ C1"
+  sectionName="About"
+  eyebrow="DIN 0815/C1 · COMPANY"
+  heading='"0815" is German<br />for ordinary.'
+  lead="We take that as a compliment. Most business software is not special — and building it like it is has cost businesses decades of overpriced lock-in."
+>
+
+  <!-- Story -->
+  <section class="about-story-section">
+    <div class="about-story__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ C1.01</div>
+        <div class="section-rail__name">Story</div>
+      </div>
+      <div class="about-story__content">
+        <p class="about-story__body">
+          0815software was started in Linz, Austria by engineers who had spent years building the same CRUD applications over and over — once for €0 on an open-source weekend, and again for €120,000 as a SaaS subscription. The software was identical. The business model was not.
+        </p>
+        <p class="about-story__body">
+          The premise is simple: standard business software is a solved problem. Forms, tables, dashboards, checkout flows, permissions — thirty years of industry experience produced answers to all of these. We package those answers, release them under MIT, and charge only for the implementation work. The code itself is free forever.
+        </p>
+        <p class="about-story__body">
+          We are a small team. We intend to stay small. The business model does not require scale — it requires good work and honest pricing.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Values -->
+  <section class="about-values-section">
+    <div class="about-values__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ C1.02</div>
+        <div class="section-rail__name">Values</div>
+      </div>
+      <div class="about-values__list">
+        {values.map((v) => (
+          <div class="about-value">
+            <h2 class="about-value__title">{v.title}</h2>
+            <p class="about-value__body">{v.body}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Location -->
+  <section class="about-location-section">
+    <div class="about-location__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ C1.03</div>
+        <div class="section-rail__name">Location</div>
+      </div>
+      <div class="about-location__card">
+        <div class="about-location__label">REGISTERED OFFICE</div>
+        <div class="about-location__detail">0815software GmbH</div>
+        <div class="about-location__detail">Linz, Austria · CET</div>
+        <div class="about-location__detail">hello@0815software.com</div>
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.about-story-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.about-story__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.about-story__content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 680px;
+}
+.about-story__body {
+  font-size: 17px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+}
+
+.about-values-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.about-values__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.about-values__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.about-value {
+  padding: 32px 0;
+  border-bottom: 1px solid var(--line);
+  max-width: 720px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.about-value:first-child { padding-top: 0; }
+.about-value__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  max-width: 280px;
+}
+.about-value__body {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+}
+
+.about-location-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+}
+.about-location__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.about-location__card {
+  font-family: 'JetBrains Mono', monospace;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.about-location__label {
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+.about-location__detail { font-size: 13px; color: var(--fg-dim); }
+
+@media (max-width: 999px) {
+  .about-story__inner,
+  .about-values__inner,
+  .about-location__inner { grid-template-columns: 1fr; gap: 24px; }
+  .about-value { grid-template-columns: 1fr; gap: 12px; }
+}
+@media (max-width: 767px) {
+  .about-story__body { font-size: 15px; }
+}
+</style>

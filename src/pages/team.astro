@@ -1,0 +1,154 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const people = [
+  {
+    initials: 'GN',
+    name: 'Gregor Nadlinger',
+    role: 'Founder · Engineering',
+    bio: 'Built enterprise software for a decade before concluding the pricing model was the actual bug. Writes most of the modules. Based in Linz.',
+  },
+  {
+    initials: 'AK',
+    name: 'Anna Kühn',
+    role: 'Engineering',
+    bio: 'Full-stack engineer with a background in logistics and supply chain tooling. Responsible for most of the Procurement and Inventory modules.',
+  },
+];
+---
+
+<SubPage
+  title="Team — 0815software"
+  description="The people at 0815software."
+  section="§ C3"
+  sectionName="Team"
+  eyebrow="DIN 0815/C3 · TEAM"
+  heading="Small team.<br />Public code."
+  lead="Two engineers and an open-source repository. The work is verifiable whether you trust us or not."
+>
+
+  <!-- People -->
+  <section class="team-people-section">
+    <div class="team-people__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ C3.01</div>
+        <div class="section-rail__name">People</div>
+      </div>
+      <div class="team-grid">
+        {people.map((p) => (
+          <div class="team-card">
+            <div class="team-card__avatar" aria-hidden="true">{p.initials}</div>
+            <div>
+              <div class="team-card__name">{p.name}</div>
+              <div class="team-card__role">{p.role}</div>
+              <p class="team-card__bio">{p.bio}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Philosophy note -->
+  <section class="team-note-section">
+    <div class="team-note__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ C3.02</div>
+        <div class="section-rail__name">Why small</div>
+      </div>
+      <div class="team-note__content">
+        <p class="team-note__body">
+          The business model does not require scale. A small team with good processes can deliver standard software faster and cheaper than a large team with a sales function to feed. We add people when the work requires it, not to hit a headcount milestone.
+        </p>
+        <p class="team-note__body">
+          The source code on GitHub is a better reference than any team bio. Read it.
+        </p>
+        <a href="https://github.com/Gnadi/0815software" target="_blank" rel="noopener noreferrer" class="btn btn--ghost">View the source ↗</a>
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.team-people-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.team-people__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.team-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.team-card {
+  display: flex;
+  gap: 32px;
+  padding: 32px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: start;
+}
+.team-card__avatar {
+  width: 52px;
+  height: 52px;
+  border: 1px solid var(--line-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-dim);
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+.team-card__name {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  margin-bottom: 4px;
+}
+.team-card__role {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+.team-card__bio {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  max-width: 480px;
+}
+
+.team-note-section { padding: var(--sec-y-sm) var(--pad-x); }
+.team-note__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.team-note__content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 560px;
+}
+.team-note__body { font-size: 15px; line-height: 1.65; color: var(--fg-dim); }
+
+@media (max-width: 999px) {
+  .team-people__inner,
+  .team-note__inner { grid-template-columns: 1fr; gap: 24px; }
+  .team-card { flex-direction: column; gap: 16px; }
+}
+</style>
