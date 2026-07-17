@@ -9,6 +9,25 @@ export const prerender = false;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Field length caps — generous for humans, a wall for abuse
+const MAX_NAME = 200;
+const MAX_COMPANY = 200;
+const MAX_EMAIL = 320;
+const MAX_MESSAGE = 5000;
+
+// Best-effort per-IP rate limit (in-memory, per serverless instance)
+const RATE_WINDOW_MS = 10 * 60 * 1000;
+const RATE_MAX = 5;
+const hits = new Map<string, number[]>();
+
+function rateLimited(ip: string): boolean {
+  const now = Date.now();
+  const recent = (hits.get(ip) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+  recent.push(now);
+  hits.set(ip, recent);
+  return recent.length > RATE_MAX;
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -16,14 +35,24 @@ function json(body: unknown, status = 200) {
   });
 }
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, clientAddress }) => {
+  // ── Rate limit ────────────────────────────────────────────────────────
+  let ip = 'unknown';
+  try { ip = clientAddress; } catch { /* not available in all runtimes */ }
+  if (rateLimited(ip)) {
+    return json({ error: 'Too many requests. Please try again later.' }, 429);
+  }
+
   // ── Parse body ────────────────────────────────────────────────────────
-  let body: { name?: string; company?: string; email?: string; message?: string };
+  let body: { name?: string; company?: string; email?: string; message?: string; website?: string };
   try {
     body = await request.json();
   } catch {
     return json({ error: 'Invalid request body.' }, 400);
   }
+
+  // Honeypot: a real visitor never fills this field. Pretend success.
+  if (body.website) return json({ ok: true });
 
   const name    = body.name?.trim()    ?? '';
   const company = body.company?.trim() ?? '';
@@ -31,11 +60,15 @@ export const POST: APIRoute = async ({ request }) => {
   const message = body.message?.trim() ?? '';
 
   // ── Validate ──────────────────────────────────────────────────────────
-  if (!name)                      return json({ error: 'Name is required.'            }, 400);
-  if (!email)                     return json({ error: 'Email is required.'           }, 400);
-  if (!EMAIL_RE.test(email))      return json({ error: 'Invalid email address.'       }, 400);
-  if (!message)                   return json({ error: 'Message is required.'         }, 400);
-  if (message.length < 10)        return json({ error: 'Message is too short.'        }, 400);
+  if (!name)                          return json({ error: 'Name is required.'            }, 400);
+  if (name.length > MAX_NAME)         return json({ error: 'Name is too long.'            }, 400);
+  if (company.length > MAX_COMPANY)   return json({ error: 'Company is too long.'         }, 400);
+  if (!email)                         return json({ error: 'Email is required.'           }, 400);
+  if (email.length > MAX_EMAIL)       return json({ error: 'Email is too long.'           }, 400);
+  if (!EMAIL_RE.test(email))          return json({ error: 'Invalid email address.'       }, 400);
+  if (!message)                       return json({ error: 'Message is required.'         }, 400);
+  if (message.length < 10)            return json({ error: 'Message is too short.'        }, 400);
+  if (message.length > MAX_MESSAGE)   return json({ error: 'Message is too long (max 5000 characters).' }, 400);
 
   // ── Send via Resend ───────────────────────────────────────────────────
   const apiKey   = import.meta.env.RESEND_API_KEY;
@@ -69,7 +102,7 @@ export const POST: APIRoute = async ({ request }) => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({ from: fromEmail, to: [toEmail], subject, text, html }),
+        body: JSON.stringify({ from: fromEmail, to: [toEmail], reply_to: email, subject, text, html }),
       });
 
       if (!res.ok) {

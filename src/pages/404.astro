@@ -1,0 +1,49 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+---
+
+<SubPage
+  title="404 — 0815software"
+  description="This page does not exist. The rest of the catalogue does."
+  section="§ 404"
+  sectionName="Not found"
+  eyebrow="DIN 0815/404 · OUT OF SPEC"
+  heading="Not found."
+  lead="This page isn't in the catalogue. Standard problem, standard fix: go back to the index or browse the modules."
+>
+  <section class="nf-section">
+    <div class="nf-section__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ 404.01</div>
+        <div class="section-rail__name">Recovery</div>
+      </div>
+      <div class="nf-actions">
+        <a href="/" class="btn btn--primary">Back to index →</a>
+        <a href="/modules" class="btn btn--ghost">Browse modules</a>
+      </div>
+    </div>
+  </section>
+</SubPage>
+
+<style>
+.nf-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.nf-section__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.nf-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+@media (max-width: 999px) {
+  .nf-section__inner { grid-template-columns: 1fr; gap: 24px; }
+}
+</style>

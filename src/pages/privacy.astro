@@ -1,0 +1,170 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+const controller = [
+  ['CONTROLLER',  '0815software GmbH'],
+  ['ADDRESS',     'Linz, Austria'],
+  ['EMAIL',       'hello@0815software.com'],
+  ['DIRECTOR',    'Gregor Nadlinger'],
+];
+
+const sections = [
+  {
+    n: '§ R6.02',
+    name: 'Contact form',
+    h2: 'Contact form.',
+    body: [
+      'When you use the contact form, we process the data you enter: your name, email address, company (optional), and your message. We use it for exactly one purpose — answering your request and, where it leads to one, preparing a project engagement. The legal basis is Art. 6(1)(b) GDPR (steps prior to entering into a contract) and Art. 6(1)(f) GDPR (our legitimate interest in responding to inquiries).',
+      'Submissions are delivered to our inbox via Resend (Resend, Inc., USA), which acts as our email processor. Transfers to the USA are safeguarded by the EU Standard Contractual Clauses. We keep correspondence for as long as needed to handle your request, and beyond that only where statutory retention duties (e.g. tax law) require it.',
+    ],
+  },
+  {
+    n: '§ R6.03',
+    name: 'Hosting',
+    h2: 'Hosting & server logs.',
+    body: [
+      'This site is hosted by Vercel Inc. (USA). When you visit, Vercel technically processes your IP address and standard request metadata (time, requested URL, user agent) to deliver the pages and keep the service secure — Art. 6(1)(f) GDPR. Transfers are covered by the EU Standard Contractual Clauses. We do not merge these logs with any other data.',
+    ],
+  },
+  {
+    n: '§ R6.04',
+    name: 'No tracking',
+    h2: 'No cookies. No analytics. No third-party fonts.',
+    body: [
+      'This site sets no cookies and runs no analytics, advertising, or tracking scripts. Fonts are served from our own host — no requests go to Google or any other font CDN.',
+      'One value is stored in your browser\'s localStorage: your language choice (EN/DE), so the site remembers it. It never leaves your device, and you can remove it at any time via your browser settings.',
+    ],
+  },
+  {
+    n: '§ R6.05',
+    name: 'Your rights',
+    h2: 'Your rights.',
+    body: [
+      'Under the GDPR you have the right to access, rectification, erasure, restriction of processing, data portability, and objection (Art. 15–21 GDPR). Where processing is based on legitimate interest, you may object at any time. To exercise any of these rights, one email to hello@0815software.com is enough.',
+      'You also have the right to lodge a complaint with a supervisory authority — in Austria, the Datenschutzbehörde (dsb.gv.at).',
+    ],
+  },
+];
+---
+
+<SubPage
+  title="Privacy — 0815software"
+  description="Privacy policy (Datenschutzerklärung) for 0815software: what we process, why, and your rights under the GDPR. No cookies, no analytics, no tracking."
+  section="§ R6"
+  sectionName="Privacy"
+  eyebrow="DIN 0815/R6 · PRIVACY POLICY"
+  heading="Privacy."
+  lead="What we process, why, and for how long — in plain language. The short version: no cookies, no analytics, no tracking. We only process what you send us."
+>
+
+  <!-- Controller -->
+  <section class="privacy-details-section">
+    <div class="privacy-details__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ R6.01</div>
+        <div class="section-rail__name">Controller</div>
+      </div>
+      <div class="privacy-table">
+        {controller.map(([key, val]) => (
+          <div class="privacy-row">
+            <dt class="privacy-row__key">{key}</dt>
+            <dd class="privacy-row__val">{val}</dd>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Sections -->
+  {sections.map((s, i) => (
+    <section class={`privacy-body-section${i % 2 === 0 ? ' privacy-body-section--alt' : ''}`}>
+      <div class="privacy-body__inner">
+        <div class="section-rail" aria-hidden="true">
+          <div class="section-rail__num">{s.n}</div>
+          <div class="section-rail__name">{s.name}</div>
+        </div>
+        <div class="privacy-body__content">
+          <h2 class="privacy-body__h2">{s.h2}</h2>
+          {s.body.map((p) => <p class="privacy-body__p">{p}</p>)}
+        </div>
+      </div>
+    </section>
+  ))}
+
+</SubPage>
+
+<style>
+.privacy-details-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.privacy-details__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.privacy-table {
+  display: flex;
+  flex-direction: column;
+  max-width: 680px;
+}
+.privacy-row {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 32px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.privacy-row__key {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--fg-mute);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+.privacy-row__val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.privacy-body-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.privacy-body-section--alt { background: var(--bg-2); }
+.privacy-body__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.privacy-body__content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 680px;
+}
+.privacy-body__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  margin-bottom: 4px;
+}
+.privacy-body__p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--fg-dim);
+}
+
+@media (max-width: 999px) {
+  .privacy-details__inner,
+  .privacy-body__inner { grid-template-columns: 1fr; gap: 24px; }
+  .privacy-row { grid-template-columns: 1fr; gap: 4px; }
+}
+</style>
