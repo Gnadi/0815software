@@ -1,4 +1,16 @@
 ---
+// Self-hosted fonts (GDPR: no requests to Google's CDN)
+import '@fontsource/inter-tight/400.css';
+import '@fontsource/inter-tight/400-italic.css';
+import '@fontsource/inter-tight/500.css';
+import '@fontsource/inter-tight/600.css';
+import '@fontsource/inter-tight/700.css';
+import '@fontsource/jetbrains-mono/400.css';
+import '@fontsource/jetbrains-mono/500.css';
+import '@fontsource/jetbrains-mono/600.css';
+import '@fontsource/instrument-serif/400.css';
+import '@fontsource/instrument-serif/400-italic.css';
+
 interface Props {
   title?: string;
   description?: string;
@@ -8,6 +20,19 @@ const {
   title = '0815software — Standard software, built to a higher standard.',
   description = 'CRUD apps, dashboards, storefronts and internal tools — shipped in weeks, MIT-licensed, with every line of source code in your hands on day one.',
 } = Astro.props;
+
+const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : Astro.url.href;
+
+const orgSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'Organization',
+  name: '0815software',
+  url: Astro.site?.href ?? 'https://0815software.vercel.app/',
+  email: 'hello@0815software.com',
+  description,
+  address: { '@type': 'PostalAddress', addressLocality: 'Linz', addressCountry: 'AT' },
+  sameAs: ['https://github.com/Gnadi/0815software'],
+};
 ---
 
 <!doctype html>
@@ -19,14 +44,19 @@ const {
     <title>{title}</title>
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href={canonical} />
 
-    <!-- Google Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Open Graph / Twitter -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="0815software" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+
+    <script type="application/ld+json" set:html={JSON.stringify(orgSchema)} />
   </head>
   <body>
     <slot />
