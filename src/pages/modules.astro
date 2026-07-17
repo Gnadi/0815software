@@ -5,7 +5,7 @@ export const prerender = true;
 
 const modules = [
   { n: 'MOD-01', title: 'Customer Portal',       body: 'Self-service access to orders, documents, and status. No account manager required.',          scope: '3–4 WKS' },
-  { n: 'MOD-02', title: 'Admin Dashboard',        body: 'Internal CRUD interface over any data model. Tables, filters, bulk actions, exports.',         scope: '2–3 WKS' },
+  { n: 'MOD-02', title: 'Admin Dashboard',        body: 'Internal CRUD interface over any data model. Tables, filters, bulk actions, exports.',         scope: '2–3 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-02-admin-dashboard' },
   { n: 'MOD-03', title: 'Inventory Management',   body: 'Stock levels, SKUs, warehouse locations, and purchase order tracking in one place.',           scope: '4–5 WKS' },
   { n: 'MOD-04', title: 'Invoice & Billing',      body: 'Generate, send, and track invoices. PDF export, payment status, customer ledger.',             scope: '3–4 WKS' },
   { n: 'MOD-05', title: 'Employee Directory',     body: 'Org chart, roles, contact data, and department structure. Integrates with HR onboarding.',     scope: '2–3 WKS' },
@@ -48,7 +48,12 @@ const modules = [
           <div class="mod-card__num">{mod.n}</div>
           <h2 class="mod-card__title">{mod.title}</h2>
           <p class="mod-card__body">{mod.body}</p>
-          <div class="mod-card__meta">TYPICAL SCOPE · {mod.scope}</div>
+          <div class="mod-card__meta">
+            <span>TYPICAL SCOPE · {mod.scope}</span>
+            {'source' in mod && (
+              <a class="mod-card__source" href={mod.source} target="_blank" rel="noopener">SOURCE ↗</a>
+            )}
+          </div>
         </article>
       ))}
     </div>
@@ -135,12 +140,25 @@ const modules = [
 }
 
 .mod-card__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   color: var(--fg-mute);
   letter-spacing: 0.8px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
+}
+
+.mod-card__source {
+  color: var(--accent);
+  transition: opacity 100ms ease-out;
+}
+
+.mod-card__source:hover {
+  opacity: 0.8;
 }
 
 /* ─── CTA section ─────────────────────────────────────────────────── */
