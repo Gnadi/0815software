@@ -1,0 +1,37 @@
+{
+  "name": "@0815software/mod-01-customer-portal",
+  "version": "0.1.0",
+  "description": "MOD-01 Customer Portal — self-service access to orders, documents, and status. No account manager required.",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev:api": "tsx watch server/index.ts",
+    "dev:web": "vite",
+    "seed": "tsx server/seed.ts",
+    "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json && vite build",
+    "start": "node dist/server/server/index.js",
+    "test": "vitest run",
+    "preview": "npm run build && npm start"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "express": "^5.1.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.5",
+    "@types/node": "^22.19.11",
+    "@types/react": "^19.2.13",
+    "@types/react-dom": "^19.2.3",
+    "@types/supertest": "^6.0.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "supertest": "^7.1.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.4",
+    "vitest": "^3.2.4"
+  }
+}

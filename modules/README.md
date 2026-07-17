@@ -2,14 +2,15 @@
 
 The 0815software module catalogue: twelve standard modules for standard
 business problems, each shipped MIT-licensed with full source code. This
-directory holds the implementations. **MOD-02 Admin Dashboard is
-implemented**; the other eleven are planned and will be published here as
-they are built. See the [catalogue page](https://0815software.com/modules)
-for scopes and descriptions.
+directory holds the implementations. **MOD-01 Customer Portal and MOD-02
+Admin Dashboard are implemented**; the other ten are planned and will be
+published here as they are built. See the
+[catalogue page](https://0815software.com/modules) for scopes and
+descriptions.
 
 | #      | Module                | Status      | Source                                             |
 | ------ | --------------------- | ----------- | -------------------------------------------------- |
-| MOD-01 | Customer Portal       | Planned     | —                                                  |
+| MOD-01 | Customer Portal       | **Available** | [mod-01-customer-portal](./mod-01-customer-portal) |
 | MOD-02 | Admin Dashboard       | **Available** | [mod-02-admin-dashboard](./mod-02-admin-dashboard) |
 | MOD-03 | Inventory Management  | Planned     | —                                                  |
 | MOD-04 | Invoice & Billing     | Planned     | —                                                  |
