@@ -4,9 +4,9 @@ The 0815software module catalogue: twelve standard modules for standard
 business problems, each shipped MIT-licensed with full source code. This
 directory holds the implementations. **MOD-01 Customer Portal, MOD-02
 Admin Dashboard, MOD-03 Inventory Management, MOD-04 Invoice & Billing,
-MOD-05 Employee Directory and MOD-06 Procurement Tracker are
-implemented**; the other six are planned and will be published here as
-they are built. See the
+MOD-05 Employee Directory, MOD-06 Procurement Tracker and MOD-07
+Storefront are implemented**; the other five are planned and will be
+published here as they are built. See the
 [catalogue page](https://0815software.com/modules) for scopes and
 descriptions.
 
@@ -18,7 +18,7 @@ descriptions.
 | MOD-04 | Invoice & Billing     | **Available** | [mod-04-invoice-billing](./mod-04-invoice-billing) |
 | MOD-05 | Employee Directory    | **Available** | [mod-05-employee-directory](./mod-05-employee-directory) |
 | MOD-06 | Procurement Tracker   | **Available** | [mod-06-procurement-tracker](./mod-06-procurement-tracker) |
-| MOD-07 | Storefront            | Planned     | —                                                  |
+| MOD-07 | Storefront            | **Available** | [mod-07-storefront](./mod-07-storefront) |
 | MOD-08 | Reporting Suite       | Planned     | —                                                  |
 | MOD-09 | Document Management   | Planned     | —                                                  |
 | MOD-10 | CRM Lite              | Planned     | —                                                  |
