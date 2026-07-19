@@ -5,8 +5,9 @@ business problems, each shipped MIT-licensed with full source code. This
 directory holds the implementations. **MOD-01 Customer Portal, MOD-02
 Admin Dashboard, MOD-03 Inventory Management, MOD-04 Invoice & Billing,
 MOD-05 Employee Directory, MOD-06 Procurement Tracker, MOD-07
-Storefront and MOD-08 Reporting Suite are implemented**; the other four
-are planned and will be published here as they are built. See the
+Storefront, MOD-08 Reporting Suite and MOD-09 Document Management are
+implemented**; the other three are planned and will be published here as
+they are built. See the
 [catalogue page](https://0815software.com/modules) for scopes and
 descriptions.
 
@@ -20,7 +21,7 @@ descriptions.
 | MOD-06 | Procurement Tracker   | **Available** | [mod-06-procurement-tracker](./mod-06-procurement-tracker) |
 | MOD-07 | Storefront            | **Available** | [mod-07-storefront](./mod-07-storefront) |
 | MOD-08 | Reporting Suite       | **Available** | [mod-08-reporting-suite](./mod-08-reporting-suite) |
-| MOD-09 | Document Management   | Planned     | —                                                  |
+| MOD-09 | Document Management   | **Available** | [mod-09-document-management](./mod-09-document-management) |
 | MOD-10 | CRM Lite              | Planned     | —                                                  |
 | MOD-11 | Time Tracking         | Planned     | —                                                  |
 | MOD-12 | Support Ticket System | Planned     | —                                                  |
