@@ -4,7 +4,7 @@
 // shared renderer lives in src/lib/demo-engine.ts and understands the view
 // types declared below. Data here is representative — not a real dataset.
 
-export interface Stat { label: string; value: string; sub?: string }
+export interface Stat { label: string; value: string; sub?: string; id?: string }
 export interface Column { key: string; label: string; cls?: 'mono' | 'num' | 'dim'; status?: boolean }
 
 export interface TimelineEvent { label: string; at: string; done?: boolean }
@@ -354,8 +354,8 @@ export const demos: Record<string, DemoConfig> = {
     headline: 'Public shop — add items to the cart and the totals recompute; checkout is atomic against stock.',
     stats: [
       { label: 'Products', value: '6' },
-      { label: 'In cart', value: '0', sub: 'items' },
-      { label: 'Cart total', value: '€ 0.00' },
+      { label: 'In cart', value: '0', sub: 'items', id: 'cartCount' },
+      { label: 'Cart total', value: '€ 0.00', id: 'cartTotal' },
     ],
     tabs: [
       {

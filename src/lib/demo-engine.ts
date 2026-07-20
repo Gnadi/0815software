@@ -270,7 +270,7 @@ function renderBoard(tab: Extract<Tab, { type: 'board' }>): HTMLElement {
 }
 
 // ── CATALOG view (storefront) ────────────────────────────────────────────────
-function renderCatalog(tab: Extract<Tab, { type: 'catalog' }>): HTMLElement {
+function renderCatalog(tab: Extract<Tab, { type: 'catalog' }>, updateStat: StatUpdater): HTMLElement {
   const wrap = el('div', { class: 'd-view d-shop' });
   const cart = new Map<string, number>();
   const grid = el('div', { class: 'd-grid' });
@@ -302,18 +302,26 @@ function renderCatalog(tab: Extract<Tab, { type: 'catalog' }>): HTMLElement {
     ]));
   });
 
+  function syncStats(count: number, gross: number) {
+    updateStat('cartCount', String(count));
+    updateStat('cartTotal', eur(gross));
+  }
+
   function drawCart() {
     side.innerHTML = '';
     side.append(el('div', { class: 'd-cart__head' }, ['Cart']));
     if (cart.size === 0) {
       side.append(el('p', { class: 'd-cart__empty' }, ['Your cart is empty.']));
+      syncStats(0, 0);
       return;
     }
     let net = 0;
+    let count = 0;
     cart.forEach((qty, id) => {
       const p = tab.products.find((x) => x.id === id)!;
       const amt = p.price * qty;
       net += amt;
+      count += qty;
       side.append(el('div', { class: 'd-cart__line' }, [
         el('span', { class: 'd-cart__name' }, [p.name]),
         el('span', { class: 'd-cart__qty' }, [
@@ -325,6 +333,7 @@ function renderCatalog(tab: Extract<Tab, { type: 'catalog' }>): HTMLElement {
       ]));
     });
     const vat = net * 0.20;
+    syncStats(count, net + vat);
     side.append(el('div', { class: 'd-cart__foot' }, [
       totalRow('Net', eur(net)),
       totalRow('VAT 20%', eur(vat)),
@@ -524,11 +533,13 @@ function renderBuilder(tab: Extract<Tab, { type: 'builder' }>): HTMLElement {
 }
 
 // ── dispatcher ───────────────────────────────────────────────────────────────
-function renderTab(tab: Tab, root: HTMLElement): HTMLElement {
+type StatUpdater = (id: string, value: string) => void;
+
+function renderTab(tab: Tab, root: HTMLElement, updateStat: StatUpdater): HTMLElement {
   switch (tab.type) {
     case 'list': return renderList(tab, root);
     case 'board': return renderBoard(tab);
-    case 'catalog': return renderCatalog(tab);
+    case 'catalog': return renderCatalog(tab, updateStat);
     case 'report': return renderReport(tab);
     case 'timesheet': return renderTimesheet(tab);
     case 'tree': return renderTree(tab);
@@ -539,13 +550,20 @@ function renderTab(tab: Tab, root: HTMLElement): HTMLElement {
 export function mountDemo(root: HTMLElement, config: DemoConfig) {
   root.innerHTML = '';
 
-  // Stats row
-  root.append(el('div', { class: 'd-stats' }, config.stats.map((s) =>
-    el('div', { class: 'd-stat' }, [
-      el('div', { class: 'd-stat__value' }, [s.value]),
+  // Stats row — keep a reference to any stat that carries an id so views can
+  // push live updates into it (e.g. the storefront cart count / total).
+  const statRefs: Record<string, HTMLElement> = {};
+  root.append(el('div', { class: 'd-stats' }, config.stats.map((s) => {
+    const valueEl = el('div', { class: 'd-stat__value' }, [s.value]);
+    if (s.id) statRefs[s.id] = valueEl;
+    return el('div', { class: 'd-stat' }, [
+      valueEl,
       el('div', { class: 'd-stat__label' }, [s.label + (s.sub ? ' ' + s.sub : '')]),
-    ]),
-  )));
+    ]);
+  })));
+  const updateStat: StatUpdater = (id, value) => {
+    if (statRefs[id]) statRefs[id].textContent = value;
+  };
 
   const app = el('div', { class: 'd-app' });
   root.append(app);
@@ -558,11 +576,11 @@ export function mountDemo(root: HTMLElement, config: DemoConfig) {
         bar.querySelectorAll('.d-tab').forEach((b) => b.classList.remove('d-tab--on'));
         (e.target as HTMLElement).classList.add('d-tab--on');
         panel.innerHTML = '';
-        panel.append(renderTab(t, panel));
+        panel.append(renderTab(t, panel, updateStat));
       } }, [t.label]),
     ));
     app.append(bar);
   }
   app.append(panel);
-  panel.append(renderTab(config.tabs[0], panel));
+  panel.append(renderTab(config.tabs[0], panel, updateStat));
 }
