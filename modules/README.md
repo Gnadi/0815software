@@ -2,12 +2,12 @@
 
 The 0815software module catalogue: twelve standard modules for standard
 business problems, each shipped MIT-licensed with full source code. This
-directory holds the implementations. **MOD-01 Customer Portal, MOD-02
-Admin Dashboard, MOD-03 Inventory Management, MOD-04 Invoice & Billing,
-MOD-05 Employee Directory, MOD-06 Procurement Tracker, MOD-07
+directory holds the implementations. **The catalogue is complete — all
+twelve modules are implemented and available**: MOD-01 Customer Portal,
+MOD-02 Admin Dashboard, MOD-03 Inventory Management, MOD-04 Invoice &
+Billing, MOD-05 Employee Directory, MOD-06 Procurement Tracker, MOD-07
 Storefront, MOD-08 Reporting Suite, MOD-09 Document Management, MOD-10
-CRM Lite and MOD-11 Time Tracking are implemented**; the last one is
-planned and will be published here as it is built. See the
+CRM Lite, MOD-11 Time Tracking and MOD-12 Support Ticket System. See the
 [catalogue page](https://0815software.com/modules) for scopes and
 descriptions.
 
@@ -24,7 +24,7 @@ descriptions.
 | MOD-09 | Document Management   | **Available** | [mod-09-document-management](./mod-09-document-management) |
 | MOD-10 | CRM Lite              | **Available** | [mod-10-crm-lite](./mod-10-crm-lite) |
 | MOD-11 | Time Tracking         | **Available** | [mod-11-time-tracking](./mod-11-time-tracking) |
-| MOD-12 | Support Ticket System | Planned     | —                                                  |
+| MOD-12 | Support Ticket System | **Available** | [mod-12-support-tickets](./mod-12-support-tickets) |
 
 Each module is a self-contained application with its own `package.json`,
 `LICENSE` and README — install and run it independently of this repository.
