@@ -1,13 +1,13 @@
 # Modules
 
-The 0815software module catalogue: twelve standard modules for standard
+The 0815software module catalogue: fourteen standard modules for standard
 business problems, each shipped MIT-licensed with full source code. This
-directory holds the implementations. **The catalogue is complete — all
-twelve modules are implemented and available**: MOD-01 Customer Portal,
-MOD-02 Admin Dashboard, MOD-03 Inventory Management, MOD-04 Invoice &
-Billing, MOD-05 Employee Directory, MOD-06 Procurement Tracker, MOD-07
-Storefront, MOD-08 Reporting Suite, MOD-09 Document Management, MOD-10
-CRM Lite, MOD-11 Time Tracking and MOD-12 Support Ticket System. See the
+directory holds the implementations. **All fourteen modules are now
+available**: MOD-01 Customer Portal, MOD-02 Admin Dashboard, MOD-03 Inventory
+Management, MOD-04 Invoice & Billing, MOD-05 Employee Directory, MOD-06
+Procurement Tracker, MOD-07 Storefront, MOD-08 Reporting Suite, MOD-09
+Document Management, MOD-10 CRM Lite, MOD-11 Time Tracking, MOD-12 Support
+Ticket System, MOD-13 Offers and MOD-14 Subsidies & Funds. See the
 [catalogue page](https://0815software.com/modules) for scopes and
 descriptions.
 
@@ -25,6 +25,8 @@ descriptions.
 | MOD-10 | CRM Lite              | **Available** | [mod-10-crm-lite](./mod-10-crm-lite) |
 | MOD-11 | Time Tracking         | **Available** | [mod-11-time-tracking](./mod-11-time-tracking) |
 | MOD-12 | Support Ticket System | **Available** | [mod-12-support-tickets](./mod-12-support-tickets) |
+| MOD-13 | Offers                | **Available** | [mod-13-offers](./mod-13-offers) |
+| MOD-14 | Subsidies & Funds     | **Available** | [mod-14-subsidies-funds](./mod-14-subsidies-funds) |
 
 Each module is a self-contained application with its own `package.json`,
 `LICENSE` and README — install and run it independently of this repository.
