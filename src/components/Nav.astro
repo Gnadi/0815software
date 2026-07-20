@@ -10,6 +10,7 @@ import Monogram from './Monogram.astro';
 
   <div class="nav__links">
     <a href="/#products" data-i18n="nav.products">Products</a>
+    <a href="/modules" data-i18n="nav.modules">Modules</a>
     <a href="/#how-it-works" data-i18n="nav.how">How it works</a>
     <a href="/#catch" data-i18n="nav.catch">The catch</a>
     <a href="/#compare" data-i18n="nav.compare">Compare</a>
@@ -71,6 +72,7 @@ import Monogram from './Monogram.astro';
   display: flex;
   gap: 12px;
   align-items: center;
+  flex-shrink: 0;
 }
 
 .nav__github {
@@ -80,6 +82,7 @@ import Monogram from './Monogram.astro';
   font-family: 'Inter Tight', sans-serif;
   font-size: 14px;
   color: var(--fg-dim);
+  white-space: nowrap;
   transition: color 100ms ease-out;
 }
 .nav__github:hover { color: var(--fg); }
@@ -102,16 +105,22 @@ import Monogram from './Monogram.astro';
   text-transform: uppercase;
   border-radius: 2px;
   border: 1px solid var(--accent);
+  white-space: nowrap;
   transition: opacity 100ms ease-out;
 }
 .nav__cta:hover { opacity: 0.88; }
 
 @media (max-width: 1199px) {
   .nav { padding: 20px var(--pad-x); }
+  .nav__links { gap: 24px; }
+}
+
+@media (max-width: 999px) {
+  /* Six links + actions crowd the bar below this width — drop the links. */
+  .nav__links { display: none; }
 }
 
 @media (max-width: 767px) {
-  .nav__links { display: none; }
   .nav { padding: 18px var(--pad-x); gap: 12px; }
 }
 </style>

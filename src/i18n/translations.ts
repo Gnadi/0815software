@@ -5,6 +5,7 @@ export const T: Record<Lang, Record<string, string>> = {
   en: {
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.products':      'Products',
+    'nav.modules':       'Modules',
     'nav.how':           'How it works',
     'nav.catch':         'The catch',
     'nav.compare':       'Compare',
@@ -60,6 +61,12 @@ export const T: Record<Lang, Record<string, string>> = {
     'faq.3.q':           "Why 'always free' and not 'freemium'?",
     'faq.3.a':           "Because 'freemium' means 'we haven't shown you the price tag yet'. We'd rather be straight with you from the start.",
 
+    // ─── Modules ────────────────────────────────────────────────────────
+    'modules.h2':        'Fourteen modules, ready to go.',
+    'modules.intro':     'Each one is a solved standard business problem — MIT-licensed, fully sourced, and handed off in weeks. Open any module to see the interface and what it does.',
+    'modules.cta':       'Explore the modules →',
+    'modules.cta2':      'Commission a custom scope',
+
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'How a 0815 project runs.',
     'step.0.title':      'Scope',
@@ -102,6 +109,7 @@ export const T: Record<Lang, Record<string, string>> = {
   de: {
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.products':      'Produkte',
+    'nav.modules':       'Module',
     'nav.how':           'So funktionierts',
     'nav.catch':         'Der Haken',
     'nav.compare':       'Vergleich',
@@ -156,6 +164,12 @@ export const T: Record<Lang, Record<string, string>> = {
     'faq.2.a':           'Für dich nichts. Der Code ist MIT-lizenziert und über tausende Forks gespiegelt. Jeder Entwickler kann die Wartung übernehmen.',
     'faq.3.q':           'Warum "immer kostenlos" und nicht "Freemium"?',
     'faq.3.a':           'Weil "Freemium" bedeutet: "Das Preisschild haben wir noch nicht gezeigt." Wir sind lieber von Anfang an ehrlich.',
+
+    // ─── Modules ────────────────────────────────────────────────────────
+    'modules.h2':        'Vierzehn Module, sofort einsatzbereit.',
+    'modules.intro':     'Jedes ist ein gelöstes Standard-Geschäftsproblem — MIT-lizenziert, mit vollem Quellcode und in Wochen übergeben. Öffne ein Modul, um die Oberfläche und den Funktionsumfang zu sehen.',
+    'modules.cta':       'Module entdecken →',
+    'modules.cta2':      'Individuellen Umfang beauftragen',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'So läuft ein 0815-Projekt ab.',
