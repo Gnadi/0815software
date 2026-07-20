@@ -1,0 +1,376 @@
+import express, { type NextFunction, type Request, type Response } from 'express';
+import type Database from 'better-sqlite3';
+import {
+  APPLICATION_STATUSES,
+  CATEGORIES,
+  PROGRAM_STATUSES,
+  isApplicationStatus,
+  isCategory,
+  isProgramStatus,
+  type ApplicationStatus,
+  type FieldError,
+  type ProgramStatus,
+} from '../shared/types.js';
+import {
+  checkCredentials,
+  clearedCookie,
+  createToken,
+  requireAuth,
+  sessionCookie,
+  type AuthConfig,
+} from './auth.js';
+import {
+  addObligation,
+  applicationDetail,
+  createApplication,
+  dashboard,
+  deleteApplication,
+  listApplications,
+  recordTranche,
+  toggleObligation,
+  transitionApplication,
+  updateApplication,
+  type ApplicationInput,
+} from './applications.js';
+import { DomainError, nowIso } from './core.js';
+import { exportApplicationsCsv } from './csv.js';
+import {
+  createProgram,
+  deleteProgram,
+  listPrograms,
+  programDetail,
+  updateProgram,
+  type ProgramInput,
+} from './programs.js';
+import { AT_RISK_DAYS } from './reporting-config.js';
+import { TRANSITIONS } from './status-config.js';
+
+// ── Tiny validation helpers ────────────────────────────────────────────
+function body(req: Request): Record<string, unknown> {
+  return typeof req.body === 'object' && req.body !== null ? (req.body as Record<string, unknown>) : {};
+}
+
+function fail(details: FieldError[]): never {
+  throw new DomainError(422, 'Validation failed', details);
+}
+
+function reqText(raw: unknown, field: string, errors: FieldError[], maxLength: number): string {
+  const text = typeof raw === 'string' ? raw.trim() : '';
+  if (text === '' || text.length > maxLength) {
+    errors.push({ field, message: `${field} is required (max ${maxLength} characters)` });
+  }
+  return text;
+}
+
+function optText(raw: unknown, field: string, errors: FieldError[], maxLength = 2000): string | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw !== 'string') {
+    errors.push({ field, message: `${field} must be a string` });
+    return null;
+  }
+  const text = raw.trim();
+  if (text.length > maxLength) errors.push({ field, message: `${field} must be at most ${maxLength} characters` });
+  return text === '' ? null : text;
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function reqDate(raw: unknown, field: string, errors: FieldError[]): string {
+  if (typeof raw !== 'string' || !DATE_RE.test(raw) || Number.isNaN(Date.parse(`${raw}T00:00:00Z`))) {
+    errors.push({ field, message: `${field} must be a date in YYYY-MM-DD format` });
+    return '';
+  }
+  return raw;
+}
+
+function optDate(raw: unknown, field: string, errors: FieldError[]): string | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  return reqDate(raw, field, errors);
+}
+
+/** A strictly-positive integer amount in cents. */
+function posCents(raw: unknown, field: string, errors: FieldError[]): number {
+  const n = Number(raw);
+  if (typeof raw === 'boolean' || !Number.isInteger(n) || n <= 0 || n > 1_000_000_000_00) {
+    errors.push({ field, message: `${field} must be a positive integer amount in cents` });
+  }
+  return n;
+}
+
+function percent(raw: unknown, field: string, errors: FieldError[]): number {
+  const n = Number(raw);
+  if (typeof raw === 'boolean' || !Number.isInteger(n) || n < 0 || n > 100) {
+    errors.push({ field, message: `${field} must be an integer percentage between 0 and 100` });
+  }
+  return n;
+}
+
+function id(raw: unknown, field: string, errors: FieldError[]): number {
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) errors.push({ field, message: `${field} must be a positive integer id` });
+  return n;
+}
+
+function validateProgram(input: Record<string, unknown>): ProgramInput {
+  const errors: FieldError[] = [];
+  const name = reqText(input.name, 'name', errors, 200);
+  const fundingBody = reqText(input.funding_body, 'funding_body', errors, 200);
+  const category = typeof input.category === 'string' ? input.category : '';
+  if (!isCategory(category)) {
+    errors.push({ field: 'category', message: `category must be one of: ${CATEGORIES.map((c) => c.value).join(', ')}` });
+  }
+  const description = optText(input.description, 'description', errors, 4000);
+  const fundingRate = percent(input.funding_rate, 'funding_rate', errors);
+  const maxGrantCents = posCents(input.max_grant_cents, 'max_grant_cents', errors);
+  const applicationDeadline = optDate(input.application_deadline, 'application_deadline', errors);
+  const rawStatus = input.status === undefined || input.status === '' ? 'open' : input.status;
+  if (!isProgramStatus(rawStatus)) {
+    errors.push({ field: 'status', message: `status must be one of: ${PROGRAM_STATUSES.join(', ')}` });
+  }
+  if (errors.length > 0) fail(errors);
+  return {
+    name,
+    fundingBody,
+    category,
+    description,
+    fundingRate,
+    maxGrantCents,
+    applicationDeadline,
+    status: rawStatus as ProgramStatus,
+  };
+}
+
+function validateApplication(input: Record<string, unknown>): ApplicationInput {
+  const errors: FieldError[] = [];
+  const programId = id(input.program_id, 'program_id', errors);
+  const title = reqText(input.title, 'title', errors, 200);
+  const eligibleCostsCents = posCents(input.eligible_costs_cents, 'eligible_costs_cents', errors);
+  const requestedAmountCents = posCents(input.requested_amount_cents, 'requested_amount_cents', errors);
+  const submissionDate = optDate(input.submission_date, 'submission_date', errors);
+  const reference = optText(input.reference, 'reference', errors, 120);
+  const notes = optText(input.notes, 'notes', errors, 4000);
+  if (errors.length > 0) fail(errors);
+  return { programId, title, eligibleCostsCents, requestedAmountCents, submissionDate, reference, notes };
+}
+
+export interface AppOptions {
+  db: Database.Database;
+  auth: AuthConfig;
+  /** Injectable clock — drives BOTH event timestamps and deadline "now". */
+  now?: () => number;
+  /** Absolute path to the built client (dist/client). Omit to serve API only. */
+  staticDir?: string;
+}
+
+export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): express.Express {
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+
+  const stamp = (): string => nowIso(now());
+
+  // ── Public routes ────────────────────────────────────────────────────
+  app.get('/api/health', (_req, res) => {
+    res.json({ ok: true });
+  });
+
+  app.post('/api/login', (req, res) => {
+    const { username, password } = body(req);
+    if (!checkCredentials(auth, username, password)) {
+      res.status(401).json({ error: 'Invalid credentials' });
+      return;
+    }
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
+    res.json({ ok: true, admin: auth.username });
+  });
+
+  // ── Everything below requires a valid session ────────────────────────
+  app.use('/api', requireAuth(auth));
+
+  app.post('/api/logout', (_req, res) => {
+    res.setHeader('Set-Cookie', clearedCookie());
+    res.json({ ok: true });
+  });
+
+  app.get('/api/me', (_req, res) => {
+    res.json({ admin: auth.username });
+  });
+
+  // ── Config: the ONE source the UI renders the workflow from ──────────
+  app.get('/api/config', (_req, res) => {
+    res.json({
+      admin: auth.username,
+      statuses: APPLICATION_STATUSES,
+      transitions: TRANSITIONS,
+      program_statuses: PROGRAM_STATUSES,
+      categories: CATEGORIES.map((c) => ({ value: c.value, label: c.label })),
+      at_risk_days: AT_RISK_DAYS,
+    });
+  });
+
+  // ── Deadlines dashboard + portfolio ──────────────────────────────────
+  app.get('/api/dashboard', (_req, res) => {
+    res.json(dashboard(db, now()));
+  });
+
+  // ── Funding programs ─────────────────────────────────────────────────
+  app.get('/api/programs', (req, res) => {
+    const rawStatus = typeof req.query.status === 'string' ? req.query.status : undefined;
+    if (rawStatus && !isProgramStatus(rawStatus)) {
+      fail([{ field: 'status', message: `status must be one of: ${PROGRAM_STATUSES.join(', ')}` }]);
+    }
+    const rawCategory = typeof req.query.category === 'string' ? req.query.category : undefined;
+    if (rawCategory && !isCategory(rawCategory)) {
+      fail([{ field: 'category', message: `category must be one of: ${CATEGORIES.map((c) => c.value).join(', ')}` }]);
+    }
+    res.json({
+      programs: listPrograms(db, {
+        status: rawStatus as ProgramStatus | undefined,
+        category: rawCategory,
+        search: typeof req.query.search === 'string' ? req.query.search : undefined,
+      }),
+    });
+  });
+
+  app.post('/api/programs', (req, res) => {
+    const values = validateProgram(body(req));
+    const programId = createProgram(db, { ...values, createdAt: stamp() });
+    res.status(201).json(programDetail(db, programId));
+  });
+
+  app.get('/api/programs/:id', (req, res) => {
+    res.json(programDetail(db, Number(req.params.id)));
+  });
+
+  app.put('/api/programs/:id', (req, res) => {
+    updateProgram(db, Number(req.params.id), validateProgram(body(req)));
+    res.json(programDetail(db, Number(req.params.id)));
+  });
+
+  app.delete('/api/programs/:id', (req, res) => {
+    deleteProgram(db, Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  // ── Applications ─────────────────────────────────────────────────────
+  app.get('/api/applications', (req, res) => {
+    const rawStatus = typeof req.query.status === 'string' ? req.query.status : undefined;
+    if (rawStatus && !isApplicationStatus(rawStatus)) {
+      fail([{ field: 'status', message: `status must be one of: ${APPLICATION_STATUSES.join(', ')}` }]);
+    }
+    const rawProgram = typeof req.query.program_id === 'string' ? Number(req.query.program_id) : undefined;
+    res.json({
+      applications: listApplications(db, {
+        status: rawStatus as ApplicationStatus | undefined,
+        programId: rawProgram && Number.isInteger(rawProgram) ? rawProgram : undefined,
+        search: typeof req.query.search === 'string' ? req.query.search : undefined,
+      }),
+    });
+  });
+
+  app.post('/api/applications', (req, res) => {
+    const appId = createApplication(db, { ...validateApplication(body(req)), createdAt: stamp() });
+    res.status(201).json(applicationDetail(db, appId, now()));
+  });
+
+  app.get('/api/applications/:id', (req, res) => {
+    res.json(applicationDetail(db, Number(req.params.id), now()));
+  });
+
+  app.put('/api/applications/:id', (req, res) => {
+    updateApplication(db, Number(req.params.id), validateApplication(body(req)));
+    res.json(applicationDetail(db, Number(req.params.id), now()));
+  });
+
+  app.delete('/api/applications/:id', (req, res) => {
+    deleteApplication(db, Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  app.post('/api/applications/:id/transition', (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const to = typeof input.to === 'string' ? input.to : '';
+    if (!isApplicationStatus(to)) {
+      errors.push({ field: 'to', message: `to must be one of: ${APPLICATION_STATUSES.join(', ')}` });
+    }
+    const note = optText(input.note, 'note', errors, 500);
+    // approved_amount_cents is validated in the domain layer against the
+    // program's max grant; here we only coerce it when present.
+    let approvedAmountCents: number | null = null;
+    if (input.approved_amount_cents !== undefined && input.approved_amount_cents !== null && input.approved_amount_cents !== '') {
+      approvedAmountCents = Number(input.approved_amount_cents);
+    }
+    if (errors.length > 0) fail(errors);
+    transitionApplication(db, Number(req.params.id), {
+      to: to as ApplicationStatus,
+      actor: auth.username,
+      note,
+      approvedAmountCents,
+      at: stamp(),
+    });
+    res.json(applicationDetail(db, Number(req.params.id), now()));
+  });
+
+  app.post('/api/applications/:id/tranches', (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const disbursedOn = reqDate(input.disbursed_on, 'disbursed_on', errors);
+    const amountCents = posCents(input.amount_cents, 'amount_cents', errors);
+    const reference = optText(input.reference, 'reference', errors, 120);
+    const note = optText(input.note, 'note', errors, 500);
+    if (errors.length > 0) fail(errors);
+    recordTranche(db, Number(req.params.id), { disbursedOn, amountCents, reference, note, at: stamp() });
+    res.json(applicationDetail(db, Number(req.params.id), now()));
+  });
+
+  app.post('/api/applications/:id/obligations', (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const title = reqText(input.title, 'title', errors, 200);
+    const dueDate = reqDate(input.due_date, 'due_date', errors);
+    if (errors.length > 0) fail(errors);
+    addObligation(db, Number(req.params.id), { title, dueDate, at: stamp() });
+    res.json(applicationDetail(db, Number(req.params.id), now()));
+  });
+
+  app.post('/api/obligations/:id/toggle', (req, res) => {
+    const appId = toggleObligation(db, Number(req.params.id), stamp());
+    res.json(applicationDetail(db, appId, now()));
+  });
+
+  // ── CSV export ───────────────────────────────────────────────────────
+  app.get('/api/export/applications.csv', (_req, res) => {
+    const csv = exportApplicationsCsv(db);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="applications.csv"');
+    res.send(csv);
+  });
+
+  // ── Static client (production build) ─────────────────────────────────
+  if (staticDir) {
+    app.use(express.static(staticDir));
+    app.use((req, res, next) => {
+      if (req.method === 'GET' && !req.path.startsWith('/api')) {
+        res.sendFile('index.html', { root: staticDir });
+        return;
+      }
+      next();
+    });
+  }
+
+  // ── Error mapping ────────────────────────────────────────────────────
+  app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    if (err instanceof DomainError) {
+      res.status(err.status).json({ error: err.message, details: err.details });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  });
+
+  return app;
+}
