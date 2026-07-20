@@ -1,0 +1,249 @@
+---
+// Renders an on-brand UI "screenshot" for a module as a self-contained SVG.
+// Draws a browser-chrome window (title bar + sidebar + content) and a
+// variant-specific body: table / dashboard / board / detail / catalogue.
+// All colours come from the site tokens; each module supplies one accent.
+import type { ModuleEntry } from '../data/modules';
+
+interface Props { module: ModuleEntry; }
+const { module } = Astro.props;
+const s = module.screen;
+
+// Canvas + layout geometry
+const W = 1120;
+const H = 700;
+const BAR = 46;          // title-bar height
+const SIDE = 236;        // sidebar width
+const CX = SIDE;         // content origin x
+const CY = BAR;          // content origin y
+const CW = W - SIDE;     // content width
+const PAD = 32;          // inner content padding
+const IW = CW - PAD * 2; // inner usable width
+
+// Palette (mirrors design tokens)
+const c = {
+  win: '#0E0E0E',
+  side: '#070707',
+  panel: '#111111',
+  line: 'rgba(232,228,220,0.12)',
+  lineS: 'rgba(232,228,220,0.20)',
+  fg: '#E8E4DC',
+  dim: '#A8A39A',
+  mute: '#6B675F',
+};
+const accent = s.accent;
+const mono = "'JetBrains Mono', ui-monospace, monospace";
+const sans = "'Inter Tight', system-ui, sans-serif";
+
+const positive = s.statuses ? s.statuses[0] : '';
+---
+
+<svg
+  class="mod-shot"
+  viewBox={`0 0 ${W} ${H}`}
+  role="img"
+  aria-label={`${module.title} — interface preview`}
+  preserveAspectRatio="xMidYMid meet"
+>
+  <!-- Window -->
+  <rect x="0" y="0" width={W} height={H} rx="6" fill={c.win} stroke={c.line} />
+
+  <!-- Title bar -->
+  <rect x="0" y="0" width={W} height={BAR} fill={c.side} />
+  <line x1="0" y1={BAR} x2={W} y2={BAR} stroke={c.line} />
+  <circle cx="26" cy={BAR / 2} r="5" fill="#3a3a3a" />
+  <circle cx="46" cy={BAR / 2} r="5" fill="#3a3a3a" />
+  <circle cx="66" cy={BAR / 2} r="5" fill="#3a3a3a" />
+  <rect x={W / 2 - 190} y={BAR / 2 - 12} width="380" height="24" rx="12" fill="#141414" stroke={c.line} />
+  <text x={W / 2} y={BAR / 2 + 4} text-anchor="middle" font-family={mono} font-size="12" fill={c.mute}>
+    {`0815software.app/${module.slug}`}
+  </text>
+
+  <!-- Sidebar -->
+  <rect x="0" y={BAR} width={SIDE} height={H - BAR} fill={c.side} />
+  <line x1={SIDE} y1={BAR} x2={SIDE} y2={H} stroke={c.line} />
+  <rect x="24" y={BAR + 28} width="10" height="10" rx="2" fill={accent} />
+  <text x="44" y={BAR + 37} font-family={mono} font-size="12" fill={c.fg} letter-spacing="0.5">
+    {module.n}
+  </text>
+  <text x="24" y={BAR + 64} font-family={mono} font-size="10" fill={c.mute} letter-spacing="1">
+    MODULE
+  </text>
+  {s.nav.map((item, i) => (
+    <g>
+      {i === 0 && <rect x="12" y={BAR + 90} width={SIDE - 24} height="34" rx="4" fill="rgba(232,228,220,0.05)" />}
+      {i === 0 && <rect x="12" y={BAR + 90} width="3" height="34" rx="1.5" fill={accent} />}
+      <text x="28" y={BAR + 112 + i * 42} font-family={sans} font-size="14" fill={i === 0 ? c.fg : c.dim}>
+        {item}
+      </text>
+    </g>
+  ))}
+
+  <!-- Content header -->
+  <text x={CX + PAD} y={CY + 44} font-family={sans} font-size="22" font-weight="500" fill={c.fg}>
+    {module.title}
+  </text>
+  <rect x={CX + CW - PAD - 300} y={CY + 26} width="180" height="30" rx="15" fill={c.panel} stroke={c.line} />
+  <text x={CX + CW - PAD - 288} y={CY + 45} font-family={sans} font-size="12" fill={c.mute}>Search…</text>
+  <rect x={CX + CW - PAD - 104} y={CY + 26} width="104" height="30" rx="4" fill={accent} />
+  <text x={CX + CW - PAD - 52} y={CY + 45} text-anchor="middle" font-family={mono} font-size="11" font-weight="600" fill="#0A0A0A">+ NEW</text>
+  <line x1={CX + PAD} y1={CY + 72} x2={CX + CW - PAD} y2={CY + 72} stroke={c.line} />
+
+  <!-- ── TABLE ─────────────────────────────────────────────── -->
+  {s.variant === 'table' && s.columns && s.rows && (
+    <g>
+      {s.columns.map((col, i) => (
+        <text
+          x={CX + PAD + (i * IW) / s.columns!.length}
+          y={CY + 104}
+          font-family={mono}
+          font-size="10"
+          fill={c.mute}
+          letter-spacing="0.8"
+        >{col.toUpperCase()}</text>
+      ))}
+      <line x1={CX + PAD} y1={CY + 116} x2={CX + CW - PAD} y2={CY + 116} stroke={c.line} />
+      {s.rows.map((row, r) => (
+        <g>
+          <line x1={CX + PAD} y1={CY + 116 + (r + 1) * 62} x2={CX + CW - PAD} y2={CY + 116 + (r + 1) * 62} stroke={c.line} />
+          {row.map((cell, ci) => {
+            const isStatus = ci === row.length - 1 && s.statuses;
+            const x = CX + PAD + (ci * IW) / row.length;
+            const y = CY + 116 + r * 62 + 38;
+            if (isStatus) {
+              const isPos = cell === positive;
+              return (
+                <g>
+                  <rect x={x} y={y - 16} width={Math.max(64, cell.length * 8 + 22)} height="24" rx="12"
+                    fill={isPos ? accent : 'rgba(232,228,220,0.06)'} stroke={isPos ? 'none' : c.line} />
+                  <text x={x + Math.max(64, cell.length * 8 + 22) / 2} y={y} text-anchor="middle"
+                    font-family={mono} font-size="11" fill={isPos ? '#0A0A0A' : c.dim}>{cell}</text>
+                </g>
+              );
+            }
+            return (
+              <text x={x} y={y} font-family={ci === 0 ? mono : sans} font-size={ci === 0 ? '12' : '14'}
+                fill={ci === 1 ? c.fg : c.dim}>{cell}</text>
+            );
+          })}
+        </g>
+      ))}
+    </g>
+  )}
+
+  <!-- ── DASHBOARD ─────────────────────────────────────────── -->
+  {s.variant === 'dashboard' && s.stats && (
+    <g>
+      {s.stats.map((stat, i) => {
+        const cardW = (IW - 3 * 16) / 4;
+        const x = CX + PAD + i * (cardW + 16);
+        return (
+          <g>
+            <rect x={x} y={CY + 96} width={cardW} height="92" rx="4" fill={c.panel} stroke={c.line} />
+            <rect x={x} y={CY + 96} width="3" height="92" rx="1.5" fill={accent} />
+            <text x={x + 18} y={CY + 128} font-family={mono} font-size="10" fill={c.mute} letter-spacing="0.6">{stat.label.toUpperCase()}</text>
+            <text x={x + 18} y={CY + 166} font-family={sans} font-size="26" font-weight="500" fill={c.fg}>{stat.value}</text>
+          </g>
+        );
+      })}
+      <!-- bar chart -->
+      <rect x={CX + PAD} y={CY + 212} width={IW} height="304" rx="4" fill={c.panel} stroke={c.line} />
+      <text x={CX + PAD + 20} y={CY + 244} font-family={sans} font-size="14" fill={c.fg}>Revenue by month</text>
+      {[52, 78, 61, 95, 72, 110, 88, 132, 104, 150, 126, 168].map((h, i) => {
+        const bw = 30;
+        const gap = (IW - 40 - 12 * bw) / 11;
+        const x = CX + PAD + 20 + i * (bw + gap);
+        const base = CY + 496;
+        return (
+          <rect x={x} y={base - h} width={bw} height={h} rx="2"
+            fill={i === 11 ? accent : 'rgba(232,228,220,0.16)'} />
+        );
+      })}
+      <line x1={CX + PAD + 16} y1={CY + 496} x2={CX + CW - PAD - 16} y2={CY + 496} stroke={c.line} />
+    </g>
+  )}
+
+  <!-- ── BOARD ─────────────────────────────────────────────── -->
+  {s.variant === 'board' && s.boardColumns && (
+    <g>
+      {s.boardColumns.map((col, i) => {
+        const colW = (IW - 3 * 16) / 4;
+        const x = CX + PAD + i * (colW + 16);
+        return (
+          <g>
+            <text x={x + 4} y={CY + 112} font-family={mono} font-size="10" fill={c.mute} letter-spacing="0.8">{col.title.toUpperCase()}</text>
+            <rect x={x + 4 + col.title.length * 7 + 10} y={CY + 100} width="26" height="16" rx="8" fill="rgba(232,228,220,0.06)" />
+            <text x={x + 4 + col.title.length * 7 + 23} y={CY + 112} text-anchor="middle" font-family={mono} font-size="10" fill={c.dim}>{col.cards.length}</text>
+            {col.cards.map((card, ci) => (
+              <g>
+                <rect x={x} y={CY + 128 + ci * 74} width={colW} height="60" rx="4" fill={c.panel} stroke={c.line} />
+                <rect x={x} y={CY + 128 + ci * 74} width={colW} height="3" rx="1.5" fill={i === s.boardColumns!.length - 1 ? accent : 'rgba(232,228,220,0.16)'} />
+                <text x={x + 14} y={CY + 158 + ci * 74} font-family={sans} font-size="13" fill={c.fg}>{card}</text>
+                <text x={x + 14} y={CY + 178 + ci * 74} font-family={mono} font-size="10" fill={c.mute}>· owner</text>
+              </g>
+            ))}
+          </g>
+        );
+      })}
+    </g>
+  )}
+
+  <!-- ── DETAIL ────────────────────────────────────────────── -->
+  {s.variant === 'detail' && s.fields && s.list && (
+    <g>
+      <!-- record list -->
+      {s.list.map((item, i) => (
+        <g>
+          <rect x={CX + PAD} y={CY + 96 + i * 56} width="228" height="48" rx="4"
+            fill={i === 0 ? 'rgba(232,228,220,0.05)' : 'transparent'} stroke={i === 0 ? c.line : 'transparent'} />
+          {i === 0 && <rect x={CX + PAD} y={CY + 96} width="3" height="48" rx="1.5" fill={accent} />}
+          <text x={CX + PAD + 18} y={CY + 125 + i * 56} font-family={mono} font-size="12" fill={i === 0 ? c.fg : c.dim}>{item}</text>
+        </g>
+      ))}
+      <!-- detail panel -->
+      <rect x={CX + PAD + 252} y={CY + 96} width={IW - 252} height="404" rx="4" fill={c.panel} stroke={c.line} />
+      <text x={CX + PAD + 280} y={CY + 136} font-family={sans} font-size="18" font-weight="500" fill={c.fg}>{s.recordTitle}</text>
+      <rect x={CX + PAD + 252 + (IW - 252) - 100 - 28} y={CY + 118} width="100" height="26" rx="13" fill={accent} />
+      <text x={CX + PAD + 252 + (IW - 252) - 50 - 28} y={CY + 135} text-anchor="middle" font-family={mono} font-size="11" fill="#0A0A0A">{s.fields[0].value}</text>
+      <line x1={CX + PAD + 280} y1={CY + 156} x2={CX + PAD + 252 + (IW - 252) - 28} y2={CY + 156} stroke={c.line} />
+      {s.fields.map((f, i) => (
+        <g>
+          <text x={CX + PAD + 280} y={CY + 196 + i * 52} font-family={mono} font-size="11" fill={c.mute} letter-spacing="0.5">{f.label.toUpperCase()}</text>
+          <text x={CX + PAD + 252 + (IW - 252) - 28} y={CY + 196 + i * 52} text-anchor="end" font-family={sans} font-size="15" fill={c.fg}>{f.value}</text>
+          <line x1={CX + PAD + 280} y1={CY + 212 + i * 52} x2={CX + PAD + 252 + (IW - 252) - 28} y2={CY + 212 + i * 52} stroke={c.line} />
+        </g>
+      ))}
+    </g>
+  )}
+
+  <!-- ── CATALOGUE ─────────────────────────────────────────── -->
+  {s.variant === 'catalogue' && s.cards && (
+    <g>
+      {s.cards.map((card, i) => {
+        const cols = 3;
+        const cardW = (IW - 2 * 20) / cols;
+        const cardH = 176;
+        const cx = CX + PAD + (i % cols) * (cardW + 20);
+        const cy = CY + 100 + Math.floor(i / cols) * (cardH + 20);
+        return (
+          <g>
+            <rect x={cx} y={cy} width={cardW} height={cardH} rx="4" fill={c.panel} stroke={c.line} />
+            <rect x={cx} y={cy} width={cardW} height="104" rx="4" fill="rgba(232,228,220,0.04)" />
+            <circle cx={cx + cardW / 2} cy={cy + 52} r="26" fill="none" stroke={accent} stroke-width="1.5" opacity="0.7" />
+            <text x={cx + 18} y={cy + 138} font-family={sans} font-size="15" fill={c.fg}>{card.title}</text>
+            <text x={cx + 18} y={cy + 160} font-family={mono} font-size="12" fill={accent}>{card.sub}</text>
+          </g>
+        );
+      })}
+    </g>
+  )}
+</svg>
+
+<style>
+.mod-shot {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+</style>

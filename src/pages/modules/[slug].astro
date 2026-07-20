@@ -1,0 +1,267 @@
+---
+import SubPage from '../../layouts/SubPage.astro';
+import ModuleScreenshot from '../../components/ModuleScreenshot.astro';
+import { modules } from '../../data/modules';
+
+export const prerender = true;
+
+export function getStaticPaths() {
+  return modules.map((mod, i) => ({
+    params: { slug: mod.slug },
+    props: {
+      mod,
+      prev: modules[(i - 1 + modules.length) % modules.length],
+      next: modules[(i + 1) % modules.length],
+    },
+  }));
+}
+
+const { mod, prev, next } = Astro.props;
+---
+
+<SubPage
+  title={`${mod.title} — 0815software`}
+  description={mod.body}
+  section="§ P1"
+  sectionName="Modules"
+  eyebrow={`DIN 0815/M · ${mod.n}`}
+  heading={mod.title}
+  lead={mod.body}
+>
+
+  <!-- Screenshot -->
+  <section class="detail-shot-section">
+    <div class="detail-shot__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P1.01</div>
+        <div class="section-rail__name">Preview</div>
+      </div>
+      <figure class="detail-shot">
+        <ModuleScreenshot module={mod} />
+        <figcaption class="detail-shot__cap">
+          {mod.n} · {mod.title} — representative interface. Every module ships MIT-licensed with full source.
+        </figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <!-- Overview + features -->
+  <section class="detail-body-section">
+    <div class="detail-body__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P1.02</div>
+        <div class="section-rail__name">Overview</div>
+      </div>
+      <div class="detail-body__content">
+        <p class="detail-body__overview">{mod.overview}</p>
+
+        <div class="detail-meta">
+          <div class="detail-meta__item">
+            <span class="detail-meta__label">TYPICAL SCOPE</span>
+            <span class="detail-meta__value">{mod.scope}</span>
+          </div>
+          <div class="detail-meta__item">
+            <span class="detail-meta__label">LICENSE</span>
+            <span class="detail-meta__value">MIT · always free</span>
+          </div>
+          <div class="detail-meta__item">
+            <a class="detail-meta__source" href={mod.source} target="_blank" rel="noopener">VIEW SOURCE ↗</a>
+          </div>
+        </div>
+
+        <h2 class="detail-body__sub">What it does</h2>
+        <ul class="detail-features">
+          {mod.features.map((f) => (
+            <li class="detail-features__item">{f}</li>
+          ))}
+        </ul>
+
+        <div class="detail-actions">
+          <a href="/#contact" class="btn btn--primary">Start a project →</a>
+          <a href="/modules" class="btn btn--ghost">All modules</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Prev / Next -->
+  <nav class="detail-nav" aria-label="Module navigation">
+    <a href={`/modules/${prev.slug}`} class="detail-nav__link detail-nav__link--prev">
+      <span class="detail-nav__dir">← PREVIOUS</span>
+      <span class="detail-nav__title">{prev.n} · {prev.title}</span>
+    </a>
+    <a href={`/modules/${next.slug}`} class="detail-nav__link detail-nav__link--next">
+      <span class="detail-nav__dir">NEXT →</span>
+      <span class="detail-nav__title">{next.n} · {next.title}</span>
+    </a>
+  </nav>
+
+</SubPage>
+
+<style>
+/* ─── Screenshot ──────────────────────────────────────────────────── */
+.detail-shot-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.detail-shot__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.detail-shot {
+  margin: 0;
+  border: 1px solid var(--line);
+  background: var(--bg-3);
+  padding: 20px;
+}
+.detail-shot__cap {
+  margin-top: 16px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--fg-mute);
+  line-height: 1.6;
+}
+
+/* ─── Overview body ───────────────────────────────────────────────── */
+.detail-body-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.detail-body__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.detail-body__content { max-width: 720px; }
+
+.detail-body__overview {
+  font-size: 19px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  margin-bottom: 40px;
+}
+
+.detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 40px;
+  padding: 24px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 48px;
+}
+.detail-meta__item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.detail-meta__label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  color: var(--fg-mute);
+}
+.detail-meta__value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--fg);
+}
+.detail-meta__source {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--accent);
+  align-self: center;
+  transition: opacity 100ms ease-out;
+}
+.detail-meta__source:hover { opacity: 0.8; }
+
+.detail-body__sub {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  margin-bottom: 24px;
+}
+
+.detail-features {
+  margin-bottom: 48px;
+}
+.detail-features__item {
+  position: relative;
+  padding: 16px 0 16px 28px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  border-top: 1px solid var(--line);
+}
+.detail-features__item:last-child { border-bottom: 1px solid var(--line); }
+.detail-features__item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 24px;
+  width: 10px;
+  height: 1px;
+  background: var(--accent);
+}
+
+.detail-actions {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* ─── Prev / next ─────────────────────────────────────────────────── */
+.detail-nav {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--line);
+}
+.detail-nav__link {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 40px var(--pad-x);
+  transition: background 120ms ease-out;
+}
+.detail-nav__link:hover { background: var(--bg-2); }
+.detail-nav__link--next {
+  align-items: flex-end;
+  text-align: right;
+  border-left: 1px solid var(--line);
+}
+.detail-nav__dir {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  color: var(--fg-mute);
+}
+.detail-nav__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  color: var(--fg);
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 999px) {
+  .detail-shot__inner,
+  .detail-body__inner { grid-template-columns: 1fr; }
+}
+@media (max-width: 767px) {
+  .detail-shot { padding: 12px; }
+  .detail-meta { gap: 24px; }
+  .detail-nav { grid-template-columns: 1fr; }
+  .detail-nav__link--next {
+    align-items: flex-start;
+    text-align: left;
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+}
+</style>
