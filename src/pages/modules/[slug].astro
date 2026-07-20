@@ -64,7 +64,8 @@ const { mod, prev, next } = Astro.props;
             <span class="detail-meta__label">LICENSE</span>
             <span class="detail-meta__value">MIT · always free</span>
           </div>
-          <div class="detail-meta__item">
+          <div class="detail-meta__item detail-meta__item--source">
+            <span class="detail-meta__label">REPOSITORY</span>
             <a class="detail-meta__source" href={mod.source} target="_blank" rel="noopener">VIEW SOURCE ↗</a>
           </div>
         </div>
@@ -170,11 +171,11 @@ const { mod, prev, next } = Astro.props;
   font-size: 13px;
   color: var(--fg);
 }
+.detail-meta__item--source { margin-left: auto; }
 .detail-meta__source {
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
   color: var(--accent);
-  align-self: center;
   transition: opacity 100ms ease-out;
 }
 .detail-meta__source:hover { opacity: 0.8; }
