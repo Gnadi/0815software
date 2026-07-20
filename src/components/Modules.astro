@@ -1,0 +1,197 @@
+---
+// §05 — Modules (catalogue on the landing page, each with a live demo)
+import { modules, sourceUrl, demoUrl } from '../data/modules';
+import { demos } from '../data/demos';
+---
+
+<section id="modules" class="modules">
+  <!-- Heading row -->
+  <div class="modules__head">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 05</div>
+      <div class="section-rail__name">Modules</div>
+    </div>
+    <div>
+      <div class="section-label-inline" aria-hidden="true">
+        <span class="section-label-inline__num">§ 05</span> · Modules
+      </div>
+      <h2 class="modules__h2">
+        Fourteen standard modules.<br />Every one has a live demo.
+      </h2>
+      <p class="modules__intro">
+        Each module is a solved problem — fixed scope, MIT-licensed, yours to keep.
+        Click through any of them below to try an interactive, seeded demo right in your
+        browser, then read the full source on GitHub.
+      </p>
+    </div>
+  </div>
+
+  <!-- Card grid (rail gutter reserved so cards never wrap into it) -->
+  <div class="modules__body">
+    <div class="modules__rail" aria-hidden="true"></div>
+    <div class="modules__grid">
+    {modules.map((mod) => {
+      const hasDemo = Boolean(demos[mod.slug]);
+      return (
+        <article class="lp-mod">
+          <div class="lp-mod__num">{mod.n}</div>
+          <h3 class="lp-mod__title">{mod.title}</h3>
+          <p class="lp-mod__body">{mod.body}</p>
+          <div class="lp-mod__foot">
+            {hasDemo ? (
+              <a class="lp-mod__demo" href={demoUrl(mod.slug)}>
+                <span class="lp-mod__pulse" aria-hidden="true"></span> Live demo →
+              </a>
+            ) : (
+              <span class="lp-mod__scope">{mod.scope}</span>
+            )}
+            <a class="lp-mod__source" href={sourceUrl(mod.dir)} target="_blank" rel="noopener">Source ↗</a>
+          </div>
+        </article>
+      );
+    })}
+    </div>
+  </div>
+
+  <div class="modules__cta">
+    <div class="modules__spacer" aria-hidden="true"></div>
+    <a href="/modules" class="btn btn--ghost">Browse the full catalogue →</a>
+  </div>
+</section>
+
+<style>
+.modules {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+.modules__head {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  margin-bottom: 56px;
+  align-items: start;
+}
+.modules__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 44px;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -1.2px;
+  max-width: 720px;
+  margin-bottom: 24px;
+}
+.modules__intro {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 620px;
+}
+
+.modules__body {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+}
+.modules__rail { /* reserved rail gutter — keeps cards out of the 120px column */ }
+
+.modules__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+}
+
+/* Module card — 3 clean columns; drop the right border on the last column. */
+.lp-mod {
+  padding: 26px 26px 22px 0;
+  border-top: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+.modules__grid > .lp-mod:nth-child(3n) { border-right: none; }
+
+.lp-mod__num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.8px;
+  margin-bottom: 14px;
+}
+.lp-mod__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  margin-bottom: 10px;
+}
+.lp-mod__body {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  margin-bottom: 20px;
+  flex: 1;
+}
+.lp-mod__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+.lp-mod__demo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+  transition: opacity 100ms ease-out;
+}
+.lp-mod__demo:hover { opacity: 0.8; }
+.lp-mod__pulse {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(232, 228, 220, 0.5);
+  animation: lp-pulse 2s infinite;
+}
+@keyframes lp-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(232, 228, 220, 0.4); }
+  70% { box-shadow: 0 0 0 6px rgba(232, 228, 220, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(232, 228, 220, 0); }
+}
+.lp-mod__scope { color: var(--fg-mute); }
+.lp-mod__source { color: var(--fg-mute); transition: color 100ms ease-out; }
+.lp-mod__source:hover { color: var(--fg); }
+
+.modules__cta {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  margin-top: 48px;
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  .modules__head { grid-template-columns: 120px 1fr; }
+  .modules__h2 { font-size: 36px; }
+}
+@media (max-width: 999px) {
+  .modules__head { grid-template-columns: 1fr; }
+  .modules__body { grid-template-columns: 1fr; gap: 0; }
+  .modules__rail { display: none; }
+  .modules__grid { grid-template-columns: repeat(2, 1fr); }
+  .modules__grid > .lp-mod:nth-child(3n) { border-right: 1px solid var(--line); }
+  .modules__grid > .lp-mod:nth-child(2n) { border-right: none; }
+  .lp-mod { padding: 24px; }
+  .modules__cta { grid-template-columns: 1fr; }
+}
+@media (max-width: 767px) {
+  .modules__grid { grid-template-columns: 1fr; }
+  .modules__grid > .lp-mod { border-right: none !important; padding: 24px 0; }
+  .modules__h2 { font-size: 28px; letter-spacing: -0.6px; }
+}
+</style>

@@ -5,6 +5,7 @@ export const T: Record<Lang, Record<string, string>> = {
   en: {
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.products':      'Products',
+    'nav.modules':       'Modules',
     'nav.how':           'How it works',
     'nav.catch':         'The catch',
     'nav.compare':       'Compare',
@@ -17,6 +18,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'hero.subhead':      'The CRUD apps, dashboards, storefronts and internal tools your team already knows how to describe — shipped in weeks, licensed under MIT, with every line of source code in your hands on day one.',
     'hero.cta1':         'Request a build →',
     'hero.cta2':         'Read the source ↗',
+    'hero.cta3':         'Try a live demo ↓',
 
     // ─── Pillars ────────────────────────────────────────────────────────
     'pillars.h2':        'Three commitments. No footnotes,<br />no asterisks, no upsells.',
@@ -102,6 +104,7 @@ export const T: Record<Lang, Record<string, string>> = {
   de: {
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.products':      'Produkte',
+    'nav.modules':       'Module',
     'nav.how':           'So funktionierts',
     'nav.catch':         'Der Haken',
     'nav.compare':       'Vergleich',
@@ -114,6 +117,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'hero.subhead':      'Die CRUD-Apps, Dashboards, Shops und internen Tools, die dein Team bereits beschreiben kann — in Wochen geliefert, MIT-lizenziert, mit jeder Zeile Quellcode in deinen Händen ab Tag eins.',
     'hero.cta1':         'Build anfragen →',
     'hero.cta2':         'Quellcode lesen ↗',
+    'hero.cta3':         'Live-Demo testen ↓',
 
     // ─── Pillars ────────────────────────────────────────────────────────
     'pillars.h2':        'Drei Versprechen. Keine Fußnoten,<br />keine Sternchen, keine Upsells.',

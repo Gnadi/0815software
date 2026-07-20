@@ -1,0 +1,157 @@
+---
+import Base from '../../layouts/Base.astro';
+import MetaStrip from '../../components/MetaStrip.astro';
+import Nav from '../../components/Nav.astro';
+import SiteFooter from '../../components/SiteFooter.astro';
+import { modules, sourceUrl } from '../../data/modules';
+import { demos } from '../../data/demos';
+import '../../styles/global.css';
+import '../../styles/demo.css';
+
+export const prerender = true;
+
+export function getStaticPaths() {
+  return modules
+    .filter((m) => demos[m.slug])
+    .map((m, i) => {
+      const prev = i > 0 ? modules[i - 1] : modules[modules.length - 1];
+      const next = i < modules.length - 1 ? modules[i + 1] : modules[0];
+      return { params: { slug: m.slug }, props: { mod: m, prev, next } };
+    });
+}
+
+const { mod, prev, next } = Astro.props;
+const config = demos[mod.slug];
+---
+
+<Base
+  title={`${mod.title} — live demo · 0815software`}
+  description={`Interactive live demo of ${mod.n} ${mod.title}: ${mod.body}`}
+>
+  <MetaStrip />
+  <Nav />
+  <main>
+    <header class="demo-header">
+      <div class="demo-header__inner">
+        <a href="/modules" class="demo-back">← All modules</a>
+        <div class="demo-header__num">{mod.n} · LIVE DEMO</div>
+        <h1 class="demo-header__h1">{mod.title}</h1>
+        <p class="demo-header__lead">{config.headline}</p>
+        <div class="demo-header__actions">
+          <a href={sourceUrl(mod.dir)} target="_blank" rel="noopener" class="btn btn--ghost">Source ↗</a>
+          <a href="/#contact" class="btn btn--primary">Commission this →</a>
+        </div>
+      </div>
+    </header>
+
+    <section class="demo-stage">
+      <!-- Browser-chrome frame -->
+      <div class="demo-frame">
+        <div class="demo-frame__bar" aria-hidden="true">
+          <span class="demo-frame__dots"><i></i><i></i><i></i></span>
+          <span class="demo-frame__url">app.0815software.local / {mod.slug}</span>
+          <span class="demo-frame__tag">SEEDED DEMO</span>
+        </div>
+        <div class="demo-frame__body">
+          <div id="demo-mount" class="demo-mount">
+            <noscript><p class="demo-noscript">This interactive demo needs JavaScript. View the <a href={sourceUrl(mod.dir)}>full source</a> instead.</p></noscript>
+          </div>
+        </div>
+      </div>
+
+      <p class="demo-note">
+        Illustrative data, running entirely in your browser — no backend, no accounts.
+        The real module is a self-contained app (React + Express + SQLite) you own outright.
+        <a href={sourceUrl(mod.dir)} target="_blank" rel="noopener">Read the source ↗</a>
+      </p>
+
+      <!-- Prev / next -->
+      <nav class="demo-nav" aria-label="Module demos">
+        <a href={`/modules/${prev.slug}`} class="demo-nav__link">
+          <span class="demo-nav__dir">← Previous</span>
+          <span class="demo-nav__name">{prev.n} {prev.title}</span>
+        </a>
+        <a href={`/modules/${next.slug}`} class="demo-nav__link demo-nav__link--next">
+          <span class="demo-nav__dir">Next →</span>
+          <span class="demo-nav__name">{next.n} {next.title}</span>
+        </a>
+      </nav>
+    </section>
+  </main>
+  <SiteFooter />
+
+  <script type="application/json" id="demo-config" set:html={JSON.stringify(config)}></script>
+  <script>
+    import { mountDemo } from '../../lib/demo-engine';
+    const raw = document.getElementById('demo-config')?.textContent;
+    const mount = document.getElementById('demo-mount');
+    if (raw && mount) mountDemo(mount, JSON.parse(raw));
+  </script>
+</Base>
+
+<style>
+.demo-header {
+  padding: var(--sec-y-sm) var(--pad-x) 56px;
+  border-bottom: 1px solid var(--line);
+}
+.demo-header__inner { max-width: 900px; }
+.demo-back {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--fg-mute);
+  transition: color 100ms ease-out; display: inline-block; margin-bottom: 32px;
+}
+.demo-back:hover { color: var(--fg); }
+.demo-header__num {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.8px;
+  text-transform: uppercase; color: var(--accent); margin-bottom: 18px;
+}
+.demo-header__h1 {
+  font-family: 'Inter Tight', sans-serif; font-size: 56px; font-weight: 500;
+  line-height: 1; letter-spacing: -1.8px; margin-bottom: 20px;
+}
+.demo-header__lead { font-size: 17px; line-height: 1.55; color: var(--fg-dim); max-width: 640px; margin-bottom: 32px; }
+.demo-header__actions { display: flex; gap: 12px; flex-wrap: wrap; }
+
+.demo-stage { padding: 56px var(--pad-x) var(--sec-y-sm); }
+
+.demo-frame { border: 1px solid var(--line-strong); background: var(--bg-2); border-radius: 4px; overflow: hidden; }
+.demo-frame__bar {
+  display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+  background: var(--bg-3); border-bottom: 1px solid var(--line);
+}
+.demo-frame__dots { display: flex; gap: 6px; }
+.demo-frame__dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--line-strong); display: block; }
+.demo-frame__url { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--fg-mute); }
+.demo-frame__tag {
+  margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.8px;
+  color: var(--accent); border: 1px solid var(--line-strong); padding: 3px 8px; border-radius: 2px;
+}
+.demo-frame__body { padding: 24px; }
+.demo-noscript { color: var(--fg-dim); font-size: 14px; }
+.demo-noscript a { color: var(--accent); }
+
+.demo-note {
+  font-size: 13px; line-height: 1.6; color: var(--fg-mute); margin-top: 20px; max-width: 720px;
+}
+.demo-note a { color: var(--accent); }
+
+.demo-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 56px; }
+.demo-nav__link {
+  border: 1px solid var(--line); padding: 20px 22px; display: flex; flex-direction: column; gap: 8px;
+  transition: border-color 120ms ease-out; border-radius: 2px;
+}
+.demo-nav__link:hover { border-color: var(--line-strong); }
+.demo-nav__link--next { text-align: right; }
+.demo-nav__dir { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--fg-mute); letter-spacing: 0.4px; }
+.demo-nav__name { font-size: 15px; color: var(--fg); font-weight: 500; }
+
+@media (max-width: 1199px) {
+  .demo-header__h1 { font-size: 44px; letter-spacing: -1.4px; }
+}
+@media (max-width: 767px) {
+  .demo-header__h1 { font-size: 34px; letter-spacing: -1px; }
+  .demo-frame__body { padding: 14px; }
+  .demo-frame__url { display: none; }
+  .demo-nav { grid-template-columns: 1fr; }
+  .demo-nav__link--next { text-align: left; }
+}
+</style>
