@@ -4,18 +4,18 @@ import SubPage from '../layouts/SubPage.astro';
 export const prerender = true;
 
 const modules = [
-  { n: 'MOD-01', title: 'Customer Portal',       body: 'Self-service access to orders, documents, and status. No account manager required.',          scope: '3–4 WKS' },
-  { n: 'MOD-02', title: 'Admin Dashboard',        body: 'Internal CRUD interface over any data model. Tables, filters, bulk actions, exports.',         scope: '2–3 WKS' },
-  { n: 'MOD-03', title: 'Inventory Management',   body: 'Stock levels, SKUs, warehouse locations, and purchase order tracking in one place.',           scope: '4–5 WKS' },
-  { n: 'MOD-04', title: 'Invoice & Billing',      body: 'Generate, send, and track invoices. PDF export, payment status, customer ledger.',             scope: '3–4 WKS' },
-  { n: 'MOD-05', title: 'Employee Directory',     body: 'Org chart, roles, contact data, and department structure. Integrates with HR onboarding.',     scope: '2–3 WKS' },
-  { n: 'MOD-06', title: 'Procurement Tracker',    body: 'RFQ, purchase orders, multi-tier approval workflows. Export to any ERP CSV format.',           scope: '4–6 WKS' },
-  { n: 'MOD-07', title: 'Storefront',             body: 'Product catalogue, cart, checkout, and order management. No SaaS fees, no revenue cut.',       scope: '5–6 WKS' },
-  { n: 'MOD-08', title: 'Reporting Suite',        body: 'Scheduled exports, pivot tables, and chart embeds built on top of your existing database.',    scope: '3–4 WKS' },
-  { n: 'MOD-09', title: 'Document Management',    body: 'Upload, tag, version, and control access. Matter-based or project-based access controls.',     scope: '3–4 WKS' },
-  { n: 'MOD-10', title: 'CRM Lite',               body: 'Contacts, deals, activity log, and pipeline view. No AI upsells, no seat caps, no surprises.', scope: '3–5 WKS' },
-  { n: 'MOD-11', title: 'Time Tracking',          body: 'Project allocation, daily entry, and export to payroll or billing. Works offline.',            scope: '2–3 WKS' },
-  { n: 'MOD-12', title: 'Support Ticket System',  body: 'Inbound queue, assignment, status tracking, and SLA timers. Email and web intake.',            scope: '3–4 WKS' },
+  { n: 'MOD-01', title: 'Customer Portal',       body: 'Self-service access to orders, documents, and status. No account manager required.',          scope: '3–4 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-01-customer-portal' },
+  { n: 'MOD-02', title: 'Admin Dashboard',        body: 'Internal CRUD interface over any data model. Tables, filters, bulk actions, exports.',         scope: '2–3 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-02-admin-dashboard' },
+  { n: 'MOD-03', title: 'Inventory Management',   body: 'Stock levels, SKUs, warehouse locations, and purchase order tracking in one place.',           scope: '4–5 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-03-inventory-management' },
+  { n: 'MOD-04', title: 'Invoice & Billing',      body: 'Generate, send, and track invoices. PDF export, payment status, customer ledger.',             scope: '3–4 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-04-invoice-billing' },
+  { n: 'MOD-05', title: 'Employee Directory',     body: 'Org chart, roles, contact data, and department structure. Integrates with HR onboarding.',     scope: '2–3 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-05-employee-directory' },
+  { n: 'MOD-06', title: 'Procurement Tracker',    body: 'RFQ, purchase orders, multi-tier approval workflows. Export to any ERP CSV format.',           scope: '4–6 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-06-procurement-tracker' },
+  { n: 'MOD-07', title: 'Storefront',             body: 'Product catalogue, cart, checkout, and order management. No SaaS fees, no revenue cut.',       scope: '5–6 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-07-storefront' },
+  { n: 'MOD-08', title: 'Reporting Suite',        body: 'Scheduled exports, pivot tables, and chart embeds built on top of your existing database.',    scope: '3–4 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-08-reporting-suite' },
+  { n: 'MOD-09', title: 'Document Management',    body: 'Upload, tag, version, and control access. Matter-based or project-based access controls.',     scope: '3–4 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-09-document-management' },
+  { n: 'MOD-10', title: 'CRM Lite',               body: 'Contacts, deals, activity log, and pipeline view. No AI upsells, no seat caps, no surprises.', scope: '3–5 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-10-crm-lite' },
+  { n: 'MOD-11', title: 'Time Tracking',          body: 'Project allocation, daily entry, and export to payroll or billing. Works offline.',            scope: '2–3 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-11-time-tracking' },
+  { n: 'MOD-12', title: 'Support Ticket System',  body: 'Inbound queue, assignment, status tracking, and SLA timers. Email and web intake.',            scope: '3–4 WKS', source: 'https://github.com/Gnadi/0815software/tree/main/modules/mod-12-support-tickets' },
 ];
 ---
 
@@ -48,7 +48,12 @@ const modules = [
           <div class="mod-card__num">{mod.n}</div>
           <h2 class="mod-card__title">{mod.title}</h2>
           <p class="mod-card__body">{mod.body}</p>
-          <div class="mod-card__meta">TYPICAL SCOPE · {mod.scope}</div>
+          <div class="mod-card__meta">
+            <span>TYPICAL SCOPE · {mod.scope}</span>
+            {'source' in mod && (
+              <a class="mod-card__source" href={mod.source} target="_blank" rel="noopener">SOURCE ↗</a>
+            )}
+          </div>
         </article>
       ))}
     </div>
@@ -135,12 +140,25 @@ const modules = [
 }
 
 .mod-card__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
   color: var(--fg-mute);
   letter-spacing: 0.8px;
   padding-top: 14px;
   border-top: 1px solid var(--line);
+}
+
+.mod-card__source {
+  color: var(--accent);
+  transition: opacity 100ms ease-out;
+}
+
+.mod-card__source:hover {
+  opacity: 0.8;
 }
 
 /* ─── CTA section ─────────────────────────────────────────────────── */
