@@ -184,8 +184,18 @@ describe('provider selection', () => {
     expect(ol.body.model).toBe('mistral'); // caller-supplied model override
     expect(lastUrl).toBe('http://localhost:11434/api/chat');
 
+    // Kimi (Moonshot AI, OpenAI-compatible).
+    const kimi = makeApp({
+      kimiApiKey: 'k-key',
+      fetchImpl: capture({ choices: [{ message: { content: 'kimi-reply' } }], usage: { prompt_tokens: 3, completion_tokens: 4 } }),
+    });
+    const km = await request(kimi).post('/api/chat/completions').set(svc).send({ provider: 'kimi', messages: [{ role: 'user', content: 'hi' }] });
+    expect(km.body.provider).toBe('kimi');
+    expect(km.body.text).toBe('kimi-reply');
+    expect(lastUrl).toBe('https://api.moonshot.ai/v1/chat/completions');
+
     // Each vendor falls back to mock when unconfigured.
-    for (const provider of ['openai', 'gemini', 'ollama']) {
+    for (const provider of ['openai', 'gemini', 'ollama', 'kimi']) {
       const res = await request(app).post('/api/chat/completions').set(svc).send({ provider, messages: [{ role: 'user', content: 'hi' }] });
       expect(res.body.provider).toBe('mock');
     }

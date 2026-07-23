@@ -43,6 +43,9 @@ export interface AppOptions {
   geminiModel?: string;
   ollamaBaseUrl?: string | null;
   ollamaModel?: string;
+  kimiApiKey?: string | null;
+  kimiModel?: string;
+  kimiBaseUrl?: string;
   fetchImpl?: FetchLike;
 }
 
@@ -65,6 +68,9 @@ export function createApp(opts: AppOptions): express.Express {
     geminiModel: opts.geminiModel ?? 'gemini-1.5-flash',
     ollamaBaseUrl: opts.ollamaBaseUrl ?? null,
     ollamaModel: opts.ollamaModel ?? 'llama3.1',
+    kimiApiKey: opts.kimiApiKey ?? null,
+    kimiModel: opts.kimiModel ?? 'moonshot-v1-8k',
+    kimiBaseUrl: opts.kimiBaseUrl ?? 'https://api.moonshot.ai/v1',
     fetchImpl: opts.fetchImpl,
   };
 

@@ -6,6 +6,7 @@ import { anthropicProvider } from './providers/anthropic.js';
 import { openaiProvider } from './providers/openai.js';
 import { geminiProvider } from './providers/gemini.js';
 import { ollamaProvider } from './providers/ollama.js';
+import { kimiProvider } from './providers/kimi.js';
 import { mockProvider } from './providers/mock.js';
 import { defaultFetch, type ChatProvider, type FetchLike } from './providers/index.js';
 import { activeTemplate, renderMessages } from './prompts.js';
@@ -19,6 +20,9 @@ export interface ChatConfig {
   geminiModel: string;
   ollamaBaseUrl: string | null;
   ollamaModel: string;
+  kimiApiKey: string | null;
+  kimiModel: string;
+  kimiBaseUrl: string;
   fetchImpl?: FetchLike;
 }
 
@@ -45,6 +49,9 @@ export function resolveChatProvider(
       break;
     case 'ollama':
       if (config.ollamaBaseUrl) return { provider: ollamaProvider(config.ollamaBaseUrl, fetchImpl), model: config.ollamaModel };
+      break;
+    case 'kimi':
+      if (config.kimiApiKey) return { provider: kimiProvider(config.kimiApiKey, config.kimiBaseUrl, fetchImpl), model: config.kimiModel };
       break;
     default:
       break;

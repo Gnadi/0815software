@@ -12,6 +12,9 @@ export interface ServerConfig {
   geminiModel: string;
   ollamaBaseUrl: string | null;
   ollamaModel: string;
+  kimiApiKey: string | null;
+  kimiModel: string;
+  kimiBaseUrl: string;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -35,5 +38,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     // Ollama needs no key — a configured base URL is the "enabled" signal.
     ollamaBaseUrl: env.OLLAMA_BASE_URL ?? null,
     ollamaModel: env.OLLAMA_MODEL ?? 'llama3.1',
+    // Kimi (Moonshot AI) — OpenAI-compatible, base URL configurable.
+    kimiApiKey: env.KIMI_API_KEY ?? null,
+    kimiModel: env.KIMI_MODEL ?? 'moonshot-v1-8k',
+    kimiBaseUrl: env.KIMI_BASE_URL ?? 'https://api.moonshot.ai/v1',
   };
 }

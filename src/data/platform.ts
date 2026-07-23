@@ -114,11 +114,11 @@ export const platform: PlatformService[] = [
     port: 4004,
     source: `${REPO}/ps-04-ai-platform`,
     overview:
-      'One API for AI features, provider-agnostic. The default provider is a deterministic built-in mock that makes zero external calls, so chat, embeddings and RAG are reproducible offline and in CI. Real adapters for Anthropic, OpenAI, Google Gemini and Ollama (the open-source, local option) activate only when configured and requested by name; an unconfigured vendor falls back to the mock. Prompts are versioned with an active-version pointer, embeddings are cached, and RAG offers cosine search over ingested documents.',
+      'One API for AI features, provider-agnostic. The default provider is a deterministic built-in mock that makes zero external calls, so chat, embeddings and RAG are reproducible offline and in CI. Real adapters for Anthropic, OpenAI, Google Gemini, Kimi (Moonshot AI) and Ollama (the open-source, local option) activate only when configured and requested by name; an unconfigured vendor falls back to the mock. Prompts are versioned with an active-version pointer, embeddings are cached, and RAG offers cosine search over ingested documents.',
     responsibilities: [
       'Chat completions with an append-only call log and idempotency',
       'Deterministic mock provider by default; falls back to it when a vendor is unconfigured',
-      'Real adapters for Anthropic, OpenAI, Gemini and Ollama (open-source, local)',
+      'Real adapters for Anthropic, OpenAI, Gemini, Kimi and Ollama (open-source, local)',
       'Embeddings from a local model, cached by (model, input hash); RAG cosine search',
       'Versioned prompt templates with an active-version pointer',
     ],

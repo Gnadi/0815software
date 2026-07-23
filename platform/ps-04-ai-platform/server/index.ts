@@ -19,6 +19,9 @@ const app = createApp({
   geminiModel: config.geminiModel,
   ollamaBaseUrl: config.ollamaBaseUrl,
   ollamaModel: config.ollamaModel,
+  kimiApiKey: config.kimiApiKey,
+  kimiModel: config.kimiModel,
+  kimiBaseUrl: config.kimiBaseUrl,
 });
 
 app.listen(config.port, () => {
@@ -31,6 +34,7 @@ app.listen(config.port, () => {
     config.openaiApiKey && 'openai',
     config.geminiApiKey && 'gemini',
     config.ollamaBaseUrl && 'ollama',
+    config.kimiApiKey && 'kimi',
   ].filter(Boolean);
   console.log(
     enabled.length
