@@ -6,6 +6,7 @@ export const T: Record<Lang, Record<string, string>> = {
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.products':      'Products',
     'nav.modules':       'Modules',
+    'nav.platform':      'Platform',
     'nav.how':           'How it works',
     'nav.catch':         'The catch',
     'nav.compare':       'Compare',
@@ -110,6 +111,7 @@ export const T: Record<Lang, Record<string, string>> = {
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.products':      'Produkte',
     'nav.modules':       'Module',
+    'nav.platform':      'Plattform',
     'nav.how':           'So funktionierts',
     'nav.catch':         'Der Haken',
     'nav.compare':       'Vergleich',

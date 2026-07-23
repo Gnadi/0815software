@@ -22,27 +22,48 @@ The two catalogs are independent.
 Business Modules  →  Platform Services  →  Infrastructure
 ```
 
-## Planned services
+## Services
 
-Nothing here is implemented yet — this catalog is documentation only. Each
-folder is a placeholder describing the service's intended purpose and
-scope.
+All five services are implemented as **backend-only** packages: an Express 5
++ better-sqlite3 API with Vitest/Supertest tests and no client, matching the
+module server idiom (Node built-in crypto only, no auth/ORM libraries). Each
+is self-contained — install and run it independently.
 
-| #     | Service          | Purpose                                   | Status  |
-| ----- | ---------------- | ----------------------------------------- | ------- |
-| PS-01 | Identity         | Shared authentication and authorization   | Planned |
-| PS-02 | Workflow Engine  | Automation engine for all modules         | Planned |
-| PS-03 | Notification Hub | Centralized notification delivery         | Planned |
-| PS-04 | AI Platform      | Shared AI capabilities                    | Planned |
-| PS-05 | Integration Hub  | Centralized third-party integrations      | Planned |
+| #     | Service          | Purpose                                   | API port | Status    |
+| ----- | ---------------- | ----------------------------------------- | -------- | --------- |
+| PS-01 | Identity         | Shared authentication and authorization   | 4001     | Available |
+| PS-02 | Workflow Engine  | Automation engine for all modules         | 4002     | Available |
+| PS-03 | Notification Hub | Centralized notification delivery         | 4003     | Available |
+| PS-04 | AI Platform      | Shared AI capabilities                    | 4004     | Available |
+| PS-05 | Integration Hub  | Centralized third-party integrations      | 4005     | Available |
 
 - [PS-01 · Identity](./ps-01-identity) — authentication, users, roles,
-  permissions, OAuth, API keys, JWT, multi-tenancy.
+  permissions, OAuth stub, API keys, HMAC/JWT-style sessions, multi-tenancy.
 - [PS-02 · Workflow Engine](./ps-02-workflow-engine) — workflows,
   triggers, events, scheduling, webhooks, retries.
 - [PS-03 · Notification Hub](./ps-03-notification-hub) — email, SMS, push,
   chat channels, templates, queues.
 - [PS-04 · AI Platform](./ps-04-ai-platform) — chat, embeddings, RAG,
-  agents, prompt management, multi-provider LLM access.
-- [PS-05 · Integration Hub](./ps-05-integration-hub) — OAuth connections
-  and adapters for third-party SaaS and APIs.
+  prompt management, deterministic mock + Anthropic provider.
+- [PS-05 · Integration Hub](./ps-05-integration-hub) — encrypted OAuth
+  connections and REST/GraphQL adapters for third-party SaaS.
+
+## Quickstart
+
+Each service runs on its own. From any service folder:
+
+```sh
+cd platform/ps-01-identity   # …or ps-02 … ps-05
+npm install
+npm run seed        # optional — the server also seeds an empty DB on boot
+npm run dev:api     # API on its port (see the table above)
+npm test            # Vitest + Supertest
+```
+
+## Standalone in v1 (identity seam)
+
+The services do not call each other at runtime yet. Each validates its own
+admin/HMAC session, and every `.env.example` documents a commented-out
+`IDENTITY_URL` marking where a real deployment would verify callers against
+PS-01 (`POST /api/tokens/verify`). Because every service uses the same HMAC
+token format as PS-01, that cutover is a configuration change, not a rewrite.

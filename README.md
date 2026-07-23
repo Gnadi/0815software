@@ -84,8 +84,12 @@ graph TD
 - [`modules/`](./modules/README.md) — the fourteen available Business
   Modules, each a self-contained application with its own `package.json`,
   `LICENSE` and README.
-- [`platform/`](./platform/README.md) — the five planned Platform
-  Services. Documentation only for now; nothing here is implemented yet.
+- [`platform/`](./platform/README.md) — the five Platform Services (PS-01
+  Identity, PS-02 Workflow Engine, PS-03 Notification Hub, PS-04 AI
+  Platform, PS-05 Integration Hub). Implemented as backend-only APIs
+  (Express 5 + SQLite + tests, no client), each self-contained on its own
+  port. Standalone in v1 — the identity seam to PS-01 is documented, not
+  wired live.
 
 ## License
 
