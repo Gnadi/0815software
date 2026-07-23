@@ -250,6 +250,9 @@ const { svc, prev, next } = Astro.props;
 }
 @media (max-width: 767px) {
   .detail-meta { gap: 24px; }
+  /* Once the meta row wraps, don't push REPOSITORY to the far right — let
+     it align left with the other items instead of orphaning it. */
+  .detail-meta__item--source { margin-left: 0; }
   .detail-nav { grid-template-columns: 1fr; }
   .detail-nav__link--next {
     align-items: flex-start;
