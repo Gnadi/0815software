@@ -44,7 +44,8 @@ is self-contained — install and run it independently.
 - [PS-03 · Notification Hub](./ps-03-notification-hub) — email, SMS, push,
   chat channels, templates, queues.
 - [PS-04 · AI Platform](./ps-04-ai-platform) — chat, embeddings, RAG,
-  prompt management, deterministic mock + Anthropic provider.
+  prompt management; deterministic mock plus Anthropic, OpenAI, Gemini and
+  Ollama (open-source) adapters.
 - [PS-05 · Integration Hub](./ps-05-integration-hub) — encrypted OAuth
   connections and REST/GraphQL adapters for third-party SaaS.
 

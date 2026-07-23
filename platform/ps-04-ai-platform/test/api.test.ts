@@ -138,6 +138,58 @@ describe('provider selection', () => {
     expect(nokey.body.provider).toBe('mock');
     expect(fetchCalls).toBe(1);
   });
+
+  it('routes OpenAI, Gemini and Ollama to their adapters when configured', async () => {
+    let lastUrl = '';
+    const okJson = (json: unknown): { ok: boolean; status: number; json: () => Promise<unknown> } => ({
+      ok: true,
+      status: 200,
+      json: async () => json,
+    });
+    const capture =
+      (json: unknown): FetchLike =>
+      async (url) => {
+        lastUrl = url;
+        return okJson(json);
+      };
+
+    // OpenAI.
+    const openai = makeApp({
+      openaiApiKey: 'sk-openai',
+      fetchImpl: capture({ choices: [{ message: { content: 'openai-reply' } }], usage: { prompt_tokens: 3, completion_tokens: 4 } }),
+    });
+    const o = await request(openai).post('/api/chat/completions').set(svc).send({ provider: 'openai', messages: [{ role: 'user', content: 'hi' }] });
+    expect(o.body.provider).toBe('openai');
+    expect(o.body.text).toBe('openai-reply');
+    expect(lastUrl).toContain('api.openai.com');
+
+    // Gemini.
+    const gemini = makeApp({
+      geminiApiKey: 'g-key',
+      fetchImpl: capture({ candidates: [{ content: { parts: [{ text: 'gemini-reply' }] } }], usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 4 } }),
+    });
+    const g = await request(gemini).post('/api/chat/completions').set(svc).send({ provider: 'gemini', messages: [{ role: 'user', content: 'hi' }] });
+    expect(g.body.provider).toBe('gemini');
+    expect(g.body.text).toBe('gemini-reply');
+    expect(lastUrl).toContain('generativelanguage.googleapis.com');
+
+    // Ollama (open-source, keyless — enabled by a base URL).
+    const ollama = makeApp({
+      ollamaBaseUrl: 'http://localhost:11434',
+      fetchImpl: capture({ message: { content: 'ollama-reply' }, prompt_eval_count: 3, eval_count: 4 }),
+    });
+    const ol = await request(ollama).post('/api/chat/completions').set(svc).send({ provider: 'ollama', model: 'mistral', messages: [{ role: 'user', content: 'hi' }] });
+    expect(ol.body.provider).toBe('ollama');
+    expect(ol.body.text).toBe('ollama-reply');
+    expect(ol.body.model).toBe('mistral'); // caller-supplied model override
+    expect(lastUrl).toBe('http://localhost:11434/api/chat');
+
+    // Each vendor falls back to mock when unconfigured.
+    for (const provider of ['openai', 'gemini', 'ollama']) {
+      const res = await request(app).post('/api/chat/completions').set(svc).send({ provider, messages: [{ role: 'user', content: 'hi' }] });
+      expect(res.body.provider).toBe('mock');
+    }
+  });
 });
 
 describe('documented stubs', () => {

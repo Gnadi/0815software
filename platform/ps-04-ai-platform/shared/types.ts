@@ -2,7 +2,7 @@
  * PS-04 AI Platform — wire contract shared between server and client.
  */
 
-export const PROVIDERS = ['mock', 'anthropic'] as const;
+export const PROVIDERS = ['mock', 'anthropic', 'openai', 'gemini', 'ollama'] as const;
 export type ProviderName = (typeof PROVIDERS)[number];
 
 export const AI_CAPABILITIES = ['chat', 'embeddings', 'rag', 'agents', 'images', 'speech'] as const;

@@ -12,9 +12,11 @@ only).
 
 - **Provider abstraction** with a deterministic, built-in **mock** provider
   as the default — zero external calls, so chat, embeddings and RAG are
-  reproducible offline and in CI. A real **Anthropic** adapter (a single
-  `fetch`, no SDK) activates only when `ANTHROPIC_API_KEY` is set and a
-  request asks for `provider: "anthropic"`.
+  reproducible offline and in CI. Real vendor adapters (a single `fetch`
+  each, no SDKs) activate only when configured and requested by name:
+  **Anthropic**, **OpenAI**, **Google Gemini**, and **Ollama** — the
+  open-source option that runs open-weight models (Llama, Mistral, Gemma, …)
+  locally with no API key. An unconfigured vendor falls back to the mock.
 - **Chat completions** logged to an append-only call log; idempotency keys
   dedupe repeated calls.
 - **Embeddings** produced by a deterministic local model, cached by
@@ -60,8 +62,10 @@ curl -s -X POST localhost:4004/api/rag/search \
   -d '{"collection":"handbook","query":"what are platform services","k":2}'
 ```
 
-Set `ANTHROPIC_API_KEY` and send `{"provider":"anthropic", ...}` to use the
-real model. Production build: `npm run build && npm start`.
+Configure a vendor (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`,
+or `OLLAMA_BASE_URL`) and send `{"provider":"anthropic"|"openai"|"gemini"|"ollama", ...}`
+to use a real model — see [`.env.example`](./.env.example). Production
+build: `npm run build && npm start`.
 
 ## API
 

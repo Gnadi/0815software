@@ -3,6 +3,9 @@ import type { ChatMessage, ChatResponse, ProviderName } from '../shared/types.js
 import { nowIso } from './auth.js';
 import { DomainError } from './errors.js';
 import { anthropicProvider } from './providers/anthropic.js';
+import { openaiProvider } from './providers/openai.js';
+import { geminiProvider } from './providers/gemini.js';
+import { ollamaProvider } from './providers/ollama.js';
 import { mockProvider } from './providers/mock.js';
 import { defaultFetch, type ChatProvider, type FetchLike } from './providers/index.js';
 import { activeTemplate, renderMessages } from './prompts.js';
@@ -10,23 +13,41 @@ import { activeTemplate, renderMessages } from './prompts.js';
 export interface ChatConfig {
   anthropicApiKey: string | null;
   anthropicModel: string;
+  openaiApiKey: string | null;
+  openaiModel: string;
+  geminiApiKey: string | null;
+  geminiModel: string;
+  ollamaBaseUrl: string | null;
+  ollamaModel: string;
   fetchImpl?: FetchLike;
 }
 
 /**
- * Provider selection: the real Anthropic adapter is used only when the
- * request asks for it AND a key is configured; otherwise everything falls
- * back to the deterministic mock provider.
+ * Provider selection: a real vendor adapter is used only when the request
+ * asks for it AND that vendor is configured (an API key, or a base URL for
+ * the keyless open-source Ollama). Anything else — including an unconfigured
+ * vendor — falls back to the deterministic mock provider.
  */
 export function resolveChatProvider(
   requested: ProviderName | undefined,
   config: ChatConfig,
 ): { provider: ChatProvider; model: string } {
-  if (requested === 'anthropic' && config.anthropicApiKey) {
-    return {
-      provider: anthropicProvider(config.anthropicApiKey, config.fetchImpl ?? defaultFetch),
-      model: config.anthropicModel,
-    };
+  const fetchImpl = config.fetchImpl ?? defaultFetch;
+  switch (requested) {
+    case 'anthropic':
+      if (config.anthropicApiKey) return { provider: anthropicProvider(config.anthropicApiKey, fetchImpl), model: config.anthropicModel };
+      break;
+    case 'openai':
+      if (config.openaiApiKey) return { provider: openaiProvider(config.openaiApiKey, fetchImpl), model: config.openaiModel };
+      break;
+    case 'gemini':
+      if (config.geminiApiKey) return { provider: geminiProvider(config.geminiApiKey, fetchImpl), model: config.geminiModel };
+      break;
+    case 'ollama':
+      if (config.ollamaBaseUrl) return { provider: ollamaProvider(config.ollamaBaseUrl, fetchImpl), model: config.ollamaModel };
+      break;
+    default:
+      break;
   }
   return { provider: mockProvider, model: 'mock-chat-001' };
 }
@@ -80,7 +101,9 @@ export async function runChat(db: Database.Database, config: ChatConfig, opts: R
   }
 
   const { provider, model } = resolveChatProvider(opts.provider, config);
-  const usedModel = opts.model && provider.name === 'anthropic' ? opts.model : model;
+  // A caller-supplied model overrides the default for any real vendor; the
+  // mock provider always reports its own fixed model id.
+  const usedModel = opts.model && provider.name !== 'mock' ? opts.model : model;
 
   const started = Date.now();
   const result = await provider.chat(messages, usedModel);

@@ -37,6 +37,12 @@ export interface AppOptions {
   now?: () => number;
   anthropicApiKey?: string | null;
   anthropicModel?: string;
+  openaiApiKey?: string | null;
+  openaiModel?: string;
+  geminiApiKey?: string | null;
+  geminiModel?: string;
+  ollamaBaseUrl?: string | null;
+  ollamaModel?: string;
   fetchImpl?: FetchLike;
 }
 
@@ -53,6 +59,12 @@ export function createApp(opts: AppOptions): express.Express {
   const chatConfig: ChatConfig = {
     anthropicApiKey: opts.anthropicApiKey ?? null,
     anthropicModel: opts.anthropicModel ?? 'claude-sonnet-5',
+    openaiApiKey: opts.openaiApiKey ?? null,
+    openaiModel: opts.openaiModel ?? 'gpt-4o-mini',
+    geminiApiKey: opts.geminiApiKey ?? null,
+    geminiModel: opts.geminiModel ?? 'gemini-1.5-flash',
+    ollamaBaseUrl: opts.ollamaBaseUrl ?? null,
+    ollamaModel: opts.ollamaModel ?? 'llama3.1',
     fetchImpl: opts.fetchImpl,
   };
 
