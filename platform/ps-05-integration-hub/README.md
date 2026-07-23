@@ -1,32 +1,104 @@
 # PS-05 · Integration Hub
 
 Centralized third-party integration service for the 0815software platform.
-One place to manage OAuth connections and adapters to external SaaS, so
-modules consume a normalized API instead of maintaining vendor clients
+One place to manage OAuth-style connections and adapters to external SaaS,
+so modules consume a normalized API instead of maintaining vendor clients
 themselves.
 
-Part of the [Platform Services catalog](../README.md). **Status: Planned —
-not yet implemented.** This README documents intended scope only.
+Part of the [Platform Services catalog](../README.md). Backend service,
+MIT-licensed, self-contained (Express 5 + SQLite, Node built-in crypto
+only).
 
-## Purpose
+## What it is
 
-Own the connection and translation layer to outside systems: store
-credentials, refresh tokens, and expose consistent, well-typed access to
-each provider.
+- **Connections** store per-provider credentials **encrypted at rest**
+  (AES-256-GCM). The plaintext is never written and never returned — every
+  read is redacted.
+- **Provider registry** (`google`, `microsoft`, `stripe`, `github`,
+  `shopify`, `rest`, `graphql`) is config-as-code: base URL, outbound auth
+  type, and inbound signature scheme, validated at boot.
+- **Generic proxy** issues REST or GraphQL calls through a connection,
+  decrypting the credentials and injecting the correct auth header — so a
+  module never handles the secret itself.
+- **Inbound webhooks** are verified per provider (GitHub / Stripe / Shopify
+  HMAC schemes) and recorded with their `signature_valid` verdict.
+- **Sync jobs** and OAuth authorize/callback are documented stubs — the
+  seams a real deployment fills in.
 
-## Responsibilities
+## Stack
 
-- **OAuth Connections** — connect, store and refresh third-party tokens.
-- **Google Workspace** — Gmail, Calendar, Drive, Sheets.
-- **Microsoft 365** — Outlook, Calendar, OneDrive, Excel.
-- **Stripe** — payments, subscriptions, invoicing.
-- **GitHub** — repositories, issues, actions.
-- **Shopify** — stores, orders, products.
-- **REST APIs** — generic REST adapters.
-- **GraphQL** — generic GraphQL adapters.
-- **Webhooks** — receive and dispatch provider events.
+| Layer   | Choice                                      |
+| ------- | ------------------------------------------- |
+| API     | Node 20+ · Express 5 · TypeScript (strict)  |
+| Storage | better-sqlite3 (single file, zero services) |
+| Crypto  | AES-256-GCM (credentials) + HMAC-SHA256 (webhooks) |
+| Tests   | Vitest + Supertest (injected fetch)         |
+
+Runtime dependencies: `express`, `better-sqlite3`. Outbound calls use the
+built-in `fetch`.
+
+## Quickstart
+
+Requires Node 20+.
+
+```sh
+cd platform/ps-05-integration-hub
+npm install
+# a real 32-byte key is required in production; the dev default is all-zero:
+export INTEGRATION_ENCRYPTION_KEY=$(openssl rand -hex 32)
+npm run seed        # optional — the server also seeds an empty DB on boot
+npm run dev:api     # API on http://localhost:4005
+```
+
+```sh
+curl -s localhost:4005/api/health
+TOKEN=$(curl -s -X POST localhost:4005/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"change-me"}' | jq -r .token)
+curl -s localhost:4005/api/connections -H "Authorization: Bearer $TOKEN"
+```
+
+The server refuses to start if `INTEGRATION_ENCRYPTION_KEY` is not exactly
+64 hex characters. Production build: `npm run build && npm start`.
+
+## API
+
+Admin routes need a session (`POST /api/login`); the inbound webhook
+receiver is public but signature-verified. Errors are `{ error, details? }`.
+
+### Public
+
+| Method & path | Purpose |
+| ------------- | ------- |
+| `GET /api/health` | Liveness. |
+| `POST /api/login` · `POST /api/logout` | Admin session. |
+| `POST /api/webhooks/:provider` | Inbound receiver — 401 missing / 403 bad / 202 verified. |
+
+### Admin
+
+| Method & path | Purpose |
+| ------------- | ------- |
+| `GET /api/providers` | The provider registry. |
+| `GET/POST /api/connections`, `GET /api/connections/:id` | List / create / fetch (credentials redacted). |
+| `DELETE /api/connections/:id` · `POST /api/connections/:id/refresh` | Revoke / refresh (stub). |
+| `GET /api/connections/:provider/authorize` · `/callback` | OAuth connect stubs. |
+| `POST /api/connections/:id/proxy` · `/graphql` | Generic REST / GraphQL proxy with injected auth. |
+| `GET /api/webhook-events`, `GET /api/webhook-events/:id` | Inbound webhook log. |
+| `POST /api/connections/:id/sync` · `GET /api/sync-jobs` | Outbound sync stubs. |
 
 ## Consumed by
 
-Business Modules, over an API. The Integration Hub depends on no Business
-Module.
+Business Modules, over this API. The Integration Hub depends on no Business
+Module. See [`.env.example`](./.env.example) for the (commented-out)
+`IDENTITY_URL` seam.
+
+## Tests
+
+```sh
+npm test
+```
+
+Covers fail-fast key validation, credentials encrypted at rest (no
+plaintext ever returned or stored), inbound webhook signature verification
+(401/403/202, verdict recorded), and the proxy injecting the correct auth
+header + shaping REST and GraphQL requests (against a mocked `fetch`).
