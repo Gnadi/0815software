@@ -1,0 +1,178 @@
+---
+// §06 — Platform Services (catalogue teaser)
+// Compact index of the five shared backend services + a CTA to the
+// platform catalogue. Sits after the Modules teaser: modules are what we
+// build, platform services are what they run on.
+import { platform } from '../data/platform';
+---
+
+<section id="platform" class="platform">
+  <!-- Heading row -->
+  <div class="platform__head">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 06</div>
+      <div class="section-rail__name">Platform</div>
+    </div>
+    <div class="platform__head-content">
+      <div class="section-label-inline" aria-hidden="true">
+        <span class="section-label-inline__num">§ 06</span> · Platform
+      </div>
+      <h2 class="platform__h2" data-i18n="platform.h2">Five services modules run on.</h2>
+      <p class="platform__intro" data-i18n="platform.intro">
+        Shared backend capabilities — identity, workflow, notifications, AI and
+        integrations — that every module consumes over an API. Modules depend on
+        the platform; the platform never depends on a module.
+      </p>
+    </div>
+  </div>
+
+  <!-- Compact index -->
+  <div class="platform__grid">
+    <div class="platform__spacer" aria-hidden="true"></div>
+    <div class="platform__index">
+      {platform.map((svc) => (
+        <a class="svc-row" href={`/platform/${svc.slug}`}>
+          <span class="svc-row__num">{svc.n}</span>
+          <span class="svc-row__title">{svc.title}</span>
+          <span class="svc-row__purpose">{svc.purpose}</span>
+          <span class="svc-row__arrow" aria-hidden="true">→</span>
+        </a>
+      ))}
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="platform__cta">
+    <div class="platform__spacer" aria-hidden="true"></div>
+    <div class="platform__cta-content">
+      <a href="/platform" class="btn btn--primary" data-i18n="platform.cta">Explore the platform →</a>
+      <a href="/modules" class="btn btn--ghost" data-i18n="platform.cta2">Browse the modules</a>
+    </div>
+  </div>
+</section>
+
+<style>
+.platform {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+
+.platform__head {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  margin-bottom: 56px;
+  align-items: start;
+}
+
+.platform__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 44px;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -1.2px;
+  margin-bottom: 24px;
+}
+
+.platform__intro {
+  font-size: 18px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  max-width: 620px;
+}
+
+.platform__grid {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+/* Single-column list of service rows, 1px hairline dividers */
+.platform__index {
+  display: grid;
+  grid-template-columns: 1fr;
+  border-top: 1px solid var(--line);
+}
+
+.svc-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+  transition: padding-left 120ms ease-out;
+}
+.svc-row:hover { padding-left: 8px; }
+.svc-row:hover .svc-row__arrow { opacity: 1; }
+.svc-row:hover .svc-row__title { color: var(--fg); }
+
+.svc-row__num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.6px;
+  flex-shrink: 0;
+  width: 58px;
+}
+
+.svc-row__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  color: var(--fg-dim);
+  flex-shrink: 0;
+  width: 190px;
+  transition: color 100ms ease-out;
+}
+
+.svc-row__purpose {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg-mute);
+  flex: 1;
+}
+
+.svc-row__arrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 100ms ease-out;
+}
+
+.platform__cta {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+  margin-top: 48px;
+}
+.platform__cta-content {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  .platform__h2 { font-size: 36px; }
+  .svc-row__title { width: 170px; }
+}
+
+@media (max-width: 999px) {
+  .platform__head,
+  .platform__grid,
+  .platform__cta { grid-template-columns: 1fr; }
+  .platform__spacer { display: none; }
+}
+
+@media (max-width: 767px) {
+  .platform__h2 { font-size: 28px; letter-spacing: -0.6px; }
+  .platform__intro { font-size: 16px; }
+  .svc-row { flex-wrap: wrap; row-gap: 4px; }
+  .svc-row__title { width: auto; flex: 1; }
+  .svc-row__purpose { flex-basis: 100%; order: 3; }
+}
+</style>

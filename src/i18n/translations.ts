@@ -67,6 +67,10 @@ export const T: Record<Lang, Record<string, string>> = {
     'modules.intro':     'Each one is a solved standard business problem — MIT-licensed, fully sourced, and handed off in weeks. Open any module to see the interface and what it does.',
     'modules.cta':       'Explore the modules →',
     'modules.cta2':      'Commission a custom scope',
+    'platform.h2':       'Five services modules run on.',
+    'platform.intro':    'Shared backend capabilities — identity, workflow, notifications, AI and integrations — that every module consumes over an API. Modules depend on the platform; the platform never depends on a module.',
+    'platform.cta':      'Explore the platform →',
+    'platform.cta2':     'Browse the modules',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'How a 0815 project runs.',
@@ -172,6 +176,10 @@ export const T: Record<Lang, Record<string, string>> = {
     'modules.intro':     'Jedes ist ein gelöstes Standard-Geschäftsproblem — MIT-lizenziert, mit vollem Quellcode und in Wochen übergeben. Öffne ein Modul, um die Oberfläche und den Funktionsumfang zu sehen.',
     'modules.cta':       'Module entdecken →',
     'modules.cta2':      'Individuellen Umfang beauftragen',
+    'platform.h2':       'Fünf Dienste, auf denen Module laufen.',
+    'platform.intro':    'Gemeinsame Backend-Funktionen — Identität, Workflow, Benachrichtigungen, KI und Integrationen — die jedes Modul über eine API nutzt. Module hängen von der Plattform ab; die Plattform nie von einem Modul.',
+    'platform.cta':      'Plattform entdecken →',
+    'platform.cta2':     'Module durchsehen',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'So läuft ein 0815-Projekt ab.',
