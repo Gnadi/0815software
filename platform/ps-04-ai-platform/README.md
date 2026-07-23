@@ -1,29 +1,102 @@
 # PS-04 · AI Platform
 
 Shared AI capabilities for the 0815software platform. Modules call one API
-for chat, embeddings, retrieval and agents rather than each wiring up its
-own model providers and prompt plumbing.
+for chat, embeddings, retrieval and prompt management rather than each
+wiring up its own model providers and prompt plumbing.
 
-Part of the [Platform Services catalog](../README.md). **Status: Planned —
-not yet implemented.** This README documents intended scope only.
+Part of the [Platform Services catalog](../README.md). Backend service,
+MIT-licensed, self-contained (Express 5 + SQLite, Node built-in crypto
+only).
 
-## Purpose
+## What it is
 
-Provide a common, provider-agnostic surface for AI features so every module
-gets the same capabilities, governance and cost controls.
+- **Provider abstraction** with a deterministic, built-in **mock** provider
+  as the default — zero external calls, so chat, embeddings and RAG are
+  reproducible offline and in CI. A real **Anthropic** adapter (a single
+  `fetch`, no SDK) activates only when `ANTHROPIC_API_KEY` is set and a
+  request asks for `provider: "anthropic"`.
+- **Chat completions** logged to an append-only call log; idempotency keys
+  dedupe repeated calls.
+- **Embeddings** produced by a deterministic local model, cached by
+  `(model, input_hash)` so repeat inputs never recompute.
+- **RAG**: ingest documents into a collection and search them by cosine
+  similarity.
+- **Prompt management**: versioned prompt templates with `{{variable}}`
+  interpolation and an active-version pointer.
+- **Agents, image generation and speech** are present as documented `501`
+  stubs — the planned surface without a v1 implementation.
 
-## Responsibilities
+## Stack
 
-- **Chat** — conversational completions.
-- **Embeddings** — vector representations for search and similarity.
-- **RAG** — retrieval-augmented generation over module data.
-- **AI Agents** — tool-using, multi-step agents.
-- **Prompt Management** — versioned, reusable prompts.
-- **Image Generation** — text-to-image and edits.
-- **Speech** — speech-to-text and text-to-speech.
-- **Multiple LLM Providers** — one interface across model vendors.
+| Layer   | Choice                                      |
+| ------- | ------------------------------------------- |
+| API     | Node 20+ · Express 5 · TypeScript (strict)  |
+| Storage | better-sqlite3 (single file, zero services) |
+| Tests   | Vitest + Supertest (offline, deterministic) |
+
+Runtime dependencies: `express`, `better-sqlite3`. The Anthropic adapter
+uses the built-in `fetch`.
+
+## Quickstart
+
+Requires Node 20+.
+
+```sh
+cd platform/ps-04-ai-platform
+npm install
+npm run seed        # optional — the server also seeds an empty DB on boot
+npm run dev:api     # API on http://localhost:4004
+```
+
+```sh
+curl -s localhost:4004/api/health
+# chat (service token) — deterministic mock reply:
+curl -s -X POST localhost:4004/api/chat/completions \
+  -H 'X-Service-Token: dev-service-token' -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"hello"}]}'
+# retrieval over the seeded handbook collection:
+curl -s -X POST localhost:4004/api/rag/search \
+  -H 'X-Service-Token: dev-service-token' -H 'Content-Type: application/json' \
+  -d '{"collection":"handbook","query":"what are platform services","k":2}'
+```
+
+Set `ANTHROPIC_API_KEY` and send `{"provider":"anthropic", ...}` to use the
+real model. Production build: `npm run build && npm start`.
+
+## API
+
+Call endpoints accept an admin session **or** the shared `SERVICE_TOKEN`.
+Prompt management requires the admin session. Errors are `{ error, details? }`.
+
+| Method & path | Auth | Purpose |
+| ------------- | ---- | ------- |
+| `GET /api/health` | none | Liveness. |
+| `POST /api/login` · `POST /api/logout` | none | Admin session. |
+| `POST /api/chat/completions` | caller | `{messages\|prompt_key, variables?, provider?, model?}` → `{text, usage, provider}`. |
+| `POST /api/embeddings` | caller | `{input}` → cached deterministic vectors. |
+| `GET /api/prompts`, `GET /api/prompts/:key` | caller | Prompts + version details. |
+| `POST /api/prompts` | admin | Create a prompt (v1). |
+| `POST /api/prompts/:key/versions` | admin | Append a version. |
+| `PUT /api/prompts/:key/active` | admin | Set the active version. |
+| `POST /api/prompts/:key/render` | caller | Render the active template. |
+| `GET /api/completions`, `GET /api/completions/:id` | caller | Call log. |
+| `POST /api/rag/documents` | caller | Ingest + embed a document. |
+| `POST /api/rag/search` | caller | Top-k cosine search. |
+| `POST /api/agents/run` · `/api/images/generate` · `/api/speech/transcribe` | caller | Documented `501` stubs. |
 
 ## Consumed by
 
-Business Modules, over an API. The AI Platform depends on no Business
-Module.
+Business Modules, over this API. The AI Platform depends on no Business
+Module. See [`.env.example`](./.env.example) for the (commented-out)
+`IDENTITY_URL` seam.
+
+## Tests
+
+```sh
+npm test
+```
+
+Covers deterministic mock chat (identical output, no network), prompt
+versioning + render + active-pointer switch + missing-variable 422, the
+embedding cache, deterministic RAG ranking, provider selection (Anthropic
+only when keyed, mock otherwise), and the 501 stubs.
