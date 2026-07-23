@@ -106,13 +106,17 @@ const { svc, prev, next } = Astro.props;
   gap: 48px;
   align-items: start;
 }
-.detail-body__content { max-width: 720px; }
+/* min-width:0 lets this grid track shrink below its content's intrinsic
+   width, so the nowrap API list scrolls internally instead of stretching
+   the whole page wider than the viewport. */
+.detail-body__content { max-width: 720px; min-width: 0; }
 
 .detail-body__overview {
   font-size: 19px;
   line-height: 1.6;
   color: var(--fg-dim);
   margin-bottom: 40px;
+  overflow-wrap: anywhere;
 }
 
 .detail-meta {
@@ -177,6 +181,7 @@ const { svc, prev, next } = Astro.props;
   margin-bottom: 40px;
   border: 1px solid var(--line);
   background: var(--bg-3);
+  overflow-x: auto; /* the box scrolls; the page never widens */
 }
 .detail-api__item {
   font-family: 'JetBrains Mono', monospace;
@@ -185,7 +190,6 @@ const { svc, prev, next } = Astro.props;
   color: var(--fg-dim);
   padding: 12px 18px;
   border-bottom: 1px solid var(--line);
-  overflow-x: auto;
   white-space: nowrap;
 }
 .detail-api__item:last-child { border-bottom: none; }
@@ -195,6 +199,7 @@ const { svc, prev, next } = Astro.props;
   line-height: 1.65;
   color: var(--fg-dim);
   margin-bottom: 40px;
+  overflow-wrap: anywhere;
 }
 .detail-consumers__label {
   font-family: 'JetBrains Mono', monospace;
