@@ -63,14 +63,10 @@ export const T: Record<Lang, Record<string, string>> = {
     'faq.3.a':           "Because 'freemium' means 'we haven't shown you the price tag yet'. We'd rather be straight with you from the start.",
 
     // ─── Modules ────────────────────────────────────────────────────────
-    'modules.h2':        'Fourteen modules, ready to go.',
-    'modules.intro':     'Each one is a solved standard business problem — MIT-licensed, fully sourced, and handed off in weeks. Open any module to see the interface and what it does.',
     'modules.cta':       'Explore the modules →',
-    'modules.cta2':      'Commission a custom scope',
-    'platform.h2':       'Five services modules run on.',
-    'platform.intro':    'Shared backend capabilities — identity, workflow, notifications, AI and integrations — that every module consumes over an API. Modules depend on the platform; the platform never depends on a module.',
+    'platform.h2':       'One platform. Standard problems, solved fast.',
+    'platform.intro':    '0815software is a platform: five shared backend services — identity, workflow, notifications, AI and integrations — that let us assemble standard business software at high speed, with stable, high-quality results. The modules are what we ship on top; the platform is what makes them quick to build and boring to run.',
     'platform.cta':      'Explore the platform →',
-    'platform.cta2':     'Browse the modules',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'How a 0815 project runs.',
@@ -172,14 +168,10 @@ export const T: Record<Lang, Record<string, string>> = {
     'faq.3.a':           'Weil "Freemium" bedeutet: "Das Preisschild haben wir noch nicht gezeigt." Wir sind lieber von Anfang an ehrlich.',
 
     // ─── Modules ────────────────────────────────────────────────────────
-    'modules.h2':        'Vierzehn Module, sofort einsatzbereit.',
-    'modules.intro':     'Jedes ist ein gelöstes Standard-Geschäftsproblem — MIT-lizenziert, mit vollem Quellcode und in Wochen übergeben. Öffne ein Modul, um die Oberfläche und den Funktionsumfang zu sehen.',
     'modules.cta':       'Module entdecken →',
-    'modules.cta2':      'Individuellen Umfang beauftragen',
-    'platform.h2':       'Fünf Dienste, auf denen Module laufen.',
-    'platform.intro':    'Gemeinsame Backend-Funktionen — Identität, Workflow, Benachrichtigungen, KI und Integrationen — die jedes Modul über eine API nutzt. Module hängen von der Plattform ab; die Plattform nie von einem Modul.',
+    'platform.h2':       'Eine Plattform. Standardprobleme, schnell gelöst.',
+    'platform.intro':    '0815software ist eine Plattform: fünf gemeinsame Backend-Dienste — Identität, Workflow, Benachrichtigungen, KI und Integrationen — mit denen wir Standard-Business-Software mit hoher Geschwindigkeit und stabiler, hoher Qualität zusammensetzen. Die Module sind das, was wir darauf ausliefern; die Plattform macht sie schnell baubar und langweilig im Betrieb.',
     'platform.cta':      'Plattform entdecken →',
-    'platform.cta2':     'Module durchsehen',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'So läuft ein 0815-Projekt ab.',
