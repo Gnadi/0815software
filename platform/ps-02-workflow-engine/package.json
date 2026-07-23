@@ -1,0 +1,29 @@
+{
+  "name": "@0815software/ps-02-workflow-engine",
+  "version": "0.1.0",
+  "description": "PS-02 Workflow Engine — automation for all modules: workflows, triggers, events, scheduling, outbound webhooks with retry and dead-lettering.",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev:api": "tsx watch server/index.ts",
+    "seed": "tsx server/seed.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server/server/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.5",
+    "@types/node": "^22.19.11",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.1.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

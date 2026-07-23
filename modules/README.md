@@ -1,4 +1,11 @@
-# Modules
+# Business Modules
+
+**This directory contains Business Modules only** — complete,
+customer-facing applications that each solve an end-user problem on their
+own. It holds no shared backend services; those live in the
+[Platform Services catalog](../platform/README.md), and modules consume
+them over APIs. The two catalogs are independent (see the
+[architecture overview](../README.md#architecture)).
 
 The 0815software module catalogue: fourteen standard modules for standard
 business problems, each shipped MIT-licensed with full source code. This

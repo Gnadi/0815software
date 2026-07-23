@@ -6,6 +6,7 @@ export const T: Record<Lang, Record<string, string>> = {
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.products':      'Products',
     'nav.modules':       'Modules',
+    'nav.platform':      'Platform',
     'nav.how':           'How it works',
     'nav.catch':         'The catch',
     'nav.compare':       'Compare',
@@ -62,10 +63,10 @@ export const T: Record<Lang, Record<string, string>> = {
     'faq.3.a':           "Because 'freemium' means 'we haven't shown you the price tag yet'. We'd rather be straight with you from the start.",
 
     // ─── Modules ────────────────────────────────────────────────────────
-    'modules.h2':        'Fourteen modules, ready to go.',
-    'modules.intro':     'Each one is a solved standard business problem — MIT-licensed, fully sourced, and handed off in weeks. Open any module to see the interface and what it does.',
     'modules.cta':       'Explore the modules →',
-    'modules.cta2':      'Commission a custom scope',
+    'platform.h2':       'One platform. Standard problems, solved fast.',
+    'platform.intro':    '0815software is a platform: five shared backend services — identity, workflow, notifications, AI and integrations — that let us assemble standard business software at high speed, with stable, high-quality results. The modules are what we ship on top; the platform is what makes them quick to build and boring to run.',
+    'platform.cta':      'Explore the platform →',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'How a 0815 project runs.',
@@ -110,6 +111,7 @@ export const T: Record<Lang, Record<string, string>> = {
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.products':      'Produkte',
     'nav.modules':       'Module',
+    'nav.platform':      'Plattform',
     'nav.how':           'So funktionierts',
     'nav.catch':         'Der Haken',
     'nav.compare':       'Vergleich',
@@ -166,10 +168,10 @@ export const T: Record<Lang, Record<string, string>> = {
     'faq.3.a':           'Weil "Freemium" bedeutet: "Das Preisschild haben wir noch nicht gezeigt." Wir sind lieber von Anfang an ehrlich.',
 
     // ─── Modules ────────────────────────────────────────────────────────
-    'modules.h2':        'Vierzehn Module, sofort einsatzbereit.',
-    'modules.intro':     'Jedes ist ein gelöstes Standard-Geschäftsproblem — MIT-lizenziert, mit vollem Quellcode und in Wochen übergeben. Öffne ein Modul, um die Oberfläche und den Funktionsumfang zu sehen.',
     'modules.cta':       'Module entdecken →',
-    'modules.cta2':      'Individuellen Umfang beauftragen',
+    'platform.h2':       'Eine Plattform. Standardprobleme, schnell gelöst.',
+    'platform.intro':    '0815software ist eine Plattform: fünf gemeinsame Backend-Dienste — Identität, Workflow, Benachrichtigungen, KI und Integrationen — mit denen wir Standard-Business-Software mit hoher Geschwindigkeit und stabiler, hoher Qualität zusammensetzen. Die Module sind das, was wir darauf ausliefern; die Plattform macht sie schnell baubar und langweilig im Betrieb.',
+    'platform.cta':      'Plattform entdecken →',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'So läuft ein 0815-Projekt ab.',
