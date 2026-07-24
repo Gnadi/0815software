@@ -43,11 +43,50 @@ Modules construct clients lazily and **degrade gracefully**: when a service
 URL is unset, the module keeps its standalone local behavior and never
 constructs the client.
 
+## Install
+
+External consumers install the published package from npm:
+
+```sh
+npm install @0815software/platform-clients
+```
+
+Modules **inside this repo** consume it as a local `file:` dependency and let
+npm build it on install — each module's `.npmrc` sets `install-links=true`, so
+npm packs the package (running its `prepack` build) rather than symlinking
+source. Nothing is committed pre-built; there is no checked-in `dist/`.
+
+```jsonc
+// modules/mod-XX/package.json
+"dependencies": {
+  "@0815software/platform-clients": "file:../../platform/clients"
+}
+```
+
+```ini
+# modules/mod-XX/.npmrc
+install-links=true
+```
+
 ## Develop
 
 ```sh
 cd platform/clients
 npm install
-npm test     # vitest, fully offline (injected fetch)
-npm run build
+npm test         # vitest, fully offline (injected fetch)
+npm run build    # emits dist/ (also run automatically by prepack)
 ```
+
+## Publish
+
+The package is published to npm by CI. Cut a release by pushing a tag:
+
+```sh
+# bump platform/clients/package.json "version", commit, then:
+git tag platform-clients-v0.1.0
+git push origin platform-clients-v0.1.0
+```
+
+The [`publish-platform-clients`](../../.github/workflows/publish-platform-clients.yml)
+workflow builds, tests and runs `npm publish` with provenance, using the repo
+secret `NPM_TOKEN`. Validate locally first with `npm publish --dry-run`.
