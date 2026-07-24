@@ -48,6 +48,7 @@ import {
   transitionOrder,
 } from './store.js';
 import { ordersCsv } from './csv.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -140,9 +141,11 @@ export interface AppOptions {
   auth: AuthConfig;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional PS-08 Payments integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
 }
 
-export function createApp({ db, auth, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, staticDir, platform = noopPlatform }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
 
@@ -233,7 +236,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
   });
 
   // ── Public: checkout ─────────────────────────────────────────────────
-  app.post('/api/shop/checkout', (req, res) => {
+  app.post('/api/shop/checkout', async (req, res) => {
     const input = body(req);
     const errors: FieldError[] = [];
     const customerName = requireText(input.name, 'name', errors, 160);
@@ -250,9 +253,24 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
     }
     const { orderId, ref } = checkout(db, cartId, { customerName, email, address });
     res.setHeader('Set-Cookie', clearedCartCookie());
+
+    // Collect payment via PS-08 when configured. Best-effort: a payments outage
+    // leaves the order placed-but-unpaid (an admin can mark it paid later), it
+    // never fails the checkout. A synchronous success marks the order paid now;
+    // an async/mock intent settles later via PS-08's webhook/tick.
+    let payment: { status: string; public_id: string } | null = null;
+    try {
+      const total = guestOrder(db, orderId).totals.gross_cents;
+      payment = await platform.payOrder({ ref, amountMinor: total, currency: 'EUR' });
+      if (payment && payment.status === 'succeeded') markPaid(db, orderId);
+    } catch (err) {
+      console.warn('[mod-07] platform.payOrder failed:', err);
+    }
+
     res.status(201).json({
       ref,
       token: orderToken(auth.secret, ref),
+      payment,
       order: guestOrder(db, orderId),
     });
   });

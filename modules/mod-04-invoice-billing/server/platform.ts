@@ -1,4 +1,4 @@
-import { AuditClient, FilesClient, NotificationClient } from '@0815software/platform-clients';
+import { AuditClient, FilesClient, NotificationClient, PaymentsClient } from '@0815software/platform-clients';
 
 /**
  * Optional integration with the Platform Services. Every hook is best-effort
@@ -10,12 +10,14 @@ import { AuditClient, FilesClient, NotificationClient } from '@0815software/plat
  *   - PS-03 Notification Hub — email the customer that an invoice was issued
  *   - PS-06 File Storage      — archive the rendered invoice PDF
  *   - PS-07 Audit Log         — record the issue event on the tamper-evident trail
+ *   - PS-08 Payments          — collect payment for an invoice's open balance
  */
 
 export interface PlatformConfig {
   notificationUrl?: string;
   filesUrl?: string;
   auditUrl?: string;
+  paymentsUrl?: string;
   serviceToken?: string;
   /** PS-03 channel name to send invoice emails through. */
   invoiceChannel?: string;
@@ -30,14 +32,27 @@ export interface InvoiceIssuedInfo {
   actor: string;
 }
 
+export interface PayInvoiceInfo {
+  number: string;
+  amountMinor: number;
+  currency: string;
+}
+
+/** Result of a payment attempt, or null when Payments is not configured. */
+export type PaymentResult = { status: string; public_id: string } | null;
+
 export interface PlatformHooks {
   invoiceIssued(info: InvoiceIssuedInfo): Promise<void>;
+  payInvoice(info: PayInvoiceInfo): Promise<PaymentResult>;
 }
 
 /** The no-op hooks used when nothing is configured. */
 export const noopPlatform: PlatformHooks = {
   async invoiceIssued() {
     /* standalone: nothing to do */
+  },
+  async payInvoice() {
+    return null;
   },
 };
 
@@ -47,7 +62,8 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
     : null;
   const files = cfg.filesUrl ? new FilesClient({ baseUrl: cfg.filesUrl, serviceToken: cfg.serviceToken }) : null;
   const audit = cfg.auditUrl ? new AuditClient({ baseUrl: cfg.auditUrl, serviceToken: cfg.serviceToken }) : null;
-  if (!notify && !files && !audit) return noopPlatform;
+  const payments = cfg.paymentsUrl ? new PaymentsClient({ baseUrl: cfg.paymentsUrl, serviceToken: cfg.serviceToken }) : null;
+  if (!notify && !files && !audit && !payments) return noopPlatform;
 
   const channel = cfg.invoiceChannel ?? 'transactional-email';
 
@@ -84,6 +100,19 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
       for (const r of results) {
         if (r.status === 'rejected') console.warn('[mod-04] platform hook failed:', r.reason);
       }
+    },
+
+    async payInvoice(info: PayInvoiceInfo): Promise<PaymentResult> {
+      if (!payments) return null;
+      // Idempotent on the invoice number, so retries never double-charge.
+      const intent = await payments.createIntent({
+        reference: `invoice:${info.number}`,
+        amount_minor: info.amountMinor,
+        currency: info.currency,
+        confirm: true,
+        idempotency_key: `invoice:${info.number}`,
+      });
+      return { status: intent.status, public_id: intent.public_id };
     },
   };
 }

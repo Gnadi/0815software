@@ -253,6 +253,10 @@ matching `*_URL` env vars are set, **issuing an invoice** also:
 - archives the rendered PDF in **PS-06 File Storage**, and
 - records an `invoice.issued` event on **PS-07 Audit Log**.
 
+With `PAYMENTS_URL` set, `POST /api/invoices/:id/pay` collects an invoice's
+open balance via **PS-08 Payments** (recording the payment on a synchronous
+success); without it, that endpoint returns `501`.
+
 Every call is best-effort — a downstream outage is logged and never fails the
 invoice — and entirely opt-in: with the URLs unset (`NOTIFICATION_URL`,
 `FILES_URL`, `AUDIT_URL`, `PLATFORM_SERVICE_TOKEN`) the module behaves exactly

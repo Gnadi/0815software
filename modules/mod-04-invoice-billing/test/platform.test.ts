@@ -20,14 +20,24 @@ const seller: SellerConfig = {
 
 let db: Database.Database;
 
-async function issueFirstDraft(app: Express): Promise<void> {
-  const login = await request(app).post('/api/login').send({ username: 'admin', password: 'test-password' });
-  const cookie = login.headers['set-cookie']![0]!.split(';')[0]!;
+async function login(app: Express): Promise<string> {
+  const res = await request(app).post('/api/login').send({ username: 'admin', password: 'test-password' });
+  return res.headers['set-cookie']![0]!.split(';')[0]!;
+}
+
+/** Issue a fresh invoice and return its id + admin cookie. */
+async function issueInvoice(app: Express): Promise<{ id: number; cookie: string }> {
+  const cookie = await login(app);
   const draft = await request(app)
     .post('/api/invoices')
     .set('Cookie', cookie)
     .send({ customer_id: 1, payment_terms_days: 14, lines: [{ description: 'Svc', quantity: 1, unit_price_cents: 10_000, vat_rate: 20 }] });
   await request(app).post(`/api/invoices/${draft.body.id}/finalize`).set('Cookie', cookie).send({}).expect(200);
+  return { id: draft.body.id, cookie };
+}
+
+async function issueFirstDraft(app: Express): Promise<void> {
+  await issueInvoice(app);
 }
 
 beforeEach(() => {
@@ -43,6 +53,7 @@ describe('platform integration on invoice finalize', () => {
       auth,
       seller,
       platform: {
+        ...noopPlatform,
         async invoiceIssued(info) {
           calls.push(info);
         },
@@ -69,6 +80,7 @@ describe('platform integration on invoice finalize', () => {
       auth,
       seller,
       platform: {
+        ...noopPlatform,
         async invoiceIssued() {
           throw new Error('notification hub is down');
         },
@@ -76,5 +88,51 @@ describe('platform integration on invoice finalize', () => {
     });
     // The route swallows hook errors, so finalize still returns 200.
     await issueFirstDraft(app);
+  });
+});
+
+describe('pay-an-invoice via PS-08', () => {
+  it('records the payment when the intent settles synchronously', async () => {
+    const app = createApp({
+      db,
+      auth,
+      seller,
+      platform: {
+        ...noopPlatform,
+        async payInvoice() {
+          return { status: 'succeeded', public_id: 'pi_test' };
+        },
+      },
+    });
+    const { id, cookie } = await issueInvoice(app);
+    const pay = await request(app).post(`/api/invoices/${id}/pay`).set('Cookie', cookie);
+    expect(pay.status).toBe(200);
+    expect(pay.body.payment.status).toBe('succeeded');
+    expect(pay.body.invoice.payment_status).toBe('paid');
+    expect(pay.body.invoice.open_cents).toBe(0);
+  });
+
+  it('leaves the invoice open when the intent is still processing', async () => {
+    const app = createApp({
+      db,
+      auth,
+      seller,
+      platform: {
+        ...noopPlatform,
+        async payInvoice() {
+          return { status: 'processing', public_id: 'pi_test' };
+        },
+      },
+    });
+    const { id, cookie } = await issueInvoice(app);
+    const pay = await request(app).post(`/api/invoices/${id}/pay`).set('Cookie', cookie);
+    expect(pay.body.payment.status).toBe('processing');
+    expect(pay.body.invoice.payment_status).not.toBe('paid');
+  });
+
+  it('returns 501 when Payments is not configured', async () => {
+    const app = createApp({ db, auth, seller }); // noop platform
+    const { id, cookie } = await issueInvoice(app);
+    expect((await request(app).post(`/api/invoices/${id}/pay`).set('Cookie', cookie)).status).toBe(501);
   });
 });

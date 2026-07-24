@@ -313,6 +313,26 @@ export function createApp({ db, auth, seller, staticDir, platform = noopPlatform
     res.status(201).json(invoiceDetail(db, Number(req.params.id)));
   });
 
+  // Collect payment for an invoice's open balance via PS-08 Payments. When the
+  // payment settles synchronously it is recorded here; otherwise the intent is
+  // pending (settled later by PS-08's webhook/tick). 501 when Payments is unset.
+  app.post('/api/invoices/:id/pay', async (req, res) => {
+    const id = Number(req.params.id);
+    const detail = invoiceDetail(db, id);
+    if (detail.status !== 'sent') fail([{ field: 'status', message: 'Only a sent, unpaid invoice can be paid' }]);
+    if (detail.open_cents <= 0) fail([{ field: 'status', message: 'Invoice has no open balance' }]);
+
+    const result = await platform.payInvoice({ number: detail.number!, amountMinor: detail.open_cents, currency: 'EUR' });
+    if (result === null) {
+      res.status(501).json({ error: 'Payments are not configured (set PAYMENTS_URL)' });
+      return;
+    }
+    if (result.status === 'succeeded') {
+      recordPayment(db, id, { date: todayIso(), amountCents: detail.open_cents, note: `PS-08 ${result.public_id}` });
+    }
+    res.json({ payment: result, invoice: invoiceDetail(db, id) });
+  });
+
   app.get('/api/invoices/:id/pdf', (req, res) => {
     const invoice = invoiceDetail(db, Number(req.params.id));
     const customer = getCustomer(db, invoice.customer_id);
