@@ -16,6 +16,7 @@ import {
   type AuthConfig,
 } from './auth.js';
 import { DomainError } from './domain.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
 import {
   createCompany,
   deleteCompany,
@@ -195,9 +196,11 @@ export interface AppOptions {
   auth: AuthConfig;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional PS-07 Audit integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
 }
 
-export function createApp({ db, auth, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, staticDir, platform = noopPlatform }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -249,6 +252,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
 
   app.post('/api/companies', (req, res) => {
     const id = createCompany(db, validateCompany(body(req)));
+    void platform.audit({ actor: auth.username, action: 'company.created', resource: `company:${id}` });
     res.status(201).json(getCompany(db, id));
   });
 
@@ -360,6 +364,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
     const note = optText(input.note, 'note', errors, 500);
     if (errors.length > 0) fail(errors);
     moveStage(db, id, stage, note);
+    void platform.audit({ actor: auth.username, action: 'deal.stage_changed', resource: `deal:${id}`, after: { stage } });
     res.json(dealDetail(db, id));
   });
 

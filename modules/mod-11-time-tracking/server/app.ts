@@ -11,6 +11,7 @@ import {
   type AuthConfig,
 } from './auth.js';
 import { exportRange } from './csv.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
 import { EXPORT_PROFILES, getProfile } from './export-profiles.js';
 import {
   approveTimesheet,
@@ -156,9 +157,11 @@ export interface AppOptions {
   auth: AuthConfig;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional PS-07 Audit integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
 }
 
-export function createApp({ db, auth, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, staticDir, platform = noopPlatform }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -332,7 +335,9 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
     const employeeId = reqId(body(req).employee_id, 'employee_id', errors);
     const weekStart = reqDate(body(req).week_start, 'week_start', errors);
     if (errors.length > 0) fail(errors);
-    res.json(submitTimesheet(db, employeeId, weekStartOf(weekStart), auth.username));
+    const submitted = submitTimesheet(db, employeeId, weekStartOf(weekStart), auth.username);
+    void platform.audit({ actor: auth.username, action: 'timesheet.submitted', resource: `employee:${employeeId}`, metadata: { week_start: weekStartOf(weekStart) } });
+    res.json(submitted);
   });
   app.post('/api/timesheets/approve', transitionHandler(approveTimesheet, true));
   app.post('/api/timesheets/reject', transitionHandler(rejectTimesheet, true));

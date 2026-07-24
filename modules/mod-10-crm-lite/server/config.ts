@@ -1,9 +1,11 @@
 import type { AuthConfig } from './auth.js';
+import type { PlatformConfig } from './platform.js';
 
 export interface ServerConfig {
   port: number;
   databasePath: string;
   auth: AuthConfig;
+  platform: PlatformConfig;
 }
 
 /**
@@ -22,6 +24,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       secret: env.SESSION_SECRET ?? 'dev-secret-change-me',
       ttlHours: Number(env.SESSION_TTL_HOURS) || 12,
       secureCookie: env.COOKIE_SECURE === 'true',
+    },
+    platform: {
+      auditUrl: env.AUDIT_URL || undefined,
+      serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
   };
 }
