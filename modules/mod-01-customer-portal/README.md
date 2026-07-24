@@ -190,3 +190,11 @@ invalidation.
 ## License
 
 MIT © 0815software — see [LICENSE](LICENSE).
+
+## Platform integration (optional)
+
+When `AUDIT_URL` (+ `PLATFORM_SERVICE_TOKEN`) is set, security-relevant actions
+(e.g. password changes) are recorded on
+[PS-07 Audit Log](../../platform/ps-07-audit-log) via the shared
+[`@0815software/platform-clients`](../../platform/clients) package. Best-effort
+and opt-in — unset, the module runs standalone. See `server/platform.ts`.

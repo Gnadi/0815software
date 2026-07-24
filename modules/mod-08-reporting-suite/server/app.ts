@@ -23,6 +23,7 @@ import {
 } from './auth.js';
 import { renderChartSvg } from './charts.js';
 import { resultToCsv } from './csv.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
 import { DomainError, nowIso } from './errors.js';
 import { computePivot } from './pivot.js';
 import { checkReportSql, QUERY_POLICY } from './query-policy.js';
@@ -155,9 +156,11 @@ export interface AppOptions {
   exportsDir: string;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional PS-07 Audit integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
 }
 
-export function createApp({ db, sourceDb, auth, exportsDir, staticDir }: AppOptions): express.Express {
+export function createApp({ db, sourceDb, auth, exportsDir, staticDir, platform = noopPlatform }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
   const runCtx: RunContext = { db, sourceDb, exportsDir };
@@ -370,6 +373,7 @@ export function createApp({ db, sourceDb, auth, exportsDir, staticDir }: AppOpti
     const report = getReport(db, Number(req.params.id));
     const runId = executeRun(runCtx, report, 'manual', null);
     const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(runId);
+    void platform.audit({ actor: auth.username, action: 'report.run', resource: `report:${req.params.id}`, metadata: { run_id: runId } });
     res.status(201).json(run);
   });
 

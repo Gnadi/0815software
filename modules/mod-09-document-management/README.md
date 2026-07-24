@@ -277,3 +277,13 @@ password-change round-trip including session invalidation.
 ## License
 
 MIT © 0815software — see [LICENSE](LICENSE).
+
+## Platform integration (optional)
+
+When `FILES_URL` / `AUDIT_URL` (+ `PLATFORM_SERVICE_TOKEN`) are set, each
+uploaded document version is mirrored to
+[PS-06 File Storage](../../platform/ps-06-file-storage) and recorded on
+[PS-07 Audit Log](../../platform/ps-07-audit-log), via the shared
+[`@0815software/platform-clients`](../../platform/clients) package. The module
+keeps its own local copy either way; calls are best-effort and opt-in. See
+`server/platform.ts`.

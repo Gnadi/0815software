@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
+import { buildPlatform } from './platform.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { ensureSourceDb, seedMeta } from './seed.js';
@@ -34,7 +35,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
-const app = createApp({ db, sourceDb, auth: config.auth, exportsDir: config.exportsDir, staticDir });
+const app = createApp({ db, sourceDb, auth: config.auth, exportsDir: config.exportsDir, staticDir, platform: buildPlatform(config.platform) });
 
 startScheduler({ db, sourceDb, exportsDir: config.exportsDir }, config.schedulerTickSeconds);
 
