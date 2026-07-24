@@ -15,6 +15,10 @@ export interface ServerConfig {
   kimiApiKey: string | null;
   kimiModel: string;
   kimiBaseUrl: string;
+  /** Optional real vendor for images / speech / embeddings (OpenAI). */
+  imageModel: string;
+  speechModel: string;
+  embedModel: string;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -28,6 +32,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       ttlHours: Number(env.SESSION_TTL_HOURS) || 12,
       secureCookie: env.COOKIE_SECURE === 'true',
       serviceToken: env.SERVICE_TOKEN ?? 'dev-service-token',
+      identityUrl: env.IDENTITY_URL || undefined,
     },
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? null,
     anthropicModel: env.ANTHROPIC_MODEL ?? 'claude-sonnet-5',
@@ -42,5 +47,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     kimiApiKey: env.KIMI_API_KEY ?? null,
     kimiModel: env.KIMI_MODEL ?? 'moonshot-v1-8k',
     kimiBaseUrl: env.KIMI_BASE_URL ?? 'https://api.moonshot.ai/v1',
+    imageModel: env.OPENAI_IMAGE_MODEL ?? 'gpt-image-1',
+    speechModel: env.OPENAI_SPEECH_MODEL ?? 'whisper-1',
+    embedModel: env.OPENAI_EMBED_MODEL ?? 'text-embedding-3-small',
   };
 }

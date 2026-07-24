@@ -58,6 +58,15 @@ export function openDb(path: string): Database.Database {
       created_at TEXT    NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS agent_runs (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      goal       TEXT    NOT NULL,
+      steps      INTEGER NOT NULL,
+      transcript TEXT    NOT NULL,       -- JSON ChatMessage[]
+      output     TEXT    NOT NULL,
+      created_at TEXT    NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_prompt_versions ON prompt_versions(prompt_id, version);
     CREATE INDEX IF NOT EXISTS idx_completions_at  ON completions(created_at, id);
     CREATE INDEX IF NOT EXISTS idx_rag_collection  ON rag_documents(collection);

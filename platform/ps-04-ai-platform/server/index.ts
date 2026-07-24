@@ -22,6 +22,9 @@ const app = createApp({
   kimiApiKey: config.kimiApiKey,
   kimiModel: config.kimiModel,
   kimiBaseUrl: config.kimiBaseUrl,
+  imageModel: config.imageModel,
+  speechModel: config.speechModel,
+  embedModel: config.embedModel,
 });
 
 app.listen(config.port, () => {

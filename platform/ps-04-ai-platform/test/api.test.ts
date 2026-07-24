@@ -202,10 +202,60 @@ describe('provider selection', () => {
   });
 });
 
-describe('documented stubs', () => {
-  it('returns 501 for unimplemented capabilities', async () => {
-    for (const path of ['/api/agents/run', '/api/images/generate', '/api/speech/transcribe']) {
-      expect((await request(app).post(path).set(svc).send({})).status).toBe(501);
-    }
+describe('agents, images & speech (deterministic mock)', () => {
+  it('runs a bounded agent loop and records the run', async () => {
+    const run = await request(app).post('/api/agents/run').set(svc).send({ goal: 'summarize the handbook', max_steps: 2 });
+    expect(run.status).toBe(200);
+    expect(run.body.steps).toBe(2); // mock never emits DONE → runs to max_steps
+    expect(run.body.output).toContain('[mock:');
+    // Deterministic: the same goal yields the same output.
+    const again = await request(app).post('/api/agents/run').set(svc).send({ goal: 'summarize the handbook', max_steps: 2 });
+    expect(again.body.output).toBe(run.body.output);
+    expect((await request(app).post('/api/agents/run').set(svc).send({})).status).toBe(422); // goal required
+  });
+
+  it('generates a deterministic mock image', async () => {
+    const img = await request(app).post('/api/images/generate').set(svc).send({ prompt: 'a blue logo' });
+    expect(img.status).toBe(200);
+    expect(img.body.provider).toBe('mock');
+    expect(img.body.image).toMatch(/^data:image\/svg\+xml;base64,/);
+    const img2 = await request(app).post('/api/images/generate').set(svc).send({ prompt: 'a blue logo' });
+    expect(img2.body.image).toBe(img.body.image);
+  });
+
+  it('transcribes deterministically from a reference', async () => {
+    const t = await request(app).post('/api/speech/transcribe').set(svc).send({ audio_ref: 'call-123.wav' });
+    expect(t.status).toBe(200);
+    expect(t.body.provider).toBe('mock');
+    expect(t.body.text).toContain('call-123.wav');
+    expect((await request(app).post('/api/speech/transcribe').set(svc).send({})).status).toBe(422);
+  });
+
+  it('uses a configured vendor for embeddings only when requested', async () => {
+    const calls: string[] = [];
+    const vendorFetch: FetchLike = async (url) => {
+      calls.push(url);
+      return { ok: true, status: 200, json: async () => ({ data: [{ embedding: [0.1, 0.2, 0.3] }] }) };
+    };
+    const vendorApp = makeApp({ openaiApiKey: 'sk-test', fetchImpl: vendorFetch });
+    const mock = await request(vendorApp).post('/api/embeddings').set(svc).send({ input: ['hi'] });
+    expect(mock.body.model).toBe('mock-embed-001'); // default = mock, no vendor call
+    expect(calls.length).toBe(0);
+
+    const vendor = await request(vendorApp).post('/api/embeddings').set(svc).send({ input: ['hi'], provider: 'openai' });
+    expect(vendor.body.vectors[0]).toEqual([0.1, 0.2, 0.3]);
+    expect(calls.length).toBe(1);
+  });
+});
+
+describe('identity seam', () => {
+  it('accepts a PS-01-verified token on caller routes when IDENTITY_URL is set', async () => {
+    const identityFetch = async (_url: string, init?: { body?: string }) => {
+      const tok = init?.body ? (JSON.parse(init.body).token as string) : '';
+      return { ok: true, status: 200, json: async () => ({ valid: tok === 'ps01-good' }) };
+    };
+    const seamApp = createApp({ db, auth: { ...auth, identityUrl: 'http://identity.test' }, identityFetch });
+    expect((await request(seamApp).post('/api/embeddings').set(as('ps01-good')).send({ input: ['x'] })).status).toBe(200);
+    expect((await request(seamApp).post('/api/embeddings').set(as('ps01-bad')).send({ input: ['x'] })).status).toBe(401);
   });
 });
