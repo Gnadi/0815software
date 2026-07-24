@@ -6,24 +6,41 @@
 
 ## Verdict
 
-**Not yet — but the foundation is done and coherent.**
+**Customer-rollout-ready, pending the user's vendor keys and npm org.**
 
-What exists today is a strong, fully-tested **v1 platform skeleton**: ten
-self-contained services (identity, workflow, notifications, AI, integrations,
-files, audit, payments, search, numbering), a shared typed client package, and
-all fourteen business modules wired to consume the platform. Every package's
-test suite is green and runs **fully offline** (~552 tests across 25 packages,
-no network, no vendor keys).
+*Updated after the finish-line campaign (Phases 1–8).* The original punch-list
+below has been worked through end to end; each item now carries its status
+inline. Every package's test suite is green and runs **fully offline** (~620
+tests across 25 packages), and `deploy/smoke.mjs` boots all ten services in
+production mode with generated secrets, verifying health, readiness, metrics,
+the cross-service `platform:admin` seam, and security headers.
 
-But "runs offline with mock adapters and dev secrets" is exactly the gap
-between a **reference implementation** and a **customer-ready product**. The
-platform is ready to *demo, evaluate, and build on*. It is **not ready to run a
-paying customer's data on** until the blocking items below are closed. None of
-them are architectural rewrites — they are the productionisation work that a
-mock-first v1 deliberately defers.
+**What's closed (in code):** production boot guards + in-code hardening
+(A1/A4), scoped service credentials and `platform:admin` seam RBAC (A2/A3),
+schema migrations + backups (A6), a per-customer reference deployment with
+Caddy TLS, tickers, and a smoke test (A7 + TLS/secrets/tickers), observability
+— structured logs, `/api/ready`, `/api/metrics`, domain gauges (B1/B2),
+OpenAPI + real-client contract tests (B4), SSO login-exchange across the 11
+admin modules (C1), the real Stripe-Signature scheme + `retryFetch` + gated
+live suites (A5 scaffolding), and compliance basics — audit retention with
+chain integrity, message retention, GDPR erasure, PII map (D1).
 
-This document is the punch-list to get from here to "finished, ready for
-customer rollout," ordered by what blocks a launch.
+**What remains — and it is genuinely only these — needs the user, not the
+repo:**
+1. **Vendor keys.** Run `npm run test:live` per service with real
+   Stripe/Resend/Twilio/OpenAI/Anthropic/OAuth keys to validate the adapters
+   against production (A5's last mile).
+2. **npm publish.** Create the `0815software` npm org, add `NPM_TOKEN`, push a
+   `platform-clients-v*` tag so modules can move off `file:` links (B3).
+3. **A host + domain** for the reference deployment (Caddy issues the certs).
+
+Deferred by explicit decision (documented, not blocking a first rollout):
+mod-01/07/09 domain-user SSO, deeper per-module integrations (C2/C3),
+data-export endpoints and cross-service erasure orchestration, and e-invoicing
+archival (D2).
+
+The per-item punch-list below is retained as the audit trail, each entry
+annotated with what shipped.
 
 ---
 
