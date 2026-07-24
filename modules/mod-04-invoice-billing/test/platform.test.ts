@@ -162,3 +162,24 @@ describe('invoice numbering via PS-10', () => {
     expect(detail.body.number).toMatch(/^INV-\d{4}-\d{4}$/);
   });
 });
+
+
+describe('SSO login-exchange', () => {
+  it('lets PS-01 decide the login, bypassing local credentials', async () => {
+    // The injected verifier stands in for a configured PS-01: it approves
+    // despite a wrong local password, so the module must still issue a session.
+    const app = createApp({ db, auth, seller, verifyLogin: async () => 'ok' });
+    await request(app).post('/api/login').send({ username: 'admin', password: 'wrong-password' }).expect(200);
+  });
+
+  it('rejects when PS-01 rejects, even with correct local credentials', async () => {
+    const app = createApp({ db, auth, seller, verifyLogin: async () => 'fail' });
+    await request(app).post('/api/login').send({ username: 'admin', password: 'test-password' }).expect(401);
+  });
+
+  it('falls back to local credentials when SSO is unconfigured (null)', async () => {
+    const app = createApp({ db, auth, seller, verifyLogin: async () => null });
+    await request(app).post('/api/login').send({ username: 'admin', password: 'nope' }).expect(401);
+    await request(app).post('/api/login').send({ username: 'admin', password: 'test-password' }).expect(200);
+  });
+});

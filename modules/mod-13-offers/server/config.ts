@@ -1,5 +1,6 @@
 import type { AuthConfig } from './auth.js';
 import type { PlatformConfig } from './platform.js';
+import type { SsoConfig } from './sso.js';
 
 /** Seller identity printed on offer PDFs (letterhead + footer). */
 export interface SellerConfig {
@@ -16,6 +17,7 @@ export interface ServerConfig {
   auth: AuthConfig;
   seller: SellerConfig;
   platform: PlatformConfig;
+  sso: SsoConfig;
 }
 
 /** Read configuration from the environment, with local-dev defaults. */
@@ -37,6 +39,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       addressLines: (env.SELLER_ADDRESS ?? 'Beispielgasse 8/15|1010 Wien|Austria').split('|'),
       vatId: env.SELLER_VAT_ID ?? 'ATU00000000',
       email: env.SELLER_EMAIL ?? 'offers@0815software.example.at',
+    },
+    sso: {
+      identityUrl: env.IDENTITY_URL || undefined,
+      identityOrg: env.IDENTITY_ORG || undefined,
+      identityPermission: env.IDENTITY_PERMISSION || undefined,
     },
     platform: {
       auditUrl: env.AUDIT_URL || undefined,

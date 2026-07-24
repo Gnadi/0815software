@@ -1,11 +1,13 @@
 import type { AuthConfig } from './auth.js';
 import type { PlatformConfig } from './platform.js';
+import type { SsoConfig } from './sso.js';
 
 export interface ServerConfig {
   port: number;
   databasePath: string;
   auth: AuthConfig;
   platform: PlatformConfig;
+  sso: SsoConfig;
 }
 
 /**
@@ -27,6 +29,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       intakeSecret: env.INTAKE_SECRET ?? 'dev-intake-secret',
     },
     // Platform Services — all optional; unset means standalone (no calls out).
+    sso: {
+      identityUrl: env.IDENTITY_URL || undefined,
+      identityOrg: env.IDENTITY_ORG || undefined,
+      identityPermission: env.IDENTITY_PERMISSION || undefined,
+    },
     platform: {
       notificationUrl: env.NOTIFICATION_URL || undefined,
       auditUrl: env.AUDIT_URL || undefined,

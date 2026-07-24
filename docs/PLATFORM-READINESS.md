@@ -146,12 +146,19 @@ the real vendor adapters (planned with the vendor-realism work).
 
 The platform is wired, but most integrations are **shallow and one-directional**.
 
-### C1. The flagship promise — one login across modules — is unrealised
-Every module still ships its **own** authentication. No module actually
-delegates login to PS-01 yet. This is the single highest-value remaining
-integration (SSO across the suite) and the reason PS-01 exists.
-**Do:** wire the modules' auth to PS-01 (session issuance + `tokens/verify`),
-starting with the admin-login modules (they already share the HMAC idiom).
+### C1. The flagship promise — one login across modules — ✅ MOSTLY CLOSED
+The 11 shared-admin-idiom modules (mod-02…06, 08, 10…14) now delegate login to
+PS-01 through a copy-in `server/sso.ts`: when `IDENTITY_URL` + `IDENTITY_ORG`
+are set, PS-01 validates the credentials and must grant `platform:admin`
+(configurable), and the module then issues its own local session exactly as
+before — the request path is unchanged. When unset, each module falls back to
+its local admin credentials, so standalone operation is intact. Verified per
+module (injected verifier: PS-01 decides, local bypassed; rejects on fail;
+local fallback when unconfigured) plus an end-to-end test booting a real PS-01
+in-process. Deliberately deferred (documented): the domain-user modules with
+their own identity models — mod-01 portal customers, mod-07 storefront guests,
+mod-09 matter users — keep local auth for now; PS-01 gains org-scoped end-user
+auth before they migrate.
 
 ### C2. Integrations are mostly "emit an audit event"
 Ten of fourteen modules only record audit events. Deeper value is unrealised:

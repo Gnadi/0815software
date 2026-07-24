@@ -16,6 +16,8 @@ export interface SessionClaims {
 export interface TokenVerdict {
   valid: boolean;
   claims?: SessionClaims;
+  /** Permissions the verified principal holds (sessions and scoped API keys). */
+  permissions?: string[];
 }
 export interface LoginResult {
   token: string;

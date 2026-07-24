@@ -38,6 +38,7 @@ import {
   ticketDetail,
 } from './tickets.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
+import { nullVerifier, type LoginVerifier } from './sso.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 function body(req: Request): Record<string, unknown> {
@@ -103,9 +104,10 @@ export interface AppOptions {
   staticDir?: string;
   /** Optional Platform Services integration; defaults to a no-op (standalone). */
   platform?: PlatformHooks;
+  verifyLogin?: LoginVerifier;
 }
 
-export function createApp({ db, auth, now = Date.now, staticDir, platform = noopPlatform }: AppOptions): express.Express {
+export function createApp({ db, auth, now = Date.now, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '512kb' }));
 
@@ -242,9 +244,14 @@ export function createApp({ db, auth, now = Date.now, staticDir, platform = noop
   });
 
   // ══ AGENT LOGIN ═══════════════════════════════════════════════════════
-  app.post('/api/login', (req, res) => {
+  app.post('/api/login', async (req, res) => {
     const { username, password } = body(req);
-    if (!checkCredentials(auth, username, password)) {
+    // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
+    // otherwise the local admin credentials do. Either way the module mints
+    // its own session below, so the rest of the request path is unchanged.
+    const viaSso = await verifyLogin(username, password);
+    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
+    if (!authed) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }

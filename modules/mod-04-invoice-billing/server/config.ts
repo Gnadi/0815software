@@ -1,5 +1,6 @@
 import type { AuthConfig } from './auth.js';
 import type { PlatformConfig } from './platform.js';
+import type { SsoConfig } from './sso.js';
 
 /** Seller identity printed on invoice PDFs (letterhead + footer). */
 export interface SellerConfig {
@@ -16,6 +17,7 @@ export interface ServerConfig {
   auth: AuthConfig;
   seller: SellerConfig;
   platform: PlatformConfig;
+  sso: SsoConfig;
 }
 
 /** Read configuration from the environment, with local-dev defaults. */
@@ -38,6 +40,11 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       bic: env.SELLER_BIC ?? 'EXAMPLEX',
     },
     // Platform Services — all optional; unset means standalone (no calls out).
+    sso: {
+      identityUrl: env.IDENTITY_URL || undefined,
+      identityOrg: env.IDENTITY_ORG || undefined,
+      identityPermission: env.IDENTITY_PERMISSION || undefined,
+    },
     platform: {
       notificationUrl: env.NOTIFICATION_URL || undefined,
       filesUrl: env.FILES_URL || undefined,

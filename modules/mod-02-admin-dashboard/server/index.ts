@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
+import { buildLoginVerifier } from './sso.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
@@ -26,7 +27,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
-const app = createApp({ db, auth: config.auth, staticDir, platform: buildPlatform(config.platform) });
+const app = createApp({ db, auth: config.auth, staticDir, platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso) });
 
 app.listen(config.port, () => {
   console.log(`[mod-02] admin dashboard API on http://localhost:${config.port}`);

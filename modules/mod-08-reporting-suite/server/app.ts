@@ -24,6 +24,7 @@ import {
 import { renderChartSvg } from './charts.js';
 import { resultToCsv } from './csv.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
+import { nullVerifier, type LoginVerifier } from './sso.js';
 import { DomainError, nowIso } from './errors.js';
 import { computePivot } from './pivot.js';
 import { checkReportSql, QUERY_POLICY } from './query-policy.js';
@@ -158,9 +159,10 @@ export interface AppOptions {
   staticDir?: string;
   /** Optional PS-07 Audit integration; defaults to a no-op (standalone). */
   platform?: PlatformHooks;
+  verifyLogin?: LoginVerifier;
 }
 
-export function createApp({ db, sourceDb, auth, exportsDir, staticDir, platform = noopPlatform }: AppOptions): express.Express {
+export function createApp({ db, sourceDb, auth, exportsDir, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
   const runCtx: RunContext = { db, sourceDb, exportsDir };
@@ -170,9 +172,14 @@ export function createApp({ db, sourceDb, auth, exportsDir, staticDir, platform 
     res.json({ ok: true });
   });
 
-  app.post('/api/login', (req, res) => {
+  app.post('/api/login', async (req, res) => {
     const { username, password } = body(req);
-    if (!checkCredentials(auth, username, password)) {
+    // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
+    // otherwise the local admin credentials do. Either way the module mints
+    // its own session below, so the rest of the request path is unchanged.
+    const viaSso = await verifyLogin(username, password);
+    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
+    if (!authed) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }

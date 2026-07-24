@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
+import { buildLoginVerifier } from './sso.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
@@ -31,7 +32,7 @@ const app = createApp({
   auth: config.auth,
   seller: config.seller,
   staticDir,
-  platform: buildPlatform(config.platform),
+  platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso),
 });
 
 app.listen(config.port, () => {
