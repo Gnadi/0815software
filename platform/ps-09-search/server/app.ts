@@ -17,6 +17,9 @@ import {
 } from './auth.js';
 import { DomainError, fail, reqText } from './errors.js';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
+import { MIGRATIONS } from './db.js';
+import { pendingCount } from './migrations.js';
+import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
 import { deleteDoc, indexDoc, search } from './search.js';
 
 export interface AppOptions {
@@ -26,6 +29,8 @@ export interface AppOptions {
   identityFetch?: SeamFetch;
   /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
   hardening?: HardeningConfig;
+  /** Emit one JSON log line per request (default false; index.ts passes true). */
+  logRequests?: boolean;
 }
 
 function body(req: Request): Record<string, unknown> {
@@ -36,6 +41,7 @@ export function createApp(opts: AppOptions): express.Express {
   const { db, auth } = opts;
   const app = express();
   if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
+  app.use(requestTelemetry({ service: 'ps-09', log: opts.logRequests === true }));
   app.use(express.json({ limit: '512kb' }));
 
   const callerOk = (req: Request): boolean => {
@@ -61,6 +67,27 @@ export function createApp(opts: AppOptions): express.Express {
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  const gauges: Gauge[] = [];
+
+  // Readiness: DB reachable and schema fully migrated (liveness is /api/health).
+  app.get('/api/ready', (_req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      const pending = pendingCount(db, MIGRATIONS);
+      if (pending > 0) {
+        res.status(503).json({ ready: false, pending_migrations: pending });
+        return;
+      }
+      res.json({ ready: true });
+    } catch {
+      res.status(503).json({ ready: false });
+    }
+  });
+
+  app.get('/api/metrics', (_req, res) => {
+    res.type('text/plain').send(renderMetrics('ps-09', gauges));
   });
   app.post('/api/login', (req, res) => {
     const b = body(req);

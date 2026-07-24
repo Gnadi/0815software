@@ -19,7 +19,7 @@ const app = createApp({
   session: config.session,
   oauth: config.oauth,
   selfBaseUrl: config.selfBaseUrl,
-  hardening: hardeningFromEnv(),
+  hardening: hardeningFromEnv(), logRequests: true,
 });
 
 app.listen(config.port, () => {

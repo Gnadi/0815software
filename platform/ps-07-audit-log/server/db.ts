@@ -33,6 +33,18 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 2,
+    name: 'audit_events-idempotency_key',
+    up(db) {
+      // Not part of the hash canonical form, so existing chains stay valid.
+      db.exec(`
+      ALTER TABLE audit_events ADD COLUMN idempotency_key TEXT;
+      CREATE UNIQUE INDEX idx_audit_idempotency
+        ON audit_events(idempotency_key) WHERE idempotency_key IS NOT NULL;
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

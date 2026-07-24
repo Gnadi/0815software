@@ -16,6 +16,9 @@ import {
 } from './auth.js';
 import { DomainError, fail, reqText } from './errors.js';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
+import { MIGRATIONS } from './db.js';
+import { pendingCount } from './migrations.js';
+import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
 import {
   allowedTransitions,
   currentDefinition,
@@ -42,6 +45,8 @@ export interface AppOptions {
   identityFetch?: SeamFetch;
   /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
   hardening?: HardeningConfig;
+  /** Emit one JSON log line per request (default false; index.ts passes true). */
+  logRequests?: boolean;
 }
 
 function idParam(req: Request, name = 'id'): number | null {
@@ -53,9 +58,10 @@ function body(req: Request): Record<string, unknown> {
   return (req.body ?? {}) as Record<string, unknown>;
 }
 
-export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch, identityFetch, hardening }: AppOptions): express.Express {
+export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch, identityFetch, hardening, logRequests }: AppOptions): express.Express {
   const app = express();
   if (hardening) app.use(hardeningMiddleware(hardening));
+  app.use(requestTelemetry({ service: 'ps-02', log: logRequests === true }));
   app.use(express.json({ limit: '256kb' }));
 
   const summarize = (row: InstanceRow): InstanceSummary => {
@@ -90,6 +96,38 @@ export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch, 
   // ── Public routes ──────────────────────────────────────────────────
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  const gauges: Gauge[] = [
+    {
+      name: 'workflow_dead_deliveries',
+      help: 'Webhook deliveries that exhausted their retries.',
+      value: () => (db.prepare("SELECT COUNT(*) AS n FROM webhook_deliveries WHERE status = 'dead'").get() as { n: number }).n,
+    },
+    {
+      name: 'workflow_due_deliveries',
+      help: 'Webhook deliveries waiting to be dispatched or retried.',
+      value: () => (db.prepare("SELECT COUNT(*) AS n FROM webhook_deliveries WHERE status IN ('pending', 'failed')").get() as { n: number }).n,
+    },
+  ];
+
+  // Readiness: DB reachable and schema fully migrated (liveness is /api/health).
+  app.get('/api/ready', (_req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      const pending = pendingCount(db, MIGRATIONS);
+      if (pending > 0) {
+        res.status(503).json({ ready: false, pending_migrations: pending });
+        return;
+      }
+      res.json({ ready: true });
+    } catch {
+      res.status(503).json({ ready: false });
+    }
+  });
+
+  app.get('/api/metrics', (_req, res) => {
+    res.type('text/plain').send(renderMetrics('ps-02', gauges));
   });
 
   app.post('/api/login', (req, res) => {

@@ -13,7 +13,10 @@ import {
 } from './auth.js';
 import { DomainError, fail, reqText } from './errors.js';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
-import { listEvents, recordEvent, verifyChain } from './audit.js';
+import { MIGRATIONS } from './db.js';
+import { pendingCount } from './migrations.js';
+import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
+import { findByIdempotencyKey, listEvents, recordEvent, verifyChain } from './audit.js';
 
 export interface AppOptions {
   db: Database.Database;
@@ -23,6 +26,8 @@ export interface AppOptions {
   identityFetch?: SeamFetch;
   /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
   hardening?: HardeningConfig;
+  /** Emit one JSON log line per request (default false; index.ts passes true). */
+  logRequests?: boolean;
 }
 
 function body(req: Request): Record<string, unknown> {
@@ -33,11 +38,45 @@ export function createApp(opts: AppOptions): express.Express {
   const { db, auth, now = Date.now } = opts;
   const app = express();
   if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
+  app.use(requestTelemetry({ service: 'ps-07', log: opts.logRequests === true }));
   app.use(express.json({ limit: '512kb' }));
 
   // ── Public ─────────────────────────────────────────────────────────
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  // Verifying the chain walks every event, so cache the verdict for a minute.
+  let chainCheck: { at: number; valid: boolean } | null = null;
+  const gauges: Gauge[] = [
+    {
+      name: 'audit_chain_valid',
+      help: 'Hash chain integrity (1 = verified, 0 = broken); rechecked at most once per minute.',
+      value: () => {
+        const t = now();
+        if (!chainCheck || t - chainCheck.at >= 60_000) chainCheck = { at: t, valid: verifyChain(db).valid };
+        return chainCheck.valid ? 1 : 0;
+      },
+    },
+  ];
+
+  // Readiness: DB reachable and schema fully migrated (liveness is /api/health).
+  app.get('/api/ready', (_req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      const pending = pendingCount(db, MIGRATIONS);
+      if (pending > 0) {
+        res.status(503).json({ ready: false, pending_migrations: pending });
+        return;
+      }
+      res.json({ ready: true });
+    } catch {
+      res.status(503).json({ ready: false });
+    }
+  });
+
+  app.get('/api/metrics', (_req, res) => {
+    res.type('text/plain').send(renderMetrics('ps-07', gauges));
   });
   app.post('/api/login', (req, res) => {
     const b = body(req);
@@ -60,6 +99,13 @@ export function createApp(opts: AppOptions): express.Express {
     const actor = reqText(b, 'actor', 200);
     const action = reqText(b, 'action', 200);
     const resource = reqText(b, 'resource', 400);
+    const idempotencyKey = typeof b.idempotency_key === 'string' && b.idempotency_key ? b.idempotency_key : null;
+    // Replay of a known key returns the original event (200, not 201).
+    const replay = idempotencyKey ? findByIdempotencyKey(db, idempotencyKey) : null;
+    if (replay) {
+      res.json(replay);
+      return;
+    }
     const event = recordEvent(
       db,
       {
@@ -70,6 +116,7 @@ export function createApp(opts: AppOptions): express.Express {
         before: b.before,
         after: b.after,
         metadata: (b.metadata ?? {}) as Record<string, unknown>,
+        idempotency_key: idempotencyKey,
       },
       now(),
     );

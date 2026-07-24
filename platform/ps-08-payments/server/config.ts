@@ -8,6 +8,8 @@ export interface ServerConfig {
   stripeSecretKey: string | null;
   /** Shared secret used to verify inbound PSP webhook signatures. */
   webhookSecret: string;
+  /** When > 0, settle mock processing intents on an internal timer (ms). */
+  tickIntervalMs: number;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -25,5 +27,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     },
     stripeSecretKey: env.STRIPE_SECRET_KEY ?? null,
     webhookSecret: env.WEBHOOK_SECRET ?? 'dev-webhook-secret',
+    tickIntervalMs: Number(env.TICK_INTERVAL_MS) || 0,
   };
 }

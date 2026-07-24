@@ -17,6 +17,9 @@ import {
 } from './auth.js';
 import { DomainError, fail, reqEmail, reqText } from './errors.js';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
+import { MIGRATIONS } from './db.js';
+import { pendingCount } from './migrations.js';
+import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
 import {
   listRoles,
   mapOrg,
@@ -62,6 +65,8 @@ export interface AppOptions {
   fetch?: FetchLike;
   /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
   hardening?: HardeningConfig;
+  /** Emit one JSON log line per request (default false; index.ts passes true). */
+  logRequests?: boolean;
 }
 
 function idParam(req: Request, name = 'id'): number | null {
@@ -81,9 +86,11 @@ export function createApp({
   now = Date.now,
   fetch: injectedFetch,
   hardening,
+  logRequests,
 }: AppOptions): express.Express {
   const app = express();
   if (hardening) app.use(hardeningMiddleware(hardening));
+  app.use(requestTelemetry({ service: 'ps-01', log: logRequests === true }));
   app.use(express.json({ limit: '256kb' }));
 
   const doFetch: FetchLike =
@@ -129,6 +136,27 @@ export function createApp({
   // ── Public routes ──────────────────────────────────────────────────
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  const gauges: Gauge[] = [];
+
+  // Readiness: DB reachable and schema fully migrated (liveness is /api/health).
+  app.get('/api/ready', (_req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      const pending = pendingCount(db, MIGRATIONS);
+      if (pending > 0) {
+        res.status(503).json({ ready: false, pending_migrations: pending });
+        return;
+      }
+      res.json({ ready: true });
+    } catch {
+      res.status(503).json({ ready: false });
+    }
+  });
+
+  app.get('/api/metrics', (_req, res) => {
+    res.type('text/plain').send(renderMetrics('ps-01', gauges));
   });
 
   app.post('/api/login', (req, res) => {

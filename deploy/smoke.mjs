@@ -42,7 +42,15 @@ const secrets = {
 
 const children = [];
 function shutdown() {
-  for (const child of children) child.kill('SIGKILL');
+  // Children are spawned detached in their own process group: the tsx bin is
+  // a wrapper whose node process would survive a plain child.kill().
+  for (const child of children) {
+    try {
+      process.kill(-child.pid, 'SIGKILL');
+    } catch {
+      /* already gone */
+    }
+  }
   rmSync(dataDir, { recursive: true, force: true });
 }
 // Never leak service processes, even when this script itself is killed.
@@ -62,6 +70,7 @@ function bootAll() {
     // invocations contend on the npx cache and can stall for minutes.
     const child = spawn(join(cwd, 'node_modules', '.bin', 'tsx'), ['server/index.ts'], {
       cwd,
+      detached: true,
       env: {
         ...process.env,
         ...secrets,
@@ -98,10 +107,27 @@ function fail(msg) {
 }
 
 try {
+  // Refuse to run against leftovers: a stale service on a port would answer
+  // the checks in place of the freshly booted one and invalidate the result.
+  for (const [svc, port] of SERVICES) {
+    const stale = await fetch(`http://localhost:${port}/api/health`).then(() => true, () => false);
+    if (stale) throw new Error(`port ${port} already serving (stale ${svc}? kill it and re-run)`);
+  }
+
   bootAll();
   for (const [svc, port] of SERVICES) {
     await waitFor(`http://localhost:${port}/api/health`);
-    console.log(`[smoke] ${svc} healthy on :${port}`);
+    const ready = await fetch(`http://localhost:${port}/api/ready`);
+    if (!ready.ok) {
+      fail(`${svc} not ready: ${ready.status}`);
+      continue;
+    }
+    const metrics = await fetch(`http://localhost:${port}/api/metrics`);
+    if (!metrics.ok || !(await metrics.text()).includes('http_requests_total')) {
+      fail(`${svc} metrics missing`);
+      continue;
+    }
+    console.log(`[smoke] ${svc} healthy + ready on :${port}`);
   }
 
   // Seam round-trip. The demo seed provides owner (platform:admin via owner

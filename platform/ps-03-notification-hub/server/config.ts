@@ -9,6 +9,8 @@ export interface ServerConfig {
   resendApiKey: string | null;
   /** When set, sms channels use the real Twilio provider; otherwise console. */
   twilio: TwilioConfig | null;
+  /** When > 0, run the delivery queue on an internal timer (ms). */
+  tickIntervalMs: number;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -30,5 +32,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     },
     resendApiKey: env.RESEND_API_KEY ?? null,
     twilio,
+    tickIntervalMs: Number(env.TICK_INTERVAL_MS) || 0,
   };
 }

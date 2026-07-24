@@ -26,7 +26,7 @@ services:
       SELF_BASE_URL: https://${PLATFORM_DOMAIN}/identity
     volumes: [ps01-data:/data]
     healthcheck: &hc
-      test: ["CMD", "wget", "-qO-", "http://localhost:4001/api/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:4001/api/ready"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -38,7 +38,7 @@ services:
       NODE_ENV: production
       IDENTITY_URL: http://ps01:4001
     volumes: [ps02-data:/data]
-    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4002/api/health"] }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4002/api/ready"] }
     depends_on: [ps01]
 
   ps03:
@@ -46,7 +46,7 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-03-notification-hub } }
     environment: *downstream-env
     volumes: [ps03-data:/data]
-    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4003/api/health"] }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4003/api/ready"] }
     depends_on: [ps01]
 
   ps04:
@@ -54,7 +54,7 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-04-ai-platform } }
     environment: *downstream-env
     volumes: [ps04-data:/data]
-    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4004/api/health"] }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4004/api/ready"] }
     depends_on: [ps01]
 
   ps05:
@@ -62,7 +62,7 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-05-integration-hub } }
     environment: *downstream-env
     volumes: [ps05-data:/data]
-    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4005/api/health"] }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4005/api/ready"] }
     depends_on: [ps01]
 
   ps06:
@@ -70,7 +70,7 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-06-file-storage } }
     environment: *downstream-env
     volumes: [ps06-data:/data]
-    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4006/api/health"] }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4006/api/ready"] }
     depends_on: [ps01]
 
   ps07:
@@ -78,7 +78,7 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-07-audit-log } }
     environment: *downstream-env
     volumes: [ps07-data:/data]
-    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4007/api/health"] }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4007/api/ready"] }
     depends_on: [ps01]
 
   ps08:
@@ -86,7 +86,7 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-08-payments } }
     environment: *downstream-env
     volumes: [ps08-data:/data]
-    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4008/api/health"] }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4008/api/ready"] }
     depends_on: [ps01]
 
   ps09:
@@ -94,7 +94,7 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-09-search } }
     environment: *downstream-env
     volumes: [ps09-data:/data]
-    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4009/api/health"] }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4009/api/ready"] }
     depends_on: [ps01]
 
   ps10:
@@ -102,7 +102,7 @@ services:
     build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-10-number } }
     environment: *downstream-env
     volumes: [ps10-data:/data]
-    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4010/api/health"] }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4010/api/ready"] }
     depends_on: [ps01]
 
   # TLS termination + per-service routing.

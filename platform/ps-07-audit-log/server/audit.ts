@@ -15,6 +15,7 @@ interface EventRow {
   prev_hash: string | null;
   hash: string;
   recorded_at: string;
+  idempotency_key: string | null;
 }
 
 /**
@@ -80,6 +81,11 @@ export function recordEvent(db: Database.Database, input: AuditEventInput, now =
   };
 
   return db.transaction((): AuditEvent => {
+    // Idempotent replay: the same key returns the original event untouched.
+    if (input.idempotency_key) {
+      const existing = findByIdempotencyKey(db, input.idempotency_key);
+      if (existing) return existing;
+    }
     const tail = db.prepare('SELECT hash FROM audit_events ORDER BY id DESC LIMIT 1').get() as
       | { hash: string }
       | undefined;
@@ -88,8 +94,8 @@ export function recordEvent(db: Database.Database, input: AuditEventInput, now =
     const info = db
       .prepare(
         `INSERT INTO audit_events
-           (actor, org, action, resource, before_json, after_json, metadata, prev_hash, hash, recorded_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (actor, org, action, resource, before_json, after_json, metadata, prev_hash, hash, recorded_at, idempotency_key)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         fields.actor,
@@ -102,9 +108,16 @@ export function recordEvent(db: Database.Database, input: AuditEventInput, now =
         prevHash,
         hash,
         recordedAt,
+        input.idempotency_key ?? null,
       );
     return mapEvent(db.prepare('SELECT * FROM audit_events WHERE id = ?').get(info.lastInsertRowid) as EventRow);
   })();
+}
+
+/** Look up a previously recorded event by its idempotency key. */
+export function findByIdempotencyKey(db: Database.Database, key: string): AuditEvent | null {
+  const row = db.prepare('SELECT * FROM audit_events WHERE idempotency_key = ?').get(key) as EventRow | undefined;
+  return row ? mapEvent(row) : null;
 }
 
 export interface ListFilter {

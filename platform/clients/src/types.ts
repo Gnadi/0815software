@@ -147,6 +147,8 @@ export interface AuditEventInput {
   before?: unknown;
   after?: unknown;
   metadata?: Record<string, unknown>;
+  /** Optional client-chosen key; replaying the same key returns the original event. */
+  idempotency_key?: string;
 }
 export interface AuditEvent extends AuditEventInput {
   id: number;

@@ -4,6 +4,7 @@ import { hardeningFromEnv } from './hardening.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
+import { runSyncJobs } from './sync.js';
 
 const config = configFromEnv();
 assertProductionConfig([
@@ -24,7 +25,7 @@ const app = createApp({
   webhookSecret: config.webhookSecret,
   oauth: config.oauth,
   selfBaseUrl: config.selfBaseUrl,
-  hardening: hardeningFromEnv(),
+  hardening: hardeningFromEnv(), logRequests: true,
 });
 
 app.listen(config.port, () => {
@@ -34,5 +35,21 @@ app.listen(config.port, () => {
   }
   if (config.encryptionKey.equals(Buffer.alloc(32))) {
     console.warn('[ps-05] WARNING: using the all-zero default INTEGRATION_ENCRYPTION_KEY — set a real one');
+  }
+
+  if (config.tickIntervalMs > 0) {
+    // Optional internal ticker: run due sync jobs on a timer so no external
+    // cron is needed. POST /api/tick still works either way.
+    const timer = setInterval(() => {
+      try {
+        runSyncJobs(db, undefined, Date.now());
+      } catch (err) {
+        console.error('[ps-05] tick error', err);
+      }
+    }, config.tickIntervalMs);
+    timer.unref?.();
+    console.log(`[ps-05] internal ticker every ${config.tickIntervalMs}ms`);
+  } else {
+    console.log('[ps-05] note: sync jobs only run while POST /api/tick is called (or a real cron drives it)');
   }
 });

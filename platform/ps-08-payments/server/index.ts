@@ -4,6 +4,7 @@ import { hardeningFromEnv } from './hardening.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
+import { settleProcessing } from './payments.js';
 
 const config = configFromEnv();
 assertProductionConfig([
@@ -21,7 +22,7 @@ const app = createApp({
   auth: config.auth,
   webhookSecret: config.webhookSecret,
   stripeSecretKey: config.stripeSecretKey,
-  hardening: hardeningFromEnv(),
+  hardening: hardeningFromEnv(), logRequests: true,
 });
 
 app.listen(config.port, () => {
@@ -31,5 +32,21 @@ app.listen(config.port, () => {
   }
   if (!config.stripeSecretKey) {
     console.log('[ps-08] note: STRIPE_SECRET_KEY unset — using the deterministic mock PSP');
+  }
+
+  if (config.tickIntervalMs > 0) {
+    // Optional internal ticker: settle mock processing intents on a timer so
+    // no external cron is needed. POST /api/tick still works either way.
+    const timer = setInterval(() => {
+      try {
+        settleProcessing(db, Date.now());
+      } catch (err) {
+        console.error('[ps-08] tick error', err);
+      }
+    }, config.tickIntervalMs);
+    timer.unref?.();
+    console.log(`[ps-08] internal ticker every ${config.tickIntervalMs}ms`);
+  } else {
+    console.log('[ps-08] note: mock intents only settle while POST /api/tick is called (or a real cron drives it)');
   }
 });

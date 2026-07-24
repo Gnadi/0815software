@@ -96,20 +96,24 @@ service's data model and queries, with tests that prove cross-tenant reads 404.
 
 ## B. Operational readiness (before scale / SLA)
 
-### B1. No observability
-No structured logging, metrics, tracing, or readiness (vs. liveness) checks.
-No alerting on the things that silently fail: dead-lettered notifications/
-webhooks (PS-02/03), failed payment reconciliation (PS-08), or a broken audit
-hash-chain (PS-07 `/api/verify` is never run automatically).
-**Do:** structured logs + request IDs, Prometheus-style metrics, tracing across
-the service hops, and alerts on dead-letters/chain-breaks/stuck sync jobs.
+### B1. No observability — ✅ CLOSED
+Every service now ships a copy-in `server/telemetry.ts`: structured JSON
+request logs with `X-Request-Id` propagation, `GET /api/ready` (DB reachable +
+migrations current, distinct from `/api/health` liveness), and `GET
+/api/metrics` in Prometheus text format — `http_requests_total{path,status}`
+plus domain gauges: dead-letters (PS-02 `workflow_dead_deliveries`, PS-03
+`notification_dead_messages`), stuck intents (PS-08
+`payments_processing_intents`), pending sync jobs (PS-05), and PS-07's
+`audit_chain_valid` (chain verified on a cached one-minute interval — chain
+breaks now surface automatically). Remaining (deliberate): no distributed
+tracing, and alert *rules* live in the customer's Prometheus, not in-repo.
 
-### B2. Tick-driven work needs a reliable driver
-PS-02/03/05/08 advance queues/schedulers/settlement only when `POST /api/tick`
-is called; only PS-02 has an optional internal timer. In production this needs
-a guaranteed, monitored scheduler.
-**Do:** a supervised ticker (k8s CronJob / systemd timer) per tick-driven
-service, with alerting if it stops.
+### B2. Tick-driven work needs a reliable driver — ✅ CLOSED
+All four tick-driven services (PS-02/03/05/08) now support the optional
+in-process `TICK_INTERVAL_MS` timer, and the reference deployment
+(`deploy/docker-compose.yml`) additionally runs a ticker sidecar POSTing
+`/api/tick` each minute — belt and suspenders. Queue-depth gauges on
+`/api/metrics` (B1) make a stopped ticker visible.
 
 ### B3. The clients package isn't actually published
 The `publish-platform-clients` GitHub Action exists and dry-runs cleanly, but
@@ -125,11 +129,12 @@ client against the real service.
 **Do:** version the APIs, publish OpenAPI, add end-to-end contract tests that
 boot a service and drive it with the real client.
 
-### B5. Idempotency/retry consistency
-Idempotency keys exist in PS-02/03/04/08 but not everywhere (PS-07 will record
-duplicate audit events; PS-09 index is upsert). Retry/backoff exists for
-delivery queues but not for all outbound calls.
-**Do:** a consistent idempotency + retry policy across services.
+### B5. Idempotency/retry consistency — ✅ MOSTLY CLOSED
+PS-07 `POST /api/events` now accepts an optional `idempotency_key` (unique
+index, migration 002; replay returns the original event with 200) — every
+write-heavy service (PS-02/03/04/07/08) now has idempotency keys, and PS-09's
+index is an upsert by design. Remaining: a shared outbound `retryFetch` for
+the real vendor adapters (planned with the vendor-realism work).
 
 ---
 

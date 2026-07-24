@@ -32,7 +32,7 @@ const app = createApp({
   imageModel: config.imageModel,
   speechModel: config.speechModel,
   embedModel: config.embedModel,
-  hardening: hardeningFromEnv(),
+  hardening: hardeningFromEnv(), logRequests: true,
 });
 
 app.listen(config.port, () => {

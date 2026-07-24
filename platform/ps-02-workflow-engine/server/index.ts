@@ -17,7 +17,7 @@ const db = openDb(config.databasePath);
 
 seed(db);
 
-const app = createApp({ db, auth: config.auth, hardening: hardeningFromEnv() });
+const app = createApp({ db, auth: config.auth, hardening: hardeningFromEnv(), logRequests: true });
 
 app.listen(config.port, () => {
   console.log(`[ps-02] workflow engine API on http://localhost:${config.port}`);

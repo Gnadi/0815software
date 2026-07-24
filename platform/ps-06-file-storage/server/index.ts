@@ -21,7 +21,7 @@ const app = createApp({
   auth: config.auth,
   signingSecret: config.signingSecret,
   maxObjectBytes: config.maxObjectBytes,
-  hardening: hardeningFromEnv(),
+  hardening: hardeningFromEnv(), logRequests: true,
 });
 
 app.listen(config.port, () => {

@@ -32,6 +32,16 @@ the service token (advancing schedulers, delivery queues, sync jobs, and mock
 settlements). Alternatively set `TICK_INTERVAL_MS` on those services to use
 their in-process timers.
 
+## Observability
+
+Every service exposes `GET /api/ready` (DB reachable + schema fully
+migrated — this is what the compose healthchecks poll) and `GET /api/metrics`
+(Prometheus text format): request counters by route/status plus domain gauges
+— dead-lettered deliveries/messages (PS-02/03), pending sync jobs (PS-05),
+stuck payment intents (PS-08), and PS-07's `audit_chain_valid` (0 = the
+tamper-evident chain is broken — alert on it). Services log one JSON line per
+request with an `X-Request-Id` that is propagated when supplied by the caller.
+
 ## Backups
 
 ```sh

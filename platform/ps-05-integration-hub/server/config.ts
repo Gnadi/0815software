@@ -13,6 +13,8 @@ export interface ServerConfig {
   oauth: OAuthConfig;
   /** Public base URL used to build OAuth redirect URIs. */
   selfBaseUrl: string;
+  /** When > 0, run due sync jobs on an internal timer (ms). */
+  tickIntervalMs: number;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -34,5 +36,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     webhookSecret: env.WEBHOOK_SECRET ?? 'dev-webhook-secret',
     oauth: oauthConfigFromEnv(env, REGISTRY.map((p) => p.key)),
     selfBaseUrl: env.SELF_BASE_URL ?? `http://localhost:${port}`,
+    tickIntervalMs: Number(env.TICK_INTERVAL_MS) || 0,
   };
 }
