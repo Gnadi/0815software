@@ -37,3 +37,22 @@ descriptions.
 
 Each module is a self-contained application with its own `package.json`,
 `LICENSE` and README — install and run it independently of this repository.
+
+## Consuming the Platform Services
+
+Modules talk to the [Platform Services](../platform) through the shared
+[`@0815software/platform-clients`](../platform/clients) package — one typed
+client per service over the built-in `fetch`. Integration is always **opt-in
+and best-effort**: a module reads the relevant `*_URL` + `PLATFORM_SERVICE_TOKEN`
+env vars and, when they are set, delegates a cross-cutting concern (identity,
+notifications, workflow, AI, integrations, files, audit) to the service;
+unset, the module keeps its standalone behavior with no outbound calls, and a
+downstream outage never fails the local operation.
+
+**MOD-04 Invoice & Billing** (→ PS-03/06/07) and **MOD-12 Support Tickets**
+(→ PS-03/04/07) ship this wiring today as the reference pattern (see each
+module's `server/platform.ts` and README "Platform integration" section). The
+remaining modules follow the same pattern against their natural services —
+e.g. MOD-07 Storefront → PS-05 (payments/Shopify) + PS-03; MOD-09 Document
+Management → PS-06 + PS-04 (RAG); MOD-08 Reporting → PS-02 (schedules) + PS-03;
+every module → PS-01 (identity) and PS-07 (audit).
