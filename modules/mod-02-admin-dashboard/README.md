@@ -172,3 +172,11 @@ This is an *internal* tool — put it behind your VPN or reverse proxy.
 ## License
 
 MIT © 0815software — see [LICENSE](LICENSE).
+
+## Platform integration (optional)
+
+When `AUDIT_URL` (+ `PLATFORM_SERVICE_TOKEN`) is set, this module records key
+state changes on [PS-07 Audit Log](../../platform/ps-07-audit-log) via the
+shared [`@0815software/platform-clients`](../../platform/clients) package.
+Calls are best-effort and opt-in — unset, the module runs standalone with no
+outbound calls. See `server/platform.ts`.

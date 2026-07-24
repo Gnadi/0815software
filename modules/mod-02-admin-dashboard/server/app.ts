@@ -10,6 +10,7 @@ import {
   type AuthConfig,
 } from './auth.js';
 import { toCsv } from './csv.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
 import { validateRecord } from './validate.js';
 
 interface ListQuery {
@@ -89,9 +90,11 @@ export interface AppOptions {
   auth: AuthConfig;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional PS-07 Audit integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
 }
 
-export function createApp({ db, auth, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, staticDir, platform = noopPlatform }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -191,6 +194,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
       )
       .run(...columns.map((c) => values[c]));
     const row = db.prepare(`SELECT * FROM "${resource.name}" WHERE id = ?`).get(info.lastInsertRowid);
+    void platform.audit({ actor: auth.username, action: `${resource.name}.created`, resource: `${resource.name}:${info.lastInsertRowid}`, after: row });
     res.status(201).json(row);
   });
 
@@ -213,6 +217,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
       `UPDATE "${resource.name}" SET ${columns.map((c) => `"${c}" = ?`).join(', ')} WHERE id = ?`,
     ).run(...columns.map((c) => values[c]), req.params.id);
     const row = db.prepare(`SELECT * FROM "${resource.name}" WHERE id = ?`).get(req.params.id);
+    void platform.audit({ actor: auth.username, action: `${resource.name}.updated`, resource: `${resource.name}:${req.params.id}`, after: row });
     res.json(row);
   });
 
@@ -224,6 +229,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
       res.status(404).json({ error: 'Not found' });
       return;
     }
+    void platform.audit({ actor: auth.username, action: `${resource.name}.deleted`, resource: `${resource.name}:${req.params.id}` });
     res.json({ ok: true });
   });
 

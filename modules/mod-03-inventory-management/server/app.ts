@@ -10,6 +10,7 @@ import {
   type AuthConfig,
 } from './auth.js';
 import { stockCsv } from './csv.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
 import {
   DomainError,
   movementHistory,
@@ -100,9 +101,11 @@ export interface AppOptions {
   auth: AuthConfig;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional PS-07 Audit integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
 }
 
-export function createApp({ db, auth, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, staticDir, platform = noopPlatform }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -172,6 +175,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
     const info = db
       .prepare('INSERT INTO products (sku, name, unit, reorder_point) VALUES (?, ?, ?, ?)')
       .run(values.sku, values.name, values.unit, values.reorder_point);
+    void platform.audit({ actor: auth.username, action: 'product.created', resource: `product:${info.lastInsertRowid}`, after: values });
     res.status(201).json(db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid));
   });
 
@@ -235,6 +239,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
     const movementInput = { productId, warehouseId, quantity: qty, reference, note };
     const movementId =
       type === 'receipt' ? recordReceipt(db, movementInput) : recordAdjustment(db, movementInput);
+    void platform.audit({ actor: auth.username, action: `stock.${type}`, resource: `product:${productId}`, metadata: { warehouse_id: warehouseId, quantity: qty } });
     res.status(201).json(db.prepare('SELECT * FROM movements WHERE id = ?').get(movementId));
   });
 
