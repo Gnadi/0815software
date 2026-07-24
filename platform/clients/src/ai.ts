@@ -1,5 +1,5 @@
 import { BaseClient } from './http.js';
-import type { ChatInput, ChatResult, RagSearchInput } from './types.js';
+import type { ChatInput, ChatResult, EmbedResult, RagResult, RagSearchInput } from './types.js';
 
 /** Client for PS-04 AI Platform (default port 4004). */
 export class AiClient extends BaseClient {
@@ -7,16 +7,17 @@ export class AiClient extends BaseClient {
     return this.apiPost<ChatResult>('/api/chat/completions', input);
   }
 
-  embed(input: { model?: string; input: string | string[] }): Promise<{ embeddings: number[][] }> {
-    return this.apiPost('/api/embeddings', input);
+  embed(input: { provider?: string; input: string | string[] }): Promise<EmbedResult> {
+    return this.apiPost<EmbedResult>('/api/embeddings', input);
   }
 
-  ragSearch(input: RagSearchInput): Promise<{ matches: { text: string; score: number }[] }> {
+  ragSearch(input: RagSearchInput): Promise<{ results: RagResult[] }> {
     return this.apiPost('/api/rag/search', input);
   }
 
-  ragIngest(collection: string, documents: { id?: string; text: string }[]): Promise<{ ingested: number }> {
-    return this.apiPost('/api/rag/documents', { collection, documents });
+  /** Ingest a single document into a collection; returns its assigned id. */
+  ragIngest(collection: string, text: string): Promise<{ id: number }> {
+    return this.apiPost('/api/rag/documents', { collection, text });
   }
 
   /** Run a bounded agent loop over a prompt template. */

@@ -1,9 +1,9 @@
 import { BaseClient } from './http.js';
-import type { ProxyInput } from './types.js';
+import type { ProxyInput, SyncJob } from './types.js';
 
 /** Client for PS-05 Integration Hub (default port 4005). */
 export class IntegrationClient extends BaseClient {
-  listConnections(): Promise<unknown[]> {
+  listConnections(): Promise<{ connections: unknown[] }> {
     return this.apiGet('/api/connections');
   }
 
@@ -17,7 +17,7 @@ export class IntegrationClient extends BaseClient {
   }
 
   /** Enqueue a sync job; the worker pulls on the hub's tick. */
-  sync(connectionId: number, kind: string): Promise<{ id: number; status: string }> {
+  sync(connectionId: number, kind: string): Promise<{ sync_job: SyncJob }> {
     return this.apiPost(`/api/connections/${connectionId}/sync`, { kind });
   }
 }

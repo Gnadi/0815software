@@ -32,11 +32,31 @@ export interface RunWorkflowInput {
   input?: Record<string, unknown>;
   idempotency_key?: string;
 }
+/** Fan-out result of ingesting an event (POST /api/events). */
+export interface IngestResult {
+  matched: number;
+  instance_ids: number[];
+  enqueued: number;
+}
 export interface WorkflowInstance {
-  id: string;
+  id: number;
   workflow_key: string;
+  workflow_version: number;
+  idempotency_key: string | null;
+  created_at: string;
+  current_step: string | null;
   status: string;
-  current_step: string;
+}
+export interface WorkflowInstanceEvent {
+  id: number;
+  type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+export interface WorkflowInstanceDetail extends WorkflowInstance {
+  input: Record<string, unknown>;
+  events: WorkflowInstanceEvent[];
+  allowed_transitions: string[];
 }
 
 // ── PS-03 Notification Hub ─────────────────────────────────────────────
@@ -77,7 +97,19 @@ export interface ChatResult {
 export interface RagSearchInput {
   collection: string;
   query: string;
-  top_k?: number;
+  /** Number of nearest documents to return (service default 3). */
+  k?: number;
+}
+export interface RagResult {
+  id: number;
+  text: string;
+  score: number;
+}
+export interface EmbedResult {
+  model: string;
+  dims: number;
+  vectors: number[][];
+  usage: { prompt_tokens: number; completion_tokens: number };
 }
 
 // ── PS-05 Integration Hub ──────────────────────────────────────────────
@@ -86,6 +118,15 @@ export interface ProxyInput {
   path: string;
   query?: Record<string, string>;
   body?: unknown;
+}
+export interface SyncJob {
+  id: number;
+  connection_id: number;
+  kind: string;
+  status: string;
+  records: number;
+  created_at: string;
+  updated_at: string;
 }
 
 // ── PS-06 Files ────────────────────────────────────────────────────────
