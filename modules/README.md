@@ -49,11 +49,10 @@ notifications, workflow, AI, integrations, files, audit) to the service;
 unset, the module keeps its standalone behavior with no outbound calls, and a
 downstream outage never fails the local operation.
 
-**MOD-04 Invoice & Billing** (→ PS-03/06/07/08), **MOD-07 Storefront**
-(→ PS-08 checkout) and **MOD-12 Support Tickets** (→ PS-03/04/07) ship this
-wiring today as the reference pattern (see each module's `server/platform.ts`
-and README "Platform integration" section). The remaining modules follow the
-same pattern against their natural services — e.g. MOD-09 Document Management →
-PS-06 + PS-04 (RAG); MOD-08 Reporting → PS-02 (schedules) + PS-03; MOD-14
-Subsidies → PS-08 (disbursements); every module → PS-01 (identity) and PS-07
-(audit).
+**All fourteen modules ship this wiring** (each has a `server/platform.ts` and
+a README "Platform integration" section). The richest consumers: MOD-04
+Invoice & Billing → PS-03/06/07/08, MOD-07 Storefront → PS-08 checkout, MOD-12
+Support Tickets → PS-03/04/07, MOD-09 Document Management → PS-06 (+ PS-07),
+MOD-13 Offers → PS-03 (+ PS-07). Every other module records its key state
+changes on PS-07 Audit Log. All integrations are opt-in and best-effort, so
+each module still installs and runs standalone with the `*_URL` env vars unset.
