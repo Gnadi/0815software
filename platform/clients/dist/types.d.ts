@@ -64,10 +64,14 @@ export interface ChatInput {
     idempotency_key?: string;
 }
 export interface ChatResult {
-    id: string;
-    content: string;
+    id: number;
+    text: string;
     provider: string;
     model: string;
+    usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+    };
 }
 export interface RagSearchInput {
     collection: string;

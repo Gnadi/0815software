@@ -243,13 +243,28 @@ This is an *internal* tool — put it behind your VPN or reverse proxy.
   `SELLER_*` values, and terminate TLS in front (Caddy/nginx).
 - Not a fit for serverless platforms: SQLite wants a persistent filesystem.
 
+## Platform integration (optional)
+
+mod-04 can consume the shared [Platform Services](../../platform) through the
+[`@0815software/platform-clients`](../../platform/clients) package. When the
+matching `*_URL` env vars are set, **issuing an invoice** also:
+
+- emails the customer via **PS-03 Notification Hub**,
+- archives the rendered PDF in **PS-06 File Storage**, and
+- records an `invoice.issued` event on **PS-07 Audit Log**.
+
+Every call is best-effort — a downstream outage is logged and never fails the
+invoice — and entirely opt-in: with the URLs unset (`NOTIFICATION_URL`,
+`FILES_URL`, `AUDIT_URL`, `PLATFORM_SERVICE_TOKEN`) the module behaves exactly
+as before, standalone, with no outbound calls. See `server/platform.ts`.
+
 ## Out of scope
 
 Kept out deliberately to stay a 3–4 week module. If you need any of
 these, that's commissioned work — exactly the kind 0815software does:
 
-- **Sending email** — "send" means mark-as-sent and assigns the number.
-  No SMTP, no delivery tracking; this module has zero external services.
+- **Sending email** — standalone, "send" means mark-as-sent and assigns the
+  number (no SMTP). Real delivery is available opt-in via PS-03 (see above).
 - **Multi-user accounts and roles** — one staff admin by design (same
   auth pattern as MOD-02/03). No per-user audit trail.
 - **Other currencies and VAT regimes** — EUR only, Austrian rates

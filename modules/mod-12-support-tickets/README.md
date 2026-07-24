@@ -343,6 +343,22 @@ moving part you add.
 
 ---
 
+## Platform integration (optional)
+
+mod-12 can consume the shared [Platform Services](../../platform) through the
+[`@0815software/platform-clients`](../../platform/clients) package. When the
+matching `*_URL` env vars are set:
+
+- a **new ticket** is acknowledged to the requester via **PS-03 Notification
+  Hub** and recorded on **PS-07 Audit Log**;
+- `POST /api/tickets/:ref/suggest-reply` drafts an agent reply from the thread
+  via **PS-04 AI Platform** (returns `501` when `AI_URL` is unset).
+
+Ticket-creation hooks are best-effort — a downstream outage is logged and
+never fails intake. Everything is opt-in (`NOTIFICATION_URL`, `AUDIT_URL`,
+`AI_URL`, `PLATFORM_SERVICE_TOKEN`); unset, the module runs standalone. See
+`server/platform.ts`.
+
 ## Out of scope (deliberately)
 
 - **A real mailbox / IMAP / inbound webhook.** Only the parsed-JSON

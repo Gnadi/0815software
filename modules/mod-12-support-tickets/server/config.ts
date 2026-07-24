@@ -1,9 +1,11 @@
 import type { AuthConfig } from './auth.js';
+import type { PlatformConfig } from './platform.js';
 
 export interface ServerConfig {
   port: number;
   databasePath: string;
   auth: AuthConfig;
+  platform: PlatformConfig;
 }
 
 /**
@@ -23,6 +25,14 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       ttlHours: Number(env.SESSION_TTL_HOURS) || 12,
       secureCookie: env.COOKIE_SECURE === 'true',
       intakeSecret: env.INTAKE_SECRET ?? 'dev-intake-secret',
+    },
+    // Platform Services — all optional; unset means standalone (no calls out).
+    platform: {
+      notificationUrl: env.NOTIFICATION_URL || undefined,
+      auditUrl: env.AUDIT_URL || undefined,
+      aiUrl: env.AI_URL || undefined,
+      serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
+      ackChannel: env.NOTIFICATION_ACK_CHANNEL || undefined,
     },
   };
 }
