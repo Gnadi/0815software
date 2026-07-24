@@ -29,6 +29,8 @@ import {
   type LineInput,
 } from './invoices.js';
 import { renderInvoicePdf } from './pdf.js';
+import { fmtEur } from '../shared/money.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -135,9 +137,11 @@ export interface AppOptions {
   seller: SellerConfig;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional Platform Services integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
 }
 
-export function createApp({ db, auth, seller, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, seller, staticDir, platform = noopPlatform }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -258,12 +262,32 @@ export function createApp({ db, auth, seller, staticDir }: AppOptions): express.
     res.json({ ok: true });
   });
 
-  app.post('/api/invoices/:id/finalize', (req, res) => {
+  app.post('/api/invoices/:id/finalize', async (req, res) => {
     const errors: FieldError[] = [];
     const issueDate = optDate(body(req).issue_date, 'issue_date', errors);
     if (errors.length > 0) fail(errors);
     finalizeInvoice(db, Number(req.params.id), issueDate ?? undefined);
-    res.json(invoiceDetail(db, Number(req.params.id)));
+    const detail = invoiceDetail(db, Number(req.params.id));
+
+    // Fan the freshly-issued invoice out to the Platform Services (email the
+    // customer, archive the PDF, record the audit event). Best-effort and a
+    // no-op when nothing is configured, so mod-04 still works standalone.
+    const customer = getCustomer(db, detail.customer_id);
+    try {
+      await platform.invoiceIssued({
+        number: detail.number ?? `draft-${detail.id}`,
+        customerEmail: customer.email,
+        customerName: detail.customer_name,
+        totalFormatted: fmtEur(detail.gross_cents),
+        pdf: renderInvoicePdf(detail, customer, seller),
+        actor: res.locals.username ?? 'admin',
+      });
+    } catch (err) {
+      // A platform side-effect must never fail the invoice itself.
+      console.warn('[mod-04] platform.invoiceIssued failed:', err);
+    }
+
+    res.json(detail);
   });
 
   app.post('/api/invoices/:id/cancel', (req, res) => {

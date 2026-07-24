@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
+import { buildPlatform } from './platform.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
@@ -20,7 +21,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
-const app = createApp({ db, auth: config.auth, seller: config.seller, staticDir });
+const app = createApp({
+  db,
+  auth: config.auth,
+  seller: config.seller,
+  staticDir,
+  platform: buildPlatform(config.platform),
+});
 
 app.listen(config.port, () => {
   console.log(`[mod-04] invoice & billing API on http://localhost:${config.port}`);

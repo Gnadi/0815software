@@ -1,4 +1,5 @@
 import type { AuthConfig } from './auth.js';
+import type { PlatformConfig } from './platform.js';
 
 /** Seller identity printed on invoice PDFs (letterhead + footer). */
 export interface SellerConfig {
@@ -14,6 +15,7 @@ export interface ServerConfig {
   databasePath: string;
   auth: AuthConfig;
   seller: SellerConfig;
+  platform: PlatformConfig;
 }
 
 /** Read configuration from the environment, with local-dev defaults. */
@@ -34,6 +36,14 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       vatId: env.SELLER_VAT_ID ?? 'ATU00000000',
       iban: env.SELLER_IBAN ?? 'AT00 0000 0000 0000 0000',
       bic: env.SELLER_BIC ?? 'EXAMPLEX',
+    },
+    // Platform Services — all optional; unset means standalone (no calls out).
+    platform: {
+      notificationUrl: env.NOTIFICATION_URL || undefined,
+      filesUrl: env.FILES_URL || undefined,
+      auditUrl: env.AUDIT_URL || undefined,
+      serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
+      invoiceChannel: env.NOTIFICATION_INVOICE_CHANNEL || undefined,
     },
   };
 }
