@@ -18,6 +18,7 @@ import {
 } from './auth.js';
 import type { SellerConfig } from './config.js';
 import { offersCsv } from './csv.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
 import {
   createDraft,
   decideOffer,
@@ -151,9 +152,11 @@ export interface AppOptions {
   clock?: () => string;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional Platform Services integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
 }
 
-export function createApp({ db, auth, seller, publicBaseUrl, clock, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, seller, publicBaseUrl, clock, staticDir, platform = noopPlatform }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
   const today = (): string => (clock ? clock() : todayIso());
@@ -396,7 +399,15 @@ export function createApp({ db, auth, seller, publicBaseUrl, clock, staticDir }:
 
   app.post('/api/offers/:id/send', (req, res) => {
     finalizeOffer(db, Number(req.params.id), { sentDate: today(), at: stamp() });
-    res.json(offerDetail(db, Number(req.params.id), detailCtx()));
+    const sent = offerDetail(db, Number(req.params.id), detailCtx());
+    const cust = db.prepare('SELECT c.email AS email FROM offers o JOIN customers c ON c.id = o.customer_id WHERE o.id = ?').get(Number(req.params.id)) as { email: string | null } | undefined;
+    void platform.audit({ actor: auth.username, action: 'offer.sent', resource: `offer:${req.params.id}` });
+    void platform.notify({
+      to: cust?.email ?? '',
+      subject: `Your offer ${sent.number}`,
+      body: `Dear ${sent.customer_name},\n\nplease review and accept your offer ${sent.number}: ${publicBaseUrl ?? ''}${sent.public_path ?? ''}`,
+    });
+    res.json(sent);
   });
 
   app.post('/api/offers/:id/withdraw', (req, res) => {

@@ -278,3 +278,13 @@ by one SQLite file. No external dependencies to provision.
 ## License
 
 MIT © 0815software. See [LICENSE](./LICENSE).
+
+## Platform integration (optional)
+
+When configured, sending an offer records the event on
+[PS-07 Audit Log](../../platform/ps-07-audit-log) and emails the customer the
+acceptance link via [PS-03 Notification Hub](../../platform/ps-03-notification-hub),
+through the shared [`@0815software/platform-clients`](../../platform/clients)
+package. Set `AUDIT_URL` / `NOTIFICATION_URL` (+ `PLATFORM_SERVICE_TOKEN`);
+best-effort and opt-in — unset, the module runs standalone. See
+`server/platform.ts`.

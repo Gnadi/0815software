@@ -19,6 +19,7 @@ import {
   sessionCookie,
   type AuthConfig,
 } from './auth.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
 import {
   addObligation,
   applicationDetail,
@@ -160,9 +161,11 @@ export interface AppOptions {
   now?: () => number;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional Platform Services integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
 }
 
-export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, now = Date.now, staticDir, platform = noopPlatform }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -308,6 +311,7 @@ export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): 
       approvedAmountCents,
       at: stamp(),
     });
+    void platform.audit({ actor: auth.username, action: 'application.transitioned', resource: `application:${req.params.id}`, after: { to } });
     res.json(applicationDetail(db, Number(req.params.id), now()));
   });
 

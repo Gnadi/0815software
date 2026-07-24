@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
+import { buildPlatform } from './platform.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
@@ -26,6 +27,7 @@ const app = createApp({
   seller: config.seller,
   publicBaseUrl: config.publicBaseUrl,
   staticDir,
+  platform: buildPlatform(config.platform),
 });
 
 app.listen(config.port, () => {
