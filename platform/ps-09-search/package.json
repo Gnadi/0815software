@@ -1,0 +1,29 @@
+{
+  "name": "@0815software/ps-09-search",
+  "version": "0.1.0",
+  "description": "PS-09 Search — cross-entity keyword and faceted search over SQLite FTS5. Modules index their records and query with filters, ranked by BM25.",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev:api": "tsx watch server/index.ts",
+    "seed": "tsx server/seed.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server/server/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.5",
+    "@types/node": "^22.19.11",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.1.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

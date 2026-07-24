@@ -18,3 +18,5 @@ export { IntegrationClient } from './integration.js';
 export { FilesClient } from './files.js';
 export { AuditClient } from './audit.js';
 export { PaymentsClient } from './payments.js';
+export { SearchClient } from './search.js';
+export { NumberClient } from './number.js';

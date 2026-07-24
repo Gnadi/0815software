@@ -7,7 +7,9 @@ import {
   IdentityClient,
   IntegrationClient,
   NotificationClient,
+  NumberClient,
   PaymentsClient,
+  SearchClient,
   ServiceError,
   WorkflowClient,
 } from '../src/index.js';
@@ -118,5 +120,21 @@ describe('per-service client shapes', () => {
     await client.refund(1, 200);
     expect(calls[1]!.url).toBe('http://pay/api/intents/1/refund');
     expect(JSON.parse(calls[1]!.body!)).toEqual({ amount_minor: 200 });
+  });
+
+  it('SearchClient.search encodes facet filters as facet.<key> params', async () => {
+    const { fetch, calls } = recorder({ total: 0, hits: [], facets: [] });
+    const client = new SearchClient({ baseUrl: 'http://s', serviceToken: 's', fetch });
+    await client.search({ collection: 'products', q: 'blue', filters: { color: 'blue' }, limit: 5 });
+    expect(calls[0]!.url).toBe('http://s/api/search?collection=products&q=blue&facet.color=blue&limit=5');
+  });
+
+  it('NumberClient.next posts the scope to /api/next', async () => {
+    const { fetch, calls } = recorder({ scope: 'invoice', value: 1, period_key: '2026', formatted: 'INV-2026-0001' });
+    const client = new NumberClient({ baseUrl: 'http://n', serviceToken: 's', fetch });
+    const out = await client.next('invoice');
+    expect(calls[0]!.url).toBe('http://n/api/next');
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ scope: 'invoice' });
+    expect(out.formatted).toBe('INV-2026-0001');
   });
 });
