@@ -70,6 +70,7 @@ export function openDb(path: string): Database.Database {
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       provider     TEXT    NOT NULL,
       state        TEXT    NOT NULL UNIQUE,
+      org_slug     TEXT,
       redirect_uri TEXT,
       created_at   TEXT    NOT NULL
     );
@@ -92,6 +93,12 @@ export function openDb(path: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_api_keys_org      ON api_keys(org_id);
     CREATE INDEX IF NOT EXISTS idx_auth_events_org   ON auth_events(org_id, created_at, id);
   `);
+
+  // Migration: older databases predate the oauth_states.org_slug column.
+  const oauthCols = db.prepare("PRAGMA table_info('oauth_states')").all() as { name: string }[];
+  if (!oauthCols.some((c) => c.name === 'org_slug')) {
+    db.exec('ALTER TABLE oauth_states ADD COLUMN org_slug TEXT');
+  }
 
   return db;
 }

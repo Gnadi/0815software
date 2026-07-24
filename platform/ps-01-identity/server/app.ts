@@ -28,7 +28,16 @@ import {
 } from './identity.js';
 import { keySummary, mintApiKey, verifyApiKey, type ApiKeyRow } from './api-keys.js';
 import { verifyProvidedToken } from './tokens.js';
-import { beginAuthorize, isOAuthProvider } from './oauth.js';
+import {
+  beginAuthorize,
+  consumeState,
+  fetchIdentity,
+  isOAuthProvider,
+  linkUser,
+  mockIdentity,
+  type FetchLike,
+  type OAuthConfig,
+} from './oauth.js';
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -42,8 +51,14 @@ interface Principal {
 export interface AppOptions {
   db: Database.Database;
   session: SessionConfig;
+  /** Configured OAuth providers; unconfigured providers use the mock IdP. */
+  oauth?: OAuthConfig;
+  /** Public base URL used to build OAuth redirect URIs. */
+  selfBaseUrl?: string;
   /** Injectable clock; defaults to the wall clock. */
   now?: () => number;
+  /** Injectable fetch for the OAuth token/userinfo exchange (tests). */
+  fetch?: FetchLike;
 }
 
 function idParam(req: Request, name = 'id'): number | null {
@@ -55,9 +70,19 @@ function body(req: Request): Record<string, unknown> {
   return (req.body ?? {}) as Record<string, unknown>;
 }
 
-export function createApp({ db, session, now = Date.now }: AppOptions): express.Express {
+export function createApp({
+  db,
+  session,
+  oauth = {},
+  selfBaseUrl = `http://localhost:4001`,
+  now = Date.now,
+  fetch: injectedFetch,
+}: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
+
+  const doFetch: FetchLike =
+    injectedFetch ?? (globalThis.fetch as unknown as FetchLike);
 
   const orgBySlug = db.prepare('SELECT * FROM organizations WHERE slug = ?');
   const orgById = db.prepare('SELECT * FROM organizations WHERE id = ?');
@@ -140,14 +165,47 @@ export function createApp({ db, session, now = Date.now }: AppOptions): express.
   app.get('/api/oauth/:provider/authorize', (req, res) => {
     const provider = req.params.provider as string;
     if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
+    const orgSlug = typeof req.query.org_slug === 'string' ? req.query.org_slug.trim() : '';
+    if (!orgSlug) fail(422, 'org_slug query parameter is required');
+    const org = orgBySlug.get(orgSlug) as OrgRow | undefined;
+    if (!org || org.status !== 'active') fail(404, 'Unknown organization');
     const redirect = typeof req.query.redirect_uri === 'string' ? req.query.redirect_uri : null;
-    res.redirect(302, beginAuthorize(db, provider, redirect, now()));
+    res.redirect(
+      302,
+      beginAuthorize(db, provider, { orgSlug, redirectUri: redirect, providerConfig: oauth[provider], selfBaseUrl }, now()),
+    );
   });
 
-  app.get('/api/oauth/:provider/callback', (req, res) => {
-    const provider = req.params.provider as string;
-    if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
-    res.status(501).json({ error: 'OAuth callback not implemented in this release' });
+  app.get('/api/oauth/:provider/callback', (req, res, next) => {
+    void (async () => {
+      const provider = req.params.provider as string;
+      if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
+
+      const stateRow = consumeState(db, provider, req.query.state);
+      if (!stateRow) fail(400, 'Invalid or expired OAuth state');
+      const code = typeof req.query.code === 'string' ? req.query.code : '';
+      if (!code) fail(422, 'code is required');
+
+      const org = stateRow.org_slug ? (orgBySlug.get(stateRow.org_slug) as OrgRow | undefined) : undefined;
+      if (!org || org.status !== 'active') fail(400, 'Organization no longer available');
+
+      const cfg = oauth[provider];
+      const identity = cfg
+        ? await fetchIdentity(cfg, code, `${selfBaseUrl}/api/oauth/${provider}/callback`, doFetch)
+        : mockIdentity(provider, org.slug);
+
+      const user = linkUser(db, org.id, identity, now());
+      const token = issueSession(res, user);
+      logEvent('login_ok', user.org_id, user.id, req, { via: `oauth:${provider}` });
+      logEvent('token_issued', user.org_id, user.id, req);
+
+      if (stateRow.redirect_uri) {
+        const sep = stateRow.redirect_uri.includes('?') ? '&' : '?';
+        res.redirect(302, `${stateRow.redirect_uri}${sep}token=${encodeURIComponent(token)}`);
+      } else {
+        res.json({ token, user: mapUser(user) });
+      }
+    })().catch(next);
   });
 
   // ── Authentication gate (session cookie or Bearer) ─────────────────

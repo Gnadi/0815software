@@ -81,8 +81,8 @@ foreign tenant) · **409** (conflict).
 | `GET /api/health` | Liveness. |
 | `POST /api/login` | `{org_slug,email,password}` → `{token,user}` + session cookie. |
 | `POST /api/logout` | Clear the session cookie. |
-| `GET /api/oauth/:provider/authorize` | OAuth stub — records a state nonce, 302 redirect. |
-| `GET /api/oauth/:provider/callback` | OAuth stub — 501 (documented seam). |
+| `GET /api/oauth/:provider/authorize` | `?org_slug=` → records a CSRF state nonce, 302 to the provider (or the mock IdP). |
+| `GET /api/oauth/:provider/callback` | Consumes the state, resolves the identity, provisions-or-links the user, issues a session. |
 
 ### Authenticated
 

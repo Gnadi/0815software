@@ -11,7 +11,12 @@ const db = openDb(config.databasePath);
 // touched.
 seed(db);
 
-const app = createApp({ db, session: config.session });
+const app = createApp({
+  db,
+  session: config.session,
+  oauth: config.oauth,
+  selfBaseUrl: config.selfBaseUrl,
+});
 
 app.listen(config.port, () => {
   console.log(`[ps-01] identity API on http://localhost:${config.port}`);
