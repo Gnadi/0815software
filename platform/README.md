@@ -39,6 +39,7 @@ through the shared [`clients`](./clients) package.
 | PS-05 | Integration Hub  | Centralized third-party integrations      | 4005     | Available |
 | PS-06 | File Storage     | Shared object/blob storage                | 4006     | Available |
 | PS-07 | Audit Log        | Tamper-evident activity trail             | 4007     | Available |
+| PS-08 | Payments         | Payment intents, refunds, reconciliation  | 4008     | Available |
 
 - [PS-01 · Identity](./ps-01-identity) — authentication, users, roles,
   permissions, OAuth (real OIDC flow + offline mock IdP), API keys,
@@ -56,6 +57,8 @@ through the shared [`clients`](./clients) package.
   content-addressed objects, and HMAC-signed download URLs.
 - [PS-07 · Audit Log](./ps-07-audit-log) — append-only, hash-chained
   activity trail with end-to-end integrity verification.
+- [PS-08 · Payments](./ps-08-payments) — payment intents, refunds and a
+  reconciled ledger; deterministic mock PSP plus an optional Stripe adapter.
 
 Modules consume these through the shared
 [`@0815software/platform-clients`](./clients) package — one typed client per

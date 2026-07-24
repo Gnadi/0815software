@@ -107,6 +107,37 @@ export interface ObjectInfo {
   created_at: string;
 }
 
+// ── PS-08 Payments ─────────────────────────────────────────────────────
+export interface CreateIntentInput {
+  reference: string;
+  amount_minor: number;
+  currency?: string;
+  provider?: 'mock' | string;
+  confirm?: boolean;
+  idempotency_key?: string;
+}
+export interface LedgerEntry {
+  id: number;
+  intent_id: number;
+  direction: 'credit' | 'debit';
+  amount_minor: number;
+  reason: string;
+  created_at: string;
+}
+export interface PaymentIntent {
+  id: number;
+  public_id: string;
+  reference: string;
+  provider: string;
+  amount_minor: number;
+  currency: string;
+  status: string;
+  amount_refunded_minor: number;
+  created_at: string;
+  events?: { id: number; type: string; amount_minor: number | null; created_at: string }[];
+  ledger?: LedgerEntry[];
+}
+
 // ── PS-07 Audit Log ────────────────────────────────────────────────────
 export interface AuditEventInput {
   actor: string;

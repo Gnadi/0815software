@@ -17,3 +17,4 @@ export { AiClient } from './ai.js';
 export { IntegrationClient } from './integration.js';
 export { FilesClient } from './files.js';
 export { AuditClient } from './audit.js';
+export { PaymentsClient } from './payments.js';

@@ -7,6 +7,7 @@ import {
   IdentityClient,
   IntegrationClient,
   NotificationClient,
+  PaymentsClient,
   ServiceError,
   WorkflowClient,
 } from '../src/index.js';
@@ -105,5 +106,17 @@ describe('per-service client shapes', () => {
     const client = new IntegrationClient({ baseUrl: 'http://int', serviceToken: 's', fetch });
     await client.proxy(7, { path: '/v1/charges' });
     expect(calls[0]!.url).toBe('http://int/api/connections/7/proxy');
+  });
+
+  it('PaymentsClient.createIntent posts the intent; refund sends a partial amount', async () => {
+    const { fetch, calls } = recorder({ id: 1, status: 'requires_payment' });
+    const client = new PaymentsClient({ baseUrl: 'http://pay', serviceToken: 's', fetch });
+    await client.createIntent({ reference: 'invoice:1', amount_minor: 500, confirm: true });
+    expect(calls[0]!.url).toBe('http://pay/api/intents');
+    expect(JSON.parse(calls[0]!.body!)).toMatchObject({ reference: 'invoice:1', amount_minor: 500, confirm: true });
+
+    await client.refund(1, 200);
+    expect(calls[1]!.url).toBe('http://pay/api/intents/1/refund');
+    expect(JSON.parse(calls[1]!.body!)).toEqual({ amount_minor: 200 });
   });
 });
