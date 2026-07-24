@@ -266,7 +266,10 @@ export function createApp({ db, auth, seller, staticDir, platform = noopPlatform
     const errors: FieldError[] = [];
     const issueDate = optDate(body(req).issue_date, 'issue_date', errors);
     if (errors.length > 0) fail(errors);
-    finalizeInvoice(db, Number(req.params.id), issueDate ?? undefined);
+    // When PS-10 Number is configured, source the invoice number from it
+    // (authoritative, gapless); otherwise the local per-year counter assigns it.
+    const numberOverride = await platform.nextInvoiceNumber();
+    finalizeInvoice(db, Number(req.params.id), issueDate ?? undefined, numberOverride ?? undefined);
     const detail = invoiceDetail(db, Number(req.params.id));
 
     // Fan the freshly-issued invoice out to the Platform Services (email the

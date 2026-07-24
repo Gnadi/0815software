@@ -43,6 +43,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       filesUrl: env.FILES_URL || undefined,
       auditUrl: env.AUDIT_URL || undefined,
       paymentsUrl: env.PAYMENTS_URL || undefined,
+      numberUrl: env.NUMBER_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
       invoiceChannel: env.NOTIFICATION_INVOICE_CHANNEL || undefined,
     },

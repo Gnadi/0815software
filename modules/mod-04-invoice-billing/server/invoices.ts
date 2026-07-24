@@ -271,6 +271,7 @@ export function finalizeInvoice(
   db: Database.Database,
   id: number,
   issueDate?: string,
+  numberOverride?: string,
 ): { number: string; issue_date: string; due_date: string } {
   const invoice = getInvoice(db, id);
   if (invoice.status !== 'draft') {
@@ -290,14 +291,21 @@ export function finalizeInvoice(
   const due = addDays(issue, invoice.payment_terms_days);
 
   return db.transaction(() => {
-    const counter = db
-      .prepare(
-        `INSERT INTO invoice_counters (year, last_seq) VALUES (?, 1)
-         ON CONFLICT (year) DO UPDATE SET last_seq = last_seq + 1
-         RETURNING last_seq`,
-      )
-      .get(year) as { last_seq: number };
-    const number = `INV-${year}-${String(counter.last_seq).padStart(4, '0')}`;
+    // A caller-supplied number (e.g. from PS-10 Number) wins; otherwise the
+    // local gapless per-year counter assigns it.
+    let number: string;
+    if (numberOverride) {
+      number = numberOverride;
+    } else {
+      const counter = db
+        .prepare(
+          `INSERT INTO invoice_counters (year, last_seq) VALUES (?, 1)
+           ON CONFLICT (year) DO UPDATE SET last_seq = last_seq + 1
+           RETURNING last_seq`,
+        )
+        .get(year) as { last_seq: number };
+      number = `INV-${year}-${String(counter.last_seq).padStart(4, '0')}`;
+    }
     db.prepare(
       "UPDATE invoices SET number = ?, status = 'sent', issue_date = ?, due_date = ? WHERE id = ?",
     ).run(number, issue, due, id);

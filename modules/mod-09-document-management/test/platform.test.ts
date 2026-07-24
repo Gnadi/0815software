@@ -66,3 +66,25 @@ describe('platform integration on document upload', () => {
       .expect(201);
   });
 });
+
+describe('cross-document search via PS-09', () => {
+  it('proxies to Search when configured, 501 otherwise', async () => {
+    const configured = createApp({
+      db, session, storageDir, maxUploadBytes: 1024 * 1024,
+      platform: {
+        async documentUploaded() { /* noop */ },
+        async searchDocuments(q: string) {
+          return { total: 1, hits: [{ collection: 'documents', id: '1', title: `hit for ${q}`, score: 1, snippet: '', facets: {} }], facets: [] };
+        },
+      },
+    });
+    const { cookie } = await editorCookieAndMatter(configured);
+    const res = await request(configured).get('/api/search?q=contract').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.hits[0].title).toContain('contract');
+
+    const standalone = createApp({ db, session, storageDir, maxUploadBytes: 1024 * 1024 });
+    const { cookie: c2 } = await editorCookieAndMatter(standalone);
+    expect((await request(standalone).get('/api/search?q=x').set('Cookie', c2)).status).toBe(501);
+  });
+});

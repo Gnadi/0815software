@@ -136,3 +136,29 @@ describe('pay-an-invoice via PS-08', () => {
     expect((await request(app).post(`/api/invoices/${id}/pay`).set('Cookie', cookie)).status).toBe(501);
   });
 });
+
+describe('invoice numbering via PS-10', () => {
+  it('uses the number from PS-10 when configured', async () => {
+    const app = createApp({
+      db,
+      auth,
+      seller,
+      platform: {
+        ...noopPlatform,
+        async nextInvoiceNumber() {
+          return 'INV-CUSTOM-0007';
+        },
+      },
+    });
+    const { id, cookie } = await issueInvoice(app);
+    const detail = await request(app).get(`/api/invoices/${id}`).set('Cookie', cookie);
+    expect(detail.body.number).toBe('INV-CUSTOM-0007');
+  });
+
+  it('falls back to the local gapless counter when PS-10 is unconfigured', async () => {
+    const app = createApp({ db, auth, seller }); // noop
+    const { id, cookie } = await issueInvoice(app);
+    const detail = await request(app).get(`/api/invoices/${id}`).set('Cookie', cookie);
+    expect(detail.body.number).toMatch(/^INV-\d{4}-\d{4}$/);
+  });
+});

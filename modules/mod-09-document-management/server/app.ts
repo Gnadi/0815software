@@ -303,6 +303,19 @@ export function createApp({
     res.status(201).json(doc);
   });
 
+  // Cross-document search via PS-09 (501 when SEARCH_URL is unset).
+  app.get('/api/search', (req, res, next) => {
+    void (async () => {
+      const q = typeof req.query.q === 'string' ? req.query.q : '';
+      const result = await platform.searchDocuments(q);
+      if (result === null) {
+        res.status(501).json({ error: 'Search is not configured (set SEARCH_URL)' });
+        return;
+      }
+      res.json(result);
+    })().catch(next);
+  });
+
   // Download the current version, or ?version=N for a specific one.
   app.get('/api/documents/:id/download', (req, res) => {
     const id = idParam(req.params.id);

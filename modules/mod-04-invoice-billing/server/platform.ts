@@ -1,4 +1,4 @@
-import { AuditClient, FilesClient, NotificationClient, PaymentsClient } from '@0815software/platform-clients';
+import { AuditClient, FilesClient, NotificationClient, NumberClient, PaymentsClient } from '@0815software/platform-clients';
 
 /**
  * Optional integration with the Platform Services. Every hook is best-effort
@@ -18,9 +18,12 @@ export interface PlatformConfig {
   filesUrl?: string;
   auditUrl?: string;
   paymentsUrl?: string;
+  numberUrl?: string;
   serviceToken?: string;
   /** PS-03 channel name to send invoice emails through. */
   invoiceChannel?: string;
+  /** PS-10 scope for invoice numbers (default "invoice"). */
+  numberScope?: string;
 }
 
 export interface InvoiceIssuedInfo {
@@ -44,6 +47,8 @@ export type PaymentResult = { status: string; public_id: string } | null;
 export interface PlatformHooks {
   invoiceIssued(info: InvoiceIssuedInfo): Promise<void>;
   payInvoice(info: PayInvoiceInfo): Promise<PaymentResult>;
+  /** The next invoice number from PS-10, or null to use the local counter. */
+  nextInvoiceNumber(): Promise<string | null>;
 }
 
 /** The no-op hooks used when nothing is configured. */
@@ -52,6 +57,9 @@ export const noopPlatform: PlatformHooks = {
     /* standalone: nothing to do */
   },
   async payInvoice() {
+    return null;
+  },
+  async nextInvoiceNumber() {
     return null;
   },
 };
@@ -63,9 +71,11 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const files = cfg.filesUrl ? new FilesClient({ baseUrl: cfg.filesUrl, serviceToken: cfg.serviceToken }) : null;
   const audit = cfg.auditUrl ? new AuditClient({ baseUrl: cfg.auditUrl, serviceToken: cfg.serviceToken }) : null;
   const payments = cfg.paymentsUrl ? new PaymentsClient({ baseUrl: cfg.paymentsUrl, serviceToken: cfg.serviceToken }) : null;
-  if (!notify && !files && !audit && !payments) return noopPlatform;
+  const numbers = cfg.numberUrl ? new NumberClient({ baseUrl: cfg.numberUrl, serviceToken: cfg.serviceToken }) : null;
+  if (!notify && !files && !audit && !payments && !numbers) return noopPlatform;
 
   const channel = cfg.invoiceChannel ?? 'transactional-email';
+  const numberScope = cfg.numberScope ?? 'invoice';
 
   return {
     async invoiceIssued(info: InvoiceIssuedInfo): Promise<void> {
@@ -100,6 +110,14 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
       for (const r of results) {
         if (r.status === 'rejected') console.warn('[mod-04] platform hook failed:', r.reason);
       }
+    },
+
+    async nextInvoiceNumber(): Promise<string | null> {
+      if (!numbers) return null;
+      // Not best-effort: numbering is authoritative, so a failure propagates
+      // rather than silently falling back to the local counter.
+      const n = await numbers.next(numberScope);
+      return n.formatted;
     },
 
     async payInvoice(info: PayInvoiceInfo): Promise<PaymentResult> {

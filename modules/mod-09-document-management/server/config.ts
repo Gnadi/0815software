@@ -27,6 +27,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     platform: {
       filesUrl: env.FILES_URL || undefined,
       auditUrl: env.AUDIT_URL || undefined,
+      searchUrl: env.SEARCH_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
   };

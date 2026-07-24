@@ -19,4 +19,6 @@ export { FilesClient } from './files.js';
 export { AuditClient } from './audit.js';
 export { PaymentsClient } from './payments.js';
 export { SearchClient } from './search.js';
+export type { IndexDocInput, SearchHit, SearchResult } from './search.js';
 export { NumberClient } from './number.js';
+export type { NextNumber, SequenceConfig } from './number.js';
