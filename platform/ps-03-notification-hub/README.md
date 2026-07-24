@@ -12,9 +12,13 @@ only).
 
 - **Channels** (`email`, `sms`, `push`, `slack`, `teams`, `discord`,
   `webhook`) each point at a **provider**. The default `console` provider
-  is a no-op that "delivers" without any external call.
+  is a no-op that "delivers" without any external call. Real single-`fetch`
+  adapters (no SDKs) ship for email (`resend-email`), SMS (`twilio-sms`),
+  chat (`slack` / `teams` / `discord` incoming webhooks) and generic
+  `webhook`.
 - **Graceful degradation**: a channel whose real provider is not configured
-  (e.g. an email channel with no `RESEND_API_KEY`) automatically falls back
+  (an email channel with no `RESEND_API_KEY`, an SMS channel with no Twilio
+  credentials, a chat channel with no webhook url) automatically falls back
   to the console provider, so a send still succeeds — mirroring the
   marketing site's contact form.
 - **Templates** are versioned, with `{{variable}}` interpolation. Values
@@ -89,8 +93,9 @@ shared `SERVICE_TOKEN`. Errors are `{ error, details? }`.
 ## Consumed by
 
 Business Modules, over this API. The Notification Hub depends on no
-Business Module. See [`.env.example`](./.env.example) for the
-(commented-out) `IDENTITY_URL` seam.
+Business Module. Set `IDENTITY_URL` (see [`.env.example`](./.env.example)) to
+verify end-user callers against PS-01's `POST /api/tokens/verify`; unset, the
+service runs standalone on its own admin/service-token.
 
 ## Tests
 

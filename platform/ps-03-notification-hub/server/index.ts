@@ -8,7 +8,7 @@ const db = openDb(config.databasePath);
 
 seed(db);
 
-const app = createApp({ db, auth: config.auth, resendApiKey: config.resendApiKey });
+const app = createApp({ db, auth: config.auth, resendApiKey: config.resendApiKey, twilio: config.twilio });
 
 app.listen(config.port, () => {
   console.log(`[ps-03] notification hub API on http://localhost:${config.port}`);

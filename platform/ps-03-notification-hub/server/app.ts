@@ -11,7 +11,9 @@ import {
   sessionCookie,
   requireAuth,
   type AuthConfig,
+  type SeamFetch,
 } from './auth.js';
+import type { TwilioConfig } from './providers/twilio-sms.js';
 import { DomainError, fail, reqText } from './errors.js';
 import { latestTemplate, mapTemplate, renderTemplate, type TemplateRow } from './templates.js';
 import { enqueue, mapChannel, mapMessage, tick, type ChannelRow, type MessageRow } from './queue.js';
@@ -25,7 +27,10 @@ export interface AppOptions {
   /** Override provider resolution (tests). Otherwise built from config. */
   resolve?: ProviderResolver;
   resendApiKey?: string | null;
+  twilio?: TwilioConfig | null;
   fetchImpl?: FetchLike;
+  /** Injectable fetch for the identity-seam verification call (tests). */
+  identityFetch?: SeamFetch;
 }
 
 function idParam(req: Request): number | null {
@@ -39,7 +44,9 @@ function body(req: Request): Record<string, unknown> {
 
 export function createApp(opts: AppOptions): express.Express {
   const { db, auth, now = Date.now } = opts;
-  const resolve = opts.resolve ?? buildResolver({ resendApiKey: opts.resendApiKey ?? null, fetchImpl: opts.fetchImpl });
+  const resolve =
+    opts.resolve ??
+    buildResolver({ resendApiKey: opts.resendApiKey ?? null, twilio: opts.twilio ?? null, fetchImpl: opts.fetchImpl });
 
   const app = express();
   app.use(express.json({ limit: '256kb' }));
@@ -108,7 +115,7 @@ export function createApp(opts: AppOptions): express.Express {
   });
 
   // ── Admin gate ─────────────────────────────────────────────────────
-  app.use('/api', requireAuth(auth));
+  app.use('/api', requireAuth(auth, { fetch: opts.identityFetch }));
 
   // ── Channels ───────────────────────────────────────────────────────
   app.get('/api/channels', (_req, res) => {
