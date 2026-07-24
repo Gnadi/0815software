@@ -167,6 +167,14 @@ export function createApp({
     res.json({ ok: true });
   });
 
+  // The cross-service contract: validate a PS-01 credential (session token or
+  // psk_ API key) and return its claims + permissions. PUBLIC — the presented
+  // token IS the credential; downstream services call this unauthenticated,
+  // and an invalid token yields only { valid: false }.
+  app.post('/api/tokens/verify', (req, res) => {
+    res.json(verifyProvidedToken(db, session, body(req).token, now()));
+  });
+
   app.get('/api/oauth/:provider/authorize', (req, res) => {
     const provider = req.params.provider as string;
     if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
@@ -273,11 +281,6 @@ export function createApp({
       roles: userRoles(db, user.id),
       permissions: userPermissions(db, user.id),
     });
-  });
-
-  // The cross-service contract: validate a PS-01 token and return claims.
-  app.post('/api/tokens/verify', (req, res) => {
-    res.json(verifyProvidedToken(db, session, body(req).token, now()));
   });
 
   app.get('/api/permissions', (_req, res) => {

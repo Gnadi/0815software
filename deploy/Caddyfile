@@ -1,0 +1,36 @@
+# TLS termination + per-service routing. Caddy provisions certificates
+# automatically for PLATFORM_DOMAIN (set in .env; DNS must point here).
+
+{$PLATFORM_DOMAIN} {
+	handle_path /identity/* {
+		reverse_proxy ps01:4001
+	}
+	handle_path /workflow/* {
+		reverse_proxy ps02:4002
+	}
+	handle_path /notify/* {
+		reverse_proxy ps03:4003
+	}
+	handle_path /ai/* {
+		reverse_proxy ps04:4004
+	}
+	handle_path /integrations/* {
+		reverse_proxy ps05:4005
+	}
+	handle_path /files/* {
+		reverse_proxy ps06:4006
+	}
+	handle_path /audit/* {
+		reverse_proxy ps07:4007
+	}
+	handle_path /payments/* {
+		reverse_proxy ps08:4008
+	}
+	handle_path /search/* {
+		reverse_proxy ps09:4009
+	}
+	handle_path /number/* {
+		reverse_proxy ps10:4010
+	}
+	respond "0815software platform" 200
+}
