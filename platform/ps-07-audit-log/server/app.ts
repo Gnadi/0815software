@@ -12,6 +12,7 @@ import {
   type SeamFetch,
 } from './auth.js';
 import { DomainError, fail, reqText } from './errors.js';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import { listEvents, recordEvent, verifyChain } from './audit.js';
 
 export interface AppOptions {
@@ -20,6 +21,8 @@ export interface AppOptions {
   now?: () => number;
   /** Injectable fetch for the identity-seam verification call (tests). */
   identityFetch?: SeamFetch;
+  /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
+  hardening?: HardeningConfig;
 }
 
 function body(req: Request): Record<string, unknown> {
@@ -29,6 +32,7 @@ function body(req: Request): Record<string, unknown> {
 export function createApp(opts: AppOptions): express.Express {
   const { db, auth, now = Date.now } = opts;
   const app = express();
+  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
   app.use(express.json({ limit: '512kb' }));
 
   // ── Public ─────────────────────────────────────────────────────────

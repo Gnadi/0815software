@@ -16,6 +16,7 @@ import {
   type SessionConfig,
 } from './auth.js';
 import { DomainError, fail, reqEmail, reqText } from './errors.js';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import {
   listRoles,
   mapOrg,
@@ -59,6 +60,8 @@ export interface AppOptions {
   now?: () => number;
   /** Injectable fetch for the OAuth token/userinfo exchange (tests). */
   fetch?: FetchLike;
+  /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
+  hardening?: HardeningConfig;
 }
 
 function idParam(req: Request, name = 'id'): number | null {
@@ -77,8 +80,10 @@ export function createApp({
   selfBaseUrl = `http://localhost:4001`,
   now = Date.now,
   fetch: injectedFetch,
+  hardening,
 }: AppOptions): express.Express {
   const app = express();
+  if (hardening) app.use(hardeningMiddleware(hardening));
   app.use(express.json({ limit: '256kb' }));
 
   const doFetch: FetchLike =
@@ -212,15 +217,16 @@ export function createApp({
   app.use('/api', (req, res, next) => {
     const bearer = parseBearer(req.headers.authorization);
 
-    // Bearer API key → machine principal with full org access.
+    // Bearer API key → machine principal carrying the key's scopes
+    // (an unscoped key keeps the historical full-permission behaviour).
     if (bearer && bearer.startsWith('psk_')) {
-      const orgId = verifyApiKey(db, bearer, now());
-      if (orgId !== null) {
+      const key = verifyApiKey(db, bearer, now());
+      if (key !== null) {
         res.locals.principal = {
           kind: 'api_key',
-          orgId,
+          orgId: key.orgId,
           userId: null,
-          permissions: new Set<Permission>(PERMISSIONS),
+          permissions: new Set<Permission>(key.scopes ?? PERMISSIONS),
         } satisfies Principal;
         next();
         return;
@@ -475,8 +481,20 @@ export function createApp({
   app.post('/api/api-keys', (req, res) => {
     require(res, 'apikey:write');
     const p = principalOf(res);
-    const name = reqText(body(req), 'name', 200);
-    const minted = mintApiKey(db, p.orgId, name, p.userId, now());
+    const b = body(req);
+    const name = reqText(b, 'name', 200);
+    // Optional scopes restrict the key to a permission subset; omitted = all.
+    let scopes: Permission[] | null = null;
+    if (Array.isArray(b.scopes)) {
+      scopes = [];
+      for (const s of b.scopes) {
+        if (typeof s !== 'string' || !(PERMISSIONS as readonly string[]).includes(s)) {
+          fail(422, 'Validation failed', [{ field: 'scopes', message: `unknown permission "${String(s)}"` }]);
+        }
+        scopes.push(s as Permission);
+      }
+    }
+    const minted = mintApiKey(db, p.orgId, name, p.userId, now(), scopes);
     logEvent('apikey_created', p.orgId, p.userId, req, { prefix: minted.summary.prefix });
     res.status(201).json({ api_key: minted.summary, secret: minted.secret });
   });

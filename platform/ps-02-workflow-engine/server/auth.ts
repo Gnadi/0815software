@@ -24,21 +24,43 @@ export type SeamFetch = (
   init?: { method?: string; headers?: Record<string, string>; body?: string },
 ) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
 
-/** Verify a token against PS-01's cross-service contract. Never throws. */
+/** Permission a PS-01 principal must hold to act as this service's admin. */
+export const REQUIRED_SEAM_PERMISSION = 'platform:admin';
+
+const SEAM_CACHE_TTL_MS = 30_000;
+const seamCache = new Map<string, { ok: boolean; expires: number }>();
+
+/**
+ * Verify a token against PS-01's cross-service contract. The principal must
+ * hold `platform:admin` — a merely valid session is not enough. Verdicts are
+ * cached briefly so a busy admin session doesn't verify on every request.
+ * Never throws.
+ */
 export async function verifyIdentityToken(
   identityUrl: string,
   token: string,
   doFetch: SeamFetch,
 ): Promise<boolean> {
+  const cacheKey = `${identityUrl}\n${token}`;
+  const cached = seamCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.ok;
   try {
     const res = await doFetch(`${identityUrl.replace(/\/+$/, '')}/api/tokens/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
     });
-    if (!res.ok) return false;
-    const verdict = (await res.json()) as { valid?: boolean };
-    return verdict.valid === true;
+    let ok = false;
+    if (res.ok) {
+      const verdict = (await res.json()) as { valid?: boolean; permissions?: string[] };
+      ok =
+        verdict.valid === true &&
+        Array.isArray(verdict.permissions) &&
+        verdict.permissions.includes(REQUIRED_SEAM_PERMISSION);
+    }
+    if (seamCache.size > 5_000) seamCache.clear();
+    seamCache.set(cacheKey, { ok, expires: Date.now() + SEAM_CACHE_TTL_MS });
+    return ok;
   } catch {
     return false;
   }

@@ -15,6 +15,7 @@ import {
 } from './auth.js';
 import type { TwilioConfig } from './providers/twilio-sms.js';
 import { DomainError, fail, reqText } from './errors.js';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import { latestTemplate, mapTemplate, renderTemplate, type TemplateRow } from './templates.js';
 import { enqueue, mapChannel, mapMessage, tick, type ChannelRow, type MessageRow } from './queue.js';
 import { buildResolver } from './providers/registry.js';
@@ -31,6 +32,8 @@ export interface AppOptions {
   fetchImpl?: FetchLike;
   /** Injectable fetch for the identity-seam verification call (tests). */
   identityFetch?: SeamFetch;
+  /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
+  hardening?: HardeningConfig;
 }
 
 function idParam(req: Request): number | null {
@@ -49,6 +52,7 @@ export function createApp(opts: AppOptions): express.Express {
     buildResolver({ resendApiKey: opts.resendApiKey ?? null, twilio: opts.twilio ?? null, fetchImpl: opts.fetchImpl });
 
   const app = express();
+  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
   app.use(express.json({ limit: '256kb' }));
 
   const channelByName = (name: string): ChannelRow | undefined =>

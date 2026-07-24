@@ -30,7 +30,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       password: env.ADMIN_PASSWORD ?? 'admin',
       secret: env.SESSION_SECRET ?? 'dev-secret-change-me',
       ttlHours: Number(env.SESSION_TTL_HOURS) || 12,
-      secureCookie: env.COOKIE_SECURE === 'true',
+      secureCookie: env.COOKIE_SECURE !== undefined ? env.COOKIE_SECURE === 'true' : env.NODE_ENV === 'production',
     },
     seller: {
       name: env.SELLER_NAME ?? '0815software GmbH',

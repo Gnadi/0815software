@@ -1,9 +1,12 @@
 import { createApp } from './app.js';
+import { assertProductionConfig } from './guard.js';
+import { hardeningFromEnv } from './hardening.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
 
 const config = configFromEnv();
+assertProductionConfig([{ name: 'SESSION_SECRET', value: config.session.secret }]);
 const db = openDb(config.databasePath);
 
 // First start on an empty database: load the demo tenants so the service
@@ -16,6 +19,7 @@ const app = createApp({
   session: config.session,
   oauth: config.oauth,
   selfBaseUrl: config.selfBaseUrl,
+  hardening: hardeningFromEnv(),
 });
 
 app.listen(config.port, () => {

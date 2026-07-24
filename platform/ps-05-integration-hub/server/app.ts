@@ -11,6 +11,7 @@ import {
   type SeamFetch,
 } from './auth.js';
 import { DomainError, fail, reqText } from './errors.js';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import { providerEntry, publicRegistry, REGISTRY } from './provider-registry.js';
 import { connectionEvent, createConnection, credentialsOf, mapConnection, type ConnectionRow } from './connections.js';
 import { encrypt } from './crypto.js';
@@ -38,6 +39,8 @@ export interface AppOptions {
   selfBaseUrl?: string;
   /** Injectable fetch for the identity-seam verification call (tests). */
   identityFetch?: SeamFetch;
+  /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
+  hardening?: HardeningConfig;
 }
 
 function idParam(req: Request): number | null {
@@ -58,6 +61,7 @@ export function createApp(opts: AppOptions): express.Express {
   const selfBaseUrl = opts.selfBaseUrl ?? 'http://localhost:4005';
 
   const app = express();
+  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
   app.use(
     express.json({
       limit: '512kb',

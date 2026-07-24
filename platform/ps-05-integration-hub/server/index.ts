@@ -1,9 +1,18 @@
 import { createApp } from './app.js';
+import { assertProductionConfig } from './guard.js';
+import { hardeningFromEnv } from './hardening.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
 
-const config = configFromEnv(); // throws fast if INTEGRATION_ENCRYPTION_KEY is malformed
+const config = configFromEnv();
+assertProductionConfig([
+  { name: 'SESSION_SECRET', value: config.auth.secret },
+  { name: 'ADMIN_PASSWORD', value: config.auth.password },
+  { name: 'SERVICE_TOKEN', value: config.auth.serviceToken },
+  { name: 'WEBHOOK_SECRET', value: config.webhookSecret },
+  { name: 'INTEGRATION_ENCRYPTION_KEY', value: process.env.INTEGRATION_ENCRYPTION_KEY ?? '0'.repeat(64) },
+]); // throws fast if INTEGRATION_ENCRYPTION_KEY is malformed
 const db = openDb(config.databasePath);
 
 seed(db, config.encryptionKey);
@@ -15,6 +24,7 @@ const app = createApp({
   webhookSecret: config.webhookSecret,
   oauth: config.oauth,
   selfBaseUrl: config.selfBaseUrl,
+  hardening: hardeningFromEnv(),
 });
 
 app.listen(config.port, () => {

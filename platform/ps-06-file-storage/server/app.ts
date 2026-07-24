@@ -16,6 +16,7 @@ import {
   type SeamFetch,
 } from './auth.js';
 import { DomainError, fail, reqText } from './errors.js';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import {
   createBucket,
   deleteObject,
@@ -36,6 +37,8 @@ export interface AppOptions {
   now?: () => number;
   /** Injectable fetch for the identity-seam verification call (tests). */
   identityFetch?: SeamFetch;
+  /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
+  hardening?: HardeningConfig;
 }
 
 function body(req: Request): Record<string, unknown> {
@@ -46,6 +49,7 @@ export function createApp(opts: AppOptions): express.Express {
   const { db, auth, signingSecret, now = Date.now } = opts;
   const maxBytes = opts.maxObjectBytes ?? 10 * 1024 * 1024;
   const app = express();
+  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
   app.use(express.json({ limit: `${Math.ceil((maxBytes * 1.4) / (1024 * 1024)) + 1}mb` }));
 
   // A caller is either the admin (session) or a module (service token), with

@@ -22,6 +22,9 @@ export const PERMISSIONS = [
   'role:write',
   'apikey:read',
   'apikey:write',
+  // Grants admin access to the downstream Platform Services (PS-02…10)
+  // through the identity seam. Held by owner and admin system roles.
+  'platform:admin',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 

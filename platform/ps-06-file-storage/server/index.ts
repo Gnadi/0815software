@@ -1,9 +1,17 @@
 import { createApp } from './app.js';
+import { assertProductionConfig } from './guard.js';
+import { hardeningFromEnv } from './hardening.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
 
 const config = configFromEnv();
+assertProductionConfig([
+  { name: 'SESSION_SECRET', value: config.auth.secret },
+  { name: 'ADMIN_PASSWORD', value: config.auth.password },
+  { name: 'SERVICE_TOKEN', value: config.auth.serviceToken },
+  { name: 'SIGNING_SECRET', value: config.signingSecret },
+]);
 const db = openDb(config.databasePath);
 
 seed(db);
@@ -13,6 +21,7 @@ const app = createApp({
   auth: config.auth,
   signingSecret: config.signingSecret,
   maxObjectBytes: config.maxObjectBytes,
+  hardening: hardeningFromEnv(),
 });
 
 app.listen(config.port, () => {

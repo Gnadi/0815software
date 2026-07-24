@@ -107,7 +107,7 @@ describe('identity seam', () => {
   it('accepts a PS-01-verified token when IDENTITY_URL is set', async () => {
     const identityFetch = async (_url: string, init?: { body?: string }) => {
       const tok = init?.body ? (JSON.parse(init.body).token as string) : '';
-      return { ok: true, status: 200, json: async () => ({ valid: tok === 'ps01-good' }) };
+      return { ok: true, status: 200, json: async () => ({ valid: tok === 'ps01-good', permissions: ['platform:admin'] }) };
     };
     const seamApp = make({ auth: { ...auth, identityUrl: 'http://identity.test' }, identityFetch });
     expect((await request(seamApp).post('/api/next').set(as('ps01-good')).send({ scope: 'invoice' })).status).toBe(201);

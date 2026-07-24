@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
+import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
@@ -10,6 +11,10 @@ import { startScheduler } from './scheduler.js';
 import { openSourceDb } from './source-db.js';
 
 const config = configFromEnv();
+assertProductionConfig([
+  { name: 'SESSION_SECRET', value: config.auth.secret },
+  { name: 'ADMIN_PASSWORD', value: config.auth.password },
+]);
 
 // The source database must exist. If SOURCE_DB_PATH was set explicitly to
 // a missing file, refuse to start (don't silently invent data over it).

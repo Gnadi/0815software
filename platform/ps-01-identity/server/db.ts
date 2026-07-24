@@ -60,6 +60,7 @@ export function openDb(path: string): Database.Database {
       name         TEXT    NOT NULL,
       prefix       TEXT    NOT NULL UNIQUE,   -- non-secret; safe to display
       key_hash     TEXT    NOT NULL,          -- scrypt hash of the secret half
+      scopes       TEXT    NOT NULL DEFAULT '', -- JSON Permission[]; '' = all
       created_by   INTEGER REFERENCES users(id),
       created_at   TEXT    NOT NULL,
       last_used_at TEXT,
@@ -98,6 +99,12 @@ export function openDb(path: string): Database.Database {
   const oauthCols = db.prepare("PRAGMA table_info('oauth_states')").all() as { name: string }[];
   if (!oauthCols.some((c) => c.name === 'org_slug')) {
     db.exec('ALTER TABLE oauth_states ADD COLUMN org_slug TEXT');
+  }
+
+  // Migration: older databases predate the api_keys.scopes column.
+  const keyCols = db.prepare("PRAGMA table_info('api_keys')").all() as { name: string }[];
+  if (!keyCols.some((c) => c.name === 'scopes')) {
+    db.exec("ALTER TABLE api_keys ADD COLUMN scopes TEXT NOT NULL DEFAULT ''");
   }
 
   return db;

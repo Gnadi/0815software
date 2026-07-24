@@ -308,7 +308,11 @@ describe('identity seam', () => {
     const identityFetch = async (url: string, init?: { body?: string }) => {
       verifyCalls.push(url);
       const token = init?.body ? (JSON.parse(init.body).token as string) : '';
-      return { ok: true, status: 200, json: async () => ({ valid: token === 'ps01-good' }) };
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ valid: token === 'ps01-good', permissions: ['platform:admin'] }),
+      };
     };
     const seamApp = createApp({
       db,
@@ -322,5 +326,70 @@ describe('identity seam', () => {
     // …and an invalid one is rejected.
     expect((await request(seamApp).get('/api/workflows').set(as('ps01-bad'))).status).toBe(401);
     expect(verifyCalls[0]).toContain('/api/tokens/verify');
+  });
+});
+
+describe('security baseline', () => {
+  it('boot guard refuses production defaults and passes real secrets', async () => {
+    const { assertProductionConfig } = await import('../server/guard.js');
+    const prod = { NODE_ENV: 'production' } as NodeJS.ProcessEnv;
+    expect(() =>
+      assertProductionConfig([{ name: 'SESSION_SECRET', value: 'dev-secret-change-me' }], prod),
+    ).toThrow(/SESSION_SECRET/);
+    expect(() =>
+      assertProductionConfig([{ name: 'SESSION_SECRET', value: 'a-real-64-char-secret' }], prod),
+    ).not.toThrow();
+    // Outside production the guard is silent even on defaults.
+    expect(() =>
+      assertProductionConfig([{ name: 'SESSION_SECRET', value: 'dev-secret-change-me' }], {} as NodeJS.ProcessEnv),
+    ).not.toThrow();
+  });
+
+  it('rate-limits login bursts and sets security headers', async () => {
+    const { hardeningFromEnv } = await import('../server/hardening.js');
+    const hardened = createApp({
+      db,
+      auth,
+      now: () => clock,
+      fetchImpl: mockFetch,
+      hardening: { ...hardeningFromEnv({} as NodeJS.ProcessEnv), loginRateLimitRpm: 3 },
+    });
+    const first = await request(hardened).get('/api/health');
+    expect(first.headers['x-content-type-options']).toBe('nosniff');
+    expect(first.headers['x-frame-options']).toBe('DENY');
+
+    let limited = 0;
+    for (let i = 0; i < 5; i++) {
+      const res = await request(hardened).post('/api/login').send({ username: 'admin', password: 'nope' });
+      if (res.status === 429) limited++;
+    }
+    expect(limited).toBeGreaterThan(0); // burst beyond 3/min gets throttled
+  });
+
+  it('seam rejects a valid PS-01 token without platform:admin, and caches verdicts', async () => {
+    let fetches = 0;
+    const identityFetch = async (_url: string, init?: { body?: string }) => {
+      fetches++;
+      const token = init?.body ? (JSON.parse(init.body).token as string) : '';
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ valid: true, permissions: token === 'has-perm' ? ['platform:admin'] : ['org:read'] }),
+      };
+    };
+    const seamApp = createApp({
+      db,
+      auth: { ...auth, identityUrl: 'http://identity.cache-test' },
+      now: () => clock,
+      fetchImpl: mockFetch,
+      identityFetch,
+    });
+    // Valid session but no platform:admin → 401.
+    expect((await request(seamApp).get('/api/workflows').set(as('no-perm'))).status).toBe(401);
+    // With the permission → 200, and a repeat hits the cache (no extra fetch).
+    expect((await request(seamApp).get('/api/workflows').set(as('has-perm'))).status).toBe(200);
+    const before = fetches;
+    expect((await request(seamApp).get('/api/workflows').set(as('has-perm'))).status).toBe(200);
+    expect(fetches).toBe(before); // cached
   });
 });

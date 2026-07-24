@@ -38,6 +38,7 @@ export const SYSTEM_ROLES: readonly SystemRoleDef[] = [
       'role:write',
       'apikey:read',
       'apikey:write',
+      'platform:admin',
     ],
   },
   {

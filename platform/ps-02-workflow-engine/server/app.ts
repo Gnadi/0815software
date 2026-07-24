@@ -15,6 +15,7 @@ import {
   type SeamFetch,
 } from './auth.js';
 import { DomainError, fail, reqText } from './errors.js';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import {
   allowedTransitions,
   currentDefinition,
@@ -39,6 +40,8 @@ export interface AppOptions {
   fetchImpl?: FetchLike;
   /** Injectable fetch for the identity-seam verification call (tests). */
   identityFetch?: SeamFetch;
+  /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
+  hardening?: HardeningConfig;
 }
 
 function idParam(req: Request, name = 'id'): number | null {
@@ -50,8 +53,9 @@ function body(req: Request): Record<string, unknown> {
   return (req.body ?? {}) as Record<string, unknown>;
 }
 
-export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch, identityFetch }: AppOptions): express.Express {
+export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch, identityFetch, hardening }: AppOptions): express.Express {
   const app = express();
+  if (hardening) app.use(hardeningMiddleware(hardening));
   app.use(express.json({ limit: '256kb' }));
 
   const summarize = (row: InstanceRow): InstanceSummary => {

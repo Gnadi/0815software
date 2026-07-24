@@ -16,6 +16,7 @@ import {
   type SeamFetch,
 } from './auth.js';
 import { DomainError, fail, reqText } from './errors.js';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import {
   confirmIntent,
   createIntent,
@@ -42,6 +43,8 @@ export interface AppOptions {
   fetchImpl?: FetchLike;
   /** Injectable fetch for the identity-seam verification call (tests). */
   identityFetch?: SeamFetch;
+  /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
+  hardening?: HardeningConfig;
 }
 
 function body(req: Request): Record<string, unknown> {
@@ -67,6 +70,7 @@ export function createApp(opts: AppOptions): express.Express {
   const providerFor = (name: string): PaymentProvider => (name === 'mock' ? mockProvider : defaultProvider);
 
   const app = express();
+  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
   app.use(
     express.json({
       limit: '256kb',

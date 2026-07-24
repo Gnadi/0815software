@@ -19,6 +19,7 @@ import {
   type SeamFetch,
 } from './auth.js';
 import { DomainError, fail, reqText } from './errors.js';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import {
   activeTemplate,
   mapPrompt,
@@ -56,6 +57,8 @@ export interface AppOptions {
   fetchImpl?: FetchLike;
   /** Injectable fetch for the identity-seam verification call (tests). */
   identityFetch?: SeamFetch;
+  /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
+  hardening?: HardeningConfig;
 }
 
 function idParam(req: Request): number | null {
@@ -84,6 +87,7 @@ export function createApp(opts: AppOptions): express.Express {
   };
 
   const app = express();
+  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
   app.use(express.json({ limit: '512kb' }));
 
   // A caller is either the admin (session) or a module (service token).

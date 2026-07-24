@@ -105,7 +105,7 @@ describe('identity seam', () => {
   it('accepts a PS-01-verified token when IDENTITY_URL is set', async () => {
     const identityFetch = async (_url: string, init?: { body?: string }) => {
       const tok = init?.body ? (JSON.parse(init.body).token as string) : '';
-      return { ok: true, status: 200, json: async () => ({ valid: tok === 'ps01-good' }) };
+      return { ok: true, status: 200, json: async () => ({ valid: tok === 'ps01-good', permissions: ['platform:admin'] }) };
     };
     const seamApp = createApp({ db, auth: { ...auth, identityUrl: 'http://identity.test' }, signingSecret, now: () => clock, identityFetch });
     expect((await request(seamApp).get('/api/buckets').set(as('ps01-good'))).status).toBe(200);

@@ -321,3 +321,62 @@ describe('organizations & roles endpoints', () => {
     expect(unassign.body.roles.map((r: { key: string }) => r.key)).not.toContain('admin');
   });
 });
+
+describe('scoped API keys & extended verify', () => {
+  it('mints a scoped key that only carries its scopes', async () => {
+    const owner = await login('acme', 'owner@acme.test', 'demo-owner');
+    const minted = await request(app)
+      .post('/api/api-keys')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ name: 'read-only', scopes: ['user:read', 'org:read'] });
+    expect(minted.status).toBe(201);
+    const key = minted.body.secret as string;
+
+    // The scoped key can read users…
+    expect((await request(app).get('/api/users').set('Authorization', `Bearer ${key}`)).status).toBe(200);
+    // …but cannot write them (missing user:write).
+    const write = await request(app)
+      .post('/api/users')
+      .set('Authorization', `Bearer ${key}`)
+      .send({ email: 'x@y.zz', name: 'X', password: 'longenough' });
+    expect(write.status).toBe(403);
+
+    // Unknown scope is rejected at mint time.
+    const bad = await request(app)
+      .post('/api/api-keys')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ name: 'bad', scopes: ['not-a-perm'] });
+    expect(bad.status).toBe(422);
+  });
+
+  it('tokens/verify returns permissions for sessions and accepts API keys', async () => {
+    const owner = await login('acme', 'owner@acme.test', 'demo-owner');
+    const session = await request(app)
+      .post('/api/tokens/verify')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ token: owner.token });
+    expect(session.body.valid).toBe(true);
+    expect(session.body.permissions).toContain('platform:admin'); // owner holds it
+
+    const minted = await request(app)
+      .post('/api/api-keys')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ name: 'svc', scopes: ['platform:admin'] });
+    const verdict = await request(app)
+      .post('/api/tokens/verify')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ token: minted.body.secret });
+    expect(verdict.body.valid).toBe(true);
+    expect(verdict.body.permissions).toEqual(['platform:admin']);
+
+    const revokedCheck = await request(app)
+      .delete(`/api/api-keys/${minted.body.api_key.id}`)
+      .set('Authorization', `Bearer ${owner.token}`);
+    expect(revokedCheck.status).toBe(200);
+    const afterRevoke = await request(app)
+      .post('/api/tokens/verify')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ token: minted.body.secret });
+    expect(afterRevoke.body.valid).toBe(false); // revocation works end to end
+  });
+});
