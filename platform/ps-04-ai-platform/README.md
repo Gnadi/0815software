@@ -111,3 +111,11 @@ Covers deterministic mock chat (identical output, no network), prompt
 versioning + render + active-pointer switch + missing-variable 422, the
 embedding cache, deterministic RAG ranking, provider selection (Anthropic
 only when keyed, mock otherwise), and the agents/images/speech capabilities.
+
+## API contract
+
+The full endpoint + auth surface is documented in [`openapi.yaml`](./openapi.yaml)
+(OpenAPI 3.1). Request/response *shapes* are typed in
+[`@0815software/platform-clients`](../clients) and pinned by `test/contract.test.ts`,
+which boots this service and drives the real client over HTTP — so the client and
+the service cannot drift apart unnoticed.

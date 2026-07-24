@@ -1,0 +1,267 @@
+openapi: 3.1.0
+info:
+  title: PS-02 Workflow Engine API
+  version: '0.1.0'
+  description: >-
+    Workflow definitions, triggers, instances, event ingestion, and outbound webhooks.
+    Request and response bodies are typed in
+    @0815software/platform-clients and frozen by this service’s
+    contract test; this document is the endpoint + auth surface.
+servers:
+  - url: http://localhost:4002
+    description: Local / per-customer deployment (behind Caddy in production)
+tags:
+  - name: ps-02-workflow-engine
+paths:
+  /api/health:
+    get:
+      summary: Get health
+      tags: [ps-02-workflow-engine]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/ready:
+    get:
+      summary: Get ready
+      tags: [ps-02-workflow-engine]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/metrics:
+    get:
+      summary: Get metrics
+      tags: [ps-02-workflow-engine]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/login:
+    post:
+      summary: Create login
+      tags: [ps-02-workflow-engine]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/logout:
+    post:
+      summary: Create logout
+      tags: [ps-02-workflow-engine]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/events:
+    post:
+      summary: Create events
+      tags: [ps-02-workflow-engine]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/hooks/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create hooks by token
+      tags: [ps-02-workflow-engine]
+      security: []
+      responses:
+        '201': { description: Success }
+  /api/workflows:
+    get:
+      summary: Get workflows
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    post:
+      summary: Create workflows
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/workflows/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get workflows by key
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/workflows/{key}/versions:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create workflows by key versions
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/workflows/{key}/run:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create workflows by key run
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/triggers:
+    get:
+      summary: Get triggers
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    post:
+      summary: Create triggers
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/triggers/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      summary: Update triggers by id
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/triggers/{id}/fire:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create triggers by id fire
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/instances:
+    get:
+      summary: Get instances
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/instances/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get instances by id
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/instances/{id}/advance:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create instances by id advance
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/webhooks:
+    get:
+      summary: Get webhooks
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    post:
+      summary: Create webhooks
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/webhooks/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      summary: Delete webhooks by id
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/deliveries:
+    get:
+      summary: Get deliveries
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/deliveries/{id}/retry:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create deliveries by id retry
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/tick:
+    post:
+      summary: Create tick
+      tags: [ps-02-workflow-engine]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+components:
+  securitySchemes:
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared machine secret, or a scoped PS-01 API key when IDENTITY_URL is set.
+    adminSession:
+      type: http
+      scheme: bearer
+      description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.

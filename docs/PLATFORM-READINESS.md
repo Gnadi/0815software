@@ -122,12 +122,16 @@ The `publish-platform-clients` GitHub Action exists and dry-runs cleanly, but
 **Do:** create the npm org, add the secret, cut the first `platform-clients-v*`
 tag; switch modules to the published semver for real independent deploys.
 
-### B4. Contract stability & versioning
-No API versioning (`/v1`), no OpenAPI specs, and client↔service contracts are
-only covered by injected-fetch unit tests — not by tests that run the real
-client against the real service.
-**Do:** version the APIs, publish OpenAPI, add end-to-end contract tests that
-boot a service and drive it with the real client.
+### B4. Contract stability & versioning — ✅ MOSTLY CLOSED
+Every service now ships an `openapi.yaml` (OpenAPI 3.1) documenting its full
+endpoint + auth surface, and a `test/contract.test.ts` that boots the real
+service on an ephemeral port and drives the real `@0815software/platform-clients`
+source over HTTP. Standing this up caught and fixed genuine client↔service
+drift (workflow/notification/AI/integration return envelopes and field names)
+that the injected-fetch unit tests could not see. Remaining (deliberate): no
+`/v1` URL prefix — breaking and low-value pre-launch; the OpenAPI files plus
+contract tests freeze the contract instead, and a prefix can be added at the
+first breaking change.
 
 ### B5. Idempotency/retry consistency — ✅ MOSTLY CLOSED
 PS-07 `POST /api/events` now accepts an optional `idempotency_key` (unique

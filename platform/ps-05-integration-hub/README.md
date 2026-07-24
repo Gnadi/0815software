@@ -106,3 +106,11 @@ Covers fail-fast key validation, credentials encrypted at rest (no
 plaintext ever returned or stored), inbound webhook signature verification
 (401/403/202, verdict recorded), and the proxy injecting the correct auth
 header + shaping REST and GraphQL requests (against a mocked `fetch`).
+
+## API contract
+
+The full endpoint + auth surface is documented in [`openapi.yaml`](./openapi.yaml)
+(OpenAPI 3.1). Request/response *shapes* are typed in
+[`@0815software/platform-clients`](../clients) and pinned by `test/contract.test.ts`,
+which boots this service and drives the real client over HTTP — so the client and
+the service cannot drift apart unnoticed.

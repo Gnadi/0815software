@@ -1,0 +1,229 @@
+openapi: 3.1.0
+info:
+  title: PS-05 Integration Hub API
+  version: '0.1.0'
+  description: >-
+    Stored third-party connections, an authenticated REST/GraphQL proxy, OAuth, webhooks, and sync jobs.
+    Request and response bodies are typed in
+    @0815software/platform-clients and frozen by this service’s
+    contract test; this document is the endpoint + auth surface.
+servers:
+  - url: http://localhost:4005
+    description: Local / per-customer deployment (behind Caddy in production)
+tags:
+  - name: ps-05-integration-hub
+paths:
+  /api/health:
+    get:
+      summary: Get health
+      tags: [ps-05-integration-hub]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/ready:
+    get:
+      summary: Get ready
+      tags: [ps-05-integration-hub]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/metrics:
+    get:
+      summary: Get metrics
+      tags: [ps-05-integration-hub]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/login:
+    post:
+      summary: Create login
+      tags: [ps-05-integration-hub]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/logout:
+    post:
+      summary: Create logout
+      tags: [ps-05-integration-hub]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/webhooks/{provider}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create webhooks by provider
+      tags: [ps-05-integration-hub]
+      security: []
+      responses:
+        '201': { description: Success }
+  /api/providers:
+    get:
+      summary: Get providers
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/connections:
+    get:
+      summary: Get connections
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    post:
+      summary: Create connections
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/connections/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get connections by id
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    delete:
+      summary: Delete connections by id
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/connections/{id}/refresh:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create connections by id refresh
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/connections/{provider}/authorize:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get connections by provider authorize
+      tags: [ps-05-integration-hub]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/connections/{provider}/callback:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get connections by provider callback
+      tags: [ps-05-integration-hub]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/connections/{id}/proxy:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create connections by id proxy
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/connections/{id}/graphql:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create connections by id graphql
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/webhook-events:
+    get:
+      summary: Get webhook-events
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/webhook-events/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get webhook-events by id
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/connections/{id}/sync:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create connections by id sync
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/sync-jobs:
+    get:
+      summary: Get sync-jobs
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/tick:
+    post:
+      summary: Create tick
+      tags: [ps-05-integration-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+components:
+  securitySchemes:
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared machine secret, or a scoped PS-01 API key when IDENTITY_URL is set.
+    adminSession:
+      type: http
+      scheme: bearer
+      description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.

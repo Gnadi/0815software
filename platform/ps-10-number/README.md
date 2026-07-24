@@ -77,3 +77,11 @@ service runs standalone on its own admin/service-token.
 ```sh
 npm test
 ```
+
+## API contract
+
+The full endpoint + auth surface is documented in [`openapi.yaml`](./openapi.yaml)
+(OpenAPI 3.1). Request/response *shapes* are typed in
+[`@0815software/platform-clients`](../clients) and pinned by `test/contract.test.ts`,
+which boots this service and drives the real client over HTTP — so the client and
+the service cannot drift apart unnoticed.

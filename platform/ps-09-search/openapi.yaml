@@ -1,0 +1,94 @@
+openapi: 3.1.0
+info:
+  title: PS-09 Search API
+  version: '0.1.0'
+  description: >-
+    Full-text search (SQLite FTS5) with faceting.
+    Request and response bodies are typed in
+    @0815software/platform-clients and frozen by this service’s
+    contract test; this document is the endpoint + auth surface.
+servers:
+  - url: http://localhost:4009
+    description: Local / per-customer deployment (behind Caddy in production)
+tags:
+  - name: ps-09-search
+paths:
+  /api/health:
+    get:
+      summary: Get health
+      tags: [ps-09-search]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/ready:
+    get:
+      summary: Get ready
+      tags: [ps-09-search]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/metrics:
+    get:
+      summary: Get metrics
+      tags: [ps-09-search]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/login:
+    post:
+      summary: Create login
+      tags: [ps-09-search]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/logout:
+    post:
+      summary: Create logout
+      tags: [ps-09-search]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/index:
+    post:
+      summary: Create index
+      tags: [ps-09-search]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/index/{collection}/{id}:
+    parameters:
+      - name: collection
+        in: path
+        required: true
+        schema: { type: string }
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      summary: Delete index by collection by id
+      tags: [ps-09-search]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/search:
+    get:
+      summary: Get search
+      tags: [ps-09-search]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+components:
+  securitySchemes:
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared machine secret, or a scoped PS-01 API key when IDENTITY_URL is set.
+    adminSession:
+      type: http
+      scheme: bearer
+      description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.

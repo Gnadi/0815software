@@ -1,0 +1,205 @@
+openapi: 3.1.0
+info:
+  title: PS-04 AI Platform API
+  version: '0.1.0'
+  description: >-
+    Chat, embeddings, prompt registry, RAG, agents, images, and speech over pluggable providers.
+    Request and response bodies are typed in
+    @0815software/platform-clients and frozen by this service’s
+    contract test; this document is the endpoint + auth surface.
+servers:
+  - url: http://localhost:4004
+    description: Local / per-customer deployment (behind Caddy in production)
+tags:
+  - name: ps-04-ai-platform
+paths:
+  /api/health:
+    get:
+      summary: Get health
+      tags: [ps-04-ai-platform]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/ready:
+    get:
+      summary: Get ready
+      tags: [ps-04-ai-platform]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/metrics:
+    get:
+      summary: Get metrics
+      tags: [ps-04-ai-platform]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/login:
+    post:
+      summary: Create login
+      tags: [ps-04-ai-platform]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/logout:
+    post:
+      summary: Create logout
+      tags: [ps-04-ai-platform]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/chat/completions:
+    post:
+      summary: Create chat completions
+      tags: [ps-04-ai-platform]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/embeddings:
+    post:
+      summary: Create embeddings
+      tags: [ps-04-ai-platform]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/prompts:
+    get:
+      summary: Get prompts
+      tags: [ps-04-ai-platform]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    post:
+      summary: Create prompts
+      tags: [ps-04-ai-platform]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/prompts/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get prompts by key
+      tags: [ps-04-ai-platform]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/prompts/{key}/versions:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create prompts by key versions
+      tags: [ps-04-ai-platform]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/prompts/{key}/active:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      summary: Set prompts by key active
+      tags: [ps-04-ai-platform]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/prompts/{key}/render:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create prompts by key render
+      tags: [ps-04-ai-platform]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/completions:
+    get:
+      summary: Get completions
+      tags: [ps-04-ai-platform]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/completions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get completions by id
+      tags: [ps-04-ai-platform]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/rag/documents:
+    post:
+      summary: Create rag documents
+      tags: [ps-04-ai-platform]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/rag/search:
+    post:
+      summary: Create rag search
+      tags: [ps-04-ai-platform]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/agents/run:
+    post:
+      summary: Create agents run
+      tags: [ps-04-ai-platform]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/images/generate:
+    post:
+      summary: Create images generate
+      tags: [ps-04-ai-platform]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/speech/transcribe:
+    post:
+      summary: Create speech transcribe
+      tags: [ps-04-ai-platform]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+components:
+  securitySchemes:
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared machine secret, or a scoped PS-01 API key when IDENTITY_URL is set.
+    adminSession:
+      type: http
+      scheme: bearer
+      description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.
