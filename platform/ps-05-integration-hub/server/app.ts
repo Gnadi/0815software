@@ -20,6 +20,7 @@ import { connectionEvent, createConnection, credentialsOf, mapConnection, type C
 import { encrypt } from './crypto.js';
 import { storeWebhookEvent, verifySignature } from './webhooks.js';
 import { defaultFetch, proxyGraphql, proxyRest, type FetchLike } from './proxy.js';
+import { withRetry } from './retry-fetch.js';
 import { createSyncJob, listSyncJobs, mapSyncJob, runSyncJobs } from './sync.js';
 import {
   beginAuthorize,
@@ -61,7 +62,7 @@ function rawBodyOf(req: Request): string {
 
 export function createApp(opts: AppOptions): express.Express {
   const { db, auth, encryptionKey, webhookSecret, now = Date.now } = opts;
-  const fetchImpl = opts.fetchImpl ?? defaultFetch;
+  const fetchImpl = opts.fetchImpl ?? withRetry(defaultFetch);
   const oauth: OAuthConfig = opts.oauth ?? {};
   const selfBaseUrl = opts.selfBaseUrl ?? 'http://localhost:4005';
 

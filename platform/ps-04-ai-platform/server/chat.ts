@@ -9,6 +9,7 @@ import { ollamaProvider } from './providers/ollama.js';
 import { kimiProvider } from './providers/kimi.js';
 import { mockProvider } from './providers/mock.js';
 import { defaultFetch, type ChatProvider, type FetchLike } from './providers/index.js';
+import { withRetry } from './retry-fetch.js';
 import { activeTemplate, renderMessages } from './prompts.js';
 
 export interface ChatConfig {
@@ -36,7 +37,7 @@ export function resolveChatProvider(
   requested: ProviderName | undefined,
   config: ChatConfig,
 ): { provider: ChatProvider; model: string } {
-  const fetchImpl = config.fetchImpl ?? defaultFetch;
+  const fetchImpl = config.fetchImpl ?? withRetry(defaultFetch);
   switch (requested) {
     case 'anthropic':
       if (config.anthropicApiKey) return { provider: anthropicProvider(config.anthropicApiKey, fetchImpl), model: config.anthropicModel };

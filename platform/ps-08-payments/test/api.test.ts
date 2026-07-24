@@ -4,7 +4,7 @@ import type { Express } from 'express';
 import Database from 'better-sqlite3';
 import { createApp, type AppOptions } from '../server/app.js';
 import { openDb } from '../server/db.js';
-import { expectedSignature } from '../server/webhooks.js';
+import { expectedSignature, stripeSignatureHeader } from '../server/webhooks.js';
 import type { AuthConfig } from '../server/auth.js';
 import type { FetchLike } from '../server/providers/index.js';
 
@@ -130,28 +130,57 @@ describe('refunds', () => {
   });
 });
 
-describe('inbound PSP webhooks', () => {
-  it('reconciles a succeeded webhook and rejects a bad signature', async () => {
-    const created = await createIntent({ confirm: true });
-    const publicId = created.body.public_id;
-    const payload = JSON.stringify({ type: 'payment.succeeded', intent: publicId });
+describe('inbound PSP webhooks (Stripe scheme)', () => {
+  const stripeHeader = (payload: string, t = Math.floor(clock / 1000)) =>
+    stripeSignatureHeader(webhookSecret, payload, t);
 
-    const bad = await request(app)
-      .post('/api/webhooks/stripe')
-      .set('x-signature', 'deadbeef')
-      .set('content-type', 'application/json')
-      .send(payload);
-    expect(bad.status).toBe(403);
+  it('reconciles a succeeded webhook signed with the Stripe scheme', async () => {
+    const created = await createIntent({ confirm: true });
+    const payload = JSON.stringify({ type: 'payment.succeeded', intent: created.body.public_id });
 
     const good = await request(app)
       .post('/api/webhooks/stripe')
-      .set('x-signature', expectedSignature(webhookSecret, payload))
+      .set('Stripe-Signature', stripeHeader(payload))
       .set('content-type', 'application/json')
       .send(payload);
     expect(good.status).toBe(202);
 
     const after = await request(app).get(`/api/intents/${created.body.id}`).set(svc);
     expect(after.body.status).toBe('succeeded'); // reconciled without a tick
+  });
+
+  it('rejects a missing, tampered, or stale Stripe signature', async () => {
+    const payload = JSON.stringify({ type: 'payment.succeeded', intent: 'pi_x' });
+
+    // No signature header at all.
+    expect((await request(app).post('/api/webhooks/stripe').set('content-type', 'application/json').send(payload)).status).toBe(403);
+
+    // Valid signature, but the body was tampered with after signing.
+    const sig = stripeHeader(payload);
+    const tampered = await request(app)
+      .post('/api/webhooks/stripe')
+      .set('Stripe-Signature', sig)
+      .set('content-type', 'application/json')
+      .send(JSON.stringify({ type: 'payment.succeeded', intent: 'pi_evil' }));
+    expect(tampered.status).toBe(403);
+
+    // Correctly signed, but the timestamp is outside the tolerance window.
+    const stale = await request(app)
+      .post('/api/webhooks/stripe')
+      .set('Stripe-Signature', stripeHeader(payload, Math.floor(clock / 1000) - 3600))
+      .set('content-type', 'application/json')
+      .send(payload);
+    expect(stale.status).toBe(403);
+  });
+
+  it('still accepts the generic X-Signature HMAC for the mock provider', async () => {
+    const payload = JSON.stringify({ type: 'payment.failed', intent: 'pi_mock' });
+    const res = await request(app)
+      .post('/api/webhooks/mock')
+      .set('x-signature', expectedSignature(webhookSecret, payload))
+      .set('content-type', 'application/json')
+      .send(payload);
+    expect(res.status).toBe(202);
   });
 });
 

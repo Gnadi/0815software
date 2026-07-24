@@ -1,7 +1,7 @@
 {
   "name": "@0815software/ps-08-payments",
   "version": "0.1.0",
-  "description": "PS-08 Payments — take and reconcile money: payment intents, refunds, an append-only ledger, and PSP webhooks. Deterministic mock PSP plus an optional Stripe adapter.",
+  "description": "PS-08 Payments \u2014 take and reconcile money: payment intents, refunds, an append-only ledger, and PSP webhooks. Deterministic mock PSP plus an optional Stripe adapter.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -10,8 +10,9 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server/server/index.js",
-    "test": "vitest run",
-    "backup": "node scripts/backup.mjs"
+    "test": "vitest run --exclude '**/live/**'",
+    "backup": "node scripts/backup.mjs",
+    "test:live": "vitest run test/live"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",

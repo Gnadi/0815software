@@ -6,6 +6,7 @@ import { teamsProvider } from './teams.js';
 import { discordProvider } from './discord.js';
 import { twilioSmsProvider, type TwilioConfig } from './twilio-sms.js';
 import { defaultFetch, type FetchLike, type ProviderResolver } from './index.js';
+import { withRetry } from '../retry-fetch.js';
 
 /**
  * Build the provider resolver from configuration. The key behaviour is
@@ -19,7 +20,7 @@ export function buildResolver(opts: {
   twilio?: TwilioConfig | null;
   fetchImpl?: FetchLike;
 }): ProviderResolver {
-  const fetchImpl = opts.fetchImpl ?? defaultFetch;
+  const fetchImpl = opts.fetchImpl ?? withRetry(defaultFetch);
   const hasUrl = (config: Record<string, unknown>): boolean =>
     typeof config.url === 'string' && config.url.length > 0;
 

@@ -1,7 +1,7 @@
 {
   "name": "@0815software/ps-05-integration-hub",
   "version": "0.1.0",
-  "description": "PS-05 Integration Hub — centralized third-party integrations: encrypted connections, a provider registry, a REST/GraphQL proxy, and inbound webhook verification.",
+  "description": "PS-05 Integration Hub \u2014 centralized third-party integrations: encrypted connections, a provider registry, a REST/GraphQL proxy, and inbound webhook verification.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -10,8 +10,9 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server/server/index.js",
-    "test": "vitest run",
-    "backup": "node scripts/backup.mjs"
+    "test": "vitest run --exclude '**/live/**'",
+    "backup": "node scripts/backup.mjs",
+    "test:live": "vitest run test/live"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",

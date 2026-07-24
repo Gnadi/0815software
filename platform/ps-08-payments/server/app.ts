@@ -35,7 +35,8 @@ import {
 import { mockProvider } from './providers/mock.js';
 import { stripeProvider } from './providers/stripe.js';
 import { defaultFetch, type FetchLike, type PaymentProvider } from './providers/index.js';
-import { storeWebhookEvent, verifySignature } from './webhooks.js';
+import { storeWebhookEvent, verifySignature, verifyStripeSignature } from './webhooks.js';
+import { withRetry } from './retry-fetch.js';
 
 export interface AppOptions {
   db: Database.Database;
@@ -65,7 +66,7 @@ function rawBodyOf(req: Request): string {
 
 export function createApp(opts: AppOptions): express.Express {
   const { db, auth, webhookSecret, now = Date.now } = opts;
-  const fetchImpl = opts.fetchImpl ?? defaultFetch;
+  const fetchImpl = opts.fetchImpl ?? withRetry(defaultFetch);
 
   // Provider selection: the real Stripe adapter only when a key is configured,
   // otherwise the deterministic offline mock. A caller may still create an
@@ -163,9 +164,14 @@ export function createApp(opts: AppOptions): express.Express {
   // Inbound PSP webhook — HMAC-verified, reconciled to the intent.
   app.post('/api/webhooks/:provider', (req, res) => {
     const provider = req.params.provider as string;
-    const provided = req.headers['x-signature'];
     const raw = rawBodyOf(req);
-    const valid = typeof provided === 'string' && verifySignature(webhookSecret, raw, provided);
+    // Stripe uses its real `Stripe-Signature: t=…,v1=…` scheme (signed over
+    // `${t}.${body}`, with a timestamp tolerance); other/mock providers use
+    // the generic `X-Signature` HMAC of the raw body.
+    const valid =
+      provider === 'stripe'
+        ? verifyStripeSignature(webhookSecret, raw, req.headers['stripe-signature'] as string | undefined, now())
+        : typeof req.headers['x-signature'] === 'string' && verifySignature(webhookSecret, raw, req.headers['x-signature']);
     const b = body(req);
     const eventType = typeof b.type === 'string' ? b.type : null;
     const intentPublicId = typeof b.intent === 'string' ? b.intent : null;

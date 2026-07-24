@@ -64,16 +64,22 @@ best-effort — the services have none.
 **Do:** TLS termination, per-IP/per-token rate limits, CORS allowlists, security
 headers, `Secure` cookies behind HTTPS, request-timeout/DoS guards.
 
-### A5. Real vendor adapters have never run against real vendors
-Every "real adapter when configured" path — Stripe (PS-08), Twilio/Slack/Teams/
-Discord (PS-03), OpenAI images/speech/embeddings and the five chat vendors
-(PS-04), Resend (PS-03), the OAuth providers (PS-01/PS-05), any S3 backend
-(PS-06) — is a single-`fetch` adapter **exercised only against mocks in CI**.
-They encode the happy path; none have met a real API's auth quirks, error
-shapes, pagination, rate limits, or webhook-signature formats.
-**Do:** live integration-test each adapter behind a flag; add provider-specific
-retry/error handling; verify real webhook signatures against real payloads
-(Stripe/GitHub/Shopify especially).
+### A5. Real vendor adapters have never run against real vendors — ⏳ SCAFFOLDED
+The realism gap is now closed in code, leaving only the user-supplied keys:
+- **Real webhook signatures.** PS-08 verifies Stripe's actual
+  `Stripe-Signature: t=…,v1=…` scheme (HMAC over `${t}.${body}` with a
+  timestamp-tolerance replay guard), fixture-tested offline; the generic HMAC
+  stays for the mock provider. PS-05 already verified real provider signatures.
+- **Provider-specific retry.** A copy-in `retry-fetch.ts` (`withRetry`) wraps
+  the production default fetch in PS-03/04/05/08 — retries 429/5xx with
+  exponential backoff, honoring a numeric `Retry-After` — and is unit-tested
+  deterministically. Injected test fetches are never wrapped, so unit tests
+  stay exact.
+- **Gated live suites.** `test/live/*` per adapter (Stripe, Resend, Twilio,
+  OpenAI, Anthropic, GitHub) are excluded from the default `vitest run` and run
+  via `npm run test:live`; each skips unless its `LIVE_*` key env is set.
+**Remaining (user action):** supply the vendor keys and run `test:live` to
+validate against production — the one step that cannot be done from the repo.
 
 ### A6. Persistence is single-file SQLite with no migrations, backups, or HA
 Each service is one SQLite file. Schema evolution is `CREATE TABLE IF NOT
