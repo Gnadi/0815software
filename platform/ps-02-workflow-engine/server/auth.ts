@@ -9,6 +9,39 @@ export interface AuthConfig {
   secureCookie: boolean;
   /** Shared secret for event ingestion and the inbound hook receiver. */
   serviceToken: string;
+  /**
+   * Identity seam: when set, a Bearer token that is not this service's own
+   * admin token is verified against PS-01 (`POST {identityUrl}/api/tokens/verify`)
+   * so PS-01-issued end-user sessions are accepted. Left unset in standalone
+   * mode, where only the local admin token is trusted.
+   */
+  identityUrl?: string;
+}
+
+/** Minimal fetch surface for the identity-seam verification call. */
+export type SeamFetch = (
+  url: string,
+  init?: { method?: string; headers?: Record<string, string>; body?: string },
+) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+
+/** Verify a token against PS-01's cross-service contract. Never throws. */
+export async function verifyIdentityToken(
+  identityUrl: string,
+  token: string,
+  doFetch: SeamFetch,
+): Promise<boolean> {
+  try {
+    const res = await doFetch(`${identityUrl.replace(/\/+$/, '')}/api/tokens/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    if (!res.ok) return false;
+    const verdict = (await res.json()) as { valid?: boolean };
+    return verdict.valid === true;
+  } catch {
+    return false;
+  }
 }
 
 export const COOKIE_NAME = 'ps02_session';
@@ -96,12 +129,27 @@ export function clearedCookie(): string {
   return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
-/** Admin gate: a valid session cookie or `Authorization: Bearer <token>`. */
-export function requireAuth(config: AuthConfig) {
+/**
+ * Admin gate: a valid session cookie or `Authorization: Bearer <token>`.
+ *
+ * When the identity seam is configured, a token that is not the local admin
+ * token is verified against PS-01 so PS-01-issued end-user sessions pass too.
+ */
+export function requireAuth(config: AuthConfig, seam?: { fetch?: SeamFetch }) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const token = parseBearer(req.headers.authorization) ?? parseCookies(req.headers.cookie)[COOKIE_NAME];
     if (token && verifyToken(config, token)) {
       next();
+      return;
+    }
+    if (token && config.identityUrl) {
+      const doFetch = seam?.fetch ?? (globalThis.fetch as unknown as SeamFetch);
+      void verifyIdentityToken(config.identityUrl, token, doFetch)
+        .then((ok) => {
+          if (ok) next();
+          else res.status(401).json({ error: 'Authentication required' });
+        })
+        .catch(() => res.status(401).json({ error: 'Authentication required' }));
       return;
     }
     res.status(401).json({ error: 'Authentication required' });

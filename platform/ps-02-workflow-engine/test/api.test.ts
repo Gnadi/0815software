@@ -197,3 +197,130 @@ describe('webhook delivery: backoff & dead-letter', () => {
     expect((await delivery()).status).toBe('delivered');
   });
 });
+
+describe('webhook & manual triggers', () => {
+  it('fires a webhook trigger from the inbound hook receiver', async () => {
+    const token = await adminToken();
+    await request(app).post('/api/workflows').set(as(token)).send({ key: 'wh', name: 'WH', definition: SIMPLE });
+    await request(app)
+      .post('/api/triggers')
+      .set(as(token))
+      .send({ workflow_key: 'wh', type: 'webhook', config: { event: 'inbound.ping' } })
+      .expect(201);
+
+    // A plain /api/events post must NOT fire a webhook-type trigger.
+    const viaEvents = await request(app)
+      .post('/api/events')
+      .set('X-Service-Token', 'test-service')
+      .send({ type: 'inbound.ping' });
+    expect(viaEvents.body.matched).toBe(0);
+
+    // The inbound hook receiver fires it.
+    const viaHook = await request(app)
+      .post('/api/hooks/test-service')
+      .send({ type: 'inbound.ping', payload: { ref: 'R-1' } });
+    expect(viaHook.status).toBe(202);
+    expect(viaHook.body.matched).toBe(1);
+  });
+
+  it('fires a manual trigger on demand and rejects non-manual triggers', async () => {
+    const token = await adminToken();
+    await request(app).post('/api/workflows').set(as(token)).send({ key: 'man', name: 'Man', definition: SIMPLE });
+    const manual = await request(app)
+      .post('/api/triggers')
+      .set(as(token))
+      .send({ workflow_key: 'man', type: 'manual', config: {} });
+    const eventTrig = await request(app)
+      .post('/api/triggers')
+      .set(as(token))
+      .send({ workflow_key: 'man', type: 'event', config: { event: 'x' } });
+
+    const fired = await request(app)
+      .post(`/api/triggers/${manual.body.trigger_id}/fire`)
+      .set(as(token))
+      .send({ input: { by: 'ops' } });
+    expect(fired.status).toBe(201);
+    expect(fired.body.instance.current_step).toBe('a');
+
+    const rejected = await request(app).post(`/api/triggers/${eventTrig.body.trigger_id}/fire`).set(as(token)).send({});
+    expect(rejected.status).toBe(422);
+  });
+
+  it('toggles a trigger via PATCH', async () => {
+    const token = await adminToken();
+    await request(app).post('/api/workflows').set(as(token)).send({ key: 'pt', name: 'PT', definition: SIMPLE });
+    const trig = await request(app)
+      .post('/api/triggers')
+      .set(as(token))
+      .send({ workflow_key: 'pt', type: 'event', config: { event: 'e' } });
+    await request(app).patch(`/api/triggers/${trig.body.trigger_id}`).set(as(token)).send({ enabled: false }).expect(200);
+    const list = await request(app).get('/api/triggers').set(as(token));
+    const found = list.body.triggers.find((t: { id: number }) => t.id === trig.body.trigger_id);
+    expect(found.enabled).toBe(false);
+  });
+});
+
+describe('workflow versions & delivery filtering', () => {
+  it('appends a new workflow version', async () => {
+    const token = await adminToken();
+    await request(app).post('/api/workflows').set(as(token)).send({ key: 'v', name: 'V', definition: SIMPLE });
+    const v2 = await request(app)
+      .post('/api/workflows/v/versions')
+      .set(as(token))
+      .send({ definition: { ...SIMPLE, steps: ['a', 'b', 'c', 'd'], transitions: { a: ['b'], b: ['c'], c: ['d'] } } });
+    expect(v2.status).toBe(201);
+    expect(v2.body.workflow.version).toBe(2);
+  });
+
+  it('filters deliveries by status', async () => {
+    const token = await adminToken();
+    await request(app).post('/api/webhooks').set(as(token)).send({ event_type: 'thing.happened', url: 'https://x.test/hook' });
+    await request(app).post('/api/events').set('X-Service-Token', 'test-service').send({ type: 'thing.happened' });
+    const pending = await request(app).get('/api/deliveries?status=pending').set(as(token));
+    expect(pending.status).toBe(200);
+    expect(pending.body.deliveries.length).toBe(1);
+    expect(pending.body.deliveries.every((d: { status: string }) => d.status === 'pending')).toBe(true);
+  });
+
+  it('signs outbound deliveries with an X-Signature header', async () => {
+    const headersSeen: Record<string, string>[] = [];
+    const capturing = createApp({
+      db,
+      auth,
+      now: () => clock,
+      fetchImpl: async (_url, init) => {
+        headersSeen.push((init?.headers ?? {}) as Record<string, string>);
+        return { ok: true, status: 200 };
+      },
+    });
+    const token = await adminToken();
+    await request(capturing).post('/api/webhooks').set(as(token)).send({ event_type: 'sig.test', url: 'https://x.test/h' });
+    await request(capturing).post('/api/events').set('X-Service-Token', 'test-service').send({ type: 'sig.test' });
+    await request(capturing).post('/api/tick').set(as(token));
+    expect(headersSeen.length).toBe(1);
+    expect(Object.keys(headersSeen[0]!)).toContain('X-Signature');
+  });
+});
+
+describe('identity seam', () => {
+  it('accepts a PS-01-verified token when IDENTITY_URL is configured', async () => {
+    const verifyCalls: string[] = [];
+    const identityFetch = async (url: string, init?: { body?: string }) => {
+      verifyCalls.push(url);
+      const token = init?.body ? (JSON.parse(init.body).token as string) : '';
+      return { ok: true, status: 200, json: async () => ({ valid: token === 'ps01-good' }) };
+    };
+    const seamApp = createApp({
+      db,
+      auth: { ...auth, identityUrl: 'http://identity.test' },
+      now: () => clock,
+      fetchImpl: mockFetch,
+      identityFetch,
+    });
+    // A PS-01 session token (not this service's admin token) is accepted…
+    expect((await request(seamApp).get('/api/workflows').set(as('ps01-good'))).status).toBe(200);
+    // …and an invalid one is rejected.
+    expect((await request(seamApp).get('/api/workflows').set(as('ps01-bad'))).status).toBe(401);
+    expect(verifyCalls[0]).toContain('/api/tokens/verify');
+  });
+});

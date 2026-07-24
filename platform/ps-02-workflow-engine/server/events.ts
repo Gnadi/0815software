@@ -131,19 +131,29 @@ interface TriggerRow {
 }
 
 /**
- * Ingest an external event: start an instance for every enabled `event`
- * trigger whose configured event name matches, and enqueue a delivery for
- * every webhook subscribed to that event type.
+ * Ingest an external event: start an instance for every enabled trigger whose
+ * type is in `matchTypes` and whose configured event name matches, and enqueue
+ * a delivery for every webhook subscribed to that event type. `/api/events`
+ * matches `event` triggers; the inbound hook receiver additionally matches
+ * `webhook` triggers.
  */
 export function ingestEvent(
   db: Database.Database,
-  opts: { type: string; payload?: Record<string, unknown>; idempotencyKey?: string | null; now?: number },
+  opts: {
+    type: string;
+    payload?: Record<string, unknown>;
+    idempotencyKey?: string | null;
+    matchTypes?: readonly ('event' | 'webhook')[];
+    now?: number;
+  },
 ): IngestResult {
   const now = opts.now ?? Date.now();
   const payload = opts.payload ?? {};
+  const matchTypes = opts.matchTypes ?? ['event'];
+  const placeholders = matchTypes.map(() => '?').join(', ');
   const triggers = db
-    .prepare(`SELECT * FROM triggers WHERE type = 'event' AND enabled = 1`)
-    .all() as TriggerRow[];
+    .prepare(`SELECT * FROM triggers WHERE type IN (${placeholders}) AND enabled = 1`)
+    .all(...matchTypes) as TriggerRow[];
 
   const instanceIds: number[] = [];
   for (const trigger of triggers) {

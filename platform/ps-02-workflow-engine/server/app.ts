@@ -12,6 +12,7 @@ import {
   sessionCookie,
   requireAuth,
   type AuthConfig,
+  type SeamFetch,
 } from './auth.js';
 import { DomainError, fail, reqText } from './errors.js';
 import {
@@ -36,6 +37,8 @@ export interface AppOptions {
   auth: AuthConfig;
   now?: () => number;
   fetchImpl?: FetchLike;
+  /** Injectable fetch for the identity-seam verification call (tests). */
+  identityFetch?: SeamFetch;
 }
 
 function idParam(req: Request, name = 'id'): number | null {
@@ -47,7 +50,7 @@ function body(req: Request): Record<string, unknown> {
   return (req.body ?? {}) as Record<string, unknown>;
 }
 
-export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch }: AppOptions): express.Express {
+export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch, identityFetch }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
 
@@ -112,17 +115,18 @@ export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch }
     res.json(ingestEvent(db, { type, payload, idempotencyKey, now: now() }));
   });
 
-  // Inbound webhook receiver — shared secret in the path.
+  // Inbound webhook receiver — shared secret in the path. Fires both `event`
+  // and `webhook` triggers whose configured event name matches.
   app.post('/api/hooks/:token', (req, res) => {
     if (checkServiceToken(auth, req.params.token) !== 'ok') fail(403, 'Invalid hook token');
     const b = body(req);
     const type = reqText(b, 'type', 120);
     const payload = (b.payload ?? {}) as Record<string, unknown>;
-    res.status(202).json(ingestEvent(db, { type, payload, now: now() }));
+    res.status(202).json(ingestEvent(db, { type, payload, matchTypes: ['event', 'webhook'], now: now() }));
   });
 
   // ── Admin gate ─────────────────────────────────────────────────────
-  app.use('/api', requireAuth(auth));
+  app.use('/api', requireAuth(auth, { fetch: identityFetch }));
 
   // ── Workflows ──────────────────────────────────────────────────────
   app.get('/api/workflows', (_req, res) => {
@@ -237,6 +241,24 @@ export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch }
       db.prepare('UPDATE triggers SET config = ? WHERE id = ?').run(JSON.stringify(b.config), id);
     }
     res.json({ ok: true });
+  });
+
+  // Fire a manual trigger on demand: starts its workflow with the given input.
+  app.post('/api/triggers/:id/fire', (req, res) => {
+    const id = idParam(req);
+    const row = id
+      ? (db.prepare('SELECT * FROM triggers WHERE id = ?').get(id) as
+          | { id: number; workflow_key: string; type: string; enabled: number }
+          | undefined)
+      : undefined;
+    if (!row) fail(404, 'Trigger not found');
+    if (row.type !== 'manual') fail(422, 'Only manual triggers can be fired directly');
+    if (row.enabled !== 1) fail(422, 'Trigger is disabled');
+    const b = body(req);
+    const input = (b.input ?? {}) as Record<string, unknown>;
+    const idempotencyKey = typeof b.idempotency_key === 'string' ? b.idempotency_key : null;
+    const started = startInstance(db, { key: row.workflow_key, input, idempotencyKey, triggerId: row.id, now: now() });
+    res.status(started.created ? 201 : 200).json({ instance: detail(started.instance) });
   });
 
   // ── Instances ──────────────────────────────────────────────────────
