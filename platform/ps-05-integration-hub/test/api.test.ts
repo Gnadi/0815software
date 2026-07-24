@@ -256,3 +256,30 @@ describe('identity seam', () => {
     expect((await request(seamApp).get('/api/connections').set(as('ps01-bad'))).status).toBe(401);
   });
 });
+
+describe('schema migrations', () => {
+  it('adds sync_jobs.records to a legacy database', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'ps05-mig-'));
+    const path = join(dir, 'legacy.db');
+    try {
+      const legacy = new Database(path);
+      legacy.exec(`
+        CREATE TABLE sync_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, connection_id INTEGER NOT NULL,
+          kind TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', cursor TEXT,
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE schema_migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL);
+        INSERT INTO schema_migrations VALUES (1, 'baseline', '2026-01-01T00:00:00Z');
+      `);
+      legacy.close();
+      const upgraded = openDb(path);
+      const cols = (upgraded.prepare("PRAGMA table_info('sync_jobs')").all() as { name: string }[]).map((c) => c.name);
+      expect(cols).toContain('records'); // migration 2 applied
+      upgraded.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

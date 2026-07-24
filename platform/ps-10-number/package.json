@@ -10,7 +10,8 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server/server/index.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "backup": "node scripts/backup.mjs"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",

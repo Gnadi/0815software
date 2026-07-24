@@ -94,4 +94,14 @@ do not need to share PS-01's token format, only its `tokens/verify` endpoint.
 Leaving `IDENTITY_URL` unset keeps a service fully standalone.
 
 Machine-to-machine calls (module → service) continue to use each service's
-`SERVICE_TOKEN`; the seam is specifically for propagating end-user identity.
+`SERVICE_TOKEN` — or a PS-01-issued, scoped API key (`psk_…`) verified through
+the same seam. A PS-01 principal needs the `platform:admin` permission to act
+through the seam.
+
+## Tenancy
+
+Isolation is at the deployment boundary: **one platform stack per customer**
+(own processes, databases, secrets). See
+[`docs/DEPLOYMENT-MODEL.md`](../docs/DEPLOYMENT-MODEL.md). Services therefore
+carry no cross-customer tenant scoping; PS-01's orgs and PS-09's `tenant`
+column partition data *within* a customer's stack.

@@ -380,3 +380,43 @@ describe('scoped API keys & extended verify', () => {
     expect(afterRevoke.body.valid).toBe(false); // revocation works end to end
   });
 });
+
+describe('schema migrations', () => {
+  it('upgrades a legacy (pre-runner) database and is idempotent', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'ps01-mig-'));
+    const path = join(dir, 'legacy.db');
+    try {
+      // A v1-shaped database: baseline applied, but before the org_slug and
+      // scopes columns existed.
+      const legacy = new Database(path);
+      legacy.exec(`
+        CREATE TABLE oauth_states (id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL,
+          state TEXT NOT NULL UNIQUE, redirect_uri TEXT, created_at TEXT NOT NULL);
+        CREATE TABLE api_keys (id INTEGER PRIMARY KEY AUTOINCREMENT, org_id INTEGER NOT NULL,
+          name TEXT NOT NULL, prefix TEXT NOT NULL UNIQUE, key_hash TEXT NOT NULL,
+          created_by INTEGER, created_at TEXT NOT NULL, last_used_at TEXT, revoked_at TEXT);
+        CREATE TABLE schema_migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL);
+        INSERT INTO schema_migrations VALUES (1, 'baseline', '2026-01-01T00:00:00Z');
+      `);
+      legacy.close();
+
+      const upgraded = openDb(path);
+      const oauthCols = (upgraded.prepare("PRAGMA table_info('oauth_states')").all() as { name: string }[]).map((c) => c.name);
+      const keyCols = (upgraded.prepare("PRAGMA table_info('api_keys')").all() as { name: string }[]).map((c) => c.name);
+      expect(oauthCols).toContain('org_slug'); // migration 2 applied
+      expect(keyCols).toContain('scopes'); // migration 3 applied
+      expect((upgraded.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(3);
+      upgraded.close();
+
+      // Re-opening applies nothing further.
+      const again = openDb(path);
+      expect((again.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(3);
+      again.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
