@@ -1,0 +1,109 @@
+import { describe, expect, it } from 'vitest';
+import type { FetchLike } from '../src/http.js';
+import {
+  AiClient,
+  AuditClient,
+  FilesClient,
+  IdentityClient,
+  IntegrationClient,
+  NotificationClient,
+  ServiceError,
+  WorkflowClient,
+} from '../src/index.js';
+
+interface Captured {
+  url: string;
+  method?: string;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
+/** Build an injected fetch that records the call and returns a canned JSON body. */
+function recorder(response: unknown, status = 200): { fetch: FetchLike; calls: Captured[] } {
+  const calls: Captured[] = [];
+  const fetch: FetchLike = async (url, init) => {
+    calls.push({ url, method: init?.method, headers: init?.headers, body: init?.body });
+    const raw = JSON.stringify(response);
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      text: async () => raw,
+    };
+  };
+  return { fetch, calls };
+}
+
+describe('BaseClient transport', () => {
+  it('presents X-Service-Token and forwards an identity token', async () => {
+    const { fetch, calls } = recorder({ accepted: true, started: 0 });
+    const client = new WorkflowClient({
+      baseUrl: 'http://wf:4002/',
+      serviceToken: 'svc-secret',
+      identityToken: 'ps01-session',
+      fetch,
+    });
+    await client.emit({ type: 'ticket.created', payload: { ref: 'T-1' } });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe('http://wf:4002/api/events'); // trailing slash trimmed
+    expect(calls[0]!.method).toBe('POST');
+    expect(calls[0]!.headers!['X-Service-Token']).toBe('svc-secret');
+    expect(calls[0]!.headers!['Authorization']).toBe('Bearer ps01-session');
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ type: 'ticket.created', payload: { ref: 'T-1' } });
+  });
+
+  it('omits auth headers when not configured', async () => {
+    const { fetch, calls } = recorder({ valid: true });
+    const client = new IdentityClient({ baseUrl: 'http://id:4001', fetch });
+    await client.verify('tok');
+    expect(calls[0]!.headers!['X-Service-Token']).toBeUndefined();
+    expect(calls[0]!.headers!['Authorization']).toBeUndefined();
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ token: 'tok' });
+  });
+
+  it('raises ServiceError with the parsed error message on non-2xx', async () => {
+    const { fetch } = recorder({ error: 'nope' }, 422);
+    const client = new NotificationClient({ baseUrl: 'http://n', serviceToken: 's', fetch });
+    await expect(client.send({ channel: 'email', to: 'a@b.c', body: 'x' })).rejects.toMatchObject({
+      name: 'ServiceError',
+      status: 422,
+      message: 'nope',
+    });
+    expect(new ServiceError(500, 'm', {})).toBeInstanceOf(Error);
+  });
+});
+
+describe('per-service client shapes', () => {
+  it('AiClient.runAgent posts to /api/agents/run', async () => {
+    const { fetch, calls } = recorder({ id: 'a1', output: 'done', steps: 2 });
+    const client = new AiClient({ baseUrl: 'http://ai', serviceToken: 's', fetch });
+    const out = await client.runAgent({ goal: 'summarize' });
+    expect(calls[0]!.url).toBe('http://ai/api/agents/run');
+    expect(out.output).toBe('done');
+  });
+
+  it('FilesClient.put base64-encodes bytes and PUTs to the object path', async () => {
+    const { fetch, calls } = recorder({ bucket: 'b', key: 'k', size: 3 });
+    const client = new FilesClient({ baseUrl: 'http://files', serviceToken: 's', fetch });
+    await client.put('b', 'k', new Uint8Array([1, 2, 3]), { content_type: 'application/pdf' });
+    expect(calls[0]!.method).toBe('PUT');
+    expect(calls[0]!.url).toBe('http://files/api/objects/b/k');
+    const body = JSON.parse(calls[0]!.body!);
+    expect(body.content_base64).toBe(Buffer.from([1, 2, 3]).toString('base64'));
+    expect(body.content_type).toBe('application/pdf');
+  });
+
+  it('AuditClient.list builds a query string from the filter', async () => {
+    const { fetch, calls } = recorder({ events: [] });
+    const client = new AuditClient({ baseUrl: 'http://audit', serviceToken: 's', fetch });
+    await client.list({ actor: 'u1', limit: 10 });
+    expect(calls[0]!.url).toBe('http://audit/api/events?actor=u1&limit=10');
+  });
+
+  it('IntegrationClient.proxy targets the connection proxy route', async () => {
+    const { fetch, calls } = recorder({ status: 200, body: {} });
+    const client = new IntegrationClient({ baseUrl: 'http://int', serviceToken: 's', fetch });
+    await client.proxy(7, { path: '/v1/charges' });
+    expect(calls[0]!.url).toBe('http://int/api/connections/7/proxy');
+  });
+});
