@@ -16,7 +16,7 @@ import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import { MIGRATIONS } from './db.js';
 import { pendingCount } from './migrations.js';
 import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
-import { findByIdempotencyKey, listEvents, recordEvent, verifyChain } from './audit.js';
+import { findByIdempotencyKey, listEvents, pruneForRetention, recordEvent, verifyChain } from './audit.js';
 
 export interface AppOptions {
   db: Database.Database;
@@ -28,6 +28,8 @@ export interface AppOptions {
   hardening?: HardeningConfig;
   /** Emit one JSON log line per request (default false; index.ts passes true). */
   logRequests?: boolean;
+  /** Days to keep events when POST /api/rotate runs; 0 keeps forever. */
+  retentionDays?: number;
 }
 
 function body(req: Request): Record<string, unknown> {
@@ -35,7 +37,7 @@ function body(req: Request): Record<string, unknown> {
 }
 
 export function createApp(opts: AppOptions): express.Express {
-  const { db, auth, now = Date.now } = opts;
+  const { db, auth, now = Date.now, retentionDays = 0 } = opts;
   const app = express();
   if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
   app.use(requestTelemetry({ service: 'ps-07', log: opts.logRequests === true }));
@@ -141,6 +143,14 @@ export function createApp(opts: AppOptions): express.Express {
 
   app.get('/api/verify', (_req, res) => {
     res.json(verifyChain(db));
+  });
+
+  // Retention: prune events older than the configured window (body may
+  // override), advancing the chain anchor so verification still holds.
+  app.post('/api/rotate', (req, res) => {
+    const override = Number(body(req).retention_days);
+    const days = Number.isFinite(override) && override > 0 ? override : retentionDays;
+    res.json(pruneForRetention(db, days, now()));
   });
 
   // ── Terminal error middleware ──────────────────────────────────────

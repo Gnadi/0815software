@@ -117,6 +117,38 @@ export const MIGRATIONS: Migration[] = [
       if (!cols.some((c) => c.name === 'scopes')) db.exec("ALTER TABLE api_keys ADD COLUMN scopes TEXT NOT NULL DEFAULT ''");
     },
   },
+  {
+    id: 4,
+    name: 'auth_events-user_erased-type',
+    up(db) {
+      // SQLite can't alter a CHECK in place — rebuild the table with the
+      // widened type set (adds 'user_erased' for the GDPR erasure hook).
+      const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='auth_events'").get();
+      db.exec(`
+      CREATE TABLE auth_events_new (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        org_id     INTEGER,
+        user_id    INTEGER,
+        type       TEXT    NOT NULL
+                   CHECK (type IN ('login_ok', 'login_fail', 'logout', 'token_issued',
+                                   'apikey_created', 'apikey_revoked', 'password_changed',
+                                   'user_erased')),
+        ip         TEXT,
+        meta       TEXT    NOT NULL DEFAULT '{}',
+        created_at TEXT    NOT NULL
+      );`);
+      if (exists) {
+        db.exec(`
+        INSERT INTO auth_events_new (id, org_id, user_id, type, ip, meta, created_at)
+          SELECT id, org_id, user_id, type, ip, meta, created_at FROM auth_events;
+        DROP TABLE auth_events;`);
+      }
+      db.exec(`
+      ALTER TABLE auth_events_new RENAME TO auth_events;
+      CREATE INDEX IF NOT EXISTS idx_auth_events_org ON auth_events(org_id, created_at, id);
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

@@ -4,6 +4,8 @@ export interface ServerConfig {
   port: number;
   databasePath: string;
   auth: AuthConfig;
+  /** Days to keep audit events; 0 disables retention (keep forever). */
+  retentionDays: number;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -19,5 +21,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       serviceToken: env.SERVICE_TOKEN ?? 'dev-service-token',
       identityUrl: env.IDENTITY_URL || undefined,
     },
+    retentionDays: Number(env.RETENTION_DAYS) || 0,
   };
 }

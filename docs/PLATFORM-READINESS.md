@@ -190,13 +190,23 @@ See `docs/PLATFORM-SERVICE-OPPORTUNITIES.md` for the ranked list.
 
 ## D. Compliance & governance (DACH customers)
 
-### D1. GDPR data handling
-No data-retention or erasure ("right to be forgotten") endpoints, no PII
-inventory, and encryption-at-rest exists only for PS-05 credentials. The audit
-log is append-only (good for integrity) but has **no retention/rotation
-policy** — which itself can conflict with erasure obligations.
-**Do:** data-retention policies per service, erasure/export endpoints, a PII
-map, and encryption-at-rest where customer data lives.
+### D1. GDPR data handling — ✅ MOSTLY CLOSED
+- **Erasure.** PS-01 `POST /api/users/:id/erase` anonymizes a user's PII in
+  place (email/name), scrambles the password, bumps `token_version` to kill
+  live sessions, disables the account, and records a `user_erased` audit
+  event — keeping the row+id for referential integrity.
+- **Retention with integrity.** PS-07 `POST /api/rotate` + `RETENTION_DAYS`
+  prune audit events older than the window while advancing the hash-chain
+  anchor, so `/api/verify` still validates over the survivors. PS-03
+  `RETENTION_DAYS` prunes terminal (sent/dead) messages on tick — their bodies
+  carry recipient PII.
+- **PII inventory.** [`docs/PII-MAP.md`](./PII-MAP.md) maps where personal data
+  lives per service/module and the retention/erasure lever for each.
+- Encryption-at-rest still covers PS-05 credentials specifically; full
+  disk/volume encryption is a deployment concern (per-customer stack).
+**Remaining:** export ("data portability") endpoints and automated
+cross-service erasure orchestration — today erasure is operator/module-driven,
+guided by the PII map.
 
 ### D2. Invoice/legal specifics
 PS-10 delivers gapless numbering (a real DACH requirement — good). Still open:

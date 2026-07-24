@@ -45,6 +45,20 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 3,
+    name: 'audit_meta',
+    up(db) {
+      // Small key/value store; holds the retention anchor (the hash of the
+      // most recently pruned event) so verification continues past a prune.
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS audit_meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

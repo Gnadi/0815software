@@ -11,6 +11,8 @@ export interface ServerConfig {
   twilio: TwilioConfig | null;
   /** When > 0, run the delivery queue on an internal timer (ms). */
   tickIntervalMs: number;
+  /** Days to keep terminal (sent/dead) messages; pruned on tick. 0 = keep. */
+  retentionDays: number;
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -33,5 +35,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     resendApiKey: env.RESEND_API_KEY ?? null,
     twilio,
     tickIntervalMs: Number(env.TICK_INTERVAL_MS) || 0,
+    retentionDays: Number(env.RETENTION_DAYS) || 0,
   };
 }

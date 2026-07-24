@@ -15,7 +15,7 @@ const db = openDb(config.databasePath);
 
 seed(db);
 
-const app = createApp({ db, auth: config.auth, hardening: hardeningFromEnv(), logRequests: true });
+const app = createApp({ db, auth: config.auth, hardening: hardeningFromEnv(), logRequests: true, retentionDays: config.retentionDays });
 
 app.listen(config.port, () => {
   console.log(`[ps-07] audit log API on http://localhost:${config.port}`);

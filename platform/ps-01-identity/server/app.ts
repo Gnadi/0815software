@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import type Database from 'better-sqlite3';
 import { PERMISSIONS, type Permission } from '../shared/types.js';
@@ -436,6 +437,24 @@ export function createApp({
     );
     logEvent('password_changed', user.org_id, user.id, req);
     res.json({ ok: true });
+  });
+
+  // GDPR erasure hook: anonymize the user's PII in place while keeping the row
+  // and id (so downstream audit trails and records stay referentially intact),
+  // scramble the password, bump token_version to kill any live sessions, and
+  // disable the account so it can never log in again.
+  app.post('/api/users/:id/erase', (req, res) => {
+    require(res, 'user:write');
+    const id = idParam(req);
+    const user = requireUserInOrg(res, id);
+    db.prepare(
+      `UPDATE users
+         SET email = ?, name = 'Erased User', password_hash = ?,
+             token_version = token_version + 1, status = 'disabled'
+       WHERE id = ?`,
+    ).run(`erased+${user.id}@invalid.example`, hashPassword(randomBytes(24).toString('hex')), user.id);
+    logEvent('user_erased', user.org_id, user.id, req);
+    res.json({ erased: true, user: mapUser(userById.get(user.id) as UserRow) });
   });
 
   // ── Roles & permissions ────────────────────────────────────────────

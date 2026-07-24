@@ -33,6 +33,8 @@ export interface AppOptions {
   resendApiKey?: string | null;
   twilio?: TwilioConfig | null;
   fetchImpl?: FetchLike;
+  /** Days to keep terminal (sent/dead) messages; pruned on tick. 0 = keep. */
+  retentionDays?: number;
   /** Injectable fetch for the identity-seam verification call (tests). */
   identityFetch?: SeamFetch;
   /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
@@ -270,7 +272,7 @@ export function createApp(opts: AppOptions): express.Express {
   });
 
   app.post('/api/tick', async (_req, res) => {
-    res.json(await tick(db, resolve, now()));
+    res.json(await tick(db, resolve, now(), opts.retentionDays ?? 0));
   });
 
   // ── Terminal error middleware ──────────────────────────────────────

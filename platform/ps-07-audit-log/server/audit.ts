@@ -156,10 +156,49 @@ export function listEvents(db: Database.Database, filter: ListFilter = {}): Audi
   return rows.map(mapEvent);
 }
 
-/** Recompute the whole chain and report the first broken link, if any. */
+const ANCHOR_KEY = 'retention_anchor';
+
+/** The hash the live chain continues from — the last pruned event's hash, or
+ *  null when nothing has been pruned. Lets verification survive retention. */
+export function getAnchor(db: Database.Database): string | null {
+  const row = db.prepare('SELECT value FROM audit_meta WHERE key = ?').get(ANCHOR_KEY) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+function setAnchor(db: Database.Database, hash: string): void {
+  db.prepare('INSERT INTO audit_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(ANCHOR_KEY, hash);
+}
+
+export interface PruneResult {
+  pruned: number;
+  /** The anchor the live chain now verifies from (unchanged if nothing pruned). */
+  anchor: string | null;
+}
+
+/**
+ * Retention with integrity: delete events older than `retentionDays` (a
+ * chronological prefix of the chain) and advance the anchor to the hash of the
+ * last pruned event, so `verifyChain` still validates the surviving events.
+ */
+export function pruneForRetention(db: Database.Database, retentionDays: number, now = Date.now()): PruneResult {
+  if (!retentionDays || retentionDays <= 0) return { pruned: 0, anchor: getAnchor(db) };
+  const cutoff = nowIso(now - retentionDays * 86_400_000);
+  const lastPruned = db
+    .prepare('SELECT hash FROM audit_events WHERE recorded_at < ? ORDER BY id DESC LIMIT 1')
+    .get(cutoff) as { hash: string } | undefined;
+  if (!lastPruned) return { pruned: 0, anchor: getAnchor(db) };
+  return db.transaction((): PruneResult => {
+    const info = db.prepare('DELETE FROM audit_events WHERE recorded_at < ?').run(cutoff);
+    setAnchor(db, lastPruned.hash);
+    return { pruned: info.changes, anchor: lastPruned.hash };
+  })();
+}
+
+/** Recompute the live chain and report the first broken link, if any.
+ *  Starts from the retention anchor so pruning never breaks verification. */
 export function verifyChain(db: Database.Database): ChainVerdict {
   const rows = db.prepare('SELECT * FROM audit_events ORDER BY id').all() as EventRow[];
-  let prevHash: string | null = null;
+  let prevHash: string | null = getAnchor(db);
   for (const row of rows) {
     const expected = computeHash(
       {
