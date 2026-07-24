@@ -13,6 +13,8 @@ const app = createApp({
   auth: config.auth,
   encryptionKey: config.encryptionKey,
   webhookSecret: config.webhookSecret,
+  oauth: config.oauth,
+  selfBaseUrl: config.selfBaseUrl,
 });
 
 app.listen(config.port, () => {

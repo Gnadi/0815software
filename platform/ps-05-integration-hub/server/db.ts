@@ -50,14 +50,29 @@ export function openDb(path: string): Database.Database {
       status        TEXT    NOT NULL DEFAULT 'pending'
                     CHECK (status IN ('pending','running','done','failed')),
       cursor        TEXT,
+      records       INTEGER NOT NULL DEFAULT 0,
       created_at    TEXT    NOT NULL,
       updated_at    TEXT    NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS oauth_states (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider   TEXT    NOT NULL,
+      state      TEXT    NOT NULL UNIQUE,
+      name       TEXT,
+      created_at TEXT    NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_connections_provider ON connections(provider);
     CREATE INDEX IF NOT EXISTS idx_conn_events          ON connection_events(connection_id, created_at, id);
     CREATE INDEX IF NOT EXISTS idx_webhook_events       ON webhook_events(provider, received_at, id);
   `);
+
+  // Migration: older databases predate the sync_jobs.records column.
+  const syncCols = db.prepare("PRAGMA table_info('sync_jobs')").all() as { name: string }[];
+  if (!syncCols.some((c) => c.name === 'records')) {
+    db.exec('ALTER TABLE sync_jobs ADD COLUMN records INTEGER NOT NULL DEFAULT 0');
+  }
 
   return db;
 }

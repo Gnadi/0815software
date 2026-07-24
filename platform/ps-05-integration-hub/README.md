@@ -22,8 +22,11 @@ only).
   module never handles the secret itself.
 - **Inbound webhooks** are verified per provider (GitHub / Stripe / Shopify
   HMAC schemes) and recorded with their `signature_valid` verdict.
-- **Sync jobs** and OAuth authorize/callback are documented stubs — the
-  seams a real deployment fills in.
+- **OAuth connect** (authorize/callback), **token refresh** and **sync jobs**
+  all work: a real provider token exchange runs when that provider is
+  configured, otherwise a deterministic offline mock completes the flow.
+  Sync jobs advance `pending → done` on `POST /api/tick` via a pluggable
+  per-provider adapter (mock by default).
 
 ## Stack
 
@@ -80,17 +83,18 @@ receiver is public but signature-verified. Errors are `{ error, details? }`.
 | ------------- | ------- |
 | `GET /api/providers` | The provider registry. |
 | `GET/POST /api/connections`, `GET /api/connections/:id` | List / create / fetch (credentials redacted). |
-| `DELETE /api/connections/:id` · `POST /api/connections/:id/refresh` | Revoke / refresh (stub). |
-| `GET /api/connections/:provider/authorize` · `/callback` | OAuth connect stubs. |
+| `DELETE /api/connections/:id` · `POST /api/connections/:id/refresh` | Revoke / refresh the connection's token. |
+| `GET /api/connections/:provider/authorize` · `/callback` | OAuth connect flow (real when configured, mock otherwise). |
 | `POST /api/connections/:id/proxy` · `/graphql` | Generic REST / GraphQL proxy with injected auth. |
 | `GET /api/webhook-events`, `GET /api/webhook-events/:id` | Inbound webhook log. |
-| `POST /api/connections/:id/sync` · `GET /api/sync-jobs` | Outbound sync stubs. |
+| `POST /api/connections/:id/sync` · `GET /api/sync-jobs` · `POST /api/tick` | Enqueue and drive outbound sync jobs. |
 
 ## Consumed by
 
 Business Modules, over this API. The Integration Hub depends on no Business
-Module. See [`.env.example`](./.env.example) for the (commented-out)
-`IDENTITY_URL` seam.
+Module. Set `IDENTITY_URL` (see [`.env.example`](./.env.example)) to verify
+end-user callers against PS-01's `POST /api/tokens/verify`; unset, the
+service runs standalone on its own admin/service-token.
 
 ## Tests
 
