@@ -1,0 +1,147 @@
+# Local development stack — the whole platform on your laptop, one command.
+#
+#   docker compose -f deploy/docker-compose.dev.yml up --build     # or: make dev
+#
+# Differences from the production compose (deploy/docker-compose.yml):
+#   - No Caddy / TLS. Every service publishes its port on localhost so you can
+#     curl it directly (PS-01 → :4001 … PS-10 → :4010).
+#   - NODE_ENV is NOT "production", so services boot with their built-in dev
+#     defaults (dev-service-token, dev-secret-change-me, …) — no secrets to fill
+#     in before the stack will start.
+#   - A single shared SERVICE_TOKEN wires the services together, matching the
+#     default every service already ships.
+#   - Named volumes persist data across restarts; `make dev-reset` wipes them.
+#
+# Every service is still built from the same per-service image and can be run
+# on its own (`npm run dev:api` inside any platform/ps-*), exactly as in prod —
+# this file only orchestrates them for convenience.
+
+x-service: &service
+  restart: unless-stopped
+  environment: &svc-env
+    # Intentionally not "production": keep the dev-default boot path.
+    NODE_ENV: development
+    SERVICE_TOKEN: dev-service-token
+    SESSION_SECRET: dev-secret-change-me
+    IDENTITY_URL: http://ps01:4001
+  networks: [platform]
+
+services:
+  ps01:
+    <<: *service
+    build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-01-identity } }
+    environment:
+      <<: *svc-env
+      PORT: "4001"
+      SELF_BASE_URL: http://localhost:4001
+    ports: ["4001:4001"]
+    volumes: [ps01-data:/data]
+    healthcheck: &hc
+      test: ["CMD", "wget", "-qO-", "http://localhost:4001/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  ps02:
+    <<: *service
+    build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-02-workflow-engine } }
+    ports: ["4002:4002"]
+    volumes: [ps02-data:/data]
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4002/api/health"] }
+    depends_on: { ps01: { condition: service_healthy } }
+
+  ps03:
+    <<: *service
+    build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-03-notification-hub } }
+    ports: ["4003:4003"]
+    volumes: [ps03-data:/data]
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4003/api/health"] }
+    depends_on: { ps01: { condition: service_healthy } }
+
+  ps04:
+    <<: *service
+    build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-04-ai-platform } }
+    ports: ["4004:4004"]
+    volumes: [ps04-data:/data]
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4004/api/health"] }
+    depends_on: { ps01: { condition: service_healthy } }
+
+  ps05:
+    <<: *service
+    build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-05-integration-hub } }
+    ports: ["4005:4005"]
+    volumes: [ps05-data:/data]
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4005/api/health"] }
+    depends_on: { ps01: { condition: service_healthy } }
+
+  ps06:
+    <<: *service
+    build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-06-file-storage } }
+    ports: ["4006:4006"]
+    volumes: [ps06-data:/data]
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4006/api/health"] }
+    depends_on: { ps01: { condition: service_healthy } }
+
+  ps07:
+    <<: *service
+    build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-07-audit-log } }
+    ports: ["4007:4007"]
+    volumes: [ps07-data:/data]
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4007/api/health"] }
+    depends_on: { ps01: { condition: service_healthy } }
+
+  ps08:
+    <<: *service
+    build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-08-payments } }
+    ports: ["4008:4008"]
+    volumes: [ps08-data:/data]
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4008/api/health"] }
+    depends_on: { ps01: { condition: service_healthy } }
+
+  ps09:
+    <<: *service
+    build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-09-search } }
+    ports: ["4009:4009"]
+    volumes: [ps09-data:/data]
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4009/api/health"] }
+    depends_on: { ps01: { condition: service_healthy } }
+
+  ps10:
+    <<: *service
+    build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-10-number } }
+    ports: ["4010:4010"]
+    volumes: [ps10-data:/data]
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4010/api/health"] }
+    depends_on: { ps01: { condition: service_healthy } }
+
+  # Drives the queue/scheduler ticks once a minute (PS-02/03/05/08), so
+  # workflows advance and notifications deliver without a manual curl.
+  ticker:
+    image: curlimages/curl:latest
+    restart: unless-stopped
+    networks: [platform]
+    depends_on: [ps02, ps03, ps05, ps08]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          for url in http://ps02:4002/api/tick http://ps03:4003/api/tick http://ps05:4005/api/tick http://ps08:4008/api/tick; do
+            curl -fsS -X POST "$$url" -H "X-Service-Token: dev-service-token" >/dev/null || echo "tick failed: $$url"
+          done
+          sleep 60
+        done
+
+networks:
+  platform: {}
+
+volumes:
+  ps01-data: {}
+  ps02-data: {}
+  ps03-data: {}
+  ps04-data: {}
+  ps05-data: {}
+  ps06-data: {}
+  ps07-data: {}
+  ps08-data: {}
+  ps09-data: {}
+  ps10-data: {}

@@ -22,6 +22,42 @@ wrapper over the built-in `fetch`, matching the services' own "no SDKs" rule.
 - The `fetch` implementation is injectable (`ClientOptions.fetch`), so module
   tests exercise the wiring completely offline.
 
+## Built-in resilience
+
+Every call made through a client is protected without any per-call code, so a
+slow or briefly-unavailable peer degrades gracefully instead of crashing the
+caller:
+
+- **Timeouts** — each request is aborted after `timeoutMs` (default 10 s).
+- **Retries** — transient failures (network errors, timeouts, `429/502/503/504`)
+  are retried with exponential backoff + jitter (default 2 retries). Reads and
+  `PUT`/`DELETE` retry automatically; `POST`/`PATCH` retry only when you pass an
+  **idempotency key**, so a write is never silently duplicated.
+- **Circuit breaker** — after 5 consecutive failures the breaker opens for
+  10 s and calls fail fast with `ServiceUnavailableError` rather than piling up
+  timeouts against a peer that is clearly down.
+- **Correlation ids** — every request carries an `X-Request-Id` (propagate an
+  incoming one via `requestId`), tying a module's request to the downstream
+  service logs it triggers.
+
+A peer that is unreachable, times out, or has an open breaker raises
+`ServiceUnavailableError` (a `ServiceError` with `status = 503`) — distinct
+from a domain `ServiceError`, so callers can show a "temporarily unavailable"
+state instead of treating it as a rejection.
+
+```ts
+// Tune per client…
+const pay = new PaymentsClient({
+  baseUrl: process.env.PAYMENTS_URL!,
+  serviceToken: process.env.PAYMENTS_SERVICE_TOKEN!,
+  timeoutMs: 5_000,
+  retry: { retries: 3 },
+});
+
+// …and dedupe a specific write so a retry can't double-charge:
+await pay.createIntent(input, { idempotencyKey: `invoice:${invoice.id}` });
+```
+
 ## Usage
 
 ```ts

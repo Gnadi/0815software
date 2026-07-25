@@ -6,6 +6,27 @@ stance. The stack is: PS-01…10 as containers, Caddy for TLS + routing, a
 ticker sidecar driving the queue services, and per-service volumes for
 databases and backups.
 
+## Local development — one command
+
+For hacking on the platform, use the dev stack instead of the production one.
+From the repository root:
+
+```sh
+make dev          # build + start all ten services (or: docker compose -f deploy/docker-compose.dev.yml up --build)
+make smoke        # verify it all boots and the identity seam works (no Docker)
+make dev-logs     # tail every service
+make dev-down     # stop        (make dev-reset also wipes the data volumes)
+```
+
+`make dev` is the whole platform on your laptop with **nothing to configure**:
+every service is published on its own port (PS-01 → `:4001` … PS-10 → `:4010`),
+`NODE_ENV` is left at `development` so each service boots with its built-in dev
+defaults, and one shared `dev-service-token` wires them together. This is the
+["one product, service-oriented inside"](../docs/PRODUCTION-ROADMAP.md) posture:
+one command up, yet each service is still an independent image you can also run
+alone with `npm run dev:api`. The sections below cover the **production**
+stack.
+
 ## Bring-up
 
 ```sh

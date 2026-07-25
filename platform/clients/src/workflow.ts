@@ -1,16 +1,19 @@
-import { BaseClient } from './http.js';
+import { BaseClient, type RequestOptions } from './http.js';
 import type { IngestResult, RunWorkflowInput, WorkflowEvent, WorkflowInstanceDetail } from './types.js';
 
 /** Client for PS-02 Workflow Engine (default port 4002). */
 export class WorkflowClient extends BaseClient {
-  /** Ingest a domain event (service-token auth); may fan out to triggers. */
-  emit(event: WorkflowEvent): Promise<IngestResult> {
-    return this.apiPost<IngestResult>('/api/events', event);
+  /**
+   * Ingest a domain event (service-token auth); may fan out to triggers.
+   * Pass an `idempotencyKey` in `opts` so a retried emit fans out only once.
+   */
+  emit(event: WorkflowEvent, opts?: RequestOptions): Promise<IngestResult> {
+    return this.apiPost<IngestResult>('/api/events', event, opts);
   }
 
   /** Start a workflow instance directly; idempotent on `idempotency_key`. */
-  run(key: string, input: RunWorkflowInput = {}): Promise<{ instance: WorkflowInstanceDetail }> {
-    return this.apiPost(`/api/workflows/${encodeURIComponent(key)}/run`, input);
+  run(key: string, input: RunWorkflowInput = {}, opts?: RequestOptions): Promise<{ instance: WorkflowInstanceDetail }> {
+    return this.apiPost(`/api/workflows/${encodeURIComponent(key)}/run`, input, opts);
   }
 
   getInstance(id: number | string): Promise<{ instance: WorkflowInstanceDetail }> {

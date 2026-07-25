@@ -6,8 +6,18 @@
  * presents its service token — never re-implementing auth, retries or
  * transport. All clients share one `fetch` seam so tests stay offline.
  */
-export { BaseClient, ServiceError } from './http.js';
-export type { ClientOptions, FetchLike } from './http.js';
+export { BaseClient, ServiceError, ServiceUnavailableError } from './http.js';
+export type { ClientOptions, RequestOptions, FetchLike } from './http.js';
+export {
+  CircuitBreaker,
+  DEFAULT_BREAKER,
+  DEFAULT_RETRY,
+  backoffDelayMs,
+  isIdempotentMethod,
+  isRetriableStatus,
+  newRequestId,
+} from './resilience.js';
+export type { RetryPolicy, BreakerPolicy, BreakerState } from './resilience.js';
 export * from './types.js';
 
 export { IdentityClient } from './identity.js';
