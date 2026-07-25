@@ -125,4 +125,10 @@ import Monogram from './Monogram.astro';
 @media (max-width: 767px) {
   .nav { padding: 18px var(--pad-x); gap: 12px; }
 }
+
+@media (max-width: 599px) {
+  /* Brand + GitHub link + CTA no longer fit — drop the GitHub link so the
+     bar stays within the viewport (no horizontal overflow / mobile zoom). */
+  .nav__github { display: none; }
+}
 </style>

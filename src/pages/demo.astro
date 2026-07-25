@@ -238,8 +238,12 @@ npm run demo
   padding: 18px 20px;
   overflow-x: auto;
   margin-bottom: 20px;
-  max-width: 620px;
+  max-width: 100%;
+  min-width: 0;
 }
+/* Long tokens (emails, URLs) must wrap instead of forcing the page wider. */
+.demo-run__body code,
+.demo-run__note code { overflow-wrap: anywhere; }
 .demo-code code {
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
@@ -286,6 +290,12 @@ npm run demo
   flex-shrink: 0;
   margin-top: 3px;
 }
+
+/* Grid items must be allowed to shrink below their content's intrinsic width,
+   otherwise a long line in the code block widens the whole page on mobile. */
+.demo-apps__grid,
+.demo-run__content,
+.demo-proves__content { min-width: 0; }
 
 @media (max-width: 999px) {
   .demo-apps__inner,
