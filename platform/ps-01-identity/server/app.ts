@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import type Database from 'better-sqlite3';
 import { PERMISSIONS, type Permission } from '../shared/types.js';
@@ -16,6 +17,10 @@ import {
   type SessionConfig,
 } from './auth.js';
 import { DomainError, fail, reqEmail, reqText } from './errors.js';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
+import { MIGRATIONS } from './db.js';
+import { pendingCount } from './migrations.js';
+import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
 import {
   listRoles,
   mapOrg,
@@ -28,7 +33,16 @@ import {
 } from './identity.js';
 import { keySummary, mintApiKey, verifyApiKey, type ApiKeyRow } from './api-keys.js';
 import { verifyProvidedToken } from './tokens.js';
-import { beginAuthorize, isOAuthProvider } from './oauth.js';
+import {
+  beginAuthorize,
+  consumeState,
+  fetchIdentity,
+  isOAuthProvider,
+  linkUser,
+  mockIdentity,
+  type FetchLike,
+  type OAuthConfig,
+} from './oauth.js';
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -42,8 +56,18 @@ interface Principal {
 export interface AppOptions {
   db: Database.Database;
   session: SessionConfig;
+  /** Configured OAuth providers; unconfigured providers use the mock IdP. */
+  oauth?: OAuthConfig;
+  /** Public base URL used to build OAuth redirect URIs. */
+  selfBaseUrl?: string;
   /** Injectable clock; defaults to the wall clock. */
   now?: () => number;
+  /** Injectable fetch for the OAuth token/userinfo exchange (tests). */
+  fetch?: FetchLike;
+  /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
+  hardening?: HardeningConfig;
+  /** Emit one JSON log line per request (default false; index.ts passes true). */
+  logRequests?: boolean;
 }
 
 function idParam(req: Request, name = 'id'): number | null {
@@ -55,9 +79,23 @@ function body(req: Request): Record<string, unknown> {
   return (req.body ?? {}) as Record<string, unknown>;
 }
 
-export function createApp({ db, session, now = Date.now }: AppOptions): express.Express {
+export function createApp({
+  db,
+  session,
+  oauth = {},
+  selfBaseUrl = `http://localhost:4001`,
+  now = Date.now,
+  fetch: injectedFetch,
+  hardening,
+  logRequests,
+}: AppOptions): express.Express {
   const app = express();
+  if (hardening) app.use(hardeningMiddleware(hardening));
+  app.use(requestTelemetry({ service: 'ps-01', log: logRequests === true }));
   app.use(express.json({ limit: '256kb' }));
+
+  const doFetch: FetchLike =
+    injectedFetch ?? (globalThis.fetch as unknown as FetchLike);
 
   const orgBySlug = db.prepare('SELECT * FROM organizations WHERE slug = ?');
   const orgById = db.prepare('SELECT * FROM organizations WHERE id = ?');
@@ -101,6 +139,27 @@ export function createApp({ db, session, now = Date.now }: AppOptions): express.
     res.json({ ok: true });
   });
 
+  const gauges: Gauge[] = [];
+
+  // Readiness: DB reachable and schema fully migrated (liveness is /api/health).
+  app.get('/api/ready', (_req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      const pending = pendingCount(db, MIGRATIONS);
+      if (pending > 0) {
+        res.status(503).json({ ready: false, pending_migrations: pending });
+        return;
+      }
+      res.json({ ready: true });
+    } catch {
+      res.status(503).json({ ready: false });
+    }
+  });
+
+  app.get('/api/metrics', (_req, res) => {
+    res.type('text/plain').send(renderMetrics('ps-01', gauges));
+  });
+
   app.post('/api/login', (req, res) => {
     const b = body(req);
     const orgSlug = typeof b.org_slug === 'string' ? b.org_slug.trim() : '';
@@ -137,32 +196,74 @@ export function createApp({ db, session, now = Date.now }: AppOptions): express.
     res.json({ ok: true });
   });
 
+  // The cross-service contract: validate a PS-01 credential (session token or
+  // psk_ API key) and return its claims + permissions. PUBLIC — the presented
+  // token IS the credential; downstream services call this unauthenticated,
+  // and an invalid token yields only { valid: false }.
+  app.post('/api/tokens/verify', (req, res) => {
+    res.json(verifyProvidedToken(db, session, body(req).token, now()));
+  });
+
   app.get('/api/oauth/:provider/authorize', (req, res) => {
     const provider = req.params.provider as string;
     if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
+    const orgSlug = typeof req.query.org_slug === 'string' ? req.query.org_slug.trim() : '';
+    if (!orgSlug) fail(422, 'org_slug query parameter is required');
+    const org = orgBySlug.get(orgSlug) as OrgRow | undefined;
+    if (!org || org.status !== 'active') fail(404, 'Unknown organization');
     const redirect = typeof req.query.redirect_uri === 'string' ? req.query.redirect_uri : null;
-    res.redirect(302, beginAuthorize(db, provider, redirect, now()));
+    res.redirect(
+      302,
+      beginAuthorize(db, provider, { orgSlug, redirectUri: redirect, providerConfig: oauth[provider], selfBaseUrl }, now()),
+    );
   });
 
-  app.get('/api/oauth/:provider/callback', (req, res) => {
-    const provider = req.params.provider as string;
-    if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
-    res.status(501).json({ error: 'OAuth callback not implemented in this release' });
+  app.get('/api/oauth/:provider/callback', (req, res, next) => {
+    void (async () => {
+      const provider = req.params.provider as string;
+      if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
+
+      const stateRow = consumeState(db, provider, req.query.state);
+      if (!stateRow) fail(400, 'Invalid or expired OAuth state');
+      const code = typeof req.query.code === 'string' ? req.query.code : '';
+      if (!code) fail(422, 'code is required');
+
+      const org = stateRow.org_slug ? (orgBySlug.get(stateRow.org_slug) as OrgRow | undefined) : undefined;
+      if (!org || org.status !== 'active') fail(400, 'Organization no longer available');
+
+      const cfg = oauth[provider];
+      const identity = cfg
+        ? await fetchIdentity(cfg, code, `${selfBaseUrl}/api/oauth/${provider}/callback`, doFetch)
+        : mockIdentity(provider, org.slug);
+
+      const user = linkUser(db, org.id, identity, now());
+      const token = issueSession(res, user);
+      logEvent('login_ok', user.org_id, user.id, req, { via: `oauth:${provider}` });
+      logEvent('token_issued', user.org_id, user.id, req);
+
+      if (stateRow.redirect_uri) {
+        const sep = stateRow.redirect_uri.includes('?') ? '&' : '?';
+        res.redirect(302, `${stateRow.redirect_uri}${sep}token=${encodeURIComponent(token)}`);
+      } else {
+        res.json({ token, user: mapUser(user) });
+      }
+    })().catch(next);
   });
 
   // ── Authentication gate (session cookie or Bearer) ─────────────────
   app.use('/api', (req, res, next) => {
     const bearer = parseBearer(req.headers.authorization);
 
-    // Bearer API key → machine principal with full org access.
+    // Bearer API key → machine principal carrying the key's scopes
+    // (an unscoped key keeps the historical full-permission behaviour).
     if (bearer && bearer.startsWith('psk_')) {
-      const orgId = verifyApiKey(db, bearer, now());
-      if (orgId !== null) {
+      const key = verifyApiKey(db, bearer, now());
+      if (key !== null) {
         res.locals.principal = {
           kind: 'api_key',
-          orgId,
+          orgId: key.orgId,
           userId: null,
-          permissions: new Set<Permission>(PERMISSIONS),
+          permissions: new Set<Permission>(key.scopes ?? PERMISSIONS),
         } satisfies Principal;
         next();
         return;
@@ -209,11 +310,6 @@ export function createApp({ db, session, now = Date.now }: AppOptions): express.
       roles: userRoles(db, user.id),
       permissions: userPermissions(db, user.id),
     });
-  });
-
-  // The cross-service contract: validate a PS-01 token and return claims.
-  app.post('/api/tokens/verify', (req, res) => {
-    res.json(verifyProvidedToken(db, session, body(req).token, now()));
   });
 
   app.get('/api/permissions', (_req, res) => {
@@ -343,6 +439,24 @@ export function createApp({ db, session, now = Date.now }: AppOptions): express.
     res.json({ ok: true });
   });
 
+  // GDPR erasure hook: anonymize the user's PII in place while keeping the row
+  // and id (so downstream audit trails and records stay referentially intact),
+  // scramble the password, bump token_version to kill any live sessions, and
+  // disable the account so it can never log in again.
+  app.post('/api/users/:id/erase', (req, res) => {
+    require(res, 'user:write');
+    const id = idParam(req);
+    const user = requireUserInOrg(res, id);
+    db.prepare(
+      `UPDATE users
+         SET email = ?, name = 'Erased User', password_hash = ?,
+             token_version = token_version + 1, status = 'disabled'
+       WHERE id = ?`,
+    ).run(`erased+${user.id}@invalid.example`, hashPassword(randomBytes(24).toString('hex')), user.id);
+    logEvent('user_erased', user.org_id, user.id, req);
+    res.json({ erased: true, user: mapUser(userById.get(user.id) as UserRow) });
+  });
+
   // ── Roles & permissions ────────────────────────────────────────────
   app.get('/api/roles', (_req, res) => {
     require(res, 'role:read');
@@ -417,8 +531,20 @@ export function createApp({ db, session, now = Date.now }: AppOptions): express.
   app.post('/api/api-keys', (req, res) => {
     require(res, 'apikey:write');
     const p = principalOf(res);
-    const name = reqText(body(req), 'name', 200);
-    const minted = mintApiKey(db, p.orgId, name, p.userId, now());
+    const b = body(req);
+    const name = reqText(b, 'name', 200);
+    // Optional scopes restrict the key to a permission subset; omitted = all.
+    let scopes: Permission[] | null = null;
+    if (Array.isArray(b.scopes)) {
+      scopes = [];
+      for (const s of b.scopes) {
+        if (typeof s !== 'string' || !(PERMISSIONS as readonly string[]).includes(s)) {
+          fail(422, 'Validation failed', [{ field: 'scopes', message: `unknown permission "${String(s)}"` }]);
+        }
+        scopes.push(s as Permission);
+      }
+    }
+    const minted = mintApiKey(db, p.orgId, name, p.userId, now(), scopes);
     logEvent('apikey_created', p.orgId, p.userId, req, { prefix: minted.summary.prefix });
     res.status(201).json({ api_key: minted.summary, secret: minted.secret });
   });

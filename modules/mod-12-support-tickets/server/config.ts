@@ -1,9 +1,13 @@
 import type { AuthConfig } from './auth.js';
+import type { PlatformConfig } from './platform.js';
+import type { SsoConfig } from './sso.js';
 
 export interface ServerConfig {
   port: number;
   databasePath: string;
   auth: AuthConfig;
+  platform: PlatformConfig;
+  sso: SsoConfig;
 }
 
 /**
@@ -21,8 +25,21 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       password: env.ADMIN_PASSWORD ?? 'agent',
       secret: env.SESSION_SECRET ?? 'dev-secret-change-me',
       ttlHours: Number(env.SESSION_TTL_HOURS) || 12,
-      secureCookie: env.COOKIE_SECURE === 'true',
+      secureCookie: env.COOKIE_SECURE !== undefined ? env.COOKIE_SECURE === 'true' : env.NODE_ENV === 'production',
       intakeSecret: env.INTAKE_SECRET ?? 'dev-intake-secret',
+    },
+    // Platform Services — all optional; unset means standalone (no calls out).
+    sso: {
+      identityUrl: env.IDENTITY_URL || undefined,
+      identityOrg: env.IDENTITY_ORG || undefined,
+      identityPermission: env.IDENTITY_PERMISSION || undefined,
+    },
+    platform: {
+      notificationUrl: env.NOTIFICATION_URL || undefined,
+      auditUrl: env.AUDIT_URL || undefined,
+      aiUrl: env.AI_URL || undefined,
+      serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
+      ackChannel: env.NOTIFICATION_ACK_CHANNEL || undefined,
     },
   };
 }

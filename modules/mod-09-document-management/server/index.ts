@@ -2,11 +2,14 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
+import { assertProductionConfig } from './guard.js';
+import { buildPlatform } from './platform.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
 
 const config = configFromEnv();
+assertProductionConfig([{ name: 'SESSION_SECRET', value: config.session.secret }]);
 const db = openDb(config.databasePath);
 
 // First start on an empty database: load the demo data set so the app is
@@ -26,6 +29,7 @@ const app = createApp({
   storageDir: config.storageDir,
   maxUploadBytes: config.maxUploadBytes,
   staticDir,
+  platform: buildPlatform(config.platform),
 });
 
 app.listen(config.port, () => {

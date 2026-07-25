@@ -19,6 +19,8 @@ import {
   sessionCookie,
   type AuthConfig,
 } from './auth.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
+import { nullVerifier, type LoginVerifier } from './sso.js';
 import {
   addObligation,
   applicationDetail,
@@ -160,9 +162,12 @@ export interface AppOptions {
   now?: () => number;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional Platform Services integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
+  verifyLogin?: LoginVerifier;
 }
 
-export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, now = Date.now, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -173,9 +178,14 @@ export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): 
     res.json({ ok: true });
   });
 
-  app.post('/api/login', (req, res) => {
+  app.post('/api/login', async (req, res) => {
     const { username, password } = body(req);
-    if (!checkCredentials(auth, username, password)) {
+    // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
+    // otherwise the local admin credentials do. Either way the module mints
+    // its own session below, so the rest of the request path is unchanged.
+    const viaSso = await verifyLogin(username, password);
+    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
+    if (!authed) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
@@ -308,6 +318,7 @@ export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): 
       approvedAmountCents,
       at: stamp(),
     });
+    void platform.audit({ actor: auth.username, action: 'application.transitioned', resource: `application:${req.params.id}`, after: { to } });
     res.json(applicationDetail(db, Number(req.params.id), now()));
   });
 

@@ -37,6 +37,8 @@ import {
   publicView,
   ticketDetail,
 } from './tickets.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
+import { nullVerifier, type LoginVerifier } from './sso.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 function body(req: Request): Record<string, unknown> {
@@ -100,13 +102,30 @@ export interface AppOptions {
   now?: () => number;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional Platform Services integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
+  verifyLogin?: LoginVerifier;
 }
 
-export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, now = Date.now, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '512kb' }));
 
   const stamp = (): string => nowIso(now());
+
+  // Best-effort platform notification on ticket creation — never fails intake.
+  const notifyCreated = async (info: {
+    ref: string;
+    subject: string;
+    requesterName: string;
+    requesterEmail: string;
+  }): Promise<void> => {
+    try {
+      await platform.ticketCreated(info);
+    } catch (err) {
+      console.warn('[mod-12] platform.ticketCreated failed:', err);
+    }
+  };
 
   // ══ PUBLIC — web & email intake, requester status page (no login) ═════
 
@@ -116,7 +135,7 @@ export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): 
 
   // Web intake: anyone can open a ticket. Returns the ref + a signed
   // lookup token the requester uses to check status later.
-  app.post('/api/intake/web', (req, res) => {
+  app.post('/api/intake/web', async (req, res) => {
     const input = validateWebIntake(body(req));
     const ref = createTicket(db, {
       requesterName: input.requesterName,
@@ -129,6 +148,7 @@ export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): 
       actorType: 'requester',
       at: stamp(),
     });
+    await notifyCreated({ ref, subject: input.subject, requesterName: input.requesterName, requesterEmail: input.requesterEmail });
     res.status(201).json({ ref, token: lookupToken(auth, ref), status: 'new' });
   });
 
@@ -136,7 +156,7 @@ export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): 
   // and the README) POSTs a parsed email here with the shared secret. A
   // matching in-reply-to ref on a non-closed ticket appends a public
   // comment (reopening it if resolved); otherwise a new ticket is opened.
-  app.post('/api/intake/email', (req, res) => {
+  app.post('/api/intake/email', async (req, res) => {
     const verdict = checkIntakeSecret(auth, req.headers[INTAKE_HEADER]);
     if (verdict === 'missing') {
       res.status(401).json({ error: 'Missing X-Intake-Secret header' });
@@ -177,6 +197,7 @@ export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): 
       actorType: 'requester',
       at: stamp(),
     });
+    await notifyCreated({ ref, subject, requesterName: from, requesterEmail: from });
     res.status(201).json({ ref, action: 'created' });
   });
 
@@ -223,9 +244,14 @@ export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): 
   });
 
   // ══ AGENT LOGIN ═══════════════════════════════════════════════════════
-  app.post('/api/login', (req, res) => {
+  app.post('/api/login', async (req, res) => {
     const { username, password } = body(req);
-    if (!checkCredentials(auth, username, password)) {
+    // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
+    // otherwise the local admin credentials do. Either way the module mints
+    // its own session below, so the rest of the request path is unchanged.
+    const viaSso = await verifyLogin(username, password);
+    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
+    if (!authed) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
@@ -309,6 +335,23 @@ export function createApp({ db, auth, now = Date.now, staticDir }: AppOptions): 
     }
     changeStatus(db, req.params.ref, raw, auth.username, 'agent', stamp());
     res.json(ticketDetail(db, req.params.ref, now()));
+  });
+
+  // AI-drafted reply suggestion (PS-04). 501 when no AI platform is configured.
+  app.post('/api/tickets/:ref/suggest-reply', async (req, res) => {
+    const detail = ticketDetail(db, req.params.ref, now());
+    const thread = [
+      `${detail.requester_name}: ${detail.body}`,
+      ...detail.events
+        .filter((e) => e.type === 'comment' && e.payload.body)
+        .map((e) => `${e.actor}: ${e.payload.body}`),
+    ].join('\n');
+    const reply = await platform.suggestReply({ ref: detail.ref, subject: detail.subject, thread });
+    if (reply === null) {
+      res.status(501).json({ error: 'AI suggestions are not configured (set AI_URL)' });
+      return;
+    }
+    res.json({ ref: detail.ref, suggestion: reply });
   });
 
   app.post('/api/tickets/:ref/priority', (req, res) => {

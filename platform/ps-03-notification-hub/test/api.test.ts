@@ -164,3 +164,91 @@ describe('delivery failures & graceful degradation', () => {
     expect(fetchCalls).toBe(0);
   });
 });
+
+describe('real channel adapters', () => {
+  it('slack/teams/discord deliver via their webhook url (single fetch each)', async () => {
+    const t = await token();
+    for (const [type, provider] of [
+      ['slack', 'slack'],
+      ['teams', 'teams'],
+      ['discord', 'discord'],
+    ] as const) {
+      await makeChannel(t, { type, name: `${type}-ch`, provider, config: { url: `https://hook.invalid/${type}` } });
+      await request(app).post('/api/send').set(svc).send({ channel: `${type}-ch`, to: '#ops', subject: 'S', body: 'B' });
+    }
+    fetchCalls = 0;
+    await request(app).post('/api/tick').set(as(t));
+    expect(fetchCalls).toBe(3); // one real POST per configured channel
+    const sent = await request(app).get('/api/messages?status=sent').set(as(t));
+    expect(sent.body.messages.length).toBe(3);
+  });
+
+  it('degrades slack to console when no webhook url is configured', async () => {
+    const t = await token();
+    await makeChannel(t, { type: 'slack', name: 'slack-bare', provider: 'slack', config: {} });
+    await request(app).post('/api/send').set(svc).send({ channel: 'slack-bare', to: '#ops', body: 'B' });
+    await request(app).post('/api/tick').set(as(t));
+    const m = (await request(app).get('/api/messages').set(as(t))).body.messages[0];
+    expect(m.status).toBe('sent');
+    expect(fetchCalls).toBe(0);
+  });
+
+  it('sends sms via Twilio only when credentials are configured', async () => {
+    const t = await token();
+    // Unconfigured → console, no network.
+    await makeChannel(t, { type: 'sms', name: 'sms-off', provider: 'twilio-sms' });
+    await request(app).post('/api/send').set(svc).send({ channel: 'sms-off', to: '+1555', body: 'hi' });
+    await request(app).post('/api/tick').set(as(t));
+    expect(fetchCalls).toBe(0);
+
+    // Configured Twilio → real single fetch.
+    const twilioApp = createApp({
+      db: openDb(':memory:'),
+      auth,
+      now: () => clock,
+      twilio: { accountSid: 'AC1', authToken: 'tok', from: '+1999' },
+      fetchImpl: mockFetch,
+    });
+    const t2 = (await request(twilioApp).post('/api/login').send({ username: 'admin', password: 'test-pass' })).body.token;
+    await request(twilioApp).post('/api/channels').set(as(t2)).send({ type: 'sms', name: 'sms-on', provider: 'twilio-sms' }).expect(201);
+    await request(twilioApp).post('/api/send').set(svc).send({ channel: 'sms-on', to: '+1555', body: 'hi' });
+    fetchCalls = 0;
+    await request(twilioApp).post('/api/tick').set(as(t2));
+    expect(fetchCalls).toBe(1);
+  });
+});
+
+describe('channel patch & message history', () => {
+  it('patches a channel and reads a message with its event history', async () => {
+    const t = await token();
+    await makeChannel(t, { type: 'email', name: 'mail', provider: 'console' });
+    const channels = await request(app).get('/api/channels').set(as(t));
+    const id = channels.body.channels[0].id;
+    await request(app).patch(`/api/channels/${id}`).set(as(t)).send({ enabled: false }).expect(200);
+
+    const send = await request(app).post('/api/send').set(svc).send({ channel: 'mail', to: 'x', body: 'B' });
+    await request(app).post('/api/tick').set(as(t));
+    const detail = await request(app).get(`/api/messages/${send.body.message.id}`).set(as(t));
+    expect(detail.status).toBe(200);
+    expect(Array.isArray(detail.body.message.events ?? detail.body.events)).toBe(true);
+  });
+});
+
+describe('identity seam', () => {
+  it('accepts a PS-01-verified token when IDENTITY_URL is configured', async () => {
+    const identityFetch = async (_url: string, init?: { body?: string }) => {
+      const tok = init?.body ? (JSON.parse(init.body).token as string) : '';
+      return { ok: true, status: 200, json: async () => ({ valid: tok === 'ps01-good', permissions: ['platform:admin'] }) };
+    };
+    const seamApp = createApp({
+      db,
+      auth: { ...auth, identityUrl: 'http://identity.test' },
+      now: () => clock,
+      resendApiKey: null,
+      fetchImpl: mockFetch,
+      identityFetch,
+    });
+    expect((await request(seamApp).get('/api/channels').set(as('ps01-good'))).status).toBe(200);
+    expect((await request(seamApp).get('/api/channels').set(as('ps01-bad'))).status).toBe(401);
+  });
+});

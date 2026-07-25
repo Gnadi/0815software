@@ -9,6 +9,60 @@ export interface AuthConfig {
   secureCookie: boolean;
   /** Shared secret for event ingestion and the inbound hook receiver. */
   serviceToken: string;
+  /**
+   * Identity seam: when set, a Bearer token that is not this service's own
+   * admin token is verified against PS-01 (`POST {identityUrl}/api/tokens/verify`)
+   * so PS-01-issued end-user sessions are accepted. Unset = standalone mode.
+   */
+  identityUrl?: string;
+}
+
+/** Minimal fetch surface for the identity-seam verification call. */
+export type SeamFetch = (
+  url: string,
+  init?: { method?: string; headers?: Record<string, string>; body?: string },
+) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+
+/** Permission a PS-01 principal must hold to act through this service's seam. */
+export const REQUIRED_SEAM_PERMISSION = 'platform:admin';
+
+const SEAM_CACHE_TTL_MS = 30_000;
+const seamCache = new Map<string, { ok: boolean; expires: number }>();
+
+/**
+ * Verify a token against PS-01's cross-service contract. The principal must
+ * hold `platform:admin` — a merely valid session is not enough. Verdicts are
+ * cached briefly so a busy session doesn't verify on every request.
+ * Never throws.
+ */
+export async function verifyIdentityToken(
+  identityUrl: string,
+  token: string,
+  doFetch: SeamFetch,
+): Promise<boolean> {
+  const cacheKey = `${identityUrl}\n${token}`;
+  const cached = seamCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.ok;
+  try {
+    const res = await doFetch(`${identityUrl.replace(/\/+$/, '')}/api/tokens/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    let ok = false;
+    if (res.ok) {
+      const verdict = (await res.json()) as { valid?: boolean; permissions?: string[] };
+      ok =
+        verdict.valid === true &&
+        Array.isArray(verdict.permissions) &&
+        verdict.permissions.includes(REQUIRED_SEAM_PERMISSION);
+    }
+    if (seamCache.size > 5_000) seamCache.clear();
+    seamCache.set(cacheKey, { ok, expires: Date.now() + SEAM_CACHE_TTL_MS });
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 export const COOKIE_NAME = 'ps04_session';

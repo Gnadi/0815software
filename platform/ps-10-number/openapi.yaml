@@ -1,0 +1,97 @@
+openapi: 3.1.0
+info:
+  title: PS-10 Number API
+  version: '0.1.0'
+  description: >-
+    Gapless, formatted, period-scoped sequence allocation.
+    Request and response bodies are typed in
+    @0815software/platform-clients and frozen by this service’s
+    contract test; this document is the endpoint + auth surface.
+servers:
+  - url: http://localhost:4010
+    description: Local / per-customer deployment (behind Caddy in production)
+tags:
+  - name: ps-10-number
+paths:
+  /api/health:
+    get:
+      summary: Get health
+      tags: [ps-10-number]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/ready:
+    get:
+      summary: Get ready
+      tags: [ps-10-number]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/metrics:
+    get:
+      summary: Get metrics
+      tags: [ps-10-number]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/login:
+    post:
+      summary: Create login
+      tags: [ps-10-number]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/logout:
+    post:
+      summary: Create logout
+      tags: [ps-10-number]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/next:
+    post:
+      summary: Create next
+      tags: [ps-10-number]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/sequences:
+    post:
+      summary: Create sequences
+      tags: [ps-10-number]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+    get:
+      summary: Get sequences
+      tags: [ps-10-number]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/sequences/{scope}:
+    parameters:
+      - name: scope
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get sequences by scope
+      tags: [ps-10-number]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+components:
+  securitySchemes:
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared machine secret, or a scoped PS-01 API key when IDENTITY_URL is set.
+    adminSession:
+      type: http
+      scheme: bearer
+      description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.

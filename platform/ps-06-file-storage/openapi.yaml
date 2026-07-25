@@ -1,0 +1,161 @@
+openapi: 3.1.0
+info:
+  title: PS-06 File Storage API
+  version: '0.1.0'
+  description: >-
+    Buckets and objects with signed download URLs.
+    Request and response bodies are typed in
+    @0815software/platform-clients and frozen by this service’s
+    contract test; this document is the endpoint + auth surface.
+servers:
+  - url: http://localhost:4006
+    description: Local / per-customer deployment (behind Caddy in production)
+tags:
+  - name: ps-06-file-storage
+paths:
+  /api/health:
+    get:
+      summary: Get health
+      tags: [ps-06-file-storage]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/ready:
+    get:
+      summary: Get ready
+      tags: [ps-06-file-storage]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/metrics:
+    get:
+      summary: Get metrics
+      tags: [ps-06-file-storage]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/login:
+    post:
+      summary: Create login
+      tags: [ps-06-file-storage]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/logout:
+    post:
+      summary: Create logout
+      tags: [ps-06-file-storage]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/download:
+    get:
+      summary: Get download
+      tags: [ps-06-file-storage]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/buckets:
+    post:
+      summary: Create buckets
+      tags: [ps-06-file-storage]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+    get:
+      summary: Get buckets
+      tags: [ps-06-file-storage]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/objects/{bucket}:
+    parameters:
+      - name: bucket
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get objects by bucket
+      tags: [ps-06-file-storage]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/objects/{bucket}/{key}:
+    parameters:
+      - name: bucket
+        in: path
+        required: true
+        schema: { type: string }
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    put:
+      summary: Set objects by bucket by key
+      tags: [ps-06-file-storage]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    get:
+      summary: Get objects by bucket by key
+      tags: [ps-06-file-storage]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    delete:
+      summary: Delete objects by bucket by key
+      tags: [ps-06-file-storage]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/objects/{bucket}/{key}/meta:
+    parameters:
+      - name: bucket
+        in: path
+        required: true
+        schema: { type: string }
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get objects by bucket by key meta
+      tags: [ps-06-file-storage]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/objects/{bucket}/{key}/sign:
+    parameters:
+      - name: bucket
+        in: path
+        required: true
+        schema: { type: string }
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create objects by bucket by key sign
+      tags: [ps-06-file-storage]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+components:
+  securitySchemes:
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared machine secret, or a scoped PS-01 API key when IDENTITY_URL is set.
+    adminSession:
+      type: http
+      scheme: bearer
+      description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.

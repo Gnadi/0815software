@@ -10,6 +10,8 @@ import {
   type AuthConfig,
 } from './auth.js';
 import { stockCsv } from './csv.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
+import { nullVerifier, type LoginVerifier } from './sso.js';
 import {
   DomainError,
   movementHistory,
@@ -100,9 +102,12 @@ export interface AppOptions {
   auth: AuthConfig;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional PS-07 Audit integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
+  verifyLogin?: LoginVerifier;
 }
 
-export function createApp({ db, auth, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -111,9 +116,14 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
     res.json({ ok: true });
   });
 
-  app.post('/api/login', (req, res) => {
+  app.post('/api/login', async (req, res) => {
     const { username, password } = body(req);
-    if (!checkCredentials(auth, username, password)) {
+    // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
+    // otherwise the local admin credentials do. Either way the module mints
+    // its own session below, so the rest of the request path is unchanged.
+    const viaSso = await verifyLogin(username, password);
+    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
+    if (!authed) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
@@ -172,6 +182,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
     const info = db
       .prepare('INSERT INTO products (sku, name, unit, reorder_point) VALUES (?, ?, ?, ?)')
       .run(values.sku, values.name, values.unit, values.reorder_point);
+    void platform.audit({ actor: auth.username, action: 'product.created', resource: `product:${info.lastInsertRowid}`, after: values });
     res.status(201).json(db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid));
   });
 
@@ -235,6 +246,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
     const movementInput = { productId, warehouseId, quantity: qty, reference, note };
     const movementId =
       type === 'receipt' ? recordReceipt(db, movementInput) : recordAdjustment(db, movementInput);
+    void platform.audit({ actor: auth.username, action: `stock.${type}`, resource: `product:${productId}`, metadata: { warehouse_id: warehouseId, quantity: qty } });
     res.status(201).json(db.prepare('SELECT * FROM movements WHERE id = ?').get(movementId));
   });
 

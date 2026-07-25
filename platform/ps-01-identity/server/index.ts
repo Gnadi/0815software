@@ -1,9 +1,12 @@
 import { createApp } from './app.js';
+import { assertProductionConfig } from './guard.js';
+import { hardeningFromEnv } from './hardening.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
 
 const config = configFromEnv();
+assertProductionConfig([{ name: 'SESSION_SECRET', value: config.session.secret }]);
 const db = openDb(config.databasePath);
 
 // First start on an empty database: load the demo tenants so the service
@@ -11,7 +14,13 @@ const db = openDb(config.databasePath);
 // touched.
 seed(db);
 
-const app = createApp({ db, session: config.session });
+const app = createApp({
+  db,
+  session: config.session,
+  oauth: config.oauth,
+  selfBaseUrl: config.selfBaseUrl,
+  hardening: hardeningFromEnv(), logRequests: true,
+});
 
 app.listen(config.port, () => {
   console.log(`[ps-01] identity API on http://localhost:${config.port}`);

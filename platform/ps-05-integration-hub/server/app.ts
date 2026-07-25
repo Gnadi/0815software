@@ -8,13 +8,28 @@ import {
   requireAuth,
   sessionCookie,
   type AuthConfig,
+  type SeamFetch,
 } from './auth.js';
 import { DomainError, fail, reqText } from './errors.js';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
+import { MIGRATIONS } from './db.js';
+import { pendingCount } from './migrations.js';
+import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
 import { providerEntry, publicRegistry, REGISTRY } from './provider-registry.js';
 import { connectionEvent, createConnection, credentialsOf, mapConnection, type ConnectionRow } from './connections.js';
+import { encrypt } from './crypto.js';
 import { storeWebhookEvent, verifySignature } from './webhooks.js';
 import { defaultFetch, proxyGraphql, proxyRest, type FetchLike } from './proxy.js';
-import { createSyncJob, listSyncJobs, mapSyncJob } from './sync.js';
+import { withRetry } from './retry-fetch.js';
+import { createSyncJob, listSyncJobs, mapSyncJob, runSyncJobs } from './sync.js';
+import {
+  beginAuthorize,
+  connectionFromTokens,
+  consumeState,
+  exchangeCode,
+  refreshToken,
+  type OAuthConfig,
+} from './oauth.js';
 import type { WebhookEvent } from '../shared/types.js';
 
 export interface AppOptions {
@@ -24,6 +39,14 @@ export interface AppOptions {
   webhookSecret: string;
   now?: () => number;
   fetchImpl?: FetchLike;
+  oauth?: OAuthConfig;
+  selfBaseUrl?: string;
+  /** Injectable fetch for the identity-seam verification call (tests). */
+  identityFetch?: SeamFetch;
+  /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
+  hardening?: HardeningConfig;
+  /** Emit one JSON log line per request (default false; index.ts passes true). */
+  logRequests?: boolean;
 }
 
 function idParam(req: Request): number | null {
@@ -39,9 +62,13 @@ function rawBodyOf(req: Request): string {
 
 export function createApp(opts: AppOptions): express.Express {
   const { db, auth, encryptionKey, webhookSecret, now = Date.now } = opts;
-  const fetchImpl = opts.fetchImpl ?? defaultFetch;
+  const fetchImpl = opts.fetchImpl ?? withRetry(defaultFetch);
+  const oauth: OAuthConfig = opts.oauth ?? {};
+  const selfBaseUrl = opts.selfBaseUrl ?? 'http://localhost:4005';
 
   const app = express();
+  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
+  app.use(requestTelemetry({ service: 'ps-05', log: opts.logRequests === true }));
   app.use(
     express.json({
       limit: '512kb',
@@ -81,6 +108,38 @@ export function createApp(opts: AppOptions): express.Express {
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
   });
+
+  const gauges: Gauge[] = [
+    {
+      name: 'integration_pending_sync_jobs',
+      help: 'Sync jobs waiting to run or currently running.',
+      value: () => (db.prepare("SELECT COUNT(*) AS n FROM sync_jobs WHERE status IN ('pending', 'running')").get() as { n: number }).n,
+    },
+    {
+      name: 'integration_failed_sync_jobs',
+      help: 'Sync jobs that ended in failure.',
+      value: () => (db.prepare("SELECT COUNT(*) AS n FROM sync_jobs WHERE status = 'failed'").get() as { n: number }).n,
+    },
+  ];
+
+  // Readiness: DB reachable and schema fully migrated (liveness is /api/health).
+  app.get('/api/ready', (_req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      const pending = pendingCount(db, MIGRATIONS);
+      if (pending > 0) {
+        res.status(503).json({ ready: false, pending_migrations: pending });
+        return;
+      }
+      res.json({ ready: true });
+    } catch {
+      res.status(503).json({ ready: false });
+    }
+  });
+
+  app.get('/api/metrics', (_req, res) => {
+    res.type('text/plain').send(renderMetrics('ps-05', gauges));
+  });
   app.post('/api/login', (req, res) => {
     const b = body(req);
     if (!checkCredentials(auth, b.username, b.password)) fail(401, 'Invalid username or password');
@@ -118,7 +177,7 @@ export function createApp(opts: AppOptions): express.Express {
   });
 
   // ── Admin gate ─────────────────────────────────────────────────────
-  app.use('/api', requireAuth(auth));
+  app.use('/api', requireAuth(auth, { fetch: opts.identityFetch }));
 
   app.get('/api/providers', (_req, res) => {
     res.json({ providers: publicRegistry() });
@@ -162,24 +221,65 @@ export function createApp(opts: AppOptions): express.Express {
     res.json({ ok: true });
   });
 
-  app.post('/api/connections/:id/refresh', (req, res) => {
-    const row = loadConnection(idParam(req));
-    // Token refresh is a stub — a real deployment calls the provider's token
-    // endpoint here. We just record the event and bump updated_at.
-    db.prepare('UPDATE connections SET updated_at = ? WHERE id = ?').run(nowIso(now()), row.id);
-    connectionEvent(db, row.id, 'refreshed', {}, now());
-    res.json({ ok: true, connection: mapConnection(db.prepare('SELECT * FROM connections WHERE id = ?').get(row.id) as ConnectionRow) });
+  app.post('/api/connections/:id/refresh', (req, res, next) => {
+    void (async () => {
+      const row = loadConnection(idParam(req));
+      const creds = credentialsOf(encryptionKey, row);
+      const tokens = await refreshToken(creds, oauth[row.provider], fetchImpl, now());
+      if (tokens) {
+        // Re-encrypt the rotated credentials at rest in place.
+        const blob = encrypt(
+          encryptionKey,
+          JSON.stringify({ access_token: tokens.access_token, refresh_token: tokens.refresh_token }),
+        );
+        db.prepare('UPDATE connections SET credentials_encrypted = ?, expires_at = ?, updated_at = ? WHERE id = ?').run(
+          blob,
+          tokens.expires_at ?? null,
+          nowIso(now()),
+          row.id,
+        );
+      } else {
+        db.prepare('UPDATE connections SET updated_at = ? WHERE id = ?').run(nowIso(now()), row.id);
+      }
+      connectionEvent(db, row.id, 'refreshed', { real: tokens !== null }, now());
+      res.json({
+        ok: true,
+        refreshed: tokens !== null,
+        connection: mapConnection(db.prepare('SELECT * FROM connections WHERE id = ?').get(row.id) as ConnectionRow),
+      });
+    })().catch(next);
   });
 
-  // OAuth connect stubs (string provider, distinct from the numeric :id routes).
+  // OAuth connect flow (string provider, distinct from the numeric :id routes).
   app.get('/api/connections/:provider/authorize', (req, res) => {
     const entry = providerEntry(req.params.provider as string);
     if (!entry) fail(404, 'Unknown provider');
-    res.redirect(302, `https://oauth.example.invalid/${entry.key}/authorize`);
+    const name = typeof req.query.name === 'string' ? req.query.name : `${entry.name} connection`;
+    res.redirect(
+      302,
+      beginAuthorize(db, entry.key, { name, providerConfig: oauth[entry.key], selfBaseUrl }, now()),
+    );
   });
-  app.get('/api/connections/:provider/callback', (req, res) => {
-    if (!providerEntry(req.params.provider as string)) fail(404, 'Unknown provider');
-    res.status(501).json({ error: 'OAuth callback not implemented in this release' });
+  app.get('/api/connections/:provider/callback', (req, res, next) => {
+    void (async () => {
+      const entry = providerEntry(req.params.provider as string);
+      if (!entry) fail(404, 'Unknown provider');
+      const stateRow = consumeState(db, entry.key, req.query.state);
+      if (!stateRow) fail(400, 'Invalid or expired OAuth state');
+      const code = typeof req.query.code === 'string' ? req.query.code : '';
+      if (!code) fail(422, 'code is required');
+      const redirectUri = `${selfBaseUrl}/api/connections/${entry.key}/callback`;
+      const tokens = await exchangeCode(code, redirectUri, oauth[entry.key], fetchImpl, now());
+      const connection = connectionFromTokens(
+        db,
+        encryptionKey,
+        entry.key,
+        stateRow.name ?? `${entry.name} connection`,
+        tokens,
+        now(),
+      );
+      res.status(201).json({ connection: mapConnection(connection) });
+    })().catch(next);
   });
 
   // ── Proxy (REST + GraphQL) ─────────────────────────────────────────
@@ -229,7 +329,7 @@ export function createApp(opts: AppOptions): express.Express {
     res.json({ webhook_event: mapWebhookEvent(row as Parameters<typeof mapWebhookEvent>[0]) });
   });
 
-  // ── Sync jobs (stubs) ──────────────────────────────────────────────
+  // ── Sync jobs ──────────────────────────────────────────────────────
   app.post('/api/connections/:id/sync', (req, res) => {
     const row = loadConnection(idParam(req));
     const kind = reqText(body(req), 'kind', 120);
@@ -237,6 +337,11 @@ export function createApp(opts: AppOptions): express.Express {
   });
   app.get('/api/sync-jobs', (_req, res) => {
     res.json({ sync_jobs: listSyncJobs(db).map(mapSyncJob) });
+  });
+  // Drive the sync worker once: advance every pending job to done.
+  app.post('/api/tick', (_req, res) => {
+    const ran = runSyncJobs(db, undefined, now());
+    res.json({ ran });
   });
 
   // ── Terminal error middleware ──────────────────────────────────────

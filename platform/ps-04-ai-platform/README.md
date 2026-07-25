@@ -26,8 +26,10 @@ only).
   similarity.
 - **Prompt management**: versioned prompt templates with `{{variable}}`
   interpolation and an active-version pointer.
-- **Agents, image generation and speech** are present as documented `501`
-  stubs — the planned surface without a v1 implementation.
+- **Agents, image generation and speech** run on a deterministic offline
+  mock by default (an agent is a bounded tool-less loop over the chat
+  provider; images are placeholder SVG data URIs; transcription echoes a
+  reference), with optional real OpenAI adapters when a key is configured.
 
 ## Stack
 
@@ -88,13 +90,16 @@ Prompt management requires the admin session. Errors are `{ error, details? }`.
 | `GET /api/completions`, `GET /api/completions/:id` | caller | Call log. |
 | `POST /api/rag/documents` | caller | Ingest + embed a document. |
 | `POST /api/rag/search` | caller | Top-k cosine search. |
-| `POST /api/agents/run` · `/api/images/generate` · `/api/speech/transcribe` | caller | Documented `501` stubs. |
+| `POST /api/agents/run` | caller | Bounded agent loop over the chat provider; `{goal, prompt_key?, max_steps?}`. |
+| `POST /api/images/generate` | caller | `{prompt}` → image (mock SVG data URI, or OpenAI when keyed). |
+| `POST /api/speech/transcribe` | caller | `{audio_ref}` → transcript (mock, or OpenAI when keyed). |
 
 ## Consumed by
 
 Business Modules, over this API. The AI Platform depends on no Business
-Module. See [`.env.example`](./.env.example) for the (commented-out)
-`IDENTITY_URL` seam.
+Module. Set `IDENTITY_URL` (see [`.env.example`](./.env.example)) to verify
+end-user callers against PS-01's `POST /api/tokens/verify`; unset, the
+service runs standalone on its own admin/service-token.
 
 ## Tests
 
@@ -105,4 +110,12 @@ npm test
 Covers deterministic mock chat (identical output, no network), prompt
 versioning + render + active-pointer switch + missing-variable 422, the
 embedding cache, deterministic RAG ranking, provider selection (Anthropic
-only when keyed, mock otherwise), and the 501 stubs.
+only when keyed, mock otherwise), and the agents/images/speech capabilities.
+
+## API contract
+
+The full endpoint + auth surface is documented in [`openapi.yaml`](./openapi.yaml)
+(OpenAPI 3.1). Request/response *shapes* are typed in
+[`@0815software/platform-clients`](../clients) and pinned by `test/contract.test.ts`,
+which boots this service and drives the real client over HTTP — so the client and
+the service cannot drift apart unnoticed.

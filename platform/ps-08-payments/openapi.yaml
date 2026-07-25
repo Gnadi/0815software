@@ -1,0 +1,143 @@
+openapi: 3.1.0
+info:
+  title: PS-08 Payments API
+  version: '0.1.0'
+  description: >-
+    Payment intents, capture/refund, a double-entry ledger, and PSP webhooks.
+    Request and response bodies are typed in
+    @0815software/platform-clients and frozen by this service’s
+    contract test; this document is the endpoint + auth surface.
+servers:
+  - url: http://localhost:4008
+    description: Local / per-customer deployment (behind Caddy in production)
+tags:
+  - name: ps-08-payments
+paths:
+  /api/health:
+    get:
+      summary: Get health
+      tags: [ps-08-payments]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/ready:
+    get:
+      summary: Get ready
+      tags: [ps-08-payments]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/metrics:
+    get:
+      summary: Get metrics
+      tags: [ps-08-payments]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/login:
+    post:
+      summary: Create login
+      tags: [ps-08-payments]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/logout:
+    post:
+      summary: Create logout
+      tags: [ps-08-payments]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/webhooks/{provider}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create webhooks by provider
+      tags: [ps-08-payments]
+      security: []
+      responses:
+        '201': { description: Success }
+  /api/intents:
+    post:
+      summary: Create intents
+      tags: [ps-08-payments]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+    get:
+      summary: Get intents
+      tags: [ps-08-payments]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/intents/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get intents by id
+      tags: [ps-08-payments]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/intents/{id}/confirm:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create intents by id confirm
+      tags: [ps-08-payments]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/intents/{id}/refund:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create intents by id refund
+      tags: [ps-08-payments]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/ledger:
+    get:
+      summary: Get ledger
+      tags: [ps-08-payments]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/tick:
+    post:
+      summary: Create tick
+      tags: [ps-08-payments]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+components:
+  securitySchemes:
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared machine secret, or a scoped PS-01 API key when IDENTITY_URL is set.
+    adminSession:
+      type: http
+      scheme: bearer
+      description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.

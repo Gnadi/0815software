@@ -132,15 +132,12 @@ counts (from the live catalogue).
   shortage → 422 listing all offending items, nothing decremented),
   decrement stock, draw the next gapless `ORD-<year>-<seq>` ref,
   snapshot the lines, append the `placed` event, delete the cart.
-- **Payment is out of scope** (zero external services). Orders are
-  placed with status `placed` and payment status `unpaid`. Where a PSP
-  would hook in:
-  - client: `CheckoutView` currently posts straight to
-    `/api/shop/checkout` — a PSP redirect/element goes before that call;
-  - server: `POST /api/shop/checkout` is where you'd create the PSP
-    session, and the PSP's success webhook would call the same domain
-    function as `POST /api/admin/orders/:id/mark-paid` (`markPaid` in
-    `server/store.ts`).
+- **Payment** is standalone by default (zero external services): orders are
+  placed with status `placed` and payment status `unpaid`, and an admin marks
+  them paid. **Opt-in via PS-08 Payments** (see "Platform integration"): with
+  `PAYMENTS_URL` set, `POST /api/shop/checkout` collects payment for the order
+  total and marks the order paid on a synchronous success — best-effort, so a
+  payments outage still places the order unpaid.
 - The confirmation page shows the order ref plus a signed lookup link
   (`/order/<ref>?token=…`) — the guest's only key to the order. The
   admin marks payment manually until a PSP exists.
@@ -301,9 +298,20 @@ The shop face is *public* — put the whole app behind TLS.
 Kept out deliberately to stay a 5–6 week module. If you need any of
 these, that's commissioned work — exactly the kind 0815software does:
 
-- **Payment integration** — no PSP, no card fields, no webhooks. Orders
-  are placed `unpaid`; the hook points are documented above. This is
-  the first thing a real deployment adds.
+- **Card fields / hosted PSP UI** — the module collects payment through
+  PS-08 (server-side intents, opt-in via `PAYMENTS_URL`), not card input in
+  the browser. A hosted PSP element/redirect in `CheckoutView` is the
+  extension.
+
+## Platform integration (optional)
+
+mod-07 consumes [PS-08 Payments](../../platform/ps-08-payments) through the
+shared [`@0815software/platform-clients`](../../platform/clients) package. When
+`PAYMENTS_URL` (+ `PLATFORM_SERVICE_TOKEN`) is set, checkout creates a payment
+intent for the order total (idempotent on the order ref) and marks the order
+paid on a synchronous success; otherwise the module runs standalone. The call
+is best-effort — a payments outage never fails a placed order. See
+`server/platform.ts`.
 - **Customer accounts** — guests are identified by the signed cart
   cookie and order-lookup link only. Accounts, order history and saved
   addresses are MOD-01 territory.

@@ -1,0 +1,244 @@
+openapi: 3.1.0
+info:
+  title: PS-01 Identity API
+  version: '0.1.0'
+  description: >-
+    Organizations, users, roles/permissions, sessions, OAuth, and the cross-service token-verification seam.
+    Request and response bodies are typed in
+    @0815software/platform-clients and frozen by this service’s
+    contract test; this document is the endpoint + auth surface.
+servers:
+  - url: http://localhost:4001
+    description: Local / per-customer deployment (behind Caddy in production)
+tags:
+  - name: ps-01-identity
+paths:
+  /api/health:
+    get:
+      summary: Get health
+      tags: [ps-01-identity]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/ready:
+    get:
+      summary: Get ready
+      tags: [ps-01-identity]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/metrics:
+    get:
+      summary: Get metrics
+      tags: [ps-01-identity]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/login:
+    post:
+      summary: Create login
+      tags: [ps-01-identity]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/logout:
+    post:
+      summary: Create logout
+      tags: [ps-01-identity]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/tokens/verify:
+    post:
+      summary: Create tokens verify
+      tags: [ps-01-identity]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/oauth/{provider}/authorize:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get oauth by provider authorize
+      tags: [ps-01-identity]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/oauth/{provider}/callback:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get oauth by provider callback
+      tags: [ps-01-identity]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/me:
+    get:
+      summary: Get me
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/permissions:
+    get:
+      summary: Get permissions
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/orgs:
+    get:
+      summary: Get orgs
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    post:
+      summary: Create orgs
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/users:
+    get:
+      summary: Get users
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    post:
+      summary: Create users
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/users/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get users by id
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    patch:
+      summary: Update users by id
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/users/{id}/password:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create users by id password
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/roles:
+    get:
+      summary: Get roles
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    post:
+      summary: Create roles
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/users/{id}/roles:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create users by id roles
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/users/{id}/roles/{roleId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+      - name: roleId
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      summary: Delete users by id roles by roleId
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/api-keys:
+    get:
+      summary: Get api-keys
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    post:
+      summary: Create api-keys
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/api-keys/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      summary: Delete api-keys by id
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+components:
+  securitySchemes:
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared machine secret, or a scoped PS-01 API key when IDENTITY_URL is set.
+    adminSession:
+      type: http
+      scheme: bearer
+      description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.

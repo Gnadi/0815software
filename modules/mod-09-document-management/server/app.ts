@@ -14,6 +14,7 @@ import {
   verifyToken,
   type SessionConfig,
 } from './auth.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
 import {
   addMember,
   addTag,
@@ -76,6 +77,8 @@ export interface AppOptions {
   maxUploadBytes: number;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional Platform Services integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
 }
 
 export function createApp({
@@ -84,6 +87,7 @@ export function createApp({
   storageDir,
   maxUploadBytes,
   staticDir,
+  platform = noopPlatform,
 }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
@@ -282,7 +286,10 @@ export function createApp({
     const id = idParam(req.params.id);
     if (id === null) throw new DomainError(404, 'Matter not found');
     const input = uploadFrom(req, storageDir);
-    res.status(201).json(createDocument(db, actor(res), id, input));
+    const user = actor(res);
+    const doc = createDocument(db, user, id, input);
+    void platform.documentUploaded({ actor: `user:${user.id}`, docId: doc.document.id, version: doc.document.current_version, bytes: req.body as Buffer, contentType: str(req.headers['content-type']) ? String(req.headers['content-type']) : 'application/octet-stream', title: doc.document.title });
+    res.status(201).json(doc);
   });
 
   // Append a new version to an existing document.
@@ -290,7 +297,23 @@ export function createApp({
     const id = idParam(req.params.id);
     if (id === null) throw new DomainError(404, 'Document not found');
     const input = uploadFrom(req, storageDir);
-    res.status(201).json(addVersion(db, actor(res), id, input));
+    const user = actor(res);
+    const doc = addVersion(db, user, id, input);
+    void platform.documentUploaded({ actor: `user:${user.id}`, docId: doc.document.id, version: doc.document.current_version, bytes: req.body as Buffer, contentType: str(req.headers['content-type']) ? String(req.headers['content-type']) : 'application/octet-stream', title: doc.document.title });
+    res.status(201).json(doc);
+  });
+
+  // Cross-document search via PS-09 (501 when SEARCH_URL is unset).
+  app.get('/api/search', (req, res, next) => {
+    void (async () => {
+      const q = typeof req.query.q === 'string' ? req.query.q : '';
+      const result = await platform.searchDocuments(q);
+      if (result === null) {
+        res.status(501).json({ error: 'Search is not configured (set SEARCH_URL)' });
+        return;
+      }
+      res.json(result);
+    })().catch(next);
   });
 
   // Download the current version, or ?version=N for a specific one.

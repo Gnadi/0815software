@@ -1,0 +1,51 @@
+{
+  "name": "@0815software/platform-clients",
+  "version": "0.1.0",
+  "description": "Typed HTTP clients for the 0815software Platform Services (PS-01…07). Zero runtime dependencies — a thin wrapper over the built-in fetch.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "keywords": [
+    "0815software",
+    "platform-services",
+    "api-client",
+    "identity",
+    "workflow",
+    "notifications"
+  ],
+  "homepage": "https://github.com/Gnadi/0815software/tree/main/platform/clients#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Gnadi/0815software.git",
+    "directory": "platform/clients"
+  },
+  "bugs": {
+    "url": "https://github.com/Gnadi/0815software/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "prepack": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.11",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

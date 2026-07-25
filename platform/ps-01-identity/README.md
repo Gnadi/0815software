@@ -81,8 +81,8 @@ foreign tenant) · **409** (conflict).
 | `GET /api/health` | Liveness. |
 | `POST /api/login` | `{org_slug,email,password}` → `{token,user}` + session cookie. |
 | `POST /api/logout` | Clear the session cookie. |
-| `GET /api/oauth/:provider/authorize` | OAuth stub — records a state nonce, 302 redirect. |
-| `GET /api/oauth/:provider/callback` | OAuth stub — 501 (documented seam). |
+| `GET /api/oauth/:provider/authorize` | `?org_slug=` → records a CSRF state nonce, 302 to the provider (or the mock IdP). |
+| `GET /api/oauth/:provider/callback` | Consumes the state, resolves the identity, provisions-or-links the user, issues a session. |
 
 ### Authenticated
 
@@ -122,3 +122,11 @@ npm test
 Covers unknown-account login timing, tenant isolation (cross-org → 404),
 RBAC (member forbidden / admin allowed), password-change token revocation,
 API-key mint + revoke, and the `tokens/verify` round-trip.
+
+## API contract
+
+The full endpoint + auth surface is documented in [`openapi.yaml`](./openapi.yaml)
+(OpenAPI 3.1). Request/response *shapes* are typed in
+[`@0815software/platform-clients`](../clients) and pinned by `test/contract.test.ts`,
+which boots this service and drives the real client over HTTP — so the client and
+the service cannot drift apart unnoticed.

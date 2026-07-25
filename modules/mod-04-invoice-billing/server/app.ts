@@ -29,6 +29,9 @@ import {
   type LineInput,
 } from './invoices.js';
 import { renderInvoicePdf } from './pdf.js';
+import { fmtEur } from '../shared/money.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
+import { nullVerifier, type LoginVerifier } from './sso.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -135,9 +138,12 @@ export interface AppOptions {
   seller: SellerConfig;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional Platform Services integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
+  verifyLogin?: LoginVerifier;
 }
 
-export function createApp({ db, auth, seller, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, seller, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -146,9 +152,14 @@ export function createApp({ db, auth, seller, staticDir }: AppOptions): express.
     res.json({ ok: true });
   });
 
-  app.post('/api/login', (req, res) => {
+  app.post('/api/login', async (req, res) => {
     const { username, password } = body(req);
-    if (!checkCredentials(auth, username, password)) {
+    // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
+    // otherwise the local admin credentials do. Either way the module mints
+    // its own session below, so the rest of the request path is unchanged.
+    const viaSso = await verifyLogin(username, password);
+    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
+    if (!authed) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
@@ -258,12 +269,35 @@ export function createApp({ db, auth, seller, staticDir }: AppOptions): express.
     res.json({ ok: true });
   });
 
-  app.post('/api/invoices/:id/finalize', (req, res) => {
+  app.post('/api/invoices/:id/finalize', async (req, res) => {
     const errors: FieldError[] = [];
     const issueDate = optDate(body(req).issue_date, 'issue_date', errors);
     if (errors.length > 0) fail(errors);
-    finalizeInvoice(db, Number(req.params.id), issueDate ?? undefined);
-    res.json(invoiceDetail(db, Number(req.params.id)));
+    // When PS-10 Number is configured, source the invoice number from it
+    // (authoritative, gapless); otherwise the local per-year counter assigns it.
+    const numberOverride = await platform.nextInvoiceNumber();
+    finalizeInvoice(db, Number(req.params.id), issueDate ?? undefined, numberOverride ?? undefined);
+    const detail = invoiceDetail(db, Number(req.params.id));
+
+    // Fan the freshly-issued invoice out to the Platform Services (email the
+    // customer, archive the PDF, record the audit event). Best-effort and a
+    // no-op when nothing is configured, so mod-04 still works standalone.
+    const customer = getCustomer(db, detail.customer_id);
+    try {
+      await platform.invoiceIssued({
+        number: detail.number ?? `draft-${detail.id}`,
+        customerEmail: customer.email,
+        customerName: detail.customer_name,
+        totalFormatted: fmtEur(detail.gross_cents),
+        pdf: renderInvoicePdf(detail, customer, seller),
+        actor: res.locals.username ?? 'admin',
+      });
+    } catch (err) {
+      // A platform side-effect must never fail the invoice itself.
+      console.warn('[mod-04] platform.invoiceIssued failed:', err);
+    }
+
+    res.json(detail);
   });
 
   app.post('/api/invoices/:id/cancel', (req, res) => {
@@ -287,6 +321,26 @@ export function createApp({ db, auth, seller, staticDir }: AppOptions): express.
     if (errors.length > 0) fail(errors);
     recordPayment(db, Number(req.params.id), { date, amountCents, note });
     res.status(201).json(invoiceDetail(db, Number(req.params.id)));
+  });
+
+  // Collect payment for an invoice's open balance via PS-08 Payments. When the
+  // payment settles synchronously it is recorded here; otherwise the intent is
+  // pending (settled later by PS-08's webhook/tick). 501 when Payments is unset.
+  app.post('/api/invoices/:id/pay', async (req, res) => {
+    const id = Number(req.params.id);
+    const detail = invoiceDetail(db, id);
+    if (detail.status !== 'sent') fail([{ field: 'status', message: 'Only a sent, unpaid invoice can be paid' }]);
+    if (detail.open_cents <= 0) fail([{ field: 'status', message: 'Invoice has no open balance' }]);
+
+    const result = await platform.payInvoice({ number: detail.number!, amountMinor: detail.open_cents, currency: 'EUR' });
+    if (result === null) {
+      res.status(501).json({ error: 'Payments are not configured (set PAYMENTS_URL)' });
+      return;
+    }
+    if (result.status === 'succeeded') {
+      recordPayment(db, id, { date: todayIso(), amountCents: detail.open_cents, note: `PS-08 ${result.public_id}` });
+    }
+    res.json({ payment: result, invoice: invoiceDetail(db, id) });
   });
 
   app.get('/api/invoices/:id/pdf', (req, res) => {

@@ -1,9 +1,16 @@
 import { createApp } from './app.js';
+import { assertProductionConfig } from './guard.js';
+import { hardeningFromEnv } from './hardening.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
 
 const config = configFromEnv();
+assertProductionConfig([
+  { name: 'SESSION_SECRET', value: config.auth.secret },
+  { name: 'ADMIN_PASSWORD', value: config.auth.password },
+  { name: 'SERVICE_TOKEN', value: config.auth.serviceToken },
+]);
 const db = openDb(config.databasePath);
 
 seed(db);
@@ -22,6 +29,10 @@ const app = createApp({
   kimiApiKey: config.kimiApiKey,
   kimiModel: config.kimiModel,
   kimiBaseUrl: config.kimiBaseUrl,
+  imageModel: config.imageModel,
+  speechModel: config.speechModel,
+  embedModel: config.embedModel,
+  hardening: hardeningFromEnv(), logRequests: true,
 });
 
 app.listen(config.port, () => {

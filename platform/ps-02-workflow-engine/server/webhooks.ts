@@ -119,8 +119,8 @@ export async function dispatch(
       const res = await fetchImpl(hook.url, {
         method: 'POST',
         headers: {
-          'content-type': 'application/json',
-          'x-signature': hmacSign(d.payload, hook.secret),
+          'Content-Type': 'application/json',
+          'X-Signature': hmacSign(d.payload, hook.secret),
         },
         body: d.payload,
       });

@@ -126,13 +126,30 @@ export interface QueueResult {
   sent: number;
   failed: number;
   dead: number;
+  pruned: number;
 }
 
-/** Attempt every due message once, applying backoff / dead-lettering. */
+/**
+ * Retention: delete terminal messages (sent or dead) older than
+ * `retentionDays`. Their bodies carry recipient PII, so a per-customer window
+ * bounds how long that data is retained. Returns the number removed.
+ */
+export function pruneMessages(db: Database.Database, retentionDays: number, now = Date.now()): number {
+  if (!retentionDays || retentionDays <= 0) return 0;
+  const cutoff = nowIso(now - retentionDays * 86_400_000);
+  const info = db
+    .prepare(`DELETE FROM messages WHERE status IN ('sent','dead') AND created_at < ?`)
+    .run(cutoff);
+  return info.changes;
+}
+
+/** Attempt every due message once, applying backoff / dead-lettering, then
+ *  prune terminal messages past the retention window. */
 export async function tick(
   db: Database.Database,
   resolve: ProviderResolver,
   now = Date.now(),
+  retentionDays = 0,
 ): Promise<QueueResult> {
   const at = nowIso(now);
   const due = db
@@ -141,7 +158,7 @@ export async function tick(
     )
     .all(at) as MessageRow[];
 
-  const result: QueueResult = { sent: 0, failed: 0, dead: 0 };
+  const result: QueueResult = { sent: 0, failed: 0, dead: 0, pruned: 0 };
 
   for (const m of due) {
     const channel = db.prepare('SELECT * FROM channels WHERE id = ?').get(m.channel_id) as ChannelRow | undefined;
@@ -187,5 +204,6 @@ export async function tick(
     }
   }
 
+  result.pruned = pruneMessages(db, retentionDays, now);
   return result;
 }

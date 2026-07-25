@@ -135,3 +135,151 @@ describe('proxy', () => {
     expect((await request(app).post('/api/connections/424242/proxy').set(as(t)).send({ method: 'GET', path: '/x' })).status).toBe(404);
   });
 });
+
+function locationQuery(location: string): URLSearchParams {
+  const qIdx = location.indexOf('?');
+  return new URLSearchParams(qIdx >= 0 ? location.slice(qIdx + 1) : '');
+}
+
+describe('OAuth connect flow (mock IdP)', () => {
+  it('authorize → callback provisions an encrypted connection', async () => {
+    const t = await token();
+    const authorize = await request(app).get('/api/connections/github/authorize?name=my-gh').set(as(t)).redirects(0);
+    expect(authorize.status).toBe(302);
+    const loc = authorize.headers['location'] as string;
+    expect(loc).toContain('/api/connections/github/callback');
+    const q = locationQuery(loc);
+
+    const callback = await request(app)
+      .get(`/api/connections/github/callback?state=${q.get('state')}&code=${q.get('code')}`)
+      .set(as(t))
+      .redirects(0);
+    expect(callback.status).toBe(201);
+    expect(callback.body.connection.provider).toBe('github');
+    expect(callback.body.connection.name).toBe('my-gh');
+    // Credentials are never returned.
+    expect(callback.body.connection.credentials).toBeUndefined();
+    expect(callback.body.connection.credentials_encrypted).toBeUndefined();
+  });
+
+  it('rejects a callback with an invalid state', async () => {
+    const t = await token();
+    const res = await request(app).get('/api/connections/github/callback?state=nope&code=x').set(as(t)).redirects(0);
+    expect(res.status).toBe(400);
+  });
+
+  it('unknown provider on authorize is 404', async () => {
+    const t = await token();
+    expect((await request(app).get('/api/connections/nope/authorize').set(as(t)).redirects(0)).status).toBe(404);
+  });
+});
+
+describe('token refresh & sync worker', () => {
+  it('refreshes a mock connection and rotates its access token', async () => {
+    const t = await token();
+    const authorize = await request(app).get('/api/connections/github/authorize').set(as(t)).redirects(0);
+    const q = locationQuery(authorize.headers['location'] as string);
+    const cb = await request(app)
+      .get(`/api/connections/github/callback?state=${q.get('state')}&code=${q.get('code')}`)
+      .set(as(t))
+      .redirects(0);
+    const id = cb.body.connection.id;
+
+    const refresh = await request(app).post(`/api/connections/${id}/refresh`).set(as(t));
+    expect(refresh.status).toBe(200);
+    expect(refresh.body.refreshed).toBe(true);
+  });
+
+  it('drives sync jobs pending → done on tick', async () => {
+    const t = await token();
+    const conn = await request(app)
+      .post('/api/connections')
+      .set(as(t))
+      .send({ provider: 'stripe', name: 'billing', credentials: { access_token: 'x' } });
+    const id = conn.body.connection.id;
+    const job = await request(app).post(`/api/connections/${id}/sync`).set(as(t)).send({ kind: 'charges' });
+    expect(job.body.sync_job.status).toBe('pending');
+
+    const tick = await request(app).post('/api/tick').set(as(t));
+    expect(tick.body.ran).toBe(1);
+
+    const jobs = await request(app).get('/api/sync-jobs').set(as(t));
+    const done = jobs.body.sync_jobs.find((j: { id: number }) => j.id === job.body.sync_job.id);
+    expect(done.status).toBe('done');
+    expect(done.records).toBeGreaterThan(0);
+  });
+});
+
+describe('inbound webhook signature schemes', () => {
+  it('accepts a valid stripe signature and rejects a bad one', async () => {
+    const entry = providerEntry('stripe')!;
+    const payload = JSON.stringify({ id: 'evt_1' });
+    const good = expectedSignature(entry, webhookSecret, payload);
+    const ok = await request(app)
+      .post('/api/webhooks/stripe')
+      .set(entry.signature_header!, `${entry.signature_prefix}${good}`)
+      .set('content-type', 'application/json')
+      .send(payload);
+    expect(ok.status).toBe(202);
+    expect(ok.body.signature_valid).toBe(true);
+
+    const bad = await request(app)
+      .post('/api/webhooks/stripe')
+      .set(entry.signature_header!, 'deadbeef')
+      .set('content-type', 'application/json')
+      .send(payload);
+    expect(bad.status).toBe(403);
+  });
+
+  it('accepts a "none"-scheme provider without a signature', async () => {
+    // google is auth_type oauth2 with signature_scheme none.
+    const res = await request(app).post('/api/webhooks/google').set('content-type', 'application/json').send({ x: 1 });
+    expect(res.status).toBe(202);
+  });
+});
+
+describe('identity seam', () => {
+  it('accepts a PS-01-verified token when IDENTITY_URL is set', async () => {
+    const identityFetch = async (_url: string, init?: { body?: string }) => {
+      const tok = init?.body ? (JSON.parse(init.body).token as string) : '';
+      return { ok: true, status: 200, json: async () => ({ valid: tok === 'ps01-good', permissions: ['platform:admin'] }) };
+    };
+    const seamApp = createApp({
+      db,
+      auth: { ...auth, identityUrl: 'http://identity.test' },
+      encryptionKey: encKey,
+      webhookSecret,
+      fetchImpl: mockFetch,
+      identityFetch,
+    });
+    expect((await request(seamApp).get('/api/connections').set(as('ps01-good'))).status).toBe(200);
+    expect((await request(seamApp).get('/api/connections').set(as('ps01-bad'))).status).toBe(401);
+  });
+});
+
+describe('schema migrations', () => {
+  it('adds sync_jobs.records to a legacy database', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const dir = mkdtempSync(join(tmpdir(), 'ps05-mig-'));
+    const path = join(dir, 'legacy.db');
+    try {
+      const legacy = new Database(path);
+      legacy.exec(`
+        CREATE TABLE sync_jobs (id INTEGER PRIMARY KEY AUTOINCREMENT, connection_id INTEGER NOT NULL,
+          kind TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', cursor TEXT,
+          created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+        CREATE TABLE schema_migrations (id INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL);
+        INSERT INTO schema_migrations VALUES (1, 'baseline', '2026-01-01T00:00:00Z');
+      `);
+      legacy.close();
+      const upgraded = openDb(path);
+      const cols = (upgraded.prepare("PRAGMA table_info('sync_jobs')").all() as { name: string }[]).map((c) => c.name);
+      expect(cols).toContain('records'); // migration 2 applied
+      upgraded.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

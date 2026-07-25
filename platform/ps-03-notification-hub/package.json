@@ -1,7 +1,7 @@
 {
   "name": "@0815software/ps-03-notification-hub",
   "version": "0.1.0",
-  "description": "PS-03 Notification Hub — centralized notification delivery across email, SMS, push and chat channels, with templates and a retryable queue.",
+  "description": "PS-03 Notification Hub \u2014 centralized notification delivery across email, SMS, push and chat channels, with templates and a retryable queue.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -10,7 +10,9 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server/server/index.js",
-    "test": "vitest run"
+    "test": "vitest run --exclude '**/live/**'",
+    "backup": "node scripts/backup.mjs",
+    "test:live": "vitest run test/live"
   },
   "dependencies": {
     "better-sqlite3": "^12.4.1",

@@ -1,4 +1,5 @@
 import type { SessionConfig } from './auth.js';
+import type { PlatformConfig } from './platform.js';
 
 export interface ServerConfig {
   port: number;
@@ -6,6 +7,7 @@ export interface ServerConfig {
   storageDir: string;
   maxUploadBytes: number;
   session: SessionConfig;
+  platform: PlatformConfig;
 }
 
 const DEFAULT_MAX_UPLOAD = 25 * 1024 * 1024; // 25 MiB
@@ -20,7 +22,13 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     session: {
       secret: env.SESSION_SECRET ?? 'dev-secret-change-me',
       ttlHours: Number(env.SESSION_TTL_HOURS) || 12,
-      secureCookie: env.COOKIE_SECURE === 'true',
+      secureCookie: env.COOKIE_SECURE !== undefined ? env.COOKIE_SECURE === 'true' : env.NODE_ENV === 'production',
+    },
+    platform: {
+      filesUrl: env.FILES_URL || undefined,
+      auditUrl: env.AUDIT_URL || undefined,
+      searchUrl: env.SEARCH_URL || undefined,
+      serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
   };
 }

@@ -1,0 +1,62 @@
+name: Publish platform-clients
+
+# Publishes @0815software/platform-clients to the npm registry when a release
+# tag is pushed (e.g. `platform-clients-v0.1.0`), or on manual dispatch.
+#
+# Prerequisites (one-time, by a maintainer):
+#   1. The npm org `0815software` exists and you are a member.
+#   2. Add an npm automation token as the repo secret `NPM_TOKEN`
+#      (Settings → Secrets and variables → Actions).
+#
+# Cut a release:
+#   npm version patch  # in platform/clients, bumps + commits + tags nothing
+#   git tag platform-clients-v$(node -p "require('./platform/clients/package.json').version")
+#   git push origin --tags
+
+on:
+  push:
+    tags:
+      - 'platform-clients-v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run npm publish with --dry-run (no registry write)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write # npm provenance via OIDC
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/clients
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      # install-links is set in module .npmrc files; the package itself has no
+      # runtime deps, so a plain install is enough here.
+      - run: npm install --no-audit --no-fund
+
+      - run: npm test
+
+      # prepack (tsc) builds dist during pack/publish.
+      - name: Publish (dry-run)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: npm publish --dry-run
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

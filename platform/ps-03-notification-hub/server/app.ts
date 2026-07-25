@@ -11,8 +11,14 @@ import {
   sessionCookie,
   requireAuth,
   type AuthConfig,
+  type SeamFetch,
 } from './auth.js';
+import type { TwilioConfig } from './providers/twilio-sms.js';
 import { DomainError, fail, reqText } from './errors.js';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
+import { MIGRATIONS } from './db.js';
+import { pendingCount } from './migrations.js';
+import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
 import { latestTemplate, mapTemplate, renderTemplate, type TemplateRow } from './templates.js';
 import { enqueue, mapChannel, mapMessage, tick, type ChannelRow, type MessageRow } from './queue.js';
 import { buildResolver } from './providers/registry.js';
@@ -25,7 +31,16 @@ export interface AppOptions {
   /** Override provider resolution (tests). Otherwise built from config. */
   resolve?: ProviderResolver;
   resendApiKey?: string | null;
+  twilio?: TwilioConfig | null;
   fetchImpl?: FetchLike;
+  /** Days to keep terminal (sent/dead) messages; pruned on tick. 0 = keep. */
+  retentionDays?: number;
+  /** Injectable fetch for the identity-seam verification call (tests). */
+  identityFetch?: SeamFetch;
+  /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
+  hardening?: HardeningConfig;
+  /** Emit one JSON log line per request (default false; index.ts passes true). */
+  logRequests?: boolean;
 }
 
 function idParam(req: Request): number | null {
@@ -39,9 +54,13 @@ function body(req: Request): Record<string, unknown> {
 
 export function createApp(opts: AppOptions): express.Express {
   const { db, auth, now = Date.now } = opts;
-  const resolve = opts.resolve ?? buildResolver({ resendApiKey: opts.resendApiKey ?? null, fetchImpl: opts.fetchImpl });
+  const resolve =
+    opts.resolve ??
+    buildResolver({ resendApiKey: opts.resendApiKey ?? null, twilio: opts.twilio ?? null, fetchImpl: opts.fetchImpl });
 
   const app = express();
+  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
+  app.use(requestTelemetry({ service: 'ps-03', log: opts.logRequests === true }));
   app.use(express.json({ limit: '256kb' }));
 
   const channelByName = (name: string): ChannelRow | undefined =>
@@ -50,6 +69,38 @@ export function createApp(opts: AppOptions): express.Express {
   // ── Public routes ──────────────────────────────────────────────────
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  const gauges: Gauge[] = [
+    {
+      name: 'notification_dead_messages',
+      help: 'Messages that exhausted their delivery retries.',
+      value: () => (db.prepare("SELECT COUNT(*) AS n FROM messages WHERE status = 'dead'").get() as { n: number }).n,
+    },
+    {
+      name: 'notification_queued_messages',
+      help: 'Messages waiting to be sent or retried.',
+      value: () => (db.prepare("SELECT COUNT(*) AS n FROM messages WHERE status IN ('queued', 'failed')").get() as { n: number }).n,
+    },
+  ];
+
+  // Readiness: DB reachable and schema fully migrated (liveness is /api/health).
+  app.get('/api/ready', (_req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      const pending = pendingCount(db, MIGRATIONS);
+      if (pending > 0) {
+        res.status(503).json({ ready: false, pending_migrations: pending });
+        return;
+      }
+      res.json({ ready: true });
+    } catch {
+      res.status(503).json({ ready: false });
+    }
+  });
+
+  app.get('/api/metrics', (_req, res) => {
+    res.type('text/plain').send(renderMetrics('ps-03', gauges));
   });
 
   app.post('/api/login', (req, res) => {
@@ -108,7 +159,7 @@ export function createApp(opts: AppOptions): express.Express {
   });
 
   // ── Admin gate ─────────────────────────────────────────────────────
-  app.use('/api', requireAuth(auth));
+  app.use('/api', requireAuth(auth, { fetch: opts.identityFetch }));
 
   // ── Channels ───────────────────────────────────────────────────────
   app.get('/api/channels', (_req, res) => {
@@ -221,7 +272,7 @@ export function createApp(opts: AppOptions): express.Express {
   });
 
   app.post('/api/tick', async (_req, res) => {
-    res.json(await tick(db, resolve, now()));
+    res.json(await tick(db, resolve, now(), opts.retentionDays ?? 0));
   });
 
   // ── Terminal error middleware ──────────────────────────────────────

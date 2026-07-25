@@ -60,8 +60,9 @@ curl -s -X POST localhost:4002/api/events \
   -d '{"type":"ticket.created","payload":{"ref":"TKT-1"}}'
 ```
 
-Schedules only advance while the process runs and `POST /api/tick` is
-called (no external cron in v1). Production build: `npm run build && npm start`.
+Schedules advance when `POST /api/tick` is called (drive it from cron), or
+set `TICK_INTERVAL_MS` to have the process advance the scheduler and delivery
+queue on an internal timer. Production build: `npm run build && npm start`.
 
 ## API
 
@@ -96,9 +97,9 @@ Admin routes need a session cookie or `Authorization: Bearer <token>`
 ## Consumed by
 
 Business Modules, over this API. The Workflow Engine depends on no Business
-Module. See [`.env.example`](./.env.example) for the (commented-out)
-`IDENTITY_URL` seam that would verify callers against PS-01 in a real
-deployment.
+Module. Set `IDENTITY_URL` (see [`.env.example`](./.env.example)) to verify
+end-user callers against PS-01's `POST /api/tokens/verify`; unset, the
+service runs standalone on its own admin/service-token.
 
 ## Tests
 
@@ -110,3 +111,11 @@ Covers idempotent runs (replay vs conflict), append-only folding + illegal
 transitions, service-token gating on ingestion + inbound hooks, the
 no-backfill scheduler, and webhook backoff → dead-letter → retry (with an
 injected clock and a mocked `fetch`).
+
+## API contract
+
+The full endpoint + auth surface is documented in [`openapi.yaml`](./openapi.yaml)
+(OpenAPI 3.1). Request/response *shapes* are typed in
+[`@0815software/platform-clients`](../clients) and pinned by `test/contract.test.ts`,
+which boots this service and drives the real client over HTTP — so the client and
+the service cannot drift apart unnoticed.

@@ -15,6 +15,7 @@ import {
   verifyToken,
   type SessionConfig,
 } from './auth.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
 
 interface CustomerRow {
   id: number;
@@ -59,9 +60,11 @@ export interface AppOptions {
   documentsDir: string;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional PS-07 Audit integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
 }
 
-export function createApp({ db, session, documentsDir, staticDir }: AppOptions): express.Express {
+export function createApp({ db, session, documentsDir, staticDir, platform = noopPlatform }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '256kb' }));
 
@@ -153,6 +156,7 @@ export function createApp({ db, session, documentsDir, staticDir }: AppOptions):
     );
     // Old tokens are now invalid; keep this session alive with a fresh one.
     issueSession(res, { ...customer, token_version: nextVersion });
+    void platform.audit({ actor: `customer:${customer.id}`, action: 'password.changed', resource: `customer:${customer.id}` });
     res.json({ ok: true });
   });
 

@@ -12,6 +12,8 @@ import {
 } from './auth.js';
 import { exportOrderedPos } from './csv.js';
 import { EXPORT_PROFILES, getProfile } from './export-profiles.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
+import { nullVerifier, type LoginVerifier } from './sso.js';
 import {
   approvePo,
   closePo,
@@ -189,9 +191,12 @@ export interface AppOptions {
   auth: AuthConfig;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional Platform Services integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
+  verifyLogin?: LoginVerifier;
 }
 
-export function createApp({ db, auth, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -200,9 +205,14 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
     res.json({ ok: true });
   });
 
-  app.post('/api/login', (req, res) => {
+  app.post('/api/login', async (req, res) => {
     const { username, password } = body(req);
-    if (!checkCredentials(auth, username, password)) {
+    // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
+    // otherwise the local admin credentials do. Either way the module mints
+    // its own session below, so the rest of the request path is unchanged.
+    const viaSso = await verifyLogin(username, password);
+    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
+    if (!authed) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
@@ -397,6 +407,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
 
   app.post('/api/pos/:id/submit', (req, res) => {
     submitPo(db, Number(req.params.id));
+    void platform.audit({ actor: auth.username, action: 'po.submitted', resource: `po:${req.params.id}` });
     res.json(poDetail(db, Number(req.params.id)));
   });
 

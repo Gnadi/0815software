@@ -10,6 +10,8 @@ import {
   type AuthConfig,
 } from './auth.js';
 import { directoryCsv } from './csv.js';
+import { noopPlatform, type PlatformHooks } from './platform.js';
+import { nullVerifier, type LoginVerifier } from './sso.js';
 import {
   createDepartment,
   createEmployee,
@@ -130,9 +132,12 @@ export interface AppOptions {
   auth: AuthConfig;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
+  /** Optional PS-07 Audit integration; defaults to a no-op (standalone). */
+  platform?: PlatformHooks;
+  verifyLogin?: LoginVerifier;
 }
 
-export function createApp({ db, auth, staticDir }: AppOptions): express.Express {
+export function createApp({ db, auth, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
@@ -141,9 +146,14 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
     res.json({ ok: true });
   });
 
-  app.post('/api/login', (req, res) => {
+  app.post('/api/login', async (req, res) => {
     const { username, password } = body(req);
-    if (!checkCredentials(auth, username, password)) {
+    // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
+    // otherwise the local admin credentials do. Either way the module mints
+    // its own session below, so the rest of the request path is unchanged.
+    const viaSso = await verifyLogin(username, password);
+    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
+    if (!authed) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
@@ -226,6 +236,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
 
   app.post('/api/employees', (req, res) => {
     const id = createEmployee(db, validateEmployee(body(req)));
+    void platform.audit({ actor: auth.username, action: 'employee.created', resource: `employee:${id}` });
     res.status(201).json(employeeDetail(db, id));
   });
 
@@ -240,6 +251,7 @@ export function createApp({ db, auth, staticDir }: AppOptions): express.Express 
 
   app.post('/api/employees/:id/offboard', (req, res) => {
     offboardEmployee(db, Number(req.params.id));
+    void platform.audit({ actor: auth.username, action: 'employee.offboarded', resource: `employee:${req.params.id}` });
     res.json(employeeDetail(db, Number(req.params.id)));
   });
 

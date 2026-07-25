@@ -13,10 +13,16 @@ import {
   requireAuth,
   SERVICE_HEADER,
   sessionCookie,
+  verifyIdentityToken,
   verifyToken,
   type AuthConfig,
+  type SeamFetch,
 } from './auth.js';
 import { DomainError, fail, reqText } from './errors.js';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
+import { MIGRATIONS } from './db.js';
+import { pendingCount } from './migrations.js';
+import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
 import {
   activeTemplate,
   mapPrompt,
@@ -27,9 +33,11 @@ import {
   type PromptVersionRow,
 } from './prompts.js';
 import { runChat, type ChatConfig } from './chat.js';
-import { EMBED_DIMS, EMBED_MODEL, embed } from './embeddings.js';
+import { EMBED_DIMS, EMBED_MODEL, embed, embedVendor, openaiEmbedProvider } from './embeddings.js';
 import { ingestDocument, search } from './rag.js';
-import { approxTokens, type FetchLike } from './providers/index.js';
+import { runAgent } from './agents.js';
+import { generateImage, transcribe } from './media.js';
+import { approxTokens, defaultFetch, type FetchLike } from './providers/index.js';
 
 export interface AppOptions {
   db: Database.Database;
@@ -46,7 +54,16 @@ export interface AppOptions {
   kimiApiKey?: string | null;
   kimiModel?: string;
   kimiBaseUrl?: string;
+  imageModel?: string;
+  speechModel?: string;
+  embedModel?: string;
   fetchImpl?: FetchLike;
+  /** Injectable fetch for the identity-seam verification call (tests). */
+  identityFetch?: SeamFetch;
+  /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
+  hardening?: HardeningConfig;
+  /** Emit one JSON log line per request (default false; index.ts passes true). */
+  logRequests?: boolean;
 }
 
 function idParam(req: Request): number | null {
@@ -75,6 +92,8 @@ export function createApp(opts: AppOptions): express.Express {
   };
 
   const app = express();
+  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
+  app.use(requestTelemetry({ service: 'ps-04', log: opts.logRequests === true }));
   app.use(express.json({ limit: '512kb' }));
 
   // A caller is either the admin (session) or a module (service token).
@@ -88,6 +107,18 @@ export function createApp(opts: AppOptions): express.Express {
       next();
       return;
     }
+    // Identity seam: accept a PS-01-issued end-user session when configured.
+    const token = parseBearer(req.headers.authorization) ?? parseCookies(req.headers.cookie)[COOKIE_NAME];
+    if (token && auth.identityUrl) {
+      const doFetch = opts.identityFetch ?? (globalThis.fetch as unknown as SeamFetch);
+      void verifyIdentityToken(auth.identityUrl, token, doFetch)
+        .then((ok) => {
+          if (ok) next();
+          else res.status(401).json({ error: 'Authentication required' });
+        })
+        .catch(() => res.status(401).json({ error: 'Authentication required' }));
+      return;
+    }
     res.status(401).json({ error: 'Authentication required' });
   };
   const requireAdmin = requireAuth(auth);
@@ -95,6 +126,27 @@ export function createApp(opts: AppOptions): express.Express {
   // ── Public ─────────────────────────────────────────────────────────
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  const gauges: Gauge[] = [];
+
+  // Readiness: DB reachable and schema fully migrated (liveness is /api/health).
+  app.get('/api/ready', (_req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      const pending = pendingCount(db, MIGRATIONS);
+      if (pending > 0) {
+        res.status(503).json({ ready: false, pending_migrations: pending });
+        return;
+      }
+      res.json({ ready: true });
+    } catch {
+      res.status(503).json({ ready: false });
+    }
+  });
+
+  app.get('/api/metrics', (_req, res) => {
+    res.type('text/plain').send(renderMetrics('ps-04', gauges));
   });
   app.post('/api/login', (req, res) => {
     const b = body(req);
@@ -125,15 +177,27 @@ export function createApp(opts: AppOptions): express.Express {
     res.json(response);
   });
 
-  app.post('/api/embeddings', requireCaller, (req, res) => {
+  app.post('/api/embeddings', requireCaller, async (req, res) => {
     const b = body(req);
     const input = Array.isArray(b.input) ? b.input : typeof b.input === 'string' ? [b.input] : null;
     if (!input || input.length === 0 || !input.every((s) => typeof s === 'string')) {
       fail(422, 'Validation failed', [{ field: 'input', message: 'must be a non-empty string or string array' }]);
     }
     const texts = input as string[];
-    const vectors = texts.map((t) => embed(db, t, now()));
     const promptTokens = texts.reduce((n, t) => n + approxTokens(t), 0);
+
+    // A real vendor is used only when requested by name AND configured;
+    // otherwise the deterministic local mock model produces the vectors.
+    const wantsVendor = b.provider === 'openai' && opts.openaiApiKey;
+    if (wantsVendor) {
+      const provider = openaiEmbedProvider(opts.openaiApiKey!, opts.embedModel ?? 'text-embedding-3-small', opts.fetchImpl ?? defaultFetch);
+      const vectors: number[][] = [];
+      for (const t of texts) vectors.push(await embedVendor(db, provider, t, now()));
+      res.json({ model: provider.model, dims: vectors[0]?.length ?? 0, vectors, usage: { prompt_tokens: promptTokens, completion_tokens: 0 } });
+      return;
+    }
+
+    const vectors = texts.map((t) => embed(db, t, now()));
     res.json({ model: EMBED_MODEL, dims: EMBED_DIMS, vectors, usage: { prompt_tokens: promptTokens, completion_tokens: 0 } });
   });
 
@@ -246,12 +310,45 @@ export function createApp(opts: AppOptions): express.Express {
     res.json({ results: search(db, collection, query, k, now()) });
   });
 
-  // ── Documented stubs (not implemented in v1) ───────────────────────
-  for (const path of ['/api/agents/run', '/api/images/generate', '/api/speech/transcribe']) {
-    app.post(path, requireCaller, (_req, res) => {
-      res.status(501).json({ error: `${path} is not implemented in this release`, capability: 'planned' });
+  // ── Agents · images · speech ───────────────────────────────────────
+  const mediaFetch = opts.fetchImpl ?? defaultFetch;
+
+  app.post('/api/agents/run', requireCaller, async (req, res) => {
+    const b = body(req);
+    const provider = typeof b.provider === 'string' && isProvider(b.provider) ? (b.provider as ProviderName) : undefined;
+    const run = await runAgent(db, chatConfig, {
+      goal: typeof b.goal === 'string' ? b.goal : '',
+      promptKey: typeof b.prompt_key === 'string' ? b.prompt_key : undefined,
+      variables: (b.variables ?? {}) as Record<string, unknown>,
+      provider,
+      maxSteps: typeof b.max_steps === 'number' ? b.max_steps : undefined,
+      now: now(),
     });
-  }
+    res.json({ id: run.id, output: run.output, steps: run.steps });
+  });
+
+  app.post('/api/images/generate', requireCaller, async (req, res) => {
+    const prompt = reqText(body(req), 'prompt', 2000);
+    const result = await generateImage(prompt, {
+      openaiApiKey: opts.openaiApiKey ?? null,
+      imageModel: opts.imageModel ?? 'gpt-image-1',
+      fetchImpl: mediaFetch,
+    });
+    res.json(result);
+  });
+
+  app.post('/api/speech/transcribe', requireCaller, async (req, res) => {
+    const b = body(req);
+    // Accept a reference/URL or inline text stand-in for the audio.
+    const ref = typeof b.audio_ref === 'string' ? b.audio_ref : typeof b.input === 'string' ? b.input : '';
+    if (!ref) fail(422, 'audio_ref (or input) is required');
+    const result = await transcribe(ref, {
+      openaiApiKey: opts.openaiApiKey ?? null,
+      speechModel: opts.speechModel ?? 'whisper-1',
+      fetchImpl: mediaFetch,
+    });
+    res.json(result);
+  });
 
   // ── Terminal error middleware ──────────────────────────────────────
   app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {

@@ -1,0 +1,193 @@
+openapi: 3.1.0
+info:
+  title: PS-03 Notification Hub API
+  version: '0.1.0'
+  description: >-
+    Multi-channel messaging with templates, a delivery queue, and retries.
+    Request and response bodies are typed in
+    @0815software/platform-clients and frozen by this service’s
+    contract test; this document is the endpoint + auth surface.
+servers:
+  - url: http://localhost:4003
+    description: Local / per-customer deployment (behind Caddy in production)
+tags:
+  - name: ps-03-notification-hub
+paths:
+  /api/health:
+    get:
+      summary: Get health
+      tags: [ps-03-notification-hub]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/ready:
+    get:
+      summary: Get ready
+      tags: [ps-03-notification-hub]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/metrics:
+    get:
+      summary: Get metrics
+      tags: [ps-03-notification-hub]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/login:
+    post:
+      summary: Create login
+      tags: [ps-03-notification-hub]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/logout:
+    post:
+      summary: Create logout
+      tags: [ps-03-notification-hub]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/send:
+    post:
+      summary: Create send
+      tags: [ps-03-notification-hub]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/channels:
+    get:
+      summary: Get channels
+      tags: [ps-03-notification-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    post:
+      summary: Create channels
+      tags: [ps-03-notification-hub]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/channels/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      summary: Update channels by id
+      tags: [ps-03-notification-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/templates:
+    get:
+      summary: Get templates
+      tags: [ps-03-notification-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    post:
+      summary: Create templates
+      tags: [ps-03-notification-hub]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/templates/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get templates by key
+      tags: [ps-03-notification-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/templates/{key}/versions:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create templates by key versions
+      tags: [ps-03-notification-hub]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Success }
+        '401': { description: Authentication required }
+  /api/templates/{key}/preview:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create templates by key preview
+      tags: [ps-03-notification-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/messages:
+    get:
+      summary: Get messages
+      tags: [ps-03-notification-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/messages/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get messages by id
+      tags: [ps-03-notification-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/messages/{id}/retry:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Create messages by id retry
+      tags: [ps-03-notification-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/tick:
+    post:
+      summary: Create tick
+      tags: [ps-03-notification-hub]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+components:
+  securitySchemes:
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared machine secret, or a scoped PS-01 API key when IDENTITY_URL is set.
+    adminSession:
+      type: http
+      scheme: bearer
+      description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.
