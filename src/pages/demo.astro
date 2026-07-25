@@ -3,6 +3,10 @@ import SubPage from '../layouts/SubPage.astro';
 
 export const prerender = true;
 
+// Set PUBLIC_DEMO_URL in the site environment once the hosted demo is live
+// (see deploy/demo/). When present, the page leads with a one-click launch.
+const demoUrl = import.meta.env.PUBLIC_DEMO_URL;
+
 const apps = [
   {
     label: 'Offers',
@@ -83,20 +87,38 @@ const proves = [
         <div class="section-rail__name">Run it</div>
       </div>
       <div class="demo-run__content">
-        <h2 class="demo-run__h2">One command. Runs offline.</h2>
-        <p class="demo-run__body">
-          Clone the repo, then start the whole stack — eight services and four app UIs, wired together — with one command. No vendor keys, no Docker. The first run builds each app's UI; later runs boot straight up.
-        </p>
-        <pre class="demo-code"><code>git clone https://github.com/Gnadi/0815software
+        {demoUrl ? (
+          <>
+            <h2 class="demo-run__h2">Open it in your browser.</h2>
+            <p class="demo-run__body">
+              The full suite is live — four apps on one platform, nothing to install. Sign in with
+              <code>owner@acme.test</code> / <code>demo-owner</code> (single sign-on), or
+              <code>admin</code> / <code>demo-admin</code> for the Documents app.
+            </p>
+            <a href={demoUrl} target="_blank" rel="noopener noreferrer" class="btn btn--primary demo-launch">Launch the live demo →</a>
+            <p class="demo-run__note">
+              Prefer to run it yourself? <code>git clone</code> the repo, then <code>cd demo &amp;&amp; npm run demo</code> and open <code>http://localhost:4400</code>.
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 class="demo-run__h2">One command. Runs offline.</h2>
+            <p class="demo-run__body">
+              Clone the repo, then start the whole stack — eight services and four app UIs, wired together — with one command. No vendor keys. The first run builds each app's UI; later runs boot straight up.
+            </p>
+            <pre class="demo-code"><code>git clone https://github.com/Gnadi/0815software
 cd 0815software/demo
 npm run demo
 
 # → open http://localhost:4400</code></pre>
-        <p class="demo-run__note">
-          That opens a <strong>hub page</strong> linking into every running app. Sign in with
-          <code>owner@acme.test</code> / <code>demo-owner</code> (single sign-on), or
-          <code>admin</code> / <code>demo-admin</code> for the Documents app.
-        </p>
+            <p class="demo-run__note">
+              That opens a <strong>hub page</strong> linking into every running app. Sign in with
+              <code>owner@acme.test</code> / <code>demo-owner</code> (single sign-on), or
+              <code>admin</code> / <code>demo-admin</code> for the Documents app. To host it as a
+              public, clickable demo, see <code>deploy/demo/</code>.
+            </p>
+          </>
+        )}
       </div>
     </div>
   </section>
@@ -224,6 +246,10 @@ npm run demo
   line-height: 1.7;
   color: var(--fg);
   white-space: pre;
+}
+.demo-launch {
+  display: inline-block;
+  margin-bottom: 24px;
 }
 .demo-run__note {
   font-size: 14px;

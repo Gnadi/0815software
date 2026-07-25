@@ -1,0 +1,31 @@
+# TLS termination + routing for the hosted demo. Caddy obtains certificates
+# automatically (HTTP-01), so every name below must resolve to this host and
+# ports 80/443 must be reachable. DEMO_DOMAIN and ACME_EMAIL come from .env.
+#
+# Each app is served on its own subdomain so its single-page UI can call
+# `/api/*` on its own origin, exactly as it does locally.
+
+{
+	email {$ACME_EMAIL}
+}
+
+# The hub — the demo's landing page.
+{$DEMO_DOMAIN} {
+	reverse_proxy hub:8080
+}
+
+offers.{$DEMO_DOMAIN} {
+	reverse_proxy offers:3013
+}
+
+invoicing.{$DEMO_DOMAIN} {
+	reverse_proxy invoicing:3004
+}
+
+support.{$DEMO_DOMAIN} {
+	reverse_proxy support:3012
+}
+
+documents.{$DEMO_DOMAIN} {
+	reverse_proxy documents:3009
+}

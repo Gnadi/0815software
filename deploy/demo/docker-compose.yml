@@ -1,0 +1,174 @@
+# Hosted, clickable platform demo — one command, one host.
+#
+#   cp .env.example .env      # set DEMO_DOMAIN, ACME_EMAIL, and the secrets
+#   docker compose up -d --build
+#
+# Caddy terminates TLS on <DEMO_DOMAIN> (the hub) and offers./invoicing./
+# support./documents.<DEMO_DOMAIN> (the four apps). Only Caddy is published;
+# the eight platform services stay on the internal network. Databases live on
+# tmpfs, so `docker compose restart` resets the whole demo to seeded state.
+#
+# This mirrors the locally-verified demo/serve.mjs wiring 1:1 — same services,
+# same env, same ports — packaged for a server.
+
+x-service: &service
+  build: { context: ../.., dockerfile: deploy/Dockerfile }
+  restart: unless-stopped
+  tmpfs: ["/data"]
+  networks: [demo]
+  environment: &svc-env
+    NODE_ENV: production
+    SERVICE_TOKEN: ${SERVICE_TOKEN}
+    SESSION_SECRET: ${SESSION_SECRET}
+    ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+  healthcheck: &hc
+    test: ["CMD", "wget", "-qO-", "http://localhost:4001/api/health"]
+    interval: 15s
+    timeout: 5s
+    retries: 10
+
+x-app: &app
+  build: { context: ../.., dockerfile: deploy/demo/module.Dockerfile }
+  restart: unless-stopped
+  tmpfs: ["/data"]
+  networks: [demo]
+  environment: &app-env
+    NODE_ENV: production
+    PLATFORM_SERVICE_TOKEN: ${SERVICE_TOKEN}
+    SESSION_SECRET: ${SESSION_SECRET}
+    ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    IDENTITY_URL: http://ps01:4001
+    IDENTITY_ORG: acme
+  depends_on: [ps01, ps03, ps06, ps07, ps08, ps09, ps10, ps04]
+
+services:
+  # ── Platform services (internal only) ─────────────────────────────────────
+  ps01:
+    <<: *service
+    build: { context: ../.., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-01-identity } }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4001/api/health"] }
+  ps03:
+    <<: *service
+    build: { context: ../.., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-03-notification-hub } }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4003/api/health"] }
+  ps04:
+    <<: *service
+    build: { context: ../.., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-04-ai-platform } }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4004/api/health"] }
+  ps06:
+    <<: *service
+    build: { context: ../.., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-06-file-storage } }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4006/api/health"] }
+  ps07:
+    <<: *service
+    build: { context: ../.., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-07-audit-log } }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4007/api/health"] }
+  ps08:
+    <<: *service
+    build: { context: ../.., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-08-payments } }
+    environment:
+      <<: *svc-env
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4008/api/health"] }
+  ps09:
+    <<: *service
+    build: { context: ../.., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-09-search } }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4009/api/health"] }
+  ps10:
+    <<: *service
+    build: { context: ../.., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-10-number } }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4010/api/health"] }
+
+  # ── One-shot: stage the invoice sequence + file bucket ────────────────────
+  init:
+    image: node:22-alpine
+    restart: "no"
+    networks: [demo]
+    environment:
+      SERVICE_TOKEN: ${SERVICE_TOKEN}
+    volumes: ["./init.mjs:/init.mjs:ro"]
+    command: ["node", "/init.mjs"]
+    depends_on:
+      ps06: { condition: service_healthy }
+      ps10: { condition: service_healthy }
+
+  # ── Business apps (each on its own subdomain via Caddy) ───────────────────
+  offers:
+    <<: *app
+    build: { context: ../.., dockerfile: deploy/demo/module.Dockerfile, args: { MODULE: mod-13-offers } }
+    environment:
+      <<: *app-env
+      PORT: "3013"
+      NOTIFICATION_URL: http://ps03:4003
+      AUDIT_URL: http://ps07:4007
+      SELLER_NAME: Acme Corporation
+      PUBLIC_BASE_URL: https://offers.${DEMO_DOMAIN}
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:3013/api/health"] }
+
+  invoicing:
+    <<: *app
+    build: { context: ../.., dockerfile: deploy/demo/module.Dockerfile, args: { MODULE: mod-04-invoice-billing } }
+    environment:
+      <<: *app-env
+      PORT: "3004"
+      NOTIFICATION_URL: http://ps03:4003
+      FILES_URL: http://ps06:4006
+      AUDIT_URL: http://ps07:4007
+      PAYMENTS_URL: http://ps08:4008
+      NUMBER_URL: http://ps10:4010
+      NOTIFICATION_INVOICE_CHANNEL: transactional-email
+      SELLER_NAME: Acme Corporation
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:3004/api/health"] }
+
+  support:
+    <<: *app
+    build: { context: ../.., dockerfile: deploy/demo/module.Dockerfile, args: { MODULE: mod-12-support-tickets } }
+    environment:
+      <<: *app-env
+      PORT: "3012"
+      NOTIFICATION_URL: http://ps03:4003
+      AUDIT_URL: http://ps07:4007
+      AI_URL: http://ps04:4004
+      INTAKE_SECRET: ${INTAKE_SECRET}
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:3012/api/health"] }
+
+  documents:
+    <<: *app
+    build: { context: ../.., dockerfile: deploy/demo/module.Dockerfile, args: { MODULE: mod-09-document-management } }
+    environment:
+      <<: *app-env
+      PORT: "3009"
+      FILES_URL: http://ps06:4006
+      AUDIT_URL: http://ps07:4007
+      SEARCH_URL: http://ps09:4009
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:3009/api/health"] }
+
+  # ── The hub landing page ──────────────────────────────────────────────────
+  hub:
+    build: { context: ./hub }
+    restart: unless-stopped
+    networks: [demo]
+    environment:
+      DEMO_DOMAIN: ${DEMO_DOMAIN}
+
+  # ── Caddy: TLS + routing (the only published container) ───────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    networks: [demo]
+    environment:
+      DEMO_DOMAIN: ${DEMO_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [hub, offers, invoicing, support, documents]
+
+networks:
+  demo:
+
+volumes:
+  caddy-data:
+  caddy-config:
