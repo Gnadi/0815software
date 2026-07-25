@@ -51,7 +51,10 @@
 /* ─── Base reset ─────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+/* `clip` (not `hidden`) prevents any residual horizontal overflow from
+   shrinking the page on mobile, without creating a scroll container that
+   would break the sticky nav. */
+html { scroll-behavior: smooth; overflow-x: clip; }
 
 body {
   background: var(--bg);

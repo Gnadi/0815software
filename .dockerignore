@@ -1,0 +1,10 @@
+# Keep the Docker build context clean: every image runs its own `npm ci` and
+# build, so host-side installs and build output must never be copied in.
+**/node_modules
+**/dist
+**/.astro
+.vercel
+.git
+**/*.log
+**/data.db
+**/*.db

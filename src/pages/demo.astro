@@ -1,0 +1,306 @@
+---
+import SubPage from '../layouts/SubPage.astro';
+
+export const prerender = true;
+
+// Set PUBLIC_DEMO_URL in the site environment once the hosted demo is live
+// (see deploy/demo/). When present, the page leads with a one-click launch.
+const demoUrl = import.meta.env.PUBLIC_DEMO_URL;
+
+const apps = [
+  {
+    label: 'Offers',
+    port: '4413',
+    login: 'SSO',
+    blurb: 'Draft a quote, send it, and let the customer accept it online through a public link.',
+    services: 'Notifications · Audit',
+  },
+  {
+    label: 'Invoicing',
+    port: '4404',
+    login: 'SSO',
+    blurb: 'Bill the accepted quote. One "finalize" click fans out to five services at once.',
+    services: 'Numbering · Files · Notifications · Payments · Audit',
+  },
+  {
+    label: 'Support',
+    port: '4412',
+    login: 'SSO',
+    blurb: 'Open a ticket and ask the AI for a drafted reply the agent can review and send.',
+    services: 'AI · Notifications · Audit',
+  },
+  {
+    label: 'Documents',
+    port: '4409',
+    login: 'Local',
+    blurb: 'File a signed contract, then find it again with full-text search across the archive.',
+    services: 'Files · Search · Audit',
+  },
+];
+
+const proves = [
+  ['Single sign-on', 'Log into one app and PS-01 Identity signs you into all of them. The apps have no password of their own.'],
+  ['One action, many services', 'Finalizing an invoice assigns a gapless number, archives a PDF, emails the customer and records an audit event — one call, five services.'],
+  ['Real payment rail', 'PS-08 creates, confirms, settles and ledgers the payment — the same code path a real Stripe integration uses.'],
+  ['One audit trail', 'Every action from every app lands on a single tamper-evident hash chain you can verify.'],
+];
+---
+
+<SubPage
+  title="Live Demo — 0815software"
+  description="A real, clickable demo: four independent business apps running against one shared platform. One command, offline, no keys."
+  section="§ P5"
+  sectionName="Live Demo"
+  eyebrow="DIN 0815/DEMO · LIVE DEMO"
+  heading="See the whole platform,<br />actually running."
+  lead="Four independent apps, four separate UIs, one platform underneath. Log into one and you're logged into all of them; an action in one lights up the services the others share."
+>
+
+  <!-- The apps -->
+  <section class="demo-apps-section">
+    <div class="demo-apps__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P5.01</div>
+        <div class="section-rail__name">The apps</div>
+      </div>
+      <div class="demo-apps__grid">
+        {apps.map((a) => (
+          <article class="demo-app">
+            <div class="demo-app__top">
+              <h2 class="demo-app__name">{a.label}</h2>
+              <span class={`demo-app__badge demo-app__badge--${a.login === 'SSO' ? 'sso' : 'local'}`}>{a.login}</span>
+            </div>
+            <p class="demo-app__blurb">{a.blurb}</p>
+            <div class="demo-app__svc">{a.services}</div>
+            <div class="demo-app__port">localhost:{a.port}</div>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- Run it -->
+  <section class="demo-run-section">
+    <div class="demo-run__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P5.02</div>
+        <div class="section-rail__name">Run it</div>
+      </div>
+      <div class="demo-run__content">
+        {demoUrl ? (
+          <>
+            <h2 class="demo-run__h2">Open it in your browser.</h2>
+            <p class="demo-run__body">
+              The full suite is live — four apps on one platform, nothing to install. Sign in with
+              <code>owner@acme.test</code> / <code>demo-owner</code> (single sign-on), or
+              <code>admin</code> / <code>demo-admin</code> for the Documents app.
+            </p>
+            <a href={demoUrl} target="_blank" rel="noopener noreferrer" class="btn btn--primary demo-launch">Launch the live demo →</a>
+            <p class="demo-run__note">
+              Prefer to run it yourself? <code>git clone</code> the repo, then <code>cd demo &amp;&amp; npm run demo</code> and open <code>http://localhost:4400</code>.
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 class="demo-run__h2">One command. Runs offline.</h2>
+            <p class="demo-run__body">
+              Clone the repo, then start the whole stack — eight services and four app UIs, wired together — with one command. No vendor keys. The first run builds each app's UI; later runs boot straight up.
+            </p>
+            <pre class="demo-code"><code>git clone https://github.com/Gnadi/0815software
+cd 0815software/demo
+npm run demo
+
+# → open http://localhost:4400</code></pre>
+            <p class="demo-run__note">
+              That opens a <strong>hub page</strong> linking into every running app. Sign in with
+              <code>owner@acme.test</code> / <code>demo-owner</code> (single sign-on), or
+              <code>admin</code> / <code>demo-admin</code> for the Documents app. To host it as a
+              public, clickable demo, see <code>deploy/demo/</code>.
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  </section>
+
+  <!-- What it proves -->
+  <section class="demo-proves-section">
+    <div class="demo-proves__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P5.03</div>
+        <div class="section-rail__name">What it proves</div>
+      </div>
+      <div class="demo-proves__content">
+        <ul class="demo-proves__list">
+          {proves.map(([t, d]) => (
+            <li class="demo-proves__item">
+              <span class="demo-proves__bullet">→</span>
+              <span><strong>{t}.</strong> {d}</span>
+            </li>
+          ))}
+        </ul>
+        <a href="https://github.com/Gnadi/0815software/tree/main/demo" target="_blank" rel="noopener noreferrer" class="btn btn--ghost">See how it's wired ↗</a>
+      </div>
+    </div>
+  </section>
+
+</SubPage>
+
+<style>
+.demo-apps-section,
+.demo-run-section,
+.demo-proves-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.demo-run-section { background: var(--bg-2); }
+
+.demo-apps__inner,
+.demo-run__inner,
+.demo-proves__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.demo-apps__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.demo-app {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px;
+  transition: border-color 120ms ease-out;
+}
+.demo-app:hover { border-color: var(--accent); }
+.demo-app__top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.demo-app__name {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+}
+.demo-app__badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 20px;
+}
+.demo-app__badge--sso { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+.demo-app__badge--local { background: var(--bg-2); color: var(--fg-mute); border: 1px solid var(--line); }
+.demo-app__blurb {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  margin-bottom: 14px;
+  min-height: 66px;
+}
+.demo-app__svc {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.demo-app__port {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-mute);
+}
+
+.demo-run__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+  margin-bottom: 18px;
+}
+.demo-run__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 620px;
+  margin-bottom: 24px;
+}
+.demo-code {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 18px 20px;
+  overflow-x: auto;
+  margin-bottom: 20px;
+  max-width: 100%;
+  min-width: 0;
+}
+/* Long tokens (emails, URLs) must wrap instead of forcing the page wider. */
+.demo-run__body code,
+.demo-run__note code { overflow-wrap: anywhere; }
+.demo-code code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--fg);
+  white-space: pre;
+}
+.demo-launch {
+  display: inline-block;
+  margin-bottom: 24px;
+}
+.demo-run__note {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 620px;
+}
+.demo-run__note code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.demo-proves__list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 32px;
+}
+.demo-proves__item {
+  display: flex;
+  gap: 14px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.demo-proves__item strong { color: var(--fg); font-weight: 500; }
+.demo-proves__bullet {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+/* Grid items must be allowed to shrink below their content's intrinsic width,
+   otherwise a long line in the code block widens the whole page on mobile. */
+.demo-apps__grid,
+.demo-run__content,
+.demo-proves__content { min-width: 0; }
+
+@media (max-width: 999px) {
+  .demo-apps__inner,
+  .demo-run__inner,
+  .demo-proves__inner { grid-template-columns: 1fr; gap: 24px; }
+  .demo-apps__grid { grid-template-columns: 1fr; }
+}
+</style>
