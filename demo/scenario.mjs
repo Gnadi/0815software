@@ -2,20 +2,22 @@
 /**
  * 0815software Platform — live end-to-end demo.
  *
- * Boots eight Platform Services and three business modules as real processes,
+ * Boots eight Platform Services and four business modules as real processes,
  * all sharing one identity provider and one service credential, then drives a
- * complete business day for the fictional company "Acme Corporation":
+ * complete quote-to-cash-to-care day for the fictional company "Acme Corporation":
  *
- *   1. An admin signs into the Invoicing app — validated by PS-01 Identity (SSO).
- *   2. Acme bills a customer: the invoice number comes from PS-10 (gapless),
- *      the PDF is archived in PS-06, the customer is emailed via PS-03, and the
- *      whole thing is recorded on PS-07's tamper-evident audit log.
- *   3. The customer pays: PS-08 Payments runs the settlement.
- *   4. A support ticket comes in; PS-04 AI drafts the reply.
- *   5. A contract is filed in the Documents app: stored in PS-06, indexed in
+ *   1. A salesperson signs into the Offers app — validated by PS-01 Identity (SSO).
+ *   2. Acme quotes a customer: PS-03 emails the offer link, PS-07 audits it, and
+ *      the customer accepts online through the public link (no login).
+ *   3. Acme bills the accepted quote: the invoice number comes from PS-10
+ *      (gapless), the PDF is archived in PS-06, the customer is emailed via
+ *      PS-03, and the whole thing is recorded on PS-07's tamper-evident log.
+ *   4. The customer pays: PS-08 Payments runs the settlement.
+ *   5. A support ticket comes in; PS-04 AI drafts the reply.
+ *   6. A contract is filed in the Documents app: stored in PS-06, indexed in
  *      PS-09, and found again by full-text search.
- *   6. The platform proves itself: PS-07 verifies the audit chain over every
- *      action taken above, across all three apps.
+ *   7. The platform proves itself: PS-07 verifies the audit chain over every
+ *      action taken above, across all four apps.
  *
  * Everything runs offline with mock/console adapters — no vendor keys needed.
  *
@@ -69,6 +71,19 @@ const M = {
       SELLER_NAME: 'Acme Corporation',
     },
   }),
+  offers: boot({
+    group: 'modules',
+    name: 'mod-13-offers',
+    port: 4413,
+    tag: 'Offers',
+    env: {
+      ...ssoEnv,
+      NOTIFICATION_URL: P.notify,
+      AUDIT_URL: P.audit,
+      SELLER_NAME: 'Acme Corporation',
+      PUBLIC_BASE_URL: 'http://127.0.0.1:4413',
+    },
+  }),
   support: boot({
     group: 'modules',
     name: 'mod-12-support-tickets',
@@ -115,9 +130,9 @@ async function adminToken(base) {
 
 async function run() {
   console.log(c.bold('\n  0815software Platform — live demo: "A day at Acme Corporation"\n'));
-  step('Booting 8 Platform Services and 3 business apps…');
+  step('Booting 8 Platform Services and 4 business apps…');
   await waitForHealth({ ...P, ...M });
-  ok('All services healthy. One identity provider, one platform, three apps.');
+  ok('All services healthy. One identity provider, one platform, four apps.');
 
   // Pre-stage the two platform resources the apps expect to exist.
   await client(P.number).post(
@@ -129,19 +144,65 @@ async function run() {
 
   // ══════════════════════════════════════════════════════════════════════════
   act('Single sign-on — one identity across every app');
-  const invoicing = client(M.invoicing);
-  step(`Admin opens the Invoicing app and signs in as ${c.bold(HUMAN.email)}…`);
-  const login = await invoicing.post('/api/login', { username: HUMAN.email, password: HUMAN.password });
+  const offers = client(M.offers);
+  step(`A salesperson opens the Offers app and signs in as ${c.bold(HUMAN.email)}…`);
+  const login = await offers.post('/api/login', { username: HUMAN.email, password: HUMAN.password });
   expect(login.status === 200, `SSO login failed (${login.status})`);
   ok('Logged in — the app never checked a local password.');
   note('PS-01 Identity validated the credentials and confirmed the platform:admin role.');
-  const badLogin = await client(M.invoicing).post('/api/login', { username: HUMAN.email, password: 'wrong' });
+  const badLogin = await client(M.offers).post('/api/login', { username: HUMAN.email, password: 'wrong' });
   expect(badLogin.status === 401, 'a wrong password should be rejected');
   ok('A wrong password is rejected by PS-01 — the app delegates auth entirely.');
 
   // ══════════════════════════════════════════════════════════════════════════
+  act('Offers — quote a customer, and they accept online');
+  step('Acme adds a prospect and drafts a quote…');
+  const prospect = await offers.post('/api/customers', {
+    name: 'Blaustern Café GmbH',
+    email: 'buchhaltung@blaustern.example',
+    vat_id: 'ATU12345678',
+    address: 'Hauptstraße 12, 5020 Salzburg',
+  });
+  expect(prospect.status === 201, `prospect creation failed (${prospect.status}): ${JSON.stringify(prospect.body)}`);
+  const offerDraft = await offers.post('/api/offers', {
+    customer_id: prospect.body.id,
+    title: 'Platform onboarding + one year of priority support',
+    valid_until: '2026-12-31',
+    lines: [
+      { description: 'Consulting — platform onboarding (10h)', quantity: 10, unit_price_cents: 12000, vat_rate: 20 },
+      { description: 'Priority support, one year', quantity: 1, unit_price_cents: 90000, vat_rate: 20 },
+    ],
+  });
+  expect(offerDraft.status === 201, `offer draft failed (${offerDraft.status}): ${JSON.stringify(offerDraft.body)}`);
+  ok(`Quote drafted for ${c.bold(prospect.body.name)} (2 line items).`);
+
+  step('The salesperson sends the quote…');
+  const sent = await offers.post(`/api/offers/${offerDraft.body.id}/send`, {});
+  expect(sent.status === 200, `offer send failed (${sent.status})`);
+  ok(`Quote ${c.bold(sent.body.number)} sent.`);
+  note('↳ PS-03 emailed the customer a link to review it; PS-07 recorded an "offer.sent" event.');
+
+  const offerMsgs = (await client(P.notify).get('/api/messages', { token: await adminToken(P.notify) })).body;
+  expect(offerMsgs.messages.some((m) => String(m.subject).includes(sent.body.number)), 'no offer email queued in PS-03');
+  ok('PS-03 confirms the quote email is queued to the customer.');
+
+  step('The customer opens the public link and accepts — no login needed…');
+  // The public link is /offer/<number>?token=<signed token>; the acceptance
+  // endpoint keys off the same number + token.
+  const ref = encodeURIComponent(sent.body.number);
+  const accept = await client(M.offers).post(`/api/public/offers/${ref}/accept`, { token: sent.body.public_token });
+  expect(accept.status === 200, `public accept failed (${accept.status}): ${JSON.stringify(accept.body)}`);
+  expect(accept.body.status === 'accepted', `expected accepted, got ${accept.body.status}`);
+  ok(`Customer ${c.green('accepted')} the quote online. Time to invoice it.`);
+
+  // ══════════════════════════════════════════════════════════════════════════
   act('Invoicing — one action, five services');
-  step('Acme adds a customer and drafts an invoice…');
+  const invoicing = client(M.invoicing);
+  step('The accepted quote moves to the Invoicing app (same identity, next app)…');
+  const invLogin = await invoicing.post('/api/login', { username: HUMAN.email, password: HUMAN.password });
+  expect(invLogin.status === 200, `invoicing SSO login failed (${invLogin.status})`);
+  ok('Signed in to Invoicing via PS-01 — one identity, every app.');
+  step('Acme bills the customer for the accepted quote…');
   const customer = await invoicing.post('/api/customers', {
     name: 'Blaustern Café GmbH',
     email: 'buchhaltung@blaustern.example',
@@ -273,7 +334,7 @@ async function run() {
   const verify = (await client(P.audit).get('/api/verify', { token: auditAdmin })).body;
   expect(verify.valid === true, 'audit chain failed verification');
   ok(`PS-07 hash-chain is intact and tamper-evident over ${c.bold(verify.count)} recorded actions.`);
-  note('Invoices, payments, tickets and documents — from three separate apps — one trail.');
+  note('Quotes, invoices, payments, tickets and documents — from four separate apps — one trail.');
 
   const health = await Promise.all(
     Object.entries(P).map(async ([k, url]) => `${k}:${(await fetch(`${url}/api/ready`)).ok ? 'ready' : 'DOWN'}`),
@@ -282,8 +343,8 @@ async function run() {
 
   console.log('');
   hr();
-  console.log(c.bold(c.green('  DEMO COMPLETE — 8 services, 3 apps, one integrated platform.')));
-  console.log(c.dim('  SSO · gapless numbering · file archive · notifications · payments · AI · search · audit'));
+  console.log(c.bold(c.green('  DEMO COMPLETE — 8 services, 4 apps, one integrated platform.')));
+  console.log(c.dim('  SSO · quotes · gapless numbering · file archive · notifications · payments · AI · search · audit'));
   hr();
   console.log('');
 }

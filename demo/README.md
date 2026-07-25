@@ -4,10 +4,11 @@
 whole platform working as one integrated product, the way a customer would
 actually use it.
 
-It boots **8 Platform Services** and **3 business apps** as real processes, all
+It boots **8 Platform Services** and **4 business apps** as real processes, all
 sharing one identity provider and one service credential, then drives a
-complete business flow across them and narrates every cross-service effect.
-Everything runs **offline** — mock/console adapters, no vendor keys, no Docker.
+complete **quote-to-cash-to-care** flow across them and narrates every
+cross-service effect. Everything runs **offline** — mock/console adapters, no
+vendor keys, no Docker.
 
 ```sh
 node demo/scenario.mjs
@@ -17,16 +18,18 @@ node demo/scenario.mjs
 
 | Act | Story | Platform Services proven |
 | --- | --- | --- |
-| 1 | An admin signs into the **Invoicing** app | **PS-01 Identity** (SSO — the app has no password of its own; a wrong password is rejected by PS-01) |
-| 2 | Acme bills a customer — one "finalize" click | **PS-10** (gapless invoice number `INV-2026-0001`), **PS-06** (PDF archived), **PS-03** (customer emailed), **PS-07** (audit event) |
-| 3 | The customer pays | **PS-08 Payments** (intent created, confirmed, settled on tick, posted to the ledger) |
-| 4 | A support ticket comes in | **PS-04 AI** drafts the agent's reply; **PS-03** notifies; SSO again |
-| 5 | A contract is filed in the **Documents** app | **PS-06** (stored) + **PS-09 Search** (indexed, then found by full-text search) |
-| 6 | The platform proves itself | **PS-07** verifies the tamper-evident audit chain over **every** action from **all three** apps |
+| 1 | A salesperson signs into the **Offers** app | **PS-01 Identity** (SSO — the app has no password of its own; a wrong password is rejected by PS-01) |
+| 2 | Acme quotes a customer, who accepts online | **PS-03** (offer email), **PS-07** (audit); the customer accepts through the **public link** with no login |
+| 3 | Acme bills the accepted quote — one "finalize" click | **PS-10** (gapless number `RE-2026-0001`), **PS-06** (PDF archived), **PS-03** (customer emailed), **PS-07** (audit event) |
+| 4 | The customer pays | **PS-08 Payments** (intent created, confirmed, settled on tick, posted to the ledger) |
+| 5 | A support ticket comes in | **PS-04 AI** drafts the agent's reply; **PS-03** notifies; SSO again |
+| 6 | A contract is filed in the **Documents** app | **PS-06** (stored) + **PS-09 Search** (indexed, then found by full-text search) |
+| 7 | The platform proves itself | **PS-07** verifies the tamper-evident audit chain over **every** action from **all four** apps |
 
-Three separate business apps — Invoicing (mod-04), Support (mod-12), Documents
-(mod-09) — none of which know about each other, all coordinated through the
-shared platform. That is the whole pitch: **build apps fast, and they compose.**
+Four separate business apps — Offers (mod-13), Invoicing (mod-04), Support
+(mod-12), Documents (mod-09) — none of which know about each other, all
+coordinated through the shared platform. That is the whole pitch: **build apps
+fast, and they compose.**
 
 ## How it works
 
