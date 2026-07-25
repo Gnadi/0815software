@@ -1,72 +1,83 @@
 # 0815software Platform — Live Demo
 
-**"A day at Acme Corporation"** — a single, runnable scenario that shows the
-whole platform working as one integrated product, the way a customer would
-actually use it.
-
-It boots **8 Platform Services** and **4 business apps** as real processes, all
-sharing one identity provider and one service credential, then drives a
-complete **quote-to-cash-to-care** flow across them and narrates every
-cross-service effect. Everything runs **offline** — mock/console adapters, no
-vendor keys, no Docker.
+A **real, clickable** demo: four independent business apps, each with its own
+web UI, all running against one shared platform. Log into one and you're logged
+into all of them; an action in one lights up services the others also use.
 
 ```sh
-node demo/scenario.mjs
+npm run demo         # from the demo/ directory  (node serve.mjs)
+# → open http://localhost:4400
 ```
 
-## What it demonstrates
+That boots **8 Platform Services** and **4 business-app UIs**, wires them
+together, and serves a **hub page** that links you into each running app with
+the demo logins. Everything runs **offline** — mock/console adapters, no vendor
+keys, no Docker. The first run builds each app's UI (a few seconds each);
+later runs skip straight to boot.
 
-| Act | Story | Platform Services proven |
-| --- | --- | --- |
-| 1 | A salesperson signs into the **Offers** app | **PS-01 Identity** (SSO — the app has no password of its own; a wrong password is rejected by PS-01) |
-| 2 | Acme quotes a customer, who accepts online | **PS-03** (offer email), **PS-07** (audit); the customer accepts through the **public link** with no login |
-| 3 | Acme bills the accepted quote — one "finalize" click | **PS-10** (gapless number `RE-2026-0001`), **PS-06** (PDF archived), **PS-03** (customer emailed), **PS-07** (audit event) |
-| 4 | The customer pays | **PS-08 Payments** (intent created, confirmed, settled on tick, posted to the ledger) |
-| 5 | A support ticket comes in | **PS-04 AI** drafts the agent's reply; **PS-03** notifies; SSO again |
-| 6 | A contract is filed in the **Documents** app | **PS-06** (stored) + **PS-09 Search** (indexed, then found by full-text search) |
-| 7 | The platform proves itself | **PS-07** verifies the tamper-evident audit chain over **every** action from **all four** apps |
+## The four apps (and what each proves)
 
-Four separate business apps — Offers (mod-13), Invoicing (mod-04), Support
-(mod-12), Documents (mod-09) — none of which know about each other, all
-coordinated through the shared platform. That is the whole pitch: **build apps
-fast, and they compose.**
+| App | Open | Story | Platform services it uses |
+| --- | --- | --- | --- |
+| **Offers** | `:4413` | Quote a customer; they accept online via a public link | Notifications, Audit |
+| **Invoicing** | `:4404` | Bill the accepted quote — one "finalize" click | **Numbering, Files, Notifications, Payments, Audit** |
+| **Support** | `:4412` | Tickets with an AI-drafted reply | AI, Notifications, Audit |
+| **Documents** | `:4409` | File a contract, find it by full-text search | Files, Search, Audit |
 
-## How it works
+Between them they exercise **8 of the 10 platform services**. Each app is a
+separate product (its own React UI, its own database) — the only thing they
+share is the platform.
 
-- `scenario.mjs` spawns each service and module exactly as it runs in
-  production (`tsx server/index.ts`), wiring them with environment variables:
-  every module points at the same `IDENTITY_URL` (PS-01) and carries the same
-  `PLATFORM_SERVICE_TOKEN`; each app is told the URLs of the services it uses
-  (`NOTIFICATION_URL`, `PAYMENTS_URL`, …).
-- The scenario then acts as the user: it drives the apps over their real HTTP
-  APIs and, after each step, reads back from the **services** to prove the
-  side-effect landed (the PDF is really in PS-06, the email is really queued in
-  PS-03, the audit event is really on PS-07's chain).
-- It asserts every outcome, so the demo doubles as an end-to-end integration
-  test — if it prints `DEMO COMPLETE`, the whole platform genuinely works
-  together.
+## The logins
 
-The identity is the seeded **Acme Corporation** org; the human who logs in is
-its owner (`owner@acme.test`), who holds the `platform:admin` permission the
-apps require.
+- **Single sign-on** (Offers, Invoicing, Support): `owner@acme.test` /
+  `demo-owner` — validated by **PS-01 Identity**. The apps have no password of
+  their own; a wrong password is rejected by PS-01.
+- **Documents**: `admin` / `demo-admin` — it keeps its own matter-based user
+  model for now (SSO for these domain-user apps is on the roadmap), while still
+  using the platform for storage, search, and audit.
+
+## A path worth clicking
+
+1. **Offers** — draft a quote, send it, open the customer's public link and
+   accept it.
+2. **Invoicing** — bill it. One "finalize" click assigns a gapless number from
+   **PS-10**, archives the PDF in **PS-06**, emails the customer via **PS-03**,
+   and records an event on **PS-07**'s tamper-evident audit chain. Then collect
+   payment through **PS-08**.
+3. **Support** — open a ticket and ask the AI (**PS-04**) for a draft reply.
+4. **Documents** — file a contract (**PS-06**) and find it by search (**PS-09**).
+
+Every one of those actions, across all four apps, lands on the **same audit
+chain** — one trail for the whole business.
+
+## How it's wired
+
+`serve.mjs` boots each service and app as a real process. Modules run their
+**compiled** server (`node dist/server/server/index.js`), which serves the built
+React UI from `dist/client` and the API from the same origin. Wiring is by
+environment variable: every app points at the same `IDENTITY_URL` (PS-01),
+carries the same `PLATFORM_SERVICE_TOKEN`, and is told the URLs of the services
+it uses (`NOTIFICATION_URL`, `PAYMENTS_URL`, `NUMBER_URL`, …). That env map — at
+the top of `serve.mjs` — is exactly how an app joins the platform.
+
+## Also here: an automated end-to-end proof
+
+`npm run e2e` (`scenario.mjs`) drives the same wired stack headlessly and
+narrates every cross-service effect, asserting each outcome. It's the demo as a
+pass/fail integration test — handy for CI or a quick "does it all still work"
+check.
 
 ## From this demo to a customer pilot
 
-This scenario is the scripted proof. To let a customer **click** the apps:
-
-1. Bring up the platform stack with TLS via the reference deployment —
-   see [`../deploy/README.md`](../deploy/README.md) (`docker compose up`).
-2. Run each business module against it, pointing the same environment variables
-   (`IDENTITY_URL`, `PLATFORM_SERVICE_TOKEN`, the per-service URLs) at the
-   deployed services, and open its web UI.
-
-The wiring the customer needs is exactly the environment map at the top of
-`scenario.mjs` — it is the reference for how an app joins the platform.
+The apps here run behind plain HTTP for local clicking. To host a pilot with
+TLS, bring the platform up via the reference deployment
+([`../deploy/README.md`](../deploy/README.md)) and run each app against it with
+the same environment variables pointed at the deployed service URLs.
 
 ## Note on realism
 
-Adapters run in their offline/mock mode here (console email, the deterministic
-mock PSP and mock AI), so the demo needs no secrets. Point the services at real
-vendors — Stripe, Resend/Twilio, OpenAI/Anthropic — by setting their keys (see
-each service's README and `npm run test:live`); the app-facing behavior is
-identical.
+Adapters run in offline/mock mode (console email, the deterministic mock PSP
+and mock AI), so no secrets are needed. Point the services at real vendors —
+Stripe, Resend/Twilio, OpenAI/Anthropic — by setting their keys (see each
+service's README); the app-facing behavior is identical.

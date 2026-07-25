@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 /**
- * 0815software Platform — live end-to-end demo.
+ * 0815software Platform — automated end-to-end proof (headless).
+ *
+ * The clickable demo is `serve.mjs` (npm run demo). THIS script is the same
+ * wired stack driven headlessly and asserted end to end — the demo as a
+ * pass/fail integration test (npm run e2e), handy for CI.
  *
  * Boots eight Platform Services and four business modules as real processes,
  * all sharing one identity provider and one service credential, then drives a

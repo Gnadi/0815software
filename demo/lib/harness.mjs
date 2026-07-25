@@ -25,15 +25,21 @@ export const c = {
  * Spawn one service or module. `group` is 'platform' or 'modules', `name` the
  * directory, `port` its listen port, and `env` any extra configuration.
  */
-export function boot({ group, name, port, env = {}, tag }) {
+export function boot({ group, name, port, env = {}, tag, compiled = false, dataDir: dataOverride }) {
   const cwd = join(ROOT, group, name);
-  const child = spawn(join(cwd, 'node_modules', '.bin', 'tsx'), ['server/index.ts'], {
+  // Platform services run straight from source via tsx (API only). Modules run
+  // their *compiled* server (node dist/server/server/index.js) so they serve
+  // their built web UI from dist/client — the actual clickable app.
+  const [bin, args] = compiled
+    ? ['node', ['dist/server/server/index.js']]
+    : [join(cwd, 'node_modules', '.bin', 'tsx'), ['server/index.ts']];
+  const child = spawn(bin, args, {
     cwd,
     detached: true,
     env: {
       ...process.env,
       PORT: String(port),
-      DATABASE_PATH: join(dataDir, `${name}.db`),
+      DATABASE_PATH: join(dataOverride ?? dataDir, `${name}.db`),
       // Dev mode: boot guards stay silent and adapters use their console/mock
       // fallbacks, so the whole demo runs offline with no vendor keys.
       NODE_ENV: 'development',
