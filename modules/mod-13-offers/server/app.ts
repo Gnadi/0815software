@@ -14,12 +14,14 @@ import {
   clearedCookie,
   createToken,
   requireAuth,
+  safeEqual,
   sessionCookie,
   type AuthConfig,
 } from './auth.js';
 import type { SellerConfig } from './config.js';
 import { offersCsv } from './csv.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
+import { offerTransfer } from './transfer-export.js';
 import { nullVerifier, type LoginVerifier } from './sso.js';
 import {
   createDraft,
@@ -159,9 +161,24 @@ export interface AppOptions {
   /** Optional Platform Services integration; defaults to a no-op (standalone). */
   platform?: PlatformHooks;
   verifyLogin?: LoginVerifier;
+  /**
+   * The platform machine token (PLATFORM_SERVICE_TOKEN). When set, it is the
+   * only credential that opens GET /api/offers/:number/transfer — the
+   * machine-to-machine hand-off to whatever bills an accepted offer. Unset
+   * means the endpoint is closed, which is the standalone default.
+   */
+  serviceToken?: string;
 }
 
-export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
+/** The local address is one free-text field; PS-11 wants discrete lines. */
+function addressToLines(address: string | null): string[] {
+  return (address ?? '')
+    .split(/\r?\n|,\s*/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+}
+
+export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, serviceToken }: AppOptions): express.Express {
   const app = express();
 
   // Transport hardening: security headers, a default-deny CORS policy and
@@ -264,6 +281,19 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
     res.json(publicOffer(ref, token));
   });
 
+  // ── Machine-to-machine: hand an accepted offer to whatever bills it ──
+  // Authenticated with the platform machine token, NOT a staff session: the
+  // caller is another service in the same stack. The response is the neutral
+  // shape in shared/transfer.ts — no MOD-13 ids, statuses or internals — so the
+  // transport can be re-pointed without changing what crosses the wire.
+  app.get('/api/offers/:number/transfer', (req, res) => {
+    const provided = req.headers['x-service-token'];
+    if (!serviceToken || typeof provided !== 'string' || !safeEqual(provided, serviceToken)) {
+      throw new DomainError(401, 'Service token required');
+    }
+    res.json(offerTransfer(db, req.params.number, { today: today() }));
+  });
+
   // ── Everything below requires a valid session ────────────────────────
   app.use('/api', requireAuth(auth));
 
@@ -328,7 +358,18 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
         'INSERT INTO customers (name, contact_person, email, vat_id, address, created_at) VALUES (?, ?, ?, ?, ?, ?)',
       )
       .run(values.name, values.contact_person, values.email, values.vat_id, values.address, nowIso());
-    res.status(201).json(db.prepare('SELECT * FROM customers WHERE id = ?').get(info.lastInsertRowid));
+    const localId = Number(info.lastInsertRowid);
+    // Register the customer with PS-11 so another module billing them resolves
+    // the same party. Best-effort: the local row above is already committed.
+    void platform.resolveParty({
+      name: values.name,
+      contactPerson: values.contact_person,
+      email: values.email,
+      vatId: values.vat_id,
+      addressLines: addressToLines(values.address),
+      localId,
+    });
+    res.status(201).json(db.prepare('SELECT * FROM customers WHERE id = ?').get(localId));
   });
 
   app.get('/api/customers/:id', (req, res) => {

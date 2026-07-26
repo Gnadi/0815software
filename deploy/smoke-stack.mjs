@@ -30,7 +30,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { moduleById, resolveSelection, serviceById, servicesOf } from '../modules/registry.mjs';
+import { moduleById, peersOf, resolveSelection, serviceById, servicesOf } from '../modules/registry.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
@@ -339,6 +339,10 @@ async function bootStack(stack) {
     urls.set(service.id, url);
   }
 
+  // Module-to-module bridges declared in the registry (`peers`) are wired only
+  // when both modules are in this stack — the same rule the generator applies.
+  const modulePorts = new Map(stack.modules.map((mod) => [mod.id, mod.defaultPort]));
+
   const modules = [];
   for (const mod of stack.modules) {
     const env = {
@@ -357,8 +361,16 @@ async function bootStack(stack) {
     if (mod.constraints.supportsSso && urls.has('ps-01-identity')) env.IDENTITY_ORG = SEEDED_ORG;
     if (mod.constraints.needsPublicBaseUrl) env.PUBLIC_BASE_URL = `http://127.0.0.1:${mod.defaultPort}`;
     if (mod.constraints.needsSourceDb) env.SOURCE_DB_PATH = makeSourceDb(mod, mod.defaultPort);
+
+    const peers = [];
+    for (const peer of peersOf(mod)) {
+      if (!modulePorts.has(peer.id)) continue;
+      env[peer.urlEnv] = `http://127.0.0.1:${modulePorts.get(peer.id)}`;
+      peers.push(peer);
+    }
+
     const { url } = boot({ group: 'modules', id: mod.id, port: mod.defaultPort, env });
-    modules.push({ mod, url, env, wired, adminPassword: env.ADMIN_PASSWORD, secrets: env });
+    modules.push({ mod, url, env, wired, peers, adminPassword: env.ADMIN_PASSWORD, secrets: env });
     urls.set(mod.id, url);
   }
 
@@ -530,6 +542,35 @@ async function main(argv) {
       unreachable.length > 0 ? `unreachable: ${unreachable.join(', ')}` : undefined,
     );
   }
+  for (const { mod, peers } of booted.modules) {
+    if (peers.length === 0) continue;
+    const unreachable = [];
+    for (const peer of peers) {
+      const ok = await fetch(`${booted.urls.get(peer.id)}/api/health`).then((r) => r.ok, () => false);
+      if (!ok) unreachable.push(peer.id);
+    }
+    check(
+      `${mod.n} reaches the module(s) it bridges to (${peers.map((p) => `${p.id} via ${p.urlEnv}`).join(', ')})`,
+      unreachable.length === 0,
+      unreachable.length > 0 ? `unreachable: ${unreachable.join(', ')}` : undefined,
+    );
+  }
+
+  if (booted.urls.has('ps-11-customers')) {
+    const url = booted.urls.get('ps-11-customers');
+    const res = await fetch(`${url}/api/parties/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Service-Token': booted.serviceToken },
+      body: JSON.stringify({ name: 'Smoke Party GmbH', vat_id: 'ATU00000001' }),
+    });
+    const body = res.ok ? await res.json().catch(() => ({})) : {};
+    check(
+      'PS-11 resolves a party with the stack machine token',
+      res.ok && typeof body?.party?.id === 'number',
+      `status ${res.status}`,
+    );
+  }
+
   if (booted.urls.has('ps-07-audit-log')) {
     const url = booted.urls.get('ps-07-audit-log');
     const token = await serviceAdminToken(url, booted.secrets.get('ps-07-audit-log').ADMIN_PASSWORD);

@@ -1,0 +1,225 @@
+openapi: 3.1.0
+info:
+  title: PS-11 Customers API
+  version: '0.1.0'
+  description: >-
+    Party master data for one customer's stack: the customers every module
+    otherwise duplicates in its own table, plus the stack owner's own `self`
+    party — the seller identity printed on invoices and offers.
+    `POST /api/parties/resolve` is the method modules use: find-or-create with
+    deterministic matching (caller reference, then VAT id, then email) that
+    reports which rule fired and enriches a matched record without overwriting
+    what it already knows.
+    Request and response bodies are typed in
+    @0815software/platform-clients and frozen by this service’s
+    contract test; this document is the endpoint + auth surface.
+servers:
+  - url: http://localhost:4011
+    description: Local / per-customer deployment (behind Caddy in production)
+tags:
+  - name: ps-11-customers
+paths:
+  /api/health:
+    get:
+      summary: Get health
+      tags: [ps-11-customers]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/ready:
+    get:
+      summary: Get ready
+      tags: [ps-11-customers]
+      security: []
+      responses:
+        '200': { description: Success }
+        '503': { description: Database unreachable or migrations pending }
+  /api/metrics:
+    get:
+      summary: Get metrics
+      tags: [ps-11-customers]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/login:
+    post:
+      summary: Create login
+      tags: [ps-11-customers]
+      security: []
+      responses:
+        '200': { description: Success }
+        '401': { description: Invalid username or password }
+  /api/logout:
+    post:
+      summary: Create logout
+      tags: [ps-11-customers]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/self:
+    get:
+      summary: Get the stack owner's own party (the seller identity)
+      description: Returns `{ party: null }` before the self party has been set.
+      tags: [ps-11-customers]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    put:
+      summary: Create or replace the self party
+      description: A PUT, not a PATCH — fields absent from the body are cleared.
+      tags: [ps-11-customers]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '422': { description: Validation failed }
+  /api/parties/resolve:
+    post:
+      summary: Find or create a party
+      description: >-
+        Matches on the caller's own reference (`source` + `external_id`), then
+        VAT id, then email, and creates only if nothing matched. Responds 201
+        when it created the party and 200 when it found one. `matched_on` names
+        the rule that fired.
+      tags: [ps-11-customers]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Found an existing party }
+        '201': { description: Created a new party }
+        '401': { description: Authentication required }
+        '409': { description: The reference is already linked to another party }
+        '422': { description: Validation failed }
+  /api/parties:
+    get:
+      summary: List parties
+      tags: [ps-11-customers]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Substring match on name, email or VAT id.
+        - name: kind
+          in: query
+          schema: { type: string, enum: [customer, self] }
+        - name: include_archived
+          in: query
+          schema: { type: boolean }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '422': { description: Validation failed }
+    post:
+      summary: Create a party
+      description: Honours an `Idempotency-Key` header; a replay returns 200 with the original party.
+      tags: [ps-11-customers]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        '200': { description: Replayed — the original party }
+        '201': { description: Created }
+        '401': { description: Authentication required }
+        '409': { description: A self party already exists }
+        '422': { description: Validation failed }
+  /api/parties/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      summary: Get a party with its references
+      tags: [ps-11-customers]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '404': { description: Party not found }
+    patch:
+      summary: Update the fields present in the body
+      tags: [ps-11-customers]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '404': { description: Party not found }
+        '422': { description: Validation failed }
+  /api/parties/{id}/archive:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      summary: Archive a party
+      description: Archived parties are excluded from lists and never matched by resolve.
+      tags: [ps-11-customers]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '404': { description: Party not found }
+        '409': { description: The self party cannot be archived }
+  /api/parties/{id}/erase:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      summary: Erase a party's personal data (GDPR)
+      description: >-
+        Anonymizes in place and archives, keeping the row, its id and its
+        references so every module's foreign reference stays valid — the same
+        stance PS-01 takes for users.
+      tags: [ps-11-customers]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '404': { description: Party not found }
+        '409': { description: The self party cannot be erased }
+  /api/parties/{id}/refs:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      summary: List a party's consumer references
+      tags: [ps-11-customers]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '404': { description: Party not found }
+    post:
+      summary: Register the caller's own id for a party
+      description: Idempotent. 409 when the reference already points at another party.
+      tags: [ps-11-customers]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Linked (or already linked to this party) }
+        '401': { description: Authentication required }
+        '404': { description: Party not found }
+        '409': { description: Already linked to another party }
+        '422': { description: Validation failed }
+components:
+  securitySchemes:
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared machine secret, or a scoped PS-01 API key when IDENTITY_URL is set.
+    adminSession:
+      type: http
+      scheme: bearer
+      description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.

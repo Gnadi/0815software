@@ -48,6 +48,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     platform: {
       auditUrl: env.AUDIT_URL || undefined,
       notificationUrl: env.NOTIFICATION_URL || undefined,
+      // PS-11 Customers — when set, a customer created here is resolved
+      // against the stack's party master data so MOD-04 bills the same party.
+      customersUrl: env.CUSTOMERS_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
   };

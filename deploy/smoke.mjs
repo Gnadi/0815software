@@ -2,7 +2,7 @@
 /**
  * Deployment smoke test — no Docker required.
  *
- * Boots all ten Platform Services as local processes in PRODUCTION mode with
+ * Boots every Platform Service as a local process in PRODUCTION mode with
  * freshly generated secrets (proving the boot guards pass real config), waits
  * for every /api/health, then runs one cross-service identity round-trip:
  * a PS-01 owner session (holds platform:admin) must be accepted by PS-02
@@ -29,6 +29,7 @@ const SERVICES = [
   ['ps-08-payments', 4008],
   ['ps-09-search', 4009],
   ['ps-10-number', 4010],
+  ['ps-11-customers', 4011],
 ];
 
 const dataDir = mkdtempSync(join(tmpdir(), 'platform-smoke-'));
@@ -160,7 +161,9 @@ try {
   if (head.headers.get('x-content-type-options') !== 'nosniff') fail('security headers missing');
   else console.log('[smoke] security headers present ✓');
 
-  if (process.exitCode !== 1) console.log('\nSMOKE OK — 10 services healthy, seam RBAC verified.');
+  if (process.exitCode !== 1) {
+    console.log(`\nSMOKE OK — ${SERVICES.length} services healthy, seam RBAC verified.`);
+  }
 } catch (err) {
   fail(err.message);
 } finally {

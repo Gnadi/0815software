@@ -21,13 +21,18 @@ one customer's stack.
 | **PS-08 Payments** | Payment reference, amounts, PSP ids (pseudonymous); no card data (that stays at the PSP) | Intents/ledger are financial records — typically retained for statutory periods, not erased. No raw PAN is ever stored. |
 | **PS-09 Search** | Indexed titles/bodies/facets (mirror of source records, may be personal) | Index is an upsert mirror; `DELETE /api/index/:collection/:id` removes a document. Re-index from source is the source of truth. |
 | **PS-10 Number** | None (sequence counters only) | n/a |
+| **PS-11 Customers** | Party master data: customer name, contact person, email, VAT id, postal address, IBAN/BIC — this is now the **primary** copy for the modules that consume it, not a mirror | `POST /api/parties/:id/erase` anonymizes name/contact/email/VAT id/address/bank details in place and archives the party, keeping the row, its id and its `party_refs` so every module's foreign reference stays valid (the same stance PS-01 takes for users). `POST /api/parties/:id/archive` retires a party without erasing it; archived parties are never matched by `resolve`. |
 
 ## Modules
 
 Modules hold the domain data (customers, employees, invoices, tickets…). Each
 owns its own SQLite database and is responsible for its records' lifecycle. The
 platform-side levers above cover the **copies** that flow into the services
-(audit snapshots, notification bodies, search index, AI prompts). When a module
+(audit snapshots, notification bodies, search index, AI prompts) — with one
+exception: where a module consumes **PS-11 Customers**, the party record there is
+the primary copy of that customer's identity and the module's own row is a handle
+on it. Erasing a customer in a stack with PS-11 therefore means erasing the party
+*and* clearing the module-local copies. When a module
 erases a person, it should also: call PS-01 erase if that person is a platform
 user, delete their PS-09 index documents, and rely on PS-03/PS-07 retention to
 age out message bodies and audit snapshots.

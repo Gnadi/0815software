@@ -68,6 +68,16 @@ export const api = {
   invoiceDetail: (id: number) => request<InvoiceDetail>(`/api/invoices/${id}`),
   createDraft: (values: Record<string, unknown>) =>
     request<InvoiceDetail>('/api/invoices', post(values)),
+  /**
+   * Bill an accepted offer from MOD-13. `imported` is false when this offer had
+   * already been billed — the server is idempotent on the offer number, so the
+   * UI can say "already billed" instead of creating a second invoice.
+   */
+  importOffer: (offerNumber: string) =>
+    request<InvoiceDetail & { imported: boolean }>(
+      '/api/invoices/import-offer',
+      post({ offer_number: offerNumber }),
+    ),
   updateDraft: (id: number, values: Record<string, unknown>) =>
     request<InvoiceDetail>(`/api/invoices/${id}`, { method: 'PUT', body: JSON.stringify(values) }),
   deleteDraft: (id: number) => request<{ ok: true }>(`/api/invoices/${id}`, { method: 'DELETE' }),

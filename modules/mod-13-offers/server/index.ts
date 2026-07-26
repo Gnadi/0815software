@@ -35,7 +35,9 @@ const app = createApp({
   seller: config.seller,
   publicBaseUrl: config.publicBaseUrl,
   staticDir,
-  platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso),
+  platform: buildPlatform(config.platform),
+  verifyLogin: buildLoginVerifier(config.sso),
+  serviceToken: config.platform.serviceToken,
 });
 
 app.listen(config.port, () => {

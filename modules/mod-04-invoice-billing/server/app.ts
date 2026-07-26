@@ -31,7 +31,9 @@ import {
 } from './invoices.js';
 import { renderInvoicePdf } from './pdf.js';
 import { fmtEur } from '../shared/money.js';
-import { noopPlatform, type PlatformHooks } from './platform.js';
+import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
+import { importTransfer, MODULE_ID } from './transfer-import.js';
+import type { DocumentTransfer } from '../shared/transfer.js';
 import { nullVerifier, type LoginVerifier } from './sso.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
@@ -272,6 +274,68 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
   app.post('/api/invoices', (req, res) => {
     const invoiceId = createDraft(db, validateDraft(body(req)));
     res.status(201).json(invoiceDetail(db, invoiceId));
+  });
+
+  // ── Bill an accepted offer ───────────────────────────────────────────
+  // The one action that closes the quote-to-invoice gap. It fetches the offer
+  // as a neutral document transfer (shared/transfer.ts), resolves the customer
+  // through PS-11 when configured, and produces a DRAFT — the operator still
+  // reviews and finalizes, so nothing is issued behind their back.
+  //
+  // Idempotent on the offer number: a retry returns the invoice the first call
+  // produced, with 200 instead of 201, so a double click cannot double-bill.
+  app.post('/api/invoices/import-offer', async (req, res) => {
+    const reference = body(req).offer_number;
+    if (typeof reference !== 'string' || reference.trim() === '') {
+      fail([{ field: 'offer_number', message: 'offer_number is required' }]);
+    }
+    const offerNumber = (reference as string).trim();
+
+    let transfer: unknown;
+    try {
+      transfer = await platform.fetchOffer(offerNumber);
+    } catch (err) {
+      if (err instanceof OfferFetchError) throw new DomainError(err.status === 404 ? 404 : 502, err.message);
+      throw err;
+    }
+    if (transfer === null) {
+      throw new DomainError(
+        501,
+        'No offer source is configured — set OFFERS_URL to bill offers from MOD-13',
+      );
+    }
+
+    // PS-11 is the identity authority when it is wired; without it the import
+    // falls back to matching against this module's own customers table.
+    const party = (transfer as DocumentTransfer).customer;
+    const partyId =
+      party && typeof party === 'object'
+        ? await platform.resolveParty({
+            name: party.name,
+            email: party.email,
+            vatId: party.vat_id,
+            addressLines: party.address_lines ?? [],
+            source: party.source ?? MODULE_ID,
+            externalId: party.external_id ?? offerNumber,
+          })
+        : null;
+
+    const result = importTransfer(db, transfer, { partyId });
+    // Register this module's own customer id against the master party, so PS-11
+    // records that both modules refer to it. The resolve above matched on the
+    // EXPORTER's reference, which is what made them converge in the first place.
+    if (partyId !== null) await platform.linkParty(partyId, result.customerId);
+    const detail = invoiceDetail(db, result.invoiceId);
+    if (!result.replayed) {
+      await platform.offerBilled({
+        offerNumber,
+        invoiceId: result.invoiceId,
+        customerName: detail.customer_name,
+        totalFormatted: fmtEur(detail.gross_cents),
+        actor: auth.username,
+      });
+    }
+    res.status(result.replayed ? 200 : 201).json({ ...detail, imported: !result.replayed });
   });
 
   app.get('/api/invoices/:id', (req, res) => {
