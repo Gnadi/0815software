@@ -385,7 +385,7 @@ export function renderCompose(plan, buildContext) {
       restart: 'unless-stopped',
       environment: env,
       volumes,
-      healthcheck: HEALTHCHECK(mod.defaultPort, '/api/health'),
+      healthcheck: HEALTHCHECK(mod.defaultPort, '/api/ready'),
       networks: ['platform'],
       ...(dependsOn.length > 0 || sourceSubdomain ? { depends_on: depends } : {}),
     };
@@ -650,14 +650,20 @@ above; Caddy provisions the certificates on first start.
 ## Verify before going live
 
 \`\`\`sh
-node <repo>/deploy/smoke-stack.mjs --manifest ./manifest.json
+cd <repo>/deploy && npm run predeploy -- --manifest <path to this directory>/manifest.json
 \`\`\`
 
+(or directly: \`node <repo>/deploy/smoke-stack.mjs --manifest ./manifest.json\`)
+
 Boots exactly this stack as local processes in production mode with generated
-secrets — no Docker — and asserts every service and module comes up, single
-sign-on works where it should, security headers are present, and the boot guard
-really does refuse a default secret. Run it before the first \`docker compose up\`
-and after every upgrade.
+secrets — no Docker — and asserts every service and module answers
+\`/api/health\` and \`/api/ready\`, every platform URL a module is wired to is
+reachable, each module still boots standalone with no service URLs at all,
+single sign-on works where the registry says it should and is absent where it
+should not, security headers are present on module responses, the boot guard
+really does refuse a default secret, and this directory's \`.env\` has no
+\`${PLACEHOLDER}\` left in it. Run it before the first \`docker compose up\` and
+after every upgrade.
 
 ## Bring-up
 
@@ -690,6 +696,19 @@ ${
 
 Platform Service operator consoles use \`admin\` with the per-service
 \`PS**_ADMIN_PASSWORD\` from \`.env\`.
+
+## Hardening knobs
+
+Every service and module ships security headers, a default-deny CORS policy and
+per-IP rate limits (\`server/hardening.ts\`). HSTS is on automatically because
+these containers run \`NODE_ENV=production\`. To tune them, add to \`.env\` and
+reference from \`docker-compose.yml\`:
+\`RATE_LIMIT_RPM\` (default 600), \`LOGIN_RATE_LIMIT_RPM\` (20),
+\`CORS_ORIGINS\` (empty = same-origin only), \`REQUEST_TIMEOUT_MS\` (30000).
+
+Optional per-module settings with working defaults are listed in each module's
+\`.env.example\`; a value absent from this stack's \`.env\` simply keeps its
+default.
 
 ## Backups
 

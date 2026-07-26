@@ -47,6 +47,36 @@ the customer), `--acme-email`, `--force` (overwrite a non-empty `--out`),
 
 Run `node deploy/provision.mjs --help` for the full list and the module ids.
 
+## Smoke-testing a stack before it goes live
+
+```sh
+node deploy/smoke-stack.mjs --manifest ./customers/blaustern/manifest.json
+# or, without generating a stack first:
+node deploy/smoke-stack.mjs --modules mod-04-invoice-billing,mod-13-offers
+```
+
+Boots exactly the services and modules in the manifest as local processes — no
+Docker — in production mode with freshly generated secrets, and asserts:
+
+- every service and module answers `/api/health` and `/api/ready`;
+- every platform URL wired into a module is reachable, and PS-07's audit chain
+  verifies;
+- each module still boots **standalone**, with no service URLs at all, and
+  serves its API — the guarantee the whole architecture rests on;
+- single sign-on works for the modules the registry marks `supportsSso`, and is
+  absent for the ones it does not (MOD-01/07/09);
+- security headers are on module responses, not only service responses;
+- the production boot guard really does refuse a default secret;
+- the generated `.env` has no `FILL-ME-IN` left, no value a boot guard would
+  reject, and defines every variable `docker-compose.yml` references.
+
+A six-service customer stack runs in ~5s; all 14 modules against all ten
+services in ~21s. `cd deploy && npm run predeploy -- --manifest <path>` is the
+same thing through npm, and the generated customer README points the operator
+at it.
+
+`deploy/smoke.mjs` remains the narrower check: all ten services, no modules.
+
 ## Tests
 
 ```sh

@@ -1,4 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
 import {
   AGGREGATIONS,
@@ -151,6 +152,8 @@ function scheduleRow(db: Database.Database, schedule: Schedule): Record<string, 
 // ── App factory ────────────────────────────────────────────────────────
 
 export interface AppOptions {
+  /** Optional transport hardening; omit it (as the tests do) to run unthrottled. */
+  hardening?: HardeningConfig;
   db: Database.Database;
   sourceDb: Database.Database;
   auth: AuthConfig;
@@ -162,14 +165,30 @@ export interface AppOptions {
   verifyLogin?: LoginVerifier;
 }
 
-export function createApp({ db, sourceDb, auth, exportsDir, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
+export function createApp({ db, hardening, sourceDb, auth, exportsDir, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
   const app = express();
+
+  // Transport hardening: security headers, a default-deny CORS policy and
+  // per-IP rate limits. Mounted only when a config is passed — index.ts always
+  // passes one, tests do not, so suites stay unthrottled and deterministic.
+  if (hardening) app.use(hardeningMiddleware(hardening));
   app.use(express.json({ limit: '1mb' }));
   const runCtx: RunContext = { db, sourceDb, exportsDir };
 
   // ── Public routes ────────────────────────────────────────────────────
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  // Readiness for a deployment healthcheck: the database is reachable and the
+  // schema is in place. Liveness (the process answers at all) is /api/health.
+  app.get('/api/ready', (_req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      res.json({ ready: true });
+    } catch {
+      res.status(503).json({ ready: false });
+    }
   });
 
   app.post('/api/login', async (req, res) => {

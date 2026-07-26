@@ -321,10 +321,14 @@ describe('rendered artifacts', () => {
     }
   });
 
-  it('health-checks every service on /api/ready', () => {
+  it('health-checks every service and module on /api/ready', () => {
     for (const { service } of plan.services) {
       expect(files['docker-compose.yml']).toContain(`http://localhost:${service.defaultPort}/api/ready`);
     }
+    for (const { mod } of plan.modules) {
+      expect(files['docker-compose.yml']).toContain(`http://localhost:${mod.defaultPort}/api/ready`);
+    }
+    expect(files['docker-compose.yml']).not.toContain('/api/health');
   });
 
   it('gives each module a subdomain and each service its subpath in the Caddyfile', () => {

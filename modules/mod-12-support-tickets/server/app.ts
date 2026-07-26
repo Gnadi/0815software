@@ -1,4 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
 import {
   isPriority,
@@ -96,6 +97,8 @@ function validateWebIntake(input: Record<string, unknown>): WebIntakeInput {
 }
 
 export interface AppOptions {
+  /** Optional transport hardening; omit it (as the tests do) to run unthrottled. */
+  hardening?: HardeningConfig;
   db: Database.Database;
   auth: AuthConfig;
   /** Injectable clock — drives BOTH event timestamps and SLA "now". */
@@ -107,8 +110,13 @@ export interface AppOptions {
   verifyLogin?: LoginVerifier;
 }
 
-export function createApp({ db, auth, now = Date.now, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, now = Date.now, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
   const app = express();
+
+  // Transport hardening: security headers, a default-deny CORS policy and
+  // per-IP rate limits. Mounted only when a config is passed — index.ts always
+  // passes one, tests do not, so suites stay unthrottled and deterministic.
+  if (hardening) app.use(hardeningMiddleware(hardening));
   app.use(express.json({ limit: '512kb' }));
 
   const stamp = (): string => nowIso(now());
@@ -131,6 +139,17 @@ export function createApp({ db, auth, now = Date.now, staticDir, platform = noop
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
+  });
+
+  // Readiness for a deployment healthcheck: the database is reachable and the
+  // schema is in place. Liveness (the process answers at all) is /api/health.
+  app.get('/api/ready', (_req, res) => {
+    try {
+      db.prepare('SELECT 1').get();
+      res.json({ ready: true });
+    } catch {
+      res.status(503).json({ ready: false });
+    }
   });
 
   // Web intake: anyone can open a ticket. Returns the ref + a signed
