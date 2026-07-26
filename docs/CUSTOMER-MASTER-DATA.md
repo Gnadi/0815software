@@ -187,9 +187,33 @@ token and only for *accepted* offers; MOD-04's
 `POST /api/invoices/import-offer` produces a draft, idempotent on the offer
 number and recording it on the invoice, so a retry cannot double-bill.
 
-**What this leaves open.** The seller identity now *has* a home — PS-11's `self`
-party — but MOD-04 and MOD-13 still read `SELLER_*` from their own environment;
-moving them onto `GET /api/self` is a small, separate change. MOD-01, MOD-03,
-MOD-06 and MOD-10 still keep their own counterparty tables and have not been
-migrated; PS-11 is ready for them and `party_refs` is how they will arrive
-without losing their local ids.
+**The seller identity moved too.** MOD-04 and MOD-13 now read PS-11's `self`
+party at boot and refresh it periodically, with their `SELLER_*` environment as
+the fallback — per field, so a half-filled party cannot blank a letterhead. A
+module never writes the seller back: one authority, set once with
+`PUT /api/self`. Renaming the company is now one call instead of two `.env`
+edits and a redeploy, which `demo/scenario.mjs` demonstrates live. For the same
+reason PS-11's seed deliberately creates **no** `self` party: a demo seller would
+silently replace a customer's configured letterhead the moment PS-11 joined their
+stack.
+
+**Suppliers are parties too.** `kind` gained `supplier` (migration 002), and
+matching never crosses kinds — a company you both buy from and sell to is two
+relationships with two sets of terms, and letting a procurement import rewrite a
+customer's billing address would be a bug. MOD-06 Procurement Tracker registers
+its suppliers; MOD-10 CRM Lite registers its companies as customers. Four modules
+now share one party list.
+
+**Duplicates can be reconciled.** A master-data service that cannot merge two
+records it already holds is not finished: records predate PS-11, or arrive with
+neither a VAT id nor an email to match on. `POST /api/parties/:id/merge` moves
+references onto the survivor, enriches it without overwriting, and **keeps the
+loser's row as a redirect** — so a module still holding the old id reads the
+surviving record and no foreign key breaks.
+
+**What this leaves open.** MOD-03 Inventory's supplier table has not been
+migrated; it will arrive the same way MOD-06's did. MOD-01 Customer Portal is
+deliberately out of scope: its `customers` are end users with logins, which is an
+identity concern (PS-01's territory, deferred by readiness item C1) rather than
+master data. And nothing yet *reports* likely duplicates — merging is available,
+finding candidates is still the operator's eye.

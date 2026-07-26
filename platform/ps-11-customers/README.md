@@ -4,10 +4,13 @@ One answer to **"who is this customer?"** across every module in a stack.
 
 Before this service, MOD-04 Invoice & Billing and MOD-13 Offers each owned a
 `customers` table in their own database, and nothing reconciled them: a customer
-who accepted a quote had to be retyped to be invoiced. MOD-10 CRM Lite, MOD-01
-Customer Portal, MOD-03 Inventory Management and MOD-06 Procurement Tracker each
-keep a counterparty table of their own too. A customer who licenses three
-modules got three customer lists and expected one.
+who accepted a quote had to be retyped to be invoiced. MOD-10 CRM Lite had its
+own `companies`, MOD-06 Procurement its own `suppliers`. A customer who licensed
+three modules got three counterparty lists and expected one.
+
+Those four now register their rows here (see
+[Who consumes it](#who-consumes-it)); MOD-03 Inventory's supplier table is the
+remaining one, and it will arrive the same way.
 
 PS-11 holds the **party master record** — and, deliberately, nothing else. It is
 not a CRM: no pipeline, no activities, no notes. Just the identity every module
@@ -21,9 +24,14 @@ MIT-licensed, self-contained (Express 5 + SQLite, Node built-ins only).
 
 ## What it is
 
-- **Parties.** Name, contact person, email, VAT id, postal address, IBAN/BIC.
-  VAT ids are stored normalized (upper-cased, whitespace stripped), emails
-  lower-cased, so matching never depends on how someone typed it.
+- **Parties, by kind.** `customer` is someone you sell to, `supplier` someone
+  you buy from, and matching **never crosses the two** — a company you both buy
+  from and sell to is two relationships with two sets of terms, and letting a
+  procurement import rewrite a customer's billing address would be a bug, not a
+  feature. Each party holds name, contact person, email, VAT id, postal address
+  and IBAN/BIC. VAT ids are stored normalized (upper-cased, whitespace
+  stripped), emails lower-cased, so matching never depends on how someone typed
+  it.
 - **`resolve` — find-or-create, and the only call most modules make.** It
   matches in a fixed order and tells you which rule fired:
   1. the caller's own reference (`source` + `external_id`),
@@ -41,6 +49,12 @@ MIT-licensed, self-contained (Express 5 + SQLite, Node built-ins only).
   address and VAT id modules print on invoices and offers. Exactly one exists per
   stack (a partial unique index enforces it), which is what gives the duplicated
   `SELLER_NAME` / `SELLER_ADDRESS` / `SELLER_VAT_ID` configuration one home.
+- **Merge** reconciles duplicates the service already holds — records that
+  predate it, or that arrived with neither a VAT id nor an email to match on.
+  References move onto the survivor, the survivor is enriched (never
+  overwritten), and the loser's row is **kept as a redirect**: a module still
+  holding the old id gets the surviving record, so nothing is deleted and no
+  foreign key breaks.
 - **GDPR erasure** anonymizes in place and archives, keeping the row, its id and
   its references so every module's foreign reference stays valid — the same
   stance PS-01 takes for users.
@@ -92,6 +106,17 @@ curl -s -X POST localhost:4011/api/parties/resolve \
        "source":"mod-04-invoice-billing","external_id":"31"}'
 # → {"party":{...same id...},"matched_on":"vat_id","created":false}
 
+# A supplier — a separate kind, never matched against a customer:
+curl -s -X POST localhost:4011/api/parties/resolve \
+  -H 'X-Service-Token: dev-service-token' -H 'Content-Type: application/json' \
+  -d '{"kind":"supplier","name":"Auer & Söhne GmbH","vat_id":"ATU87654321",
+       "source":"mod-06-procurement-tracker","external_id":"3"}'
+
+# Two records for one company? Merge 12 into 7; id 12 then redirects to 7:
+curl -s -X POST localhost:4011/api/parties/12/merge \
+  -H 'X-Service-Token: dev-service-token' -H 'Content-Type: application/json' \
+  -d '{"into":7}'
+
 # The seller identity:
 curl -s -X PUT localhost:4011/api/self \
   -H 'X-Service-Token: dev-service-token' -H 'Content-Type: application/json' \
@@ -99,13 +124,32 @@ curl -s -X PUT localhost:4011/api/self \
        "address_lines":["Teststrasse 1","1010 Wien","Austria"]}'
 ```
 
+## The seller identity
+
+MOD-04 Invoice & Billing and MOD-13 Offers both print the seller's name, address
+and VAT id, and both read them from their own `SELLER_*` environment. The `self`
+party is where that one fact lives instead. With `CUSTOMERS_URL` configured, both
+modules read it at boot and refresh it every five minutes, so **changing the
+letterhead is a `PUT /api/self`, not a redeploy**. Precedence is deliberate and
+one-directional:
+
+| PS-11 `self` party | Result |
+| --- | --- |
+| set | it wins, field by field — a field left blank there falls back to the module's env, so a half-filled party cannot blank a letterhead |
+| absent, or PS-11 unreachable | the module's `SELLER_*` env stands, unchanged |
+
+A module never *writes* the seller here: one authority, set once by the operator.
+For the same reason the seed deliberately creates **no** `self` party — seeding a
+demo seller would silently replace a customer's configured letterhead the moment
+PS-11 joined their stack.
+
 ## API
 
 | Method & path | Auth | Purpose |
 | ------------- | ---- | ------- |
 | `GET /api/health` | public | Liveness. |
 | `GET /api/ready` | public | DB reachable + migrations current. |
-| `GET /api/metrics` | public | Prometheus text, incl. `customers_parties_total`. |
+| `GET /api/metrics` | public | Prometheus text, incl. `customers_parties_total` and `customers_suppliers_total`. |
 | `POST /api/login` · `POST /api/logout` | public | Operator session. |
 | `POST /api/parties/resolve` | service token / admin | Find-or-create. 201 created, 200 matched. |
 | `GET /api/parties` | service token / admin | List; `q`, `kind`, `include_archived`, `limit`. |
@@ -114,6 +158,7 @@ curl -s -X PUT localhost:4011/api/self \
 | `PATCH /api/parties/:id` | service token / admin | Update the fields present in the body. |
 | `POST /api/parties/:id/archive` | service token / admin | Retire a party. |
 | `POST /api/parties/:id/erase` | service token / admin | GDPR erasure, in place. |
+| `POST /api/parties/:id/merge` | service token / admin | Merge this party into `into`; the old id redirects. |
 | `GET /api/parties/:id/refs` · `POST .../refs` | service token / admin | Consumer references. |
 | `GET /api/self` · `PUT /api/self` | service token / admin | The stack owner's own party. |
 
@@ -132,6 +177,21 @@ else requires a caller.
 Under `NODE_ENV=production` the boot guard refuses to start while
 `SESSION_SECRET`, `ADMIN_PASSWORD` or `SERVICE_TOKEN` still carries a known dev
 default.
+
+## Who consumes it
+
+| Module | What it registers | Kind |
+| --- | --- | --- |
+| MOD-04 Invoice & Billing | customers it invoices, incl. those imported from an offer | `customer` |
+| MOD-13 Offers | customers it quotes | `customer` |
+| MOD-10 CRM Lite | companies in the pipeline | `customer` |
+| MOD-06 Procurement Tracker | suppliers it buys from | `supplier` |
+
+Each stores the master `party_id` on its own row, so the local table stays the
+module's working record and PS-11 is the shared identity. MOD-01 Customer Portal
+is deliberately **not** on this list: its `customers` are end users with logins,
+which is an identity concern (PS-01's territory, deferred by readiness item C1)
+rather than master data.
 
 ## Consuming it
 
@@ -159,9 +219,12 @@ npm test
 ```
 
 Fully offline. `test/api.test.ts` covers validation and normalization, the
-matching order, enrichment, idempotency, archival, erasure and the `self` party;
-`test/contract.test.ts` drives the real `@0815software/platform-clients`
-`CustomersClient` against a real server over HTTP.
+matching order, enrichment, idempotency, archival, erasure and the `self` party.
+`test/merge.test.ts` covers the supplier kind (including that matching never
+crosses kinds), merging with its redirects and refusals, and that migration 002's
+table rebuild preserves every reference. `test/contract.test.ts` drives the real
+`@0815software/platform-clients` `CustomersClient` against a real server over
+HTTP.
 
 ## Backups
 

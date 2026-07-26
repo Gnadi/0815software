@@ -3,9 +3,13 @@ info:
   title: PS-11 Customers API
   version: '0.1.0'
   description: >-
-    Party master data for one customer's stack: the customers every module
-    otherwise duplicates in its own table, plus the stack owner's own `self`
-    party — the seller identity printed on invoices and offers.
+    Party master data for one customer's stack: the customers and suppliers
+    every module otherwise duplicates in its own table, plus the stack owner's
+    own `self` party — the seller identity printed on invoices and offers.
+    Matching never crosses `kind`, so a company you both buy from and sell to
+    stays two relationships. Duplicates the service already holds are
+    reconciled with `POST /api/parties/{id}/merge`, which keeps the loser's row
+    as a redirect so no consumer's reference breaks.
     `POST /api/parties/resolve` is the method modules use: find-or-create with
     deterministic matching (caller reference, then VAT id, then email) that
     reports which rule fired and enriches a matched record without overwriting
@@ -102,7 +106,7 @@ paths:
           description: Substring match on name, email or VAT id.
         - name: kind
           in: query
-          schema: { type: string, enum: [customer, self] }
+          schema: { type: string, enum: [customer, supplier, self] }
         - name: include_archived
           in: query
           schema: { type: boolean }
@@ -137,6 +141,9 @@ paths:
         schema: { type: integer }
     get:
       summary: Get a party with its references
+      description: >-
+        An id that was merged away redirects to the surviving party, and the
+        response then carries `requested_id` to say which id was asked for.
       tags: [ps-11-customers]
       security: [{serviceToken: []}, {adminSession: []}]
       responses:
@@ -187,6 +194,29 @@ paths:
         '401': { description: Authentication required }
         '404': { description: Party not found }
         '409': { description: The self party cannot be erased }
+  /api/parties/{id}/merge:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+        description: The party to merge away (the loser).
+    post:
+      summary: Merge this party into another
+      description: >-
+        Reconciles two records for one company. References move onto the
+        survivor, the survivor is enriched with anything only the loser knew
+        (never overwritten), and the loser's row is kept flagged `merged_into`
+        so a consumer holding the old id is redirected rather than reading a
+        stale record. Body: `{ "into": <survivor id> }`.
+      tags: [ps-11-customers]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Merged — the surviving party, merged_id and moved_refs }
+        '401': { description: Authentication required }
+        '404': { description: Either party not found }
+        '409': { description: Different kinds, the self party, or already merged }
+        '422': { description: Missing/invalid `into`, or a merge into itself }
   /api/parties/{id}/refs:
     parameters:
       - name: id

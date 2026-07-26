@@ -558,16 +558,42 @@ async function main(argv) {
 
   if (booted.urls.has('ps-11-customers')) {
     const url = booted.urls.get('ps-11-customers');
-    const res = await fetch(`${url}/api/parties/resolve`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Service-Token': booted.serviceToken },
-      body: JSON.stringify({ name: 'Smoke Party GmbH', vat_id: 'ATU00000001' }),
-    });
-    const body = res.ok ? await res.json().catch(() => ({})) : {};
+    const resolve = (payload) =>
+      fetch(`${url}/api/parties/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Service-Token': booted.serviceToken },
+        body: JSON.stringify(payload),
+      });
+
+    const first = await resolve({ name: 'Smoke Party GmbH', vat_id: 'ATU00000001' });
+    const firstBody = first.ok ? await first.json().catch(() => ({})) : {};
     check(
       'PS-11 resolves a party with the stack machine token',
-      res.ok && typeof body?.party?.id === 'number',
-      `status ${res.status}`,
+      first.ok && typeof firstBody?.party?.id === 'number',
+      `status ${first.status}`,
+    );
+
+    // The property the whole service exists for: two consumers, one record.
+    const again = await resolve({
+      name: 'Smoke Party',
+      vat_id: 'atu 0000 0001',
+      source: 'smoke-stack',
+      external_id: '1',
+    });
+    const againBody = again.ok ? await again.json().catch(() => ({})) : {};
+    check(
+      'PS-11 converges a second consumer onto the same party',
+      again.ok && againBody?.party?.id === firstBody?.party?.id && againBody?.matched_on === 'vat_id',
+      `status ${again.status}, matched_on ${againBody?.matched_on}`,
+    );
+
+    // A supplier with the SAME vat id must stay a separate relationship.
+    const supplier = await resolve({ kind: 'supplier', name: 'Smoke Party GmbH', vat_id: 'ATU00000001' });
+    const supplierBody = supplier.ok ? await supplier.json().catch(() => ({})) : {};
+    check(
+      'PS-11 keeps a supplier separate from a customer with the same VAT id',
+      supplier.ok && supplierBody?.created === true && supplierBody?.party?.id !== firstBody?.party?.id,
+      `status ${supplier.status}`,
     );
   }
 
@@ -586,6 +612,31 @@ async function main(argv) {
         `status ${verify.status}`,
       );
     }
+  }
+
+  // The seller letterhead: with PS-11 in the stack, setting the `self` party is
+  // what a module must pick up — the duplicated SELLER_* env is only a fallback.
+  const sellerModules = booted.modules.filter(({ mod }) => mod.env.required.some((name) => name.startsWith('SELLER_')));
+  if (booted.urls.has('ps-11-customers') && sellerModules.length > 0) {
+    const url = booted.urls.get('ps-11-customers');
+    const res = await fetch(`${url}/api/self`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Service-Token': booted.serviceToken },
+      body: JSON.stringify({ name: 'Smoke Seller GmbH', vat_id: 'ATU00000002', address_lines: ['Rauchweg 1'] }),
+    });
+    const body = res.ok ? await res.json().catch(() => ({})) : {};
+    check(
+      `PS-11 stores the seller identity that ${sellerModules.map(({ mod }) => mod.n).join(', ')} print`,
+      res.ok && body?.party?.kind === 'self',
+      `status ${res.status}`,
+    );
+    // A fresh PS-11 must NOT invent one, or it would silently replace a
+    // customer's configured letterhead the moment it joined their stack.
+    check(
+      'PS-11 ships no seeded seller that could override a configured letterhead',
+      body?.party?.name === 'Smoke Seller GmbH',
+      `self party is ${JSON.stringify(body?.party?.name)}`,
+    );
   }
 
   console.log(`\n${c.cyan('  Security')}`);

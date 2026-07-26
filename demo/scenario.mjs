@@ -19,11 +19,14 @@
  *      a draft. Finalizing it takes the invoice number from PS-10 (gapless),
  *      archives the PDF in PS-06, emails the customer via PS-03, and records
  *      the lot on PS-07's tamper-evident log.
- *   4. The customer pays: PS-08 Payments runs the settlement.
- *   5. A support ticket comes in; PS-04 AI drafts the reply.
- *   6. A contract is filed in the Documents app: stored in PS-06, indexed in
+ *   4. Acme renames itself once in PS-11 Customers and both apps' letterheads
+ *      follow, with no restart — the seller identity has one home instead of
+ *      being duplicated in two modules' SELLER_* environments.
+ *   5. The customer pays: PS-08 Payments runs the settlement.
+ *   6. A support ticket comes in; PS-04 AI drafts the reply.
+ *   7. A contract is filed in the Documents app: stored in PS-06, indexed in
  *      PS-09, and found again by full-text search.
- *   7. The platform proves itself: PS-07 verifies the audit chain over every
+ *   8. The platform proves itself: PS-07 verifies the audit chain over every
  *      action taken above, across all four apps.
  *
  * Everything runs offline with mock/console adapters — no vendor keys needed.
@@ -98,6 +101,9 @@ const M = {
       AUDIT_URL: P.audit,
       CUSTOMERS_URL: P.customers,
       SELLER_NAME: 'Acme Corporation',
+      // Short refresh so the demo can show a letterhead change taking effect
+      // without a restart; production defaults to five minutes.
+      SELLER_REFRESH_MS: '400',
       PUBLIC_BASE_URL: 'http://127.0.0.1:4413',
     },
   }),
@@ -284,6 +290,44 @@ async function run() {
   expect(issuedEvents.events.some((e) => e.action === 'invoice.issued'), 'no invoice.issued audit event');
   ok('PS-07 Audit recorded an "invoice.issued" event on the tamper-evident chain.');
   note('One HTTP call from the app → five coordinated Platform Services.');
+
+  // ══════════════════════════════════════════════════════════════════════════
+  act('One seller identity — PS-11 owns the letterhead');
+  step('Both apps currently print the seller from their own SELLER_* env…');
+  const publicRef = encodeURIComponent(sent.body.number);
+  const beforeView = await client(M.offers).get(
+    `/api/public/offers/${publicRef}?token=${sent.body.public_token}`,
+  );
+  expect(beforeView.status === 200, `public offer view failed (${beforeView.status})`);
+  expect(
+    beforeView.body.seller_name === 'Acme Corporation',
+    `expected the env letterhead, got ${beforeView.body.seller_name}`,
+  );
+  ok(`Offer letterhead reads ${c.bold(beforeView.body.seller_name)} — from SELLER_NAME.`);
+  note('↳ PS-11 has no `self` party yet, so the env stands. It is the fallback, not a race.');
+
+  step('Acme renames itself once, in PS-11 — not in two .env files…');
+  const self = await client(P.customers).req('PUT', '/api/self', {
+    body: {
+      name: 'Acme Corporation AG',
+      vat_id: 'ATU12000000',
+      address_lines: ['Handelskai 92', '1200 Wien', 'Austria'],
+    },
+    serviceToken: SVC_TOKEN,
+  });
+  expect(self.status === 200, `setting the self party failed (${self.status})`);
+
+  // The modules re-read the seller on their refresh interval (400ms here).
+  await new Promise((r) => setTimeout(r, 1200));
+  const afterView = await client(M.offers).get(
+    `/api/public/offers/${publicRef}?token=${sent.body.public_token}`,
+  );
+  expect(
+    afterView.body.seller_name === 'Acme Corporation AG',
+    `letterhead did not follow PS-11: still ${afterView.body.seller_name}`,
+  );
+  ok(`Offer letterhead now reads ${c.bold(afterView.body.seller_name)} — no restart, no redeploy.`);
+  note('↳ One fact, one home. Invoicing picks up the same change on its own refresh.');
 
   // ══════════════════════════════════════════════════════════════════════════
   act('Payments — collecting the money through PS-08');

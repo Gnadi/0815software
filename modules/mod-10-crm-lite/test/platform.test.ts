@@ -20,7 +20,7 @@ beforeEach(() => { db = openDb(':memory:'); seed(db); });
 describe('PS-07 audit integration', () => {
   it('records an audit event when a company is created', async () => {
     const events: AuditInfo[] = [];
-    const app = appWith({ async audit(info) { events.push(info); } });
+    const app = appWith({ ...noopPlatform, async audit(info) { events.push(info); } });
     const c = await cookie(app);
     await request(app).post('/api/companies').set('Cookie', c).send({ name: 'Acme Co' }).expect(201);
     await new Promise((r) => setImmediate(r));
@@ -32,6 +32,52 @@ describe('PS-07 audit integration', () => {
     const app = createApp({ db, auth });
     const c = await cookie(app);
     await request(app).post('/api/companies').set('Cookie', c).send({ name: 'X' }).expect(201);
+  });
+});
+
+describe('PS-11 Customers integration', () => {
+  it('registers a new company as a party and stores the master id', async () => {
+    const seen: { name: string; localId: number }[] = [];
+    const app = appWith({
+      ...noopPlatform,
+      async resolveParty(info) {
+        seen.push({ name: info.name, localId: info.localId });
+        return 4711;
+      },
+    });
+    const c = await cookie(app);
+    const res = await request(app).post('/api/companies').set('Cookie', c).send({ name: 'Acme Co' }).expect(201);
+    await new Promise((r) => setImmediate(r));
+
+    expect(seen).toEqual([{ name: 'Acme Co', localId: res.body.id }]);
+    const row = db.prepare('SELECT party_id FROM companies WHERE id = ?').get(res.body.id) as {
+      party_id: number | null;
+    };
+    expect(row.party_id).toBe(4711);
+  });
+
+  it('leaves party_id null when PS-11 is unconfigured — the standalone posture', async () => {
+    const app = createApp({ db, auth });
+    const c = await cookie(app);
+    const res = await request(app).post('/api/companies').set('Cookie', c).send({ name: 'Acme Co' }).expect(201);
+    await new Promise((r) => setImmediate(r));
+    const row = db.prepare('SELECT party_id FROM companies WHERE id = ?').get(res.body.id) as {
+      party_id: number | null;
+    };
+    expect(row.party_id).toBeNull();
+  });
+
+  it('still creates the company when the master service fails', async () => {
+    const app = appWith({
+      ...noopPlatform,
+      async resolveParty() {
+        throw new Error('ECONNREFUSED');
+      },
+    });
+    const c = await cookie(app);
+    await request(app).post('/api/companies').set('Cookie', c).send({ name: 'Acme Co' }).expect(201);
+    await new Promise((r) => setImmediate(r));
+    expect((db.prepare('SELECT COUNT(*) AS n FROM companies').get() as { n: number }).n).toBeGreaterThan(0);
   });
 });
 

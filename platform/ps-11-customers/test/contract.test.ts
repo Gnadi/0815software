@@ -89,6 +89,44 @@ describe('CustomersClient ↔ PS-11 contract', () => {
     expect(self.party?.address_lines).toEqual(['Teststrasse 1', '1010 Wien']);
   });
 
+  it('resolves a supplier without ever touching the customer of the same name', async () => {
+    const customers = new CustomersClient({ baseUrl, serviceToken: 'test-service' });
+    const asCustomer = await customers.resolve({ name: 'Doppel GmbH', vat_id: 'ATU55555555' });
+    const asSupplier = await customers.resolve({
+      kind: 'supplier',
+      name: 'Doppel GmbH',
+      vat_id: 'ATU55555555',
+      source: 'mod-06-procurement-tracker',
+      external_id: '3',
+    });
+    expect(asSupplier.created).toBe(true);
+    expect(asSupplier.party.kind).toBe('supplier');
+    expect(asSupplier.party.id).not.toBe(asCustomer.party.id);
+  });
+
+  it('merges two records and redirects the old id', async () => {
+    const customers = new CustomersClient({ baseUrl, serviceToken: 'test-service' });
+    const survivor = await customers.resolve({ name: 'Merge Survivor GmbH', vat_id: 'ATU70000001' });
+    const loser = await customers.resolve({
+      name: 'Merge Loser GmbH',
+      email: 'loser@merge.example',
+      source: 'mod-10-crm-lite',
+      external_id: '77',
+    });
+
+    const merged = await customers.merge(loser.party.id, survivor.party.id);
+    expect(merged.party.id).toBe(survivor.party.id);
+    expect(merged.merged_id).toBe(loser.party.id);
+    expect(merged.moved_refs).toBe(1);
+    // The survivor gained what only the loser knew.
+    expect(merged.party.email).toBe('loser@merge.example');
+
+    const stale = await customers.get(loser.party.id);
+    expect(stale.party.id).toBe(survivor.party.id);
+    expect(stale.requested_id).toBe(loser.party.id);
+    expect(stale.party.merged_into).toBeNull();
+  });
+
   it('surfaces a service error as ServiceError with its status', async () => {
     const customers = new CustomersClient({ baseUrl, serviceToken: 'test-service' });
     await expect(customers.get(999_999)).rejects.toMatchObject({ status: 404 });

@@ -277,8 +277,20 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.post('/api/companies', (req, res) => {
-    const id = createCompany(db, validateCompany(body(req)));
+    const values = validateCompany(body(req));
+    const id = createCompany(db, values);
     void platform.audit({ actor: auth.username, action: 'company.created', resource: `company:${id}` });
+    // Register the company with PS-11 so a module that later quotes or invoices
+    // it resolves the same party. Best-effort: the local row is already written,
+    // and the party id is stored when the answer arrives.
+    void platform
+      .resolveParty({ name: values.name, email: null, localId: id })
+      .then((partyId) => {
+        if (partyId !== null) db.prepare('UPDATE companies SET party_id = ? WHERE id = ?').run(partyId, id);
+      })
+      .catch(() => {
+        /* buildPlatform already logs; the local row stands either way */
+      });
     res.status(201).json(getCompany(db, id));
   });
 

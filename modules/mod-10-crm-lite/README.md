@@ -265,3 +265,10 @@ state changes on [PS-07 Audit Log](../../platform/ps-07-audit-log) via the
 shared [`@0815software/platform-clients`](../../platform/clients) package.
 Calls are best-effort and opt-in — unset, the module runs standalone. See
 `server/platform.ts`.
+
+With `CUSTOMERS_URL` set, a company created here is registered with
+[PS-11 Customers](../../platform/ps-11-customers) — the stack's party master
+data — and the master `party_id` is stored on the local row. That is what makes a
+company in this pipeline the *same* customer the Offers and Invoicing modules
+quote and bill, instead of a fourth copy of the name. Unset, the local
+`companies` table is the only record and nothing leaves the module.

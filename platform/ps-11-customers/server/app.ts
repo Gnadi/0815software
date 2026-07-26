@@ -30,13 +30,15 @@ import {
   linkRef,
   listParties,
   listRefs,
+  mergeParties,
   nowIso,
   putSelf,
   requireParty,
+  resolveMerged,
   resolveParty,
   updateParty,
 } from './parties.js';
-import type { PartyKind } from '../shared/types.js';
+import { PARTY_KINDS, type PartyKind } from '../shared/types.js';
 
 export interface AppOptions {
   db: Database.Database;
@@ -96,8 +98,13 @@ export function createApp(opts: AppOptions): express.Express {
   const gauges: Gauge[] = [
     {
       name: 'customers_parties_total',
-      help: 'Active customer parties held by this stack.',
-      value: () => countParties(db),
+      help: 'Live customer parties (not archived, not merged away).',
+      value: () => countParties(db, 'customer'),
+    },
+    {
+      name: 'customers_suppliers_total',
+      help: 'Live supplier parties (not archived, not merged away).',
+      value: () => countParties(db, 'supplier'),
     },
   ];
 
@@ -152,7 +159,9 @@ export function createApp(opts: AppOptions): express.Express {
 
   app.get('/api/parties', requireCaller, (req, res) => {
     const kind = typeof req.query.kind === 'string' ? (req.query.kind as PartyKind) : undefined;
-    if (kind !== undefined && kind !== 'customer' && kind !== 'self') fail(422, 'kind must be "customer" or "self"');
+    if (kind !== undefined && !(PARTY_KINDS as readonly string[]).includes(kind)) {
+      fail(422, `kind must be one of: ${PARTY_KINDS.join(', ')}`);
+    }
     res.json({
       parties: listParties(db, {
         q: typeof req.query.q === 'string' && req.query.q !== '' ? req.query.q : undefined,
@@ -170,9 +179,16 @@ export function createApp(opts: AppOptions): express.Express {
     res.status(replayed ? 200 : 201).json({ party });
   });
 
+  // Reading a party follows any merge: a consumer holding a pre-merge id gets
+  // the surviving record, with `requested_id` saying so, rather than a stale one.
   app.get('/api/parties/:id', requireCaller, (req, res) => {
-    const party = requireParty(db, idParam(req));
-    res.json({ party, refs: listRefs(db, party.id) });
+    const requested = idParam(req);
+    const party = resolveMerged(db, requested);
+    res.json({
+      party,
+      refs: listRefs(db, party.id),
+      ...(party.id === requested ? {} : { requested_id: requested }),
+    });
   });
 
   app.patch('/api/parties/:id', requireCaller, (req, res) => {
@@ -186,6 +202,16 @@ export function createApp(opts: AppOptions): express.Express {
   // GDPR erasure: anonymize in place, keep the id so module references hold.
   app.post('/api/parties/:id/erase', requireCaller, (req, res) => {
     res.json({ party: eraseParty(db, idParam(req), at()) });
+  });
+
+  // Reconcile two records for one company: :id is merged INTO `into`. The
+  // loser's row is kept as a redirect, so no module's reference breaks.
+  app.post('/api/parties/:id/merge', requireCaller, (req, res) => {
+    const into = Number(body(req).into);
+    if (!Number.isInteger(into) || into <= 0) {
+      fail(422, 'Validation failed', [{ field: 'into', message: 'must be the id of the surviving party' }]);
+    }
+    res.json(mergeParties(db, idParam(req), into, at()));
   });
 
   // ── References: a module's own id for a party ────────────────────────

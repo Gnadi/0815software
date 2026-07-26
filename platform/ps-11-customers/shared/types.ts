@@ -13,13 +13,23 @@ export interface FieldError {
 }
 
 /**
- * `customer` is a counterparty. `self` is the stack owner's own party — the
- * seller whose name, address and VAT id modules print on their documents.
- * Exactly one `self` party exists per stack (enforced by a partial unique
- * index), which is what gives the duplicated SELLER_* configuration one home.
+ * `customer` is someone you sell to; `supplier` is someone you buy from. They
+ * are separate kinds rather than one "party" bucket because matching must not
+ * cross them: a company that is both is two records with two relationships, and
+ * silently merging them would let a procurement import rewrite a customer's
+ * billing address.
+ *
+ * `self` is the stack owner's own party — the seller whose name, address and VAT
+ * id modules print on their documents. Exactly one exists per stack (a partial
+ * unique index enforces it), which is what gives the otherwise-duplicated
+ * SELLER_* configuration a single home.
  */
-export const PARTY_KINDS = ['customer', 'self'] as const;
+export const PARTY_KINDS = ['customer', 'supplier', 'self'] as const;
 export type PartyKind = (typeof PARTY_KINDS)[number];
+
+/** The kinds a consumer may resolve. `self` is managed through /api/self only. */
+export const RESOLVABLE_KINDS = ['customer', 'supplier'] as const;
+export type ResolvableKind = (typeof RESOLVABLE_KINDS)[number];
 
 export interface Party {
   id: number;
@@ -33,6 +43,12 @@ export interface Party {
   address_lines: string[];
   iban: string | null;
   bic: string | null;
+  /**
+   * Set when this party was merged into another: the survivor's id. The row is
+   * kept so a consumer holding this id is redirected rather than reading a
+   * stale record.
+   */
+  merged_into: number | null;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
@@ -74,4 +90,14 @@ export interface ResolveResult {
   matched_on: MatchedOn;
   /** True when the call created the party rather than finding it. */
   created: boolean;
+}
+
+/** What a merge did, for the operator and for the audit trail. */
+export interface MergeResult {
+  /** The surviving party, enriched with anything only the loser knew. */
+  party: Party;
+  /** The id that was merged away; it now redirects here. */
+  merged_id: number;
+  /** References moved from the loser onto the survivor. */
+  moved_refs: number;
 }

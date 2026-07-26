@@ -14,6 +14,11 @@ export interface SellerConfig {
 export interface ServerConfig {
   port: number;
   databasePath: string;
+  /**
+   * How often the seller letterhead is re-read from PS-11 (ms). Lower it to make
+   * a change visible sooner; it only matters when CUSTOMERS_URL is set.
+   */
+  sellerRefreshMs: number;
   auth: AuthConfig;
   seller: SellerConfig;
   platform: PlatformConfig;
@@ -25,6 +30,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
   return {
     port: Number(env.PORT) || 3004,
     databasePath: env.DATABASE_PATH ?? './data.db',
+    sellerRefreshMs: Number(env.SELLER_REFRESH_MS) || 300_000,
     auth: {
       username: env.ADMIN_USERNAME ?? 'admin',
       password: env.ADMIN_PASSWORD ?? 'admin',

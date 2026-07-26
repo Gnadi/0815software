@@ -110,9 +110,20 @@ modules), and MOD-04 imports it into a draft invoice — idempotent on the offer
 number, recording it on the invoice, refusing a transfer whose totals do not add
 up. The demo now uses the real bridge, so the narrative and the code agree.
 
-**What this did not close.** The seller identity has a home but MOD-04/MOD-13 still
-read `SELLER_*` from their own environment; MOD-01/03/06/10 still keep their own
-counterparty tables. Both are follow-on work, not blockers.
+PS-11 was then finished to the purpose it was built for: `kind` gained `supplier`
+(matching never crosses kinds), `POST /api/parties/:id/merge` reconciles duplicates
+the service already holds while keeping the loser's id as a redirect, and the
+`self` party is now the authority for the seller letterhead — MOD-04 and MOD-13
+read it at boot and refresh it, with their `SELLER_*` env as a per-field fallback,
+so renaming the company is one call rather than two `.env` edits and a redeploy.
+Four modules share the party list: MOD-04, MOD-13, MOD-10 (companies) and MOD-06
+(suppliers), each keeping its own row and storing the master `party_id`.
+
+**What this did not close.** MOD-03 Inventory's supplier table is not migrated
+yet, and MOD-01 Customer Portal is deliberately out — its `customers` are end
+users with logins, an identity concern (item C1) rather than master data. Nothing
+reports likely duplicates either: merging exists, finding candidates is still the
+operator's eye. None of it blocks a rollout.
 
 ---
 
