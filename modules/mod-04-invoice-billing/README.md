@@ -260,10 +260,48 @@ success); without it, that endpoint returns `501`.
 With `NUMBER_URL` set, invoice numbers are sourced from **PS-10 Number**
 (authoritative, gapless) instead of the local per-year counter.
 
+With `CUSTOMERS_URL` set, an imported customer is resolved against
+**PS-11 Customers** — the stack's party master data — instead of being copied
+blind, so this module and MOD-13 Offers mean the same customer. The resolved
+party id is stored on the local customer row; unset, the module matches against
+its own `customers` table as it always has.
+
 Every call is best-effort — a downstream outage is logged and never fails the
 invoice — and entirely opt-in: with the URLs unset (`NOTIFICATION_URL`,
 `FILES_URL`, `AUDIT_URL`, `PLATFORM_SERVICE_TOKEN`) the module behaves exactly
 as before, standalone, with no outbound calls. See `server/platform.ts`.
+
+## Billing an accepted offer
+
+`POST /api/invoices/import-offer` with `{ "offer_number": "AN-2026-0007" }` turns
+an accepted offer from **MOD-13 Offers** into a draft invoice — the *IMPORT
+OFFER* action in the invoice list. It is the module's one cross-module
+dependency, and it is deliberately narrow:
+
+- **The wire format is a contract, not an accident.** `shared/transfer.ts` defines
+  a neutral document transfer — customer identity, line items, currency, VAT,
+  totals — with none of MOD-13's ids, statuses or revision chain in it. The same
+  file exists on the MOD-13 side.
+- **The money is self-checking.** Every transferred line carries the net the
+  source computed and the document carries the source's totals; this module
+  recomputes both and **refuses the transfer if they disagree**, so a rounding
+  difference between two modules can never become a wrong invoice. A per-line
+  discount (which invoice lines cannot express) is folded into a single-quantity
+  line at its exact net, with the arithmetic spelled out in the description.
+- **It produces a DRAFT.** The operator still reviews and finalizes; nothing is
+  issued behind their back.
+- **It is idempotent on the offer number,** which is recorded on the invoice
+  (`origin_offer_number`, unique). A retry — or a double click — returns the first
+  invoice with `200` instead of creating a second one.
+- **Only accepted offers.** MOD-13 refuses to export a draft, a merely sent, a
+  rejected, a withdrawn or a superseded offer, and the reason is passed through.
+- **It is optional.** With `OFFERS_URL` unset the endpoint answers `501` and this
+  module has no notion of offers at all. The full test suite passes either way.
+
+The transport is isolated in `server/platform.ts` (`fetchOffer`) and the shape in
+`shared/transfer.ts`, so re-pointing it at another source is a contained change.
+See [`docs/CUSTOMER-MASTER-DATA.md`](../../docs/CUSTOMER-MASTER-DATA.md) for why
+this exists and what it deliberately does not solve.
 
 ## Out of scope
 

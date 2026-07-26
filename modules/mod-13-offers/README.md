@@ -288,3 +288,31 @@ through the shared [`@0815software/platform-clients`](../../platform/clients)
 package. Set `AUDIT_URL` / `NOTIFICATION_URL` (+ `PLATFORM_SERVICE_TOKEN`);
 best-effort and opt-in — unset, the module runs standalone. See
 `server/platform.ts`.
+
+With `CUSTOMERS_URL` set, a customer created here is also registered with
+[PS-11 Customers](../../platform/ps-11-customers) — the stack's party master
+data — so another module billing that customer resolves the *same* party instead
+of keeping a private copy. Unset, the local `customers` table is the only record.
+
+## Handing an accepted offer to whatever bills it
+
+`GET /api/offers/<number>/transfer` returns an **accepted** offer as a neutral
+document transfer: customer identity, line items, currency, VAT and totals, with
+none of this module's ids, statuses, revision chain or public token in it. The
+shape is defined in `shared/transfer.ts` (the same file exists on the consuming
+side) and is self-checking — each line carries the net this module computed and
+the document carries its totals, so an importer can recompute and refuse rather
+than silently produce a wrong invoice.
+
+- Authenticated with `PLATFORM_SERVICE_TOKEN` in `X-Service-Token`, **not** a
+  staff session: the caller is another service in the same stack. With no token
+  configured the endpoint is closed.
+- Only an accepted offer is exportable. A draft, a merely sent, a rejected, a
+  withdrawn or a superseded offer is refused with `409` and its status in the
+  message — billing a quote the customer has not agreed to is exactly the mistake
+  this must not enable.
+
+[MOD-04 Invoice & Billing](../mod-04-invoice-billing) consumes it as its *IMPORT
+OFFER* action. See
+[`docs/CUSTOMER-MASTER-DATA.md`](../../docs/CUSTOMER-MASTER-DATA.md) for the
+decision behind it.

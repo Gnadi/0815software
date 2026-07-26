@@ -32,5 +32,8 @@
 	handle_path /number/* {
 		reverse_proxy ps10:4010
 	}
+	handle_path /customers/* {
+		reverse_proxy ps11:4011
+	}
 	respond "0815software platform" 200
 }
