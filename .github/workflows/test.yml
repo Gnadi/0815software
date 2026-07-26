@@ -1,0 +1,172 @@
+name: Tests
+
+# Every suite in the repository, on every push and pull request. Before this
+# workflow existed nothing ran automatically, which is how two defects shipped:
+# a missing `deploy/tsconfig.json` (the deploy suite collected zero tests in any
+# checkout without the root Astro dependencies) and a test asserting on the
+# checkout directory's name. The `deploy` job below is deliberately the one that
+# installs nothing at the root, so neither can come back.
+#
+# Everything here is offline: no network in any test, no Docker, no vendor keys.
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  # The matrices are derived from the directories rather than listed, so adding
+  # a service or a module does not need this file edited.
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.list.outputs.services }}
+      modules: ${{ steps.list.outputs.modules }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        run: |
+          node -e '
+            const { readdirSync } = require("node:fs");
+            const pick = (dir, prefix) => readdirSync(dir).filter((n) => n.startsWith(prefix)).sort();
+            const out = [
+              `services=${JSON.stringify(pick("platform", "ps-"))}`,
+              `modules=${JSON.stringify(pick("modules", "mod-"))}`,
+            ];
+            for (const line of out) console.log(line);
+          ' | tee -a "$GITHUB_OUTPUT"
+
+  # ── The deploy tooling: registry drift guard + provisioner ───────────────
+  # NOTHING is installed at the repository root here, on purpose. That is what
+  # proves `deploy/` is self-contained: if it ever starts resolving its tsconfig
+  # (or anything else) from the root again, this job fails instead of silently
+  # collecting zero tests.
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: deploy/package-lock.json
+      - name: Install (deploy only — no root install)
+        working-directory: deploy
+        run: npm ci
+      - name: Assert the package resolves nothing from the repository root
+        working-directory: deploy
+        # `tsc --showConfig` reports the effective config; a self-contained
+        # package has no `extends`, so the root astro preset can never be needed.
+        run: |
+          npx tsc -p tsconfig.json --showConfig > /tmp/effective-tsconfig.json
+          node -e '
+            const cfg = JSON.parse(require("node:fs").readFileSync("/tmp/effective-tsconfig.json", "utf8"));
+            if (cfg.extends) {
+              console.error(`deploy/tsconfig.json must not extend anything, found: ${cfg.extends}`);
+              process.exit(1);
+            }
+            console.log("deploy/tsconfig.json is self-contained");
+          '
+      - name: Type-check
+        working-directory: deploy
+        run: npx tsc -p tsconfig.json --noEmit
+      - name: Test (registry drift guard + provisioner)
+        working-directory: deploy
+        run: npx vitest run
+
+  # ── The marketing site ──────────────────────────────────────────────────
+  # src/data/modules.ts derives its structural fields from modules/registry.json,
+  # so a registry change can now break the site build.
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  # ── The shared clients package ──────────────────────────────────────────
+  clients:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: platform/clients/package-lock.json
+      - working-directory: platform/clients
+        run: npm ci
+      - working-directory: platform/clients
+        run: npm run build
+      - working-directory: platform/clients
+        run: npm test
+
+  # ── Every Platform Service ──────────────────────────────────────────────
+  # Their contract tests drive the clients SOURCE over HTTP (no build needed),
+  # and the services themselves depend only on express + better-sqlite3.
+  platform-services:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.discover.outputs.services) }}
+    name: platform / ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: platform/${{ matrix.service }}/package-lock.json
+      - working-directory: platform/${{ matrix.service }}
+        run: npm ci
+      - working-directory: platform/${{ matrix.service }}
+        run: npm test
+
+  # ── Every Business Module ───────────────────────────────────────────────
+  modules:
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.discover.outputs.modules) }}
+    name: modules / ${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # ORDER MATTERS. Every module depends on @0815software/platform-clients
+      # through a `file:` link, and npm COPIES a file: dependency rather than
+      # symlinking it. A module installed before the clients package has been
+      # built therefore gets a copy with no dist/, and its suite dies with
+      # `Failed to resolve entry for package "@0815software/platform-clients"`.
+      # Build the clients package first, always.
+      - name: Build platform/clients (before any module install)
+        working-directory: platform/clients
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install the module
+        working-directory: modules/${{ matrix.module }}
+        run: npm ci
+      - name: Verify the clients copy carries its build output
+        working-directory: modules/${{ matrix.module }}
+        run: test -f node_modules/@0815software/platform-clients/dist/index.js
+      - name: Test
+        working-directory: modules/${{ matrix.module }}
+        run: npm test

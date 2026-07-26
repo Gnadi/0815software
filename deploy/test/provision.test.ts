@@ -7,7 +7,8 @@
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildContextFor,
@@ -158,7 +159,7 @@ describe('service resolution', () => {
 
   it('puts persisted directories on the mounted volume', () => {
     const plan = planStack(args('--modules', 'mod-09-document-management,mod-01-customer-portal'));
-    const byId = new Map(plan.modules.map((m: any) => [m.mod.id, m.env]));
+    const byId = new Map<string, Record<string, string>>(plan.modules.map((m: any) => [m.mod.id, m.env]));
     expect(byId.get('mod-09-document-management')!.STORAGE_DIR).toBe('/data/storage');
     expect(byId.get('mod-01-customer-portal')!.DOCUMENTS_DIR).toBe('/data/documents');
   });
@@ -218,14 +219,15 @@ describe('secrets', () => {
 
   it('covers every secret the registry declares for the stack', () => {
     const plan = planStack(args('--modules', 'mod-12-support-tickets', '--all-services'));
+    const secrets = plan.secrets as Record<string, string>;
     // The stack machine token replaces the per-service SERVICE_TOKEN entry.
-    expect(plan.secrets.PLATFORM_SERVICE_TOKEN).toMatch(/^[0-9a-f]{64}$/);
-    expect(plan.secrets.PS05_INTEGRATION_ENCRYPTION_KEY).toMatch(/^[0-9a-f]{64}$/);
-    expect(plan.secrets.PS06_SIGNING_SECRET).toMatch(/^[0-9a-f]{64}$/);
-    expect(plan.secrets.PS08_WEBHOOK_SECRET).toMatch(/^[0-9a-f]{64}$/);
-    expect(plan.secrets.MOD12_INTAKE_SECRET).toMatch(/^[0-9a-f]{64}$/);
-    expect(plan.secrets.MOD12_ADMIN_PASSWORD).toMatch(/^[0-9a-f]{64}$/);
-    expect(Object.keys(plan.secrets).filter((k) => /^PS\d\d_SERVICE_TOKEN$/.test(k))).toEqual([]);
+    expect(secrets.PLATFORM_SERVICE_TOKEN).toMatch(/^[0-9a-f]{64}$/);
+    expect(secrets.PS05_INTEGRATION_ENCRYPTION_KEY).toMatch(/^[0-9a-f]{64}$/);
+    expect(secrets.PS06_SIGNING_SECRET).toMatch(/^[0-9a-f]{64}$/);
+    expect(secrets.PS08_WEBHOOK_SECRET).toMatch(/^[0-9a-f]{64}$/);
+    expect(secrets.MOD12_INTAKE_SECRET).toMatch(/^[0-9a-f]{64}$/);
+    expect(secrets.MOD12_ADMIN_PASSWORD).toMatch(/^[0-9a-f]{64}$/);
+    expect(Object.keys(secrets).filter((k) => /^PS\d\d_SERVICE_TOKEN$/.test(k))).toEqual([]);
   });
 
   it('names secrets by package: PS07_, MOD04_', () => {
@@ -400,15 +402,32 @@ describe('rendered artifacts', () => {
 });
 
 describe('build context', () => {
+  // Everything here is derived from where this file actually is, never from what
+  // the checkout is called: these have to hold after `git clone <url> anything`,
+  // in a fork under a different name, and on a CI runner's own path.
+  const repoRoot = fileURLToPath(new URL('../..', import.meta.url)).replace(/\/$/, '');
+
   it('is relative while the stack lives inside the repository', () => {
-    expect(buildContextFor('/home/x/repo/customers/blaustern')).toMatch(/^\.\.|^\/|^\.$/);
     // <repo>/customers/demo -> two levels up is the repository root.
-    const inside = buildContextFor(new URL('../../customers/demo', import.meta.url).pathname);
-    expect(inside).toBe('../..');
+    expect(buildContextFor(join(repoRoot, 'customers', 'demo'))).toBe('../..');
+    expect(buildContextFor(join(repoRoot, 'a', 'b', 'c'))).toBe('../../..');
+    // The root itself is the context "." rather than an empty string.
+    expect(buildContextFor(repoRoot)).toBe('.');
   });
 
-  it('is absolute when the stack lives outside the repository', () => {
-    expect(buildContextFor('/tmp/somewhere-else')).toMatch(/0815software$/);
+  it('is the absolute repository root when the stack lives outside it', () => {
+    // A sibling of the repository root is outside it wherever the repo lives.
+    const outside = buildContextFor(resolve(repoRoot, '..', 'stack-outside-the-repo'));
+    expect(isAbsolute(outside)).toBe(true);
+    expect(outside).toBe(repoRoot);
+    // No trailing slash: it goes straight into `build.context` in the compose file.
+    expect(outside.endsWith('/')).toBe(false);
+  });
+
+  it('resolves a relative --out against the working directory, not the repo', () => {
+    // provision.mjs is run from anywhere; a relative --out must mean what the
+    // shell meant by it. Compare against cwd rather than hardcoding a path.
+    expect(buildContextFor('customers/demo')).toBe(buildContextFor(resolve(process.cwd(), 'customers/demo')));
   });
 });
 
