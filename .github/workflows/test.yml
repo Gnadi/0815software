@@ -161,6 +161,24 @@ jobs:
           npm ci
           npm run build
 
+      # A module suite may boot a real Platform Service in-process — mod-02 drives
+      # the SSO seam against the real PS-01 rather than a stub. Those imports reach
+      # into the SERVICE's directory, so `express`/`better-sqlite3` resolve from
+      # there and that package needs its own install. Derived from the test sources
+      # rather than hardcoded, so it keeps working when another suite does the same.
+      - name: Install any platform package this module's tests boot in-process
+        run: |
+          deps=$(grep -rhoE '\.\./\.\./\.\./platform/[a-z0-9-]+' "modules/${{ matrix.module }}/test/" \
+                 | sed 's|.*/platform/||' | sort -u)
+          if [ -z "$deps" ]; then
+            echo "this module's tests stay inside their own package"
+            exit 0
+          fi
+          for dep in $deps; do
+            echo "installing platform/$dep (booted in-process by these tests)"
+            ( cd "platform/$dep" && npm ci )
+          done
+
       - name: Install the module
         working-directory: modules/${{ matrix.module }}
         run: npm ci
