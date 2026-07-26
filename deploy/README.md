@@ -1,12 +1,65 @@
-# Reference Deployment
+# Deployment
 
-One full platform stack for **one customer** — see
+One platform stack for **one customer** — see
 [`docs/DEPLOYMENT-MODEL.md`](../docs/DEPLOYMENT-MODEL.md) for the tenancy
-stance. The stack is: PS-01…10 as containers, Caddy for TLS + routing, a
-ticker sidecar driving the queue services, and per-service volumes for
-databases and backups.
+stance.
 
-## Bring-up
+There are two ways in:
+
+- **[`provision.mjs`](#provisioning-a-customer-stack) — generate a stack from
+  a module selection.** This is the normal path: pick the modules the customer
+  licensed and get a compose file, fresh secrets, TLS routing, a README and a
+  manifest, with exactly the Platform Services that selection needs.
+- **`docker-compose.yml` in this directory — the reference platform stack.**
+  All ten services, no modules, hand-maintained. It is the shape a generated
+  stack is modelled on and what you bring up to evaluate the platform alone.
+
+Read [`docs/PROVISIONING.md`](../docs/PROVISIONING.md) for the release flow
+end to end.
+
+## Provisioning a customer stack
+
+```sh
+node deploy/provision.mjs \
+  --customer blaustern \
+  --modules mod-04-invoice-billing,mod-13-offers \
+  --domain blaustern.example.com \
+  --out ./customers/blaustern
+```
+
+Reads [`modules/registry.json`](../modules/registry.json), resolves the
+selection to the **minimal** set of Platform Services those modules actually
+reference (the two above need six, not ten), and writes `docker-compose.yml`,
+`.env`, `Caddyfile`, `README.md` and `manifest.json`. Every secret is generated
+fresh with `crypto.randomBytes(32)`, so no two customers share one and none is
+a repo default. Values only the customer can supply — the seller VAT id, the
+ACME contact — are written as `FILL-ME-IN` and listed in the summary.
+
+Each module gets a subdomain (`invoicing.<domain>`, `offers.<domain>`); the
+Platform Services keep their subpath routes on the bare domain. The ticker
+sidecar is included only when the stack contains a tick-driven service.
+
+Useful flags: `--all-services` (include all ten regardless of the selection),
+`--source-db <module-id>` (required when a selected module reports on another
+module's database, i.e. MOD-08), `--org` (PS-01 organization slug, defaults to
+the customer), `--acme-email`, `--force` (overwrite a non-empty `--out`),
+`--help`.
+
+Run `node deploy/provision.mjs --help` for the full list and the module ids.
+
+## Tests
+
+```sh
+cd deploy && npm install && npm test
+```
+
+Offline, no Docker: the registry drift suite (every registry claim re-derived
+from each package's own `server/config.ts`) plus the provisioning suite
+(service resolution, ticker logic, secret uniqueness, the MOD-08 source-db
+rules, clobber refusal, and the invariant that every `${VAR}` in a generated
+artifact is defined in the generated `.env`).
+
+## Reference stack bring-up
 
 ```sh
 cd deploy
