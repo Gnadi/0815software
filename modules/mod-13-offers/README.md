@@ -294,6 +294,18 @@ With `CUSTOMERS_URL` set, a customer created here is also registered with
 data — so another module billing that customer resolves the *same* party instead
 of keeping a private copy. Unset, the local `customers` table is the only record.
 
+### The seller letterhead
+
+The `SELLER_*` env vars are the fallback, not the source of truth. With
+`CUSTOMERS_URL` set, this module reads PS-11's `self` party — the stack owner's
+own record — at boot and refreshes it every five minutes
+(`SELLER_REFRESH_MS`), so the name, address and VAT id printed on offer PDFs and the public acceptance page follow
+a change made once in PS-11 rather than needing two `.env` edits and a redeploy.
+Precedence is per field: anything the `self` party leaves blank falls back to the
+env, so a half-filled party cannot blank a letterhead, and an unreachable PS-11
+leaves the env in charge. The module never writes the seller back — one
+authority. See `server/seller.ts`.
+
 ## Handing an accepted offer to whatever bills it
 
 `GET /api/offers/<number>/transfer` returns an **accepted** offer as a neutral

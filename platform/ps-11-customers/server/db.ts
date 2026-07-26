@@ -62,13 +62,78 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 2,
+    name: 'supplier-kind-and-merge',
+    up(db) {
+      // Two changes, both needed to make this party master data rather than a
+      // customer list:
+      //
+      // 1. `kind` gains 'supplier'. Widening a CHECK constraint means rebuilding
+      //    the table — SQLite cannot ALTER one — so this copies through a new
+      //    table. The migration runner wraps it in a transaction.
+      // 2. `merged_into` records that a party was merged away, so a consumer
+      //    holding the old id is redirected to the survivor instead of reading a
+      //    stale record. Merging is how duplicates that predate this service
+      //    (or that arrived without a VAT id or email) get reconciled.
+      db.exec(`
+      CREATE TABLE parties_new (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind           TEXT NOT NULL DEFAULT 'customer'
+                       CHECK (kind IN ('customer','supplier','self')),
+        name           TEXT NOT NULL,
+        contact_person TEXT,
+        email          TEXT,
+        vat_id         TEXT,
+        address_lines  TEXT NOT NULL DEFAULT '',
+        iban           TEXT,
+        bic            TEXT,
+        merged_into    INTEGER REFERENCES parties(id),
+        archived_at    TEXT,
+        created_at     TEXT NOT NULL,
+        updated_at     TEXT NOT NULL
+      );
+
+      INSERT INTO parties_new
+        (id, kind, name, contact_person, email, vat_id, address_lines, iban, bic,
+         merged_into, archived_at, created_at, updated_at)
+      SELECT
+         id, kind, name, contact_person, email, vat_id, address_lines, iban, bic,
+         NULL, archived_at, created_at, updated_at
+      FROM parties;
+
+      DROP TABLE parties;
+      ALTER TABLE parties_new RENAME TO parties;
+
+      CREATE INDEX IF NOT EXISTS idx_parties_vat ON parties(vat_id);
+      CREATE INDEX IF NOT EXISTS idx_parties_email ON parties(email);
+      CREATE INDEX IF NOT EXISTS idx_parties_merged ON parties(merged_into);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_parties_one_self
+        ON parties(kind) WHERE kind = 'self';
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */
 export function openDb(path: string): Database.Database {
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
-  db.pragma('foreign_keys = ON');
+
+  // Migration 002 rebuilds `parties`, because SQLite cannot widen a CHECK
+  // constraint in place. `DROP TABLE` with foreign-key enforcement ON runs an
+  // implicit DELETE, which would cascade away every party_refs row — the exact
+  // data a rebuild must preserve. So migrations run with enforcement off (the
+  // standard SQLite rebuild recipe; the pragma is a no-op inside a transaction,
+  // which is why it cannot live in the migration itself), and the schema is
+  // checked for dangling references immediately afterwards.
+  db.pragma('foreign_keys = OFF');
   runMigrations(db, MIGRATIONS);
+  db.pragma('foreign_keys = ON');
+
+  const violations = db.pragma('foreign_key_check') as unknown[];
+  if (violations.length > 0) {
+    throw new Error(`refusing to serve: ${violations.length} dangling foreign-key reference(s) after migration`);
+  }
   return db;
 }

@@ -3,12 +3,14 @@ import { DomainError, fail, failValidation } from './errors.js';
 import type {
   FieldError,
   MatchedOn,
+  MergeResult,
   Party,
   PartyKind,
   PartyRef,
   ResolveInput,
   ResolveResult,
 } from '../shared/types.js';
+import { PARTY_KINDS } from '../shared/types.js';
 
 /**
  * Party master data — the whole domain of PS-11.
@@ -23,6 +25,15 @@ import type {
  *    master record is missing and leaves everything it already knows alone. A
  *    module importing a thin copy of a customer can therefore never degrade the
  *    master record; changing a known value is an explicit update.
+ *
+ * Matching never crosses `kind`: a supplier import cannot land on a customer
+ * record even when the VAT id is identical, because a company you both buy from
+ * and sell to is two relationships with two sets of terms.
+ *
+ * Duplicates that predate this service — or that arrived with neither a VAT id
+ * nor an email to match on — are reconciled with `mergeParties`, which keeps the
+ * loser's row as a redirect so a consumer holding the old id is never left
+ * reading a stale record.
  */
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -98,10 +109,10 @@ export function cleanInput(body: Record<string, unknown>, { requireName = true }
 
   let kind: PartyKind = 'customer';
   if (body.kind !== undefined) {
-    if (body.kind !== 'customer' && body.kind !== 'self') {
-      errors.push({ field: 'kind', message: 'must be "customer" or "self"' });
+    if (typeof body.kind !== 'string' || !(PARTY_KINDS as readonly string[]).includes(body.kind)) {
+      errors.push({ field: 'kind', message: `must be one of: ${PARTY_KINDS.join(', ')}` });
     } else {
-      kind = body.kind;
+      kind = body.kind as PartyKind;
     }
   }
 
@@ -135,6 +146,7 @@ interface PartyRow {
   address_lines: string;
   iban: string | null;
   bic: string | null;
+  merged_into: number | null;
   archived_at: string | null;
   created_at: string;
   updated_at: string;
@@ -159,6 +171,22 @@ export function requireParty(db: Database.Database, id: number): Party {
   return party;
 }
 
+/**
+ * Resolve an id through any merge chain to the party that survives, so a
+ * consumer holding a pre-merge id reads the real record. Guards against a cycle
+ * rather than trusting the data.
+ */
+export function resolveMerged(db: Database.Database, id: number): Party {
+  const seen = new Set<number>();
+  let party = requireParty(db, id);
+  while (party.merged_into !== null) {
+    if (seen.has(party.id)) fail(500, `merge chain for party ${id} is cyclic`);
+    seen.add(party.id);
+    party = requireParty(db, party.merged_into);
+  }
+  return party;
+}
+
 export interface ListFilter {
   /** Substring match on name, email or VAT id. */
   q?: string;
@@ -168,7 +196,7 @@ export interface ListFilter {
 }
 
 export function listParties(db: Database.Database, filter: ListFilter = {}): Party[] {
-  const where: string[] = [];
+  const where: string[] = ['merged_into IS NULL'];
   const params: unknown[] = [];
   if (!filter.includeArchived) where.push('archived_at IS NULL');
   if (filter.kind) {
@@ -242,6 +270,7 @@ export function updateParty(db: Database.Database, id: number, patch: Record<str
 export function archiveParty(db: Database.Database, id: number, at = nowIso()): Party {
   const party = requireParty(db, id);
   if (party.kind === 'self') fail(409, 'The self party cannot be archived');
+  if (party.merged_into !== null) fail(409, `Party ${id} was merged into ${party.merged_into} — act on that one`);
   if (party.archived_at === null) {
     db.prepare('UPDATE parties SET archived_at = ?, updated_at = ? WHERE id = ?').run(at, at, id);
   }
@@ -306,17 +335,23 @@ function findByRef(db: Database.Database, source: string, externalId: string): P
   return row ? toParty(row) : null;
 }
 
-function findByVatId(db: Database.Database, vatId: string): Party | null {
+function findByVatId(db: Database.Database, kind: PartyKind, vatId: string): Party | null {
   const row = db
-    .prepare("SELECT * FROM parties WHERE kind = 'customer' AND vat_id = ? AND archived_at IS NULL ORDER BY id LIMIT 1")
-    .get(vatId) as PartyRow | undefined;
+    .prepare(
+      `SELECT * FROM parties WHERE kind = ? AND vat_id = ?
+         AND archived_at IS NULL AND merged_into IS NULL ORDER BY id LIMIT 1`,
+    )
+    .get(kind, vatId) as PartyRow | undefined;
   return row ? toParty(row) : null;
 }
 
-function findByEmail(db: Database.Database, email: string): Party | null {
+function findByEmail(db: Database.Database, kind: PartyKind, email: string): Party | null {
   const row = db
-    .prepare("SELECT * FROM parties WHERE kind = 'customer' AND email = ? AND archived_at IS NULL ORDER BY id LIMIT 1")
-    .get(email) as PartyRow | undefined;
+    .prepare(
+      `SELECT * FROM parties WHERE kind = ? AND email = ?
+         AND archived_at IS NULL AND merged_into IS NULL ORDER BY id LIMIT 1`,
+    )
+    .get(kind, email) as PartyRow | undefined;
   return row ? toParty(row) : null;
 }
 
@@ -354,14 +389,25 @@ export function resolveParty(db: Database.Database, body: ResolveInput, at = now
   return db.transaction((): ResolveResult => {
     let matched: MatchedOn = 'created';
     let party: Party | null = source && externalId ? findByRef(db, source, externalId) : null;
-    if (party) matched = 'ref';
+    // A reference can point at a party that has since been merged away; follow
+    // it, so the caller's own id keeps resolving to the surviving record.
+    if (party) {
+      party = resolveMerged(db, party.id);
+      matched = 'ref';
+      if (party.kind !== input.kind) {
+        fail(
+          409,
+          `${source}/${externalId} is linked to a ${party.kind} party; a ${input.kind} cannot reuse that reference`,
+        );
+      }
+    }
 
     if (!party && input.vat_id) {
-      party = findByVatId(db, input.vat_id);
+      party = findByVatId(db, input.kind, input.vat_id);
       if (party) matched = 'vat_id';
     }
     if (!party && input.email) {
-      party = findByEmail(db, input.email);
+      party = findByEmail(db, input.kind, input.email);
       if (party) matched = 'email';
     }
 
@@ -371,6 +417,87 @@ export function resolveParty(db: Database.Database, body: ResolveInput, at = now
 
     if (source && externalId) linkRef(db, party.id, source, externalId, at);
     return { party, matched_on: created ? 'created' : matched, created };
+  })();
+}
+
+/**
+ * Merge `loserId` into `survivorId` — the operation that reconciles duplicates
+ * this service already holds.
+ *
+ * Two records for one company happen: they predate PS-11, or the first import
+ * had no VAT id and the second no email, so nothing matched. Merging is
+ * therefore not an edge case, it is the repair tool, and it has to be safe:
+ *
+ * - **The loser's row is kept**, flagged `merged_into`, so a module still
+ *   holding that id is redirected to the survivor instead of reading a stale
+ *   record. Nothing is deleted, so no foreign key is broken.
+ * - **References move** onto the survivor, which is what makes the modules agree
+ *   afterwards. A reference the survivor already has is dropped rather than
+ *   duplicated (the primary key would reject it anyway).
+ * - **The survivor is enriched, never overwritten** — the same rule `resolve`
+ *   follows, so merging cannot quietly change a known billing address.
+ * - **Kinds must match**, and neither side may be the `self` party.
+ */
+export function mergeParties(
+  db: Database.Database,
+  loserId: number,
+  survivorId: number,
+  at = nowIso(),
+): MergeResult {
+  if (loserId === survivorId) fail(422, 'A party cannot be merged into itself');
+  const loser = requireParty(db, loserId);
+  const survivor = requireParty(db, survivorId);
+
+  if (loser.kind === 'self' || survivor.kind === 'self') fail(409, 'The self party cannot take part in a merge');
+  if (loser.kind !== survivor.kind) {
+    fail(409, `Cannot merge a ${loser.kind} party into a ${survivor.kind} party`);
+  }
+  if (loser.merged_into !== null) fail(409, `Party ${loserId} was already merged into ${loser.merged_into}`);
+  if (survivor.merged_into !== null) {
+    fail(409, `Party ${survivorId} was itself merged into ${survivor.merged_into} — merge into that one`);
+  }
+
+  return db.transaction((): MergeResult => {
+    const survivorRefs = new Set(listRefs(db, survivorId).map((ref) => `${ref.source}\n${ref.external_id}`));
+    let moved = 0;
+    for (const ref of listRefs(db, loserId)) {
+      if (survivorRefs.has(`${ref.source}\n${ref.external_id}`)) {
+        db.prepare('DELETE FROM party_refs WHERE source = ? AND external_id = ?').run(ref.source, ref.external_id);
+        continue;
+      }
+      db.prepare('UPDATE party_refs SET party_id = ? WHERE source = ? AND external_id = ?').run(
+        survivorId,
+        ref.source,
+        ref.external_id,
+      );
+      moved += 1;
+    }
+
+    // Anything only the loser knew is worth keeping; anything the survivor
+    // already knows wins.
+    const enriched = enrich(
+      db,
+      survivor,
+      {
+        name: survivor.name,
+        kind: survivor.kind,
+        contact_person: loser.contact_person,
+        email: loser.email,
+        vat_id: loser.vat_id,
+        address_lines: loser.address_lines,
+        iban: loser.iban,
+        bic: loser.bic,
+      },
+      at,
+    );
+
+    db.prepare('UPDATE parties SET merged_into = ?, archived_at = ?, updated_at = ? WHERE id = ?').run(
+      survivorId,
+      loser.archived_at ?? at,
+      at,
+      loserId,
+    );
+    return { party: enriched, merged_id: loserId, moved_refs: moved };
   })();
 }
 
@@ -423,10 +550,13 @@ export function putSelf(db: Database.Database, body: Record<string, unknown>, at
   );
 }
 
-export function countParties(db: Database.Database): number {
-  return (db.prepare("SELECT COUNT(*) AS n FROM parties WHERE kind = 'customer' AND archived_at IS NULL").get() as {
-    n: number;
-  }).n;
+/** Live parties of one kind: not archived, not merged away. */
+export function countParties(db: Database.Database, kind: PartyKind = 'customer'): number {
+  return (
+    db
+      .prepare('SELECT COUNT(*) AS n FROM parties WHERE kind = ? AND archived_at IS NULL AND merged_into IS NULL')
+      .get(kind) as { n: number }
+  ).n;
 }
 
 export { DomainError };

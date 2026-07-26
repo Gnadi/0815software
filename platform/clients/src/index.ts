@@ -25,6 +25,7 @@ export type { NextNumber, SequenceConfig } from './number.js';
 export { CustomersClient } from './customers.js';
 export type {
   MatchedOn,
+  MergeResult,
   Party,
   PartyInput,
   PartyKind,

@@ -97,5 +97,15 @@ export function openDb(path: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_activities_followup ON activities (due_date, done);
   `);
 
+  // ── Additive, idempotent schema evolution ──────────────────────────
+  // The PS-11 Customers party this company is, when the master service is
+  // wired. Null in a standalone deployment, which is why it is nullable.
+  const columns = (table: string): string[] =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+  if (!columns('companies').includes('party_id')) {
+    db.exec('ALTER TABLE companies ADD COLUMN party_id INTEGER');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_companies_party ON companies (party_id)');
+  }
+
   return db;
 }

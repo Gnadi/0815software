@@ -266,6 +266,18 @@ blind, so this module and MOD-13 Offers mean the same customer. The resolved
 party id is stored on the local customer row; unset, the module matches against
 its own `customers` table as it always has.
 
+### The seller letterhead
+
+The `SELLER_*` env vars are the fallback, not the source of truth. With
+`CUSTOMERS_URL` set, this module reads PS-11's `self` party — the stack owner's
+own record — at boot and refreshes it every five minutes
+(`SELLER_REFRESH_MS`), so the name, address and VAT id printed on invoice PDFs follow
+a change made once in PS-11 rather than needing two `.env` edits and a redeploy.
+Precedence is per field: anything the `self` party leaves blank falls back to the
+env, so a half-filled party cannot blank a letterhead, and an unreachable PS-11
+leaves the env in charge. The module never writes the seller back — one
+authority. See `server/seller.ts`.
+
 Every call is best-effort — a downstream outage is logged and never fails the
 invoice — and entirely opt-in: with the URLs unset (`NOTIFICATION_URL`,
 `FILES_URL`, `AUDIT_URL`, `PLATFORM_SERVICE_TOKEN`) the module behaves exactly

@@ -1,4 +1,5 @@
 import { AuditClient, CustomersClient, NotificationClient } from '@0815software/platform-clients';
+import type { SelfParty } from './seller.js';
 
 /**
  * Optional integration with the Platform Services (best-effort, opt-in):
@@ -48,6 +49,12 @@ export interface PlatformHooks {
   audit(info: AuditInfo): Promise<void>;
   notify(info: NotifyInfo): Promise<void>;
   /**
+   * The stack owner's own party from PS-11 — the seller letterhead. Null when
+   * PS-11 is unset, has no `self` party yet, or is unreachable; the module then
+   * keeps its SELLER_* environment values. See server/seller.ts.
+   */
+  fetchSelf(): Promise<SelfParty | null>;
+  /**
    * Resolve a customer against PS-11's party master data, returning the master
    * party id. Returns null when PS-11 is not configured or is unreachable —
    * this module keeps its own customer row either way, so the local operation
@@ -65,6 +72,9 @@ export const noopPlatform: PlatformHooks = {
   },
   async resolveParty() {
     /* standalone — the local customers table is the only record */
+    return null;
+  },
+  async fetchSelf() {
     return null;
   },
 };
@@ -96,6 +106,17 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
         console.warn('[mod-13] notify failed:', err);
       }
     },
+    async fetchSelf(): Promise<SelfParty | null> {
+      if (!customers) return null;
+      try {
+        const { party } = await customers.self();
+        return party;
+      } catch (err) {
+        console.warn('[mod-13] seller lookup failed:', err);
+        return null;
+      }
+    },
+
     async resolveParty(info: PartyInfo): Promise<number | null> {
       if (!customers) return null;
       try {

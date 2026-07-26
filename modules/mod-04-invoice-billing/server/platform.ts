@@ -6,6 +6,7 @@ import {
   NumberClient,
   PaymentsClient,
 } from '@0815software/platform-clients';
+import type { SelfParty } from './seller.js';
 
 /**
  * Optional integration with the Platform Services. Every hook is best-effort
@@ -121,6 +122,12 @@ export interface PlatformHooks {
   fetchOffer(offerNumber: string): Promise<unknown | null>;
   /** Record the quote-to-invoice hand-off on PS-07, when configured. */
   offerBilled(info: OfferBilledInfo): Promise<void>;
+  /**
+   * The stack owner's own party from PS-11 — the seller letterhead. Null when
+   * PS-11 is unset, has no `self` party yet, or is unreachable; the module then
+   * keeps its SELLER_* environment values. See server/seller.ts.
+   */
+  fetchSelf(): Promise<SelfParty | null>;
 }
 
 /** The no-op hooks used when nothing is configured. */
@@ -145,6 +152,9 @@ export const noopPlatform: PlatformHooks = {
   },
   async offerBilled() {
     /* standalone: nothing to do */
+  },
+  async fetchSelf() {
+    return null;
   },
 };
 
@@ -268,6 +278,17 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
         throw new OfferFetchError(res.status, message);
       }
       return parsed;
+    },
+
+    async fetchSelf(): Promise<SelfParty | null> {
+      if (!customers) return null;
+      try {
+        const { party } = await customers.self();
+        return party;
+      } catch (err) {
+        console.warn('[mod-04] seller lookup failed:', err);
+        return null;
+      }
     },
 
     async offerBilled(info: OfferBilledInfo): Promise<void> {
