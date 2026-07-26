@@ -38,6 +38,31 @@ descriptions.
 Each module is a self-contained application with its own `package.json`,
 `LICENSE` and README — install and run it independently of this repository.
 
+## The registry — `registry.json`
+
+[`registry.json`](./registry.json) is the machine-readable description of the
+catalogue: for every module its id, catalogue number, slug, title, operational
+label, default port, typical scope, the Platform Services it integrates with,
+its module-specific env vars and secrets, and its deployment constraints
+(SSO-capable, needs a public base URL, needs a co-located source database).
+The same file carries the ten Platform Services with their ports, Caddy route
+prefixes, URL env var, tick-driven flag and per-stack secrets.
+
+It is a **source of truth, not documentation**: the marketing catalogue
+(`src/data/modules.ts`), both demo hubs, `deploy/provision.mjs` and
+`deploy/smoke-stack.mjs` all derive from it, and
+`deploy/test/registry.test.ts` re-derives every claim from each package's own
+`server/config.ts` — so a registry entry that disagrees with the code fails
+the build rather than misleading a generator.
+
+- Schema: [`registry.schema.json`](./registry.schema.json) (JSON Schema 2020-12)
+- Loader for scripts: [`registry.mjs`](./registry.mjs) — plain ESM, plus
+  `resolveSelection()`, which turns a module selection into the minimal stack
+- Loader for TypeScript: [`registry.ts`](./registry.ts)
+
+Adding a module means: the package, a registry entry, and a copy block in
+`src/data/modules.ts`. See [`docs/PROVISIONING.md`](../docs/PROVISIONING.md).
+
 ## Consuming the Platform Services
 
 Modules talk to the [Platform Services](../platform) through the shared

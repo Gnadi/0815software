@@ -1,16 +1,43 @@
 // The demo hub — a tiny landing page served at https://<DEMO_DOMAIN> that links
 // into each running app on its own subdomain. Templated from DEMO_DOMAIN.
+//
+// The card grid is derived from modules/registry.json: the demo's selection is
+// a list of module ids, and each card's label, subdomain, service list and
+// login kind come from the registry — only the narrative blurb lives here.
 import { createServer } from 'node:http';
+import { resolveSelection, servicesOf, subdomainFor } from '../../../modules/registry.mjs';
 
 const DOMAIN = process.env.DEMO_DOMAIN || 'demo.example.com';
 const PORT = Number(process.env.PORT) || 8080;
 
-const CARDS = [
-  { label: 'Offers', sub: 'offers', blurb: 'Quote a customer; they accept online via a public link.', services: 'Notifications · Audit', login: 'SSO' },
-  { label: 'Invoicing', sub: 'invoicing', blurb: 'Bill the accepted quote — one “finalize” click, five services.', services: 'Numbering · Files · Notifications · Payments · Audit', login: 'SSO' },
-  { label: 'Support', sub: 'support', blurb: 'Tickets with an AI-drafted reply.', services: 'AI · Notifications · Audit', login: 'SSO' },
-  { label: 'Documents', sub: 'documents', blurb: 'File a contract, find it by full-text search.', services: 'Files · Search · Audit', login: 'Local' },
+/** The apps this demo publishes, as registry ids — mirrors demo/serve.mjs. */
+const SELECTION = [
+  'mod-13-offers',
+  'mod-04-invoice-billing',
+  'mod-12-support-tickets',
+  'mod-09-document-management',
 ];
+
+/** Demo-only narrative copy, keyed by registry id. */
+const BLURBS = {
+  'mod-13-offers': 'Quote a customer; they accept online via a public link.',
+  'mod-04-invoice-billing': 'Bill the accepted quote — one “finalize” click, five services.',
+  'mod-12-support-tickets': 'Tickets with an AI-drafted reply.',
+  'mod-09-document-management': 'File a contract, find it by full-text search.',
+};
+
+const stack = resolveSelection(SELECTION);
+
+const CARDS = stack.modules.map((mod) => ({
+  label: mod.label,
+  sub: subdomainFor(mod),
+  blurb: BLURBS[mod.id] ?? '',
+  services: servicesOf(mod)
+    .filter((s) => s.urlEnv !== 'IDENTITY_URL')
+    .map((s) => s.label)
+    .join(' · '),
+  login: mod.constraints.supportsSso ? 'SSO' : 'Local',
+}));
 
 const card = (a) => `
   <a class="card" href="https://${a.sub}.${DOMAIN}" target="_blank" rel="noopener">
@@ -53,7 +80,7 @@ const html = () => `<!doctype html>
   @media (max-width:680px){ .grid{grid-template-columns:1fr} h1{font-size:34px} }
 </style></head>
 <body><div class="wrap">
-  <div class="eyebrow">Live demo · 8 services · 4 apps · one platform</div>
+  <div class="eyebrow">Live demo · ${stack.services.length} services · ${CARDS.length} apps · one platform</div>
   <h1>Four separate apps.<br><span>One platform underneath.</span></h1>
   <p class="lead">Every app below is a real, independent product — and every one runs against the same identity provider, audit log, notifications, payments, storage, search and numbering. Sign into one and you're signed into all of them.</p>
   <div class="creds">Single sign-on: <b>owner@acme.test</b> / <b>demo-owner</b> &nbsp;·&nbsp; Documents (own login): <b>admin</b> / <b>demo-admin</b></div>

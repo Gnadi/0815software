@@ -1,0 +1,19 @@
+{
+  "name": "@0815software/deploy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Provisioning and deployment tooling — turns a module selection from modules/registry.json into a ready-to-run per-customer platform stack, and smoke-tests it without Docker.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "provision": "node provision.mjs",
+    "smoke": "node smoke.mjs",
+    "predeploy": "node smoke-stack.mjs",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.11",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

@@ -2,10 +2,12 @@
 /**
  * 0815software Platform — live, clickable demo.
  *
- * Boots the platform (8 services) plus four real business apps — Offers,
- * Invoicing, Support, Documents — each serving its actual web UI, all wired to
- * one shared identity provider and platform. Then it serves a hub page that
- * links you into every running app with the demo logins.
+ * Boots four real business apps — Offers, Invoicing, Support, Documents — plus
+ * exactly the Platform Services they need (eight today), each app serving its
+ * actual web UI, all wired to one shared identity provider and platform. Then
+ * it serves a hub page that links you into every running app with the demo
+ * logins. The selection below is a list of modules/registry.json ids; the
+ * topology is derived from it.
  *
  * Open http://localhost:4400 and click through a real, integrated product.
  * Everything runs offline (mock/console adapters) — no vendor keys, no Docker.
@@ -16,6 +18,7 @@ import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { resolveSelection, servicesOf } from '../modules/registry.mjs';
 import { boot, c, client, shutdown, waitForHealth } from './lib/harness.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -25,13 +28,37 @@ const ADMIN_PW = 'demo-admin';
 const SESSION_SECRET = 'demo0815demo0815demo0815demo0815demo0815demo0815demo0815demo0815';
 const ORG = 'acme';
 
-// ── Make sure each app's web UI and compiled server are built ────────────────
-const APPS = [
-  { name: 'mod-13-offers', label: 'Offers', port: 4413 },
-  { name: 'mod-04-invoice-billing', label: 'Invoicing', port: 4404 },
-  { name: 'mod-12-support-tickets', label: 'Support', port: 4412 },
-  { name: 'mod-09-document-management', label: 'Documents', port: 4409 },
+// ── The demo's module selection, and the copy that goes with it ──────────────
+// The subset is a list of registry ids; everything structural — label, port,
+// which Platform Services to boot, whether the app does SSO — is derived from
+// modules/registry.json, so the demo cannot drift from the modules.
+const SELECTION = [
+  'mod-13-offers',
+  'mod-04-invoice-billing',
+  'mod-12-support-tickets',
+  'mod-09-document-management',
 ];
+
+/** Demo-only narrative copy, keyed by registry id. */
+const BLURBS = {
+  'mod-13-offers': 'Quotes a customer accepts online.',
+  'mod-04-invoice-billing': 'Bills the accepted quote — one click, five services.',
+  'mod-12-support-tickets': 'Tickets with AI-drafted replies.',
+  'mod-09-document-management': 'Files a contract, finds it by full-text search.',
+};
+
+const stack = resolveSelection(SELECTION);
+
+/** Demo ports keep the module/service number: 3013 → 4413, 4001 → 4301. */
+const demoModulePort = (mod) => 4400 + (mod.defaultPort - 3000);
+const demoServicePort = (svc) => 4300 + (svc.defaultPort - 4000);
+
+const APPS = stack.modules.map((mod) => ({
+  mod,
+  name: mod.id,
+  label: mod.label,
+  port: demoModulePort(mod),
+}));
 
 function ensureBuilt() {
   for (const app of APPS) {
@@ -47,59 +74,65 @@ function ensureBuilt() {
 
 // ── Topology ─────────────────────────────────────────────────────────────────
 const platformEnv = { SERVICE_TOKEN: SVC_TOKEN, ADMIN_PASSWORD: ADMIN_PW, SESSION_SECRET };
+
+/** Extra, module-specific demo configuration beyond the derived service URLs. */
+const MODULE_ENV = {
+  'mod-13-offers': { SELLER_NAME: 'Acme Corporation' },
+  'mod-04-invoice-billing': { SELLER_NAME: 'Acme Corporation', NOTIFICATION_INVOICE_CHANNEL: 'transactional-email' },
+  'mod-12-support-tickets': { INTAKE_SECRET: 'demo-intake-secret' },
+};
+
+/** url-by-service-id, filled by bootStack() and read by the app wiring. */
 let P, M;
 
 function bootStack() {
-  P = {
-    identity: boot({ group: 'platform', name: 'ps-01-identity', port: 4301, tag: 'PS-01', env: platformEnv }),
-    notify: boot({ group: 'platform', name: 'ps-03-notification-hub', port: 4303, tag: 'PS-03', env: platformEnv }),
-    ai: boot({ group: 'platform', name: 'ps-04-ai-platform', port: 4304, tag: 'PS-04', env: platformEnv }),
-    files: boot({ group: 'platform', name: 'ps-06-file-storage', port: 4306, tag: 'PS-06', env: platformEnv }),
-    audit: boot({ group: 'platform', name: 'ps-07-audit-log', port: 4307, tag: 'PS-07', env: platformEnv }),
-    payments: boot({ group: 'platform', name: 'ps-08-payments', port: 4308, tag: 'PS-08', env: platformEnv }),
-    search: boot({ group: 'platform', name: 'ps-09-search', port: 4309, tag: 'PS-09', env: platformEnv }),
-    number: boot({ group: 'platform', name: 'ps-10-number', port: 4310, tag: 'PS-10', env: platformEnv }),
-  };
+  P = {};
+  for (const service of stack.services) {
+    P[service.id] = boot({
+      group: 'platform',
+      name: service.id,
+      port: demoServicePort(service),
+      tag: service.n,
+      env: platformEnv,
+    });
+  }
 
-  const ssoEnv = {
-    IDENTITY_URL: P.identity,
-    IDENTITY_ORG: ORG,
-    PLATFORM_SERVICE_TOKEN: SVC_TOKEN,
-    ADMIN_PASSWORD: ADMIN_PW,
-    SESSION_SECRET,
-    INTAKE_SECRET: 'demo-intake-secret',
-  };
+  M = {};
+  for (const app of APPS) {
+    const { mod, port } = app;
+    const env = {
+      PLATFORM_SERVICE_TOKEN: SVC_TOKEN,
+      ADMIN_PASSWORD: ADMIN_PW,
+      SESSION_SECRET,
+      ...MODULE_ENV[mod.id],
+    };
+    // Point the module at every Platform Service it declares — and, for an
+    // SSO module, at the identity provider that makes one login work for all.
+    for (const service of servicesOf(mod)) {
+      if (service.urlEnv === 'IDENTITY_URL' && !mod.constraints.supportsSso) continue;
+      env[service.urlEnv] = P[service.id];
+    }
+    if (mod.constraints.supportsSso) env.IDENTITY_ORG = ORG;
+    if (mod.constraints.needsPublicBaseUrl) env.PUBLIC_BASE_URL = `http://localhost:${port}`;
 
-  M = {
-    Offers: boot({
-      group: 'modules', name: 'mod-13-offers', port: 4413, tag: 'Offers', compiled: true,
-      env: { ...ssoEnv, NOTIFICATION_URL: P.notify, AUDIT_URL: P.audit, SELLER_NAME: 'Acme Corporation', PUBLIC_BASE_URL: 'http://localhost:4413' },
-    }),
-    Invoicing: boot({
-      group: 'modules', name: 'mod-04-invoice-billing', port: 4404, tag: 'Invoicing', compiled: true,
-      env: {
-        ...ssoEnv, NOTIFICATION_URL: P.notify, FILES_URL: P.files, AUDIT_URL: P.audit,
-        PAYMENTS_URL: P.payments, NUMBER_URL: P.number, NOTIFICATION_INVOICE_CHANNEL: 'transactional-email', SELLER_NAME: 'Acme Corporation',
-      },
-    }),
-    Support: boot({
-      group: 'modules', name: 'mod-12-support-tickets', port: 4412, tag: 'Support', compiled: true,
-      env: { ...ssoEnv, NOTIFICATION_URL: P.notify, AUDIT_URL: P.audit, AI_URL: P.ai },
-    }),
-    Documents: boot({
-      group: 'modules', name: 'mod-09-document-management', port: 4409, tag: 'Documents', compiled: true,
-      env: { ...ssoEnv, FILES_URL: P.files, AUDIT_URL: P.audit, SEARCH_URL: P.search },
-    }),
-  };
+    M[mod.label] = boot({ group: 'modules', name: mod.id, port, tag: mod.label, compiled: true, env });
+  }
 }
 
 // ── The hub page — a local landing that links into every running app ─────────
-const CARDS = [
-  { label: 'Offers', port: 4413, blurb: 'Quotes a customer accepts online.', services: 'Notifications · Audit', login: 'SSO' },
-  { label: 'Invoicing', port: 4404, blurb: 'Bills the accepted quote — one click, five services.', services: 'Numbering · Files · Notifications · Payments · Audit', login: 'SSO' },
-  { label: 'Support', port: 4412, blurb: 'Tickets with AI-drafted replies.', services: 'AI · Notifications · Audit', login: 'SSO' },
-  { label: 'Documents', port: 4409, blurb: 'Files a contract, finds it by full-text search.', services: 'Files · Search · Audit', login: 'Local' },
-];
+// Every card except its blurb is derived from the registry: the label, the
+// port, the services the app actually integrates with, and whether it signs in
+// through PS-01 or with its own local login.
+const CARDS = APPS.map(({ mod, label, port }) => ({
+  label,
+  port,
+  blurb: BLURBS[mod.id] ?? '',
+  services: servicesOf(mod)
+    .filter((s) => s.urlEnv !== 'IDENTITY_URL')
+    .map((s) => s.label)
+    .join(' · '),
+  login: mod.constraints.supportsSso ? 'SSO' : 'Local',
+}));
 
 function hubHtml() {
   const card = (a) => `
@@ -144,7 +177,7 @@ function hubHtml() {
   @media (max-width:680px){ .grid{grid-template-columns:1fr} h1{font-size:34px} }
 </style></head>
 <body><div class="wrap">
-  <div class="eyebrow">Live demo · 8 services · 4 apps · one platform</div>
+  <div class="eyebrow">Live demo · ${stack.services.length} services · ${APPS.length} apps · one platform</div>
   <h1>Four separate apps.<br><span>One platform underneath.</span></h1>
   <p class="lead">Every app below is a real, independent product — and every one is running against the same identity provider, audit log, notifications, payments, storage, search and numbering service. Log into one and you're logged into all of them.</p>
   <div class="creds">Single sign-on: <b>owner@acme.test</b> / <b>demo-owner</b> &nbsp;·&nbsp; Documents (own login): <b>admin</b> / <b>demo-admin</b></div>
@@ -160,13 +193,13 @@ function hubHtml() {
 async function main() {
   console.log(c.bold('\n  0815software — live, clickable platform demo\n'));
   ensureBuilt();
-  console.log(`  ${c.cyan('▸')} Booting 8 services and 4 apps…`);
+  console.log(`  ${c.cyan('▸')} Booting ${stack.services.length} services and ${APPS.length} apps…`);
   bootStack();
   await waitForHealth({ ...P, ...M });
 
   // Pre-stage what the apps expect: an invoice sequence and the invoice bucket.
-  await client(P.number).post('/api/sequences', { scope: 'invoice', format: 'RE-{YYYY}-{seq:0000}', period: 'year' }, { serviceToken: SVC_TOKEN });
-  await client(P.files).post('/api/buckets', { name: 'invoices' }, { serviceToken: SVC_TOKEN });
+  await client(P['ps-10-number']).post('/api/sequences', { scope: 'invoice', format: 'RE-{YYYY}-{seq:0000}', period: 'year' }, { serviceToken: SVC_TOKEN });
+  await client(P['ps-06-file-storage']).post('/api/buckets', { name: 'invoices' }, { serviceToken: SVC_TOKEN });
 
   const hub = createServer((_req, res) => {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
