@@ -40,10 +40,10 @@ Platform Services keep their subpath routes on the bare domain. The ticker
 sidecar is included only when the stack contains a tick-driven service.
 
 Useful flags: `--all-services` (include every service regardless of the selection),
-`--source-db <module-id>` (required when a selected module reports on another
-module's database, i.e. MOD-08), `--org` (PS-01 organization slug, defaults to
-the customer), `--acme-email`, `--force` (overwrite a non-empty `--out`),
-`--help`.
+`--source-db <module-id>` (optional — point a module that accepts a source
+database, i.e. MOD-08, at another selected module's volume instead of its own
+data), `--org` (PS-01 organization slug, defaults to the customer),
+`--acme-email`, `--force` (overwrite a non-empty `--out`), `--help`.
 
 Run `node deploy/provision.mjs --help` for the full list and the module ids.
 

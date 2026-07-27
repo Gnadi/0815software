@@ -36,7 +36,7 @@ hub read the same registry, so a new module is a package plus a registry entry.
 catalogue number, slug, title, short operational label, default port, typical
 scope, the Platform Services it integrates with, its module-specific env vars and
 secrets, any module peers it bridges to, and three deployment constraints —
-`supportsSso`, `needsPublicBaseUrl`, `needsSourceDb`. It also carries the eleven
+`supportsSso`, `needsPublicBaseUrl`, `acceptsSourceDb`. It also carries the eleven
 Platform Services with their ports, Caddy route prefixes, URL env var,
 tick-driven flag and per-stack secrets.
 
@@ -91,13 +91,18 @@ What it decides for you:
   is in the *same* stack: a customer who licensed MOD-04 without MOD-13 gets no
   `OFFERS_URL`, and MOD-04's offer-import endpoint answers 501.
 
-Two cases need a flag:
+Two cases need attention:
 
-- **MOD-08 Reporting Suite** reports on another module's database, opened
-  read-only, and refuses to boot if the path is set but missing. Pass
-  `--source-db <module-id>`; the generator mounts that module's volume read-only
-  at `/source` and makes MOD-08 wait for it to be healthy, because a fresh volume
-  has no database file yet.
+- **MOD-08 Reporting Suite** *can* report on another module's database, opened
+  read-only. This is **optional**: with no flag, MOD-08 is provisioned
+  standalone against its own generated source database, which is a valid
+  single-module stack. Pass `--source-db <module-id>` to point it at another
+  selected module instead; the generator mounts that module's volume read-only
+  at `/source`, sets `SOURCE_DB_PATH`, and makes MOD-08 wait for the owning
+  module to be healthy, because a fresh volume has no database file yet. When
+  the source module publishes a `report_*` view contract, add
+  `SOURCE_VIEWS_ONLY=true` to the stack's `.env` to hold MOD-08 to it — see
+  [`REPORTING-CONTRACT.md`](./REPORTING-CONTRACT.md).
 - **Values only the customer can supply** — the seller name, address and VAT id,
   the ACME contact — are written as `FILL-ME-IN` and listed in the summary.
 

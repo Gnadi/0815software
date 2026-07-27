@@ -39,7 +39,7 @@ const COMMON_MODULE_ENV = new Set([
 const CONSTRAINT_ENV: Record<string, string> = {
   supportsSso: 'IDENTITY_URL',
   needsPublicBaseUrl: 'PUBLIC_BASE_URL',
-  needsSourceDb: 'SOURCE_DB_PATH',
+  acceptsSourceDb: 'SOURCE_DB_PATH',
 };
 
 function configSource(group: 'modules' | 'platform', id: string): string {

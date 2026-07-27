@@ -111,6 +111,44 @@ engine, export or mirror the slice you want to report on into a SQLite
 file (a nightly dump is a common pattern) and point `SOURCE_DB_PATH` at
 that.
 
+### Reporting on a module that publishes a contract
+
+A module in this catalogue can publish a set of `report_*` **views** in its
+own database. Those views are its public contract; its tables stay private
+and refactorable. MOD-04 Invoice & Billing is the reference implementation —
+see [`docs/REPORTING-CONTRACT.md`](../../docs/REPORTING-CONTRACT.md).
+
+Set **`SOURCE_VIEWS_ONLY=true`** to hold this module to that contract:
+
+```sh
+export SOURCE_DB_PATH=/source/data.db   # the other module's volume, read-only
+export SOURCE_VIEWS_ONLY=true
+```
+
+With it on, `GET /api/source` lists only `report_*` objects — the editor
+never offers a private table — and a query that reads anything else is
+refused with a `422` at save time *and* at run time. The restriction is on
+the tables a query **reads**, so an alias (`FROM customers AS report_c`), a
+CTE, a subquery, a comma-join or a quoted identifier does not get round it.
+
+It is **off by default**, and off changes nothing: pointed at an arbitrary
+customer database there is no contract to enforce, and the whole schema is
+the point. This is a *scope* restriction layered on top of the read-only
+connection, not a replacement for it.
+
+### Provisioning it standalone
+
+`SOURCE_DB_PATH` is optional in every sense, including in a generated stack:
+
+```sh
+node deploy/provision.mjs --customer solo --modules mod-08-reporting-suite \
+  --domain solo.example --out ./customers/solo
+```
+
+is a valid single-module stack — MOD-08 generates its own source database on
+first boot. Add `--source-db <module-id>` to mount another selected module's
+volume read-only at `/source` instead.
+
 ## Reports
 
 A report is `{ name, description?, sql }`. The SQL must be a single
@@ -124,7 +162,9 @@ place the rules live) rejects, with a `422`:
   ATTACH DETACH VACUUM REINDEX GRANT REVOKE BEGIN COMMIT ROLLBACK
   SAVEPOINT` as a **whole word** in the code (string literals and quoted
   identifiers are stripped first, so `SELECT 'DELETE me'` and a column
-  aliased `"update"` are fine).
+  aliased `"update"` are fine);
+- and, **only when `SOURCE_VIEWS_ONLY=true`**, anything that reads an object
+  outside the source's published `report_*` views (see above).
 
 The validator is a fast, explanatory gate. The **backstop** is the
 read-only connection: a write that somehow reached SQLite fails with
@@ -268,6 +308,7 @@ All runtime settings via environment variables (see
 | `PORT`                   | `3008`                 | API / production server port                               |
 | `DATABASE_PATH`          | `./data.db`            | Module's own metadata db (created on demand)               |
 | `SOURCE_DB_PATH`         | `./source.db` (demo)   | Database to report on — opened **read-only**; must exist if set |
+| `SOURCE_VIEWS_ONLY`      | `false`                | `true` restricts every report to the source's published `report_*` views |
 | `EXPORTS_DIR`            | `./exports`            | Where scheduled/manual export CSVs are written (gitignored) |
 | `SCHEDULER_TICK_SECONDS` | `60`                   | How often the in-process scheduler checks for due schedules |
 | `ADMIN_USERNAME`         | `admin`                | Login user                                                 |
@@ -292,6 +333,7 @@ POST   /api/login                        {username, password} → session cookie
 POST   /api/logout
 GET    /api/me
 GET    /api/source                       source schema (tables/columns) + query policy
+                                         (report_* only when SOURCE_VIEWS_ONLY=true)
 
 GET    /api/reports                      ?search= → saved reports
 POST   /api/reports                      {name, description?, sql}  (SELECT-only → 422)
@@ -345,7 +387,10 @@ totals) against hand-computed values and the source db; chart SVG element
 counts for a known dataset; embed token valid/invalid/cross-chart; a
 schedule/manual run appending history and writing a CSV whose row count
 matches the query; the scheduler tick firing a due schedule once (no
-backfill); and `401` everywhere without a session except valid embeds.
+backfill); `SOURCE_VIEWS_ONLY` in both modes — off changes nothing, on
+refuses a private table and cannot be evaded by an alias, a CTE, a
+subquery, a comma-join or a quoted identifier; and `401` everywhere without
+a session except valid embeds.
 
 ## Deploy notes
 

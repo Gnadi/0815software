@@ -140,7 +140,7 @@
       "constraints": {
         "supportsSso": false,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     },
     {
@@ -163,7 +163,7 @@
       "constraints": {
         "supportsSso": true,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     },
     {
@@ -186,7 +186,7 @@
       "constraints": {
         "supportsSso": true,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     },
     {
@@ -220,7 +220,7 @@
       "constraints": {
         "supportsSso": true,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     },
     {
@@ -243,7 +243,7 @@
       "constraints": {
         "supportsSso": true,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     },
     {
@@ -271,7 +271,7 @@
       "constraints": {
         "supportsSso": true,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     },
     {
@@ -294,7 +294,7 @@
       "constraints": {
         "supportsSso": false,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     },
     {
@@ -311,13 +311,13 @@
       },
       "env": {
         "required": [],
-        "optional": ["EXPORTS_DIR", "SCHEDULER_TICK_SECONDS"],
+        "optional": ["EXPORTS_DIR", "SCHEDULER_TICK_SECONDS", "SOURCE_VIEWS_ONLY"],
         "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
       },
       "constraints": {
         "supportsSso": true,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": true
+        "acceptsSourceDb": true
       }
     },
     {
@@ -340,7 +340,7 @@
       "constraints": {
         "supportsSso": false,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     },
     {
@@ -363,7 +363,7 @@
       "constraints": {
         "supportsSso": true,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     },
     {
@@ -386,7 +386,7 @@
       "constraints": {
         "supportsSso": true,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     },
     {
@@ -414,7 +414,7 @@
       "constraints": {
         "supportsSso": true,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     },
     {
@@ -442,7 +442,7 @@
       "constraints": {
         "supportsSso": true,
         "needsPublicBaseUrl": true,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     },
     {
@@ -465,7 +465,7 @@
       "constraints": {
         "supportsSso": true,
         "needsPublicBaseUrl": false,
-        "needsSourceDb": false
+        "acceptsSourceDb": false
       }
     }
   ]

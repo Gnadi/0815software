@@ -1,6 +1,11 @@
 import Database from 'better-sqlite3';
 import type { QueryResult } from '../shared/types.js';
-import { checkReportSql, QUERY_POLICY } from './query-policy.js';
+import {
+  checkReportSql,
+  QUERY_POLICY,
+  REPORT_VIEW_PREFIX,
+  type PolicyOptions,
+} from './query-policy.js';
 
 /**
  * The database being reported ON. Opened strictly READ-ONLY — this is
@@ -29,15 +34,26 @@ export class QueryError extends Error {
  * Introspect the source database: table names and, per table, its
  * column names. Used by the UI to help authors write queries. Uses the
  * read-only connection's own catalog — no user SQL involved.
+ *
+ * With `viewsOnly`, only the published `report_*` views are listed: the source
+ * module's private tables are none of an author's business, so they are not
+ * advertised either. checkReportSql() enforces the same boundary on the query
+ * itself; this just stops the UI from offering what would be refused.
  */
-export function describeSource(db: Database.Database): { table: string; columns: string[] }[] {
-  const tables = db
+export function describeSource(
+  db: Database.Database,
+  { viewsOnly = false }: PolicyOptions = {},
+): { table: string; columns: string[] }[] {
+  const all = db
     .prepare(
       `SELECT name FROM sqlite_master
        WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'
        ORDER BY name`,
     )
     .all() as { name: string }[];
+  // Filtered here rather than in SQL: `_` is a LIKE wildcard, and an exact
+  // prefix test is what the query policy enforces.
+  const tables = viewsOnly ? all.filter((t) => t.name.startsWith(REPORT_VIEW_PREFIX)) : all;
   return tables.map((t) => {
     const cols = db.prepare(`PRAGMA table_info(${JSON.stringify(t.name)})`).all() as {
       name: string;
@@ -53,8 +69,12 @@ export function describeSource(db: Database.Database): { table: string; columns:
  * policy rejects, and QueryError(422) for any SQLite error (bad column,
  * syntax, or a write blocked by the read-only handle).
  */
-export function runReportQuery(db: Database.Database, sql: string): QueryResult {
-  const check = checkReportSql(sql);
+export function runReportQuery(
+  db: Database.Database,
+  sql: string,
+  policy: PolicyOptions = {},
+): QueryResult {
+  const check = checkReportSql(sql, policy);
   if (!check.ok) {
     throw new QueryError(422, check.reason ?? 'Query rejected by policy');
   }

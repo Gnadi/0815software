@@ -170,7 +170,7 @@
           "description": "Deployment constraints a generator must honour. Each maps to exactly one env var the module reads, so it cannot drift from the code.",
           "type": "object",
           "additionalProperties": false,
-          "required": ["supportsSso", "needsPublicBaseUrl", "needsSourceDb"],
+          "required": ["supportsSso", "needsPublicBaseUrl", "acceptsSourceDb"],
           "properties": {
             "supportsSso": {
               "description": "The module delegates login to PS-01 when IDENTITY_URL is set. False for the domain-user modules whose end users are not PS-01 principals (see docs/PLATFORM-READINESS.md, item C1) — do not set IDENTITY_URL for those.",
@@ -180,8 +180,8 @@
               "description": "The module mints externally shared links and needs PUBLIC_BASE_URL set to its real customer-facing URL, never an internal container hostname.",
               "type": "boolean"
             },
-            "needsSourceDb": {
-              "description": "The module reads another module's SQLite file through SOURCE_DB_PATH, opened read-only, and refuses to boot when the path is set but missing. A generator must be told which module's volume to mount read-only.",
+            "acceptsSourceDb": {
+              "description": "The module can be pointed at ANOTHER SQLite database through SOURCE_DB_PATH, opened read-only. Optional, not required: the module runs standalone against its own data when the path is unset, and only refuses to boot when the path is set to a file that does not exist. A generator MAY be told which module's volume to mount read-only; it must not demand one.",
               "type": "boolean"
             }
           }

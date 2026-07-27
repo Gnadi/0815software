@@ -277,9 +277,29 @@ describe('secrets', () => {
 describe('mod-08 source database', () => {
   const both = 'mod-08-reporting-suite,mod-04-invoice-billing';
 
-  it('refuses to generate without --source-db, naming the candidates', () => {
-    expect(() => planStack(args('--modules', both))).toThrow(/needs --source-db/);
-    expect(() => planStack(args('--modules', both))).toThrow(/mod-04-invoice-billing/);
+  it('provisions mod-08 alone, against its own source database', () => {
+    // The registry says mod-08 ACCEPTS a source database, not that it needs
+    // one: server/config.ts defaults SOURCE_DB_PATH to ./source.db and the
+    // module generates a demo source at boot. A single-module stack is valid.
+    const plan = planStack(args('--modules', 'mod-08-reporting-suite'));
+    const reporting = plan.modules.find((m: any) => m.mod.id === 'mod-08-reporting-suite')!;
+    expect(plan.modules).toHaveLength(1);
+    expect(reporting.env.SOURCE_DB_PATH).toBeUndefined();
+    expect(reporting.sourceOf).toBeNull();
+    expect(reporting.sourceVolume).toBeNull();
+
+    const compose = renderCompose(plan, '..');
+    expect(compose).toContain('reporting:');
+    expect(compose).not.toContain('/source:ro');
+    expect(compose).not.toContain('SOURCE_DB_PATH');
+    expect(JSON.parse(renderManifest(plan)).modules[0].sourceDb).toBeNull();
+  });
+
+  it('leaves the source database out of a multi-module stack when not asked for', () => {
+    const plan = planStack(args('--modules', both));
+    const reporting = plan.modules.find((m: any) => m.mod.id === 'mod-08-reporting-suite')!;
+    expect(reporting.env.SOURCE_DB_PATH).toBeUndefined();
+    expect(renderCompose(plan, '..')).not.toContain('/source:ro');
   });
 
   it('refuses a source module that is not in the selection', () => {
@@ -294,9 +314,9 @@ describe('mod-08 source database', () => {
     );
   });
 
-  it('refuses --source-db when nothing needs one', () => {
+  it('refuses --source-db when nothing accepts one', () => {
     expect(() => planStack(args('--modules', 'mod-13-offers', '--source-db', 'mod-13-offers'))).toThrow(
-      /no selected module declares needsSourceDb/,
+      /no selected module accepts a source database/,
     );
   });
 

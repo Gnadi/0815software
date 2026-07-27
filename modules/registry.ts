@@ -43,7 +43,12 @@ export interface ModulePeers {
 export interface ModuleConstraints {
   supportsSso: boolean;
   needsPublicBaseUrl: boolean;
-  needsSourceDb: boolean;
+  /**
+   * The module can be pointed at another SQLite database via SOURCE_DB_PATH
+   * (read-only). It ACCEPTS one — it does not require one; the module runs
+   * standalone when the variable is unset.
+   */
+  acceptsSourceDb: boolean;
 }
 
 export interface ModuleRegistryEntry {

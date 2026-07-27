@@ -100,7 +100,9 @@ Required:
 Optional:
   --org <slug>          PS-01 organization slug (default: the customer slug).
   --acme-email <email>  Email Caddy registers with the ACME CA for TLS.
-  --source-db <id>      Module whose database a needsSourceDb module reports on.
+  --source-db <id>      Point a module that accepts a source database at another
+                        selected module's volume (mounted read-only). Optional:
+                        without it such a module runs against its own data.
   --all-services        Include every Platform Service, not just the ones the
                         selection references.
   --force               Overwrite a non-empty --out.
@@ -213,23 +215,19 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
   const stack = resolveSelection(options.moduleIds, { allServices: options.allServices });
   const serviceById = new Map(stack.services.map((s) => [s.id, s]));
 
-  // A module reporting on another module's database needs that module's volume.
-  const needsSource = stack.modules.filter((m) => m.constraints.needsSourceDb);
-  if (needsSource.length > 0 && !options.sourceDb) {
-    fail(
-      `${needsSource.map((m) => m.id).join(', ')} reports on another module's database and needs ` +
-        `--source-db <module-id>. Pick one of the other selected modules: ` +
-        `${stack.modules.filter((m) => !m.constraints.needsSourceDb).map((m) => m.id).join(', ') || '(none — select one)'}`,
-    );
-  }
+  // A module that ACCEPTS a source database can be pointed at another module's
+  // volume — optionally. Without --source-db it is provisioned standalone and
+  // reports on its own data, which is the module's own documented default; the
+  // generator has no business inventing a dependency the code does not have.
+  const acceptsSource = stack.modules.filter((m) => m.constraints.acceptsSourceDb);
   if (options.sourceDb) {
-    if (needsSource.length === 0) {
-      fail(`--source-db was given but no selected module declares needsSourceDb — drop the flag`);
+    if (acceptsSource.length === 0) {
+      fail(`--source-db was given but no selected module accepts a source database — drop the flag`);
     }
     if (!stack.modules.some((m) => m.id === options.sourceDb)) {
       fail(`--source-db "${options.sourceDb}" is not in --modules; a stack can only mount a volume it creates`);
     }
-    if (needsSource.some((m) => m.id === options.sourceDb)) {
+    if (acceptsSource.some((m) => m.id === options.sourceDb)) {
       fail(`--source-db "${options.sourceDb}" reports on a source database itself — pick a different module`);
     }
   }
@@ -279,7 +277,10 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
       if (mod.env.optional.includes(name)) env[name] = path;
     }
 
-    const sourceOf = mod.constraints.needsSourceDb ? options.sourceDb : null;
+    // Only set when the operator asked for it: an unset SOURCE_DB_PATH is what
+    // makes the module generate/keep its own source, so leaving it out is the
+    // standalone deployment, not a missing setting.
+    const sourceOf = mod.constraints.acceptsSourceDb ? (options.sourceDb ?? null) : null;
     if (sourceOf) env.SOURCE_DB_PATH = '/source/data.db';
 
     return { mod, subdomain, url, prefix, env, sourceOf, volume: `${subdomain}-data` };
@@ -805,7 +806,12 @@ function summarize(plan, written) {
   out.push('');
   out.push(`  Modules   ${plan.modules.length}`);
   for (const { mod, url, sourceOf } of plan.modules) {
-    out.push(`    ${mod.n}  ${url.padEnd(44)} ${sourceOf ? `reports on ${sourceOf}` : ''}`.trimEnd());
+    const source = sourceOf
+      ? `reports on ${sourceOf}`
+      : mod.constraints.acceptsSourceDb
+        ? 'reports on its own source db (no --source-db given)'
+        : '';
+    out.push(`    ${mod.n}  ${url.padEnd(44)} ${source}`.trimEnd());
   }
   out.push(`  Services  ${plan.services.length}${plan.allServices ? ' (--all-services)' : ' (minimal set)'}`);
   out.push(`    ${plan.services.map(({ service }) => service.n).join(', ')}`);
