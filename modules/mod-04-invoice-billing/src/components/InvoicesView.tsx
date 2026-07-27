@@ -24,6 +24,29 @@ export function InvoicesView({ onOpen, onNew, onAuthLost }: Props) {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('');
   const [error, setError] = useState('');
+  // Billing an accepted offer: one prompt, one call. The server refuses an
+  // unaccepted offer and is idempotent on the offer number, so the UI has no
+  // state of its own to keep.
+  const [importing, setImporting] = useState(false);
+
+  const importOffer = useCallback(async () => {
+    const offerNumber = window.prompt('Offer number to bill (e.g. AN-2026-0007):')?.trim();
+    if (!offerNumber) return;
+    setImporting(true);
+    try {
+      const invoice = await api.importOffer(offerNumber);
+      setError('');
+      if (!invoice.imported) {
+        window.alert(`Offer ${offerNumber} was already billed — opening that invoice.`);
+      }
+      onOpen(invoice.id);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) onAuthLost();
+      else setError(err instanceof Error ? err.message : 'Failed to import the offer');
+    } finally {
+      setImporting(false);
+    }
+  }, [onOpen, onAuthLost]);
 
   const load = useCallback(async () => {
     try {
@@ -54,6 +77,9 @@ export function InvoicesView({ onOpen, onNew, onAuthLost }: Props) {
           <p className="resource__desc">draft → sent → paid; cancellations keep their number.</p>
         </div>
         <div className="resource__actions">
+          <button className="btn" onClick={() => void importOffer()} disabled={importing}>
+            {importing ? 'IMPORTING…' : 'IMPORT OFFER'}
+          </button>
           <button className="btn btn--primary" onClick={onNew}>
             + NEW DRAFT
           </button>

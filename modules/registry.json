@@ -107,6 +107,16 @@
       "urlEnv": "NUMBER_URL",
       "tickDriven": false,
       "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+    },
+    {
+      "id": "ps-11-customers",
+      "n": "PS-11",
+      "label": "Customers",
+      "defaultPort": 4011,
+      "routePrefix": "/customers",
+      "urlEnv": "CUSTOMERS_URL",
+      "tickDriven": false,
+      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
     }
   ],
   "modules": [
@@ -195,12 +205,16 @@
           "ps-06-file-storage",
           "ps-07-audit-log",
           "ps-08-payments",
-          "ps-10-number"
+          "ps-10-number",
+          "ps-11-customers"
         ]
+      },
+      "peers": {
+        "optional": [{ "id": "mod-13-offers", "urlEnv": "OFFERS_URL" }]
       },
       "env": {
         "required": ["SELLER_NAME", "SELLER_ADDRESS", "SELLER_VAT_ID"],
-        "optional": ["SELLER_IBAN", "SELLER_BIC", "NOTIFICATION_INVOICE_CHANNEL"],
+        "optional": ["SELLER_IBAN", "SELLER_BIC", "NOTIFICATION_INVOICE_CHANNEL", "SELLER_REFRESH_MS"],
         "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
       },
       "constraints": {
@@ -242,7 +256,12 @@
       "scope": "4–6 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-03-notification-hub", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-03-notification-hub",
+          "ps-07-audit-log",
+          "ps-11-customers"
+        ]
       },
       "env": {
         "required": [],
@@ -334,7 +353,7 @@
       "scope": "3–5 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log"]
+        "optional": ["ps-01-identity", "ps-07-audit-log", "ps-11-customers"]
       },
       "env": {
         "required": [],
@@ -408,11 +427,16 @@
       "scope": "3–4 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-03-notification-hub", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-03-notification-hub",
+          "ps-07-audit-log",
+          "ps-11-customers"
+        ]
       },
       "env": {
         "required": ["SELLER_NAME", "SELLER_ADDRESS", "SELLER_VAT_ID", "SELLER_EMAIL"],
-        "optional": [],
+        "optional": ["SELLER_REFRESH_MS"],
         "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
       },
       "constraints": {

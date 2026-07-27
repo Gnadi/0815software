@@ -1,9 +1,13 @@
-import { AuditClient, NotificationClient } from '@0815software/platform-clients';
+import { AuditClient, CustomersClient, NotificationClient } from '@0815software/platform-clients';
+import type { SelfParty } from './seller.js';
 
 /**
  * Optional integration with the Platform Services (best-effort, opt-in):
  *   - PS-03 Notification Hub — notify people of key events (approvals, sends)
  *   - PS-07 Audit Log        — record state changes on the tamper-evident trail
+ *   - PS-11 Customers        — resolve a customer against the stack's party
+ *                              master data, so every module bills the same
+ *                              party instead of keeping a private copy
  * With no URL configured the module runs standalone; a downstream outage never
  * fails the local operation.
  */
@@ -11,6 +15,7 @@ import { AuditClient, NotificationClient } from '@0815software/platform-clients'
 export interface PlatformConfig {
   auditUrl?: string;
   notificationUrl?: string;
+  customersUrl?: string;
   serviceToken?: string;
   channel?: string;
 }
@@ -30,9 +35,32 @@ export interface NotifyInfo {
   body: string;
 }
 
+/** A customer as PS-11 needs to see it, plus this module's own row id. */
+export interface PartyInfo {
+  name: string;
+  contactPerson: string | null;
+  email: string | null;
+  vatId: string | null;
+  addressLines: string[];
+  localId: number;
+}
+
 export interface PlatformHooks {
   audit(info: AuditInfo): Promise<void>;
   notify(info: NotifyInfo): Promise<void>;
+  /**
+   * The stack owner's own party from PS-11 — the seller letterhead. Null when
+   * PS-11 is unset, has no `self` party yet, or is unreachable; the module then
+   * keeps its SELLER_* environment values. See server/seller.ts.
+   */
+  fetchSelf(): Promise<SelfParty | null>;
+  /**
+   * Resolve a customer against PS-11's party master data, returning the master
+   * party id. Returns null when PS-11 is not configured or is unreachable —
+   * this module keeps its own customer row either way, so the local operation
+   * never depends on the outcome.
+   */
+  resolveParty(info: PartyInfo): Promise<number | null>;
 }
 
 export const noopPlatform: PlatformHooks = {
@@ -42,6 +70,13 @@ export const noopPlatform: PlatformHooks = {
   async notify() {
     /* standalone */
   },
+  async resolveParty() {
+    /* standalone — the local customers table is the only record */
+    return null;
+  },
+  async fetchSelf() {
+    return null;
+  },
 };
 
 export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
@@ -49,7 +84,10 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const notify = cfg.notificationUrl
     ? new NotificationClient({ baseUrl: cfg.notificationUrl, serviceToken: cfg.serviceToken })
     : null;
-  if (!audit && !notify) return noopPlatform;
+  const customers = cfg.customersUrl
+    ? new CustomersClient({ baseUrl: cfg.customersUrl, serviceToken: cfg.serviceToken })
+    : null;
+  if (!audit && !notify && !customers) return noopPlatform;
   const channel = cfg.channel ?? 'transactional-email';
   return {
     async audit(info: AuditInfo): Promise<void> {
@@ -66,6 +104,35 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
         await notify.send({ channel, to: info.to, subject: info.subject, body: info.body });
       } catch (err) {
         console.warn('[mod-13] notify failed:', err);
+      }
+    },
+    async fetchSelf(): Promise<SelfParty | null> {
+      if (!customers) return null;
+      try {
+        const { party } = await customers.self();
+        return party;
+      } catch (err) {
+        console.warn('[mod-13] seller lookup failed:', err);
+        return null;
+      }
+    },
+
+    async resolveParty(info: PartyInfo): Promise<number | null> {
+      if (!customers) return null;
+      try {
+        const { party } = await customers.resolve({
+          name: info.name,
+          contact_person: info.contactPerson,
+          email: info.email,
+          vat_id: info.vatId,
+          address_lines: info.addressLines,
+          source: 'mod-13-offers',
+          external_id: String(info.localId),
+        });
+        return party.id;
+      } catch (err) {
+        console.warn('[mod-13] customer resolve failed:', err);
+        return null;
       }
     },
   };

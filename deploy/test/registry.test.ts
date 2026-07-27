@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { keywordsUsed, SUPPORTED_KEYWORDS, validate } from '../lib/json-schema.mjs';
-import { modules, registry, services, subdomainFor } from '../../modules/registry.mjs';
+import { modules, peersOf, registry, services, subdomainFor } from '../../modules/registry.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const schema = JSON.parse(readFileSync(`${root}/modules/registry.schema.json`, 'utf8'));
@@ -80,7 +80,7 @@ describe('registry document', () => {
 
   it('covers every Platform Service, exactly once, in catalogue order', () => {
     const ids = services.map((s: any) => s.id);
-    expect(ids).toHaveLength(10);
+    expect(ids).toHaveLength(11);
     expect([...ids].sort()).toEqual(ids);
     for (const svc of services) expect(svc.n).toBe(`PS-${svc.id.slice(3, 5)}`);
   });
@@ -98,6 +98,19 @@ describe('registry document', () => {
       const declared = [...mod.services.required, ...mod.services.optional];
       expect(new Set(declared).size, `${mod.id} lists a service twice`).toBe(declared.length);
       for (const id of declared) expect(known, `${mod.id} -> ${id}`).toContain(id);
+    }
+  });
+
+  it('names a known module, exactly once, in every peer declaration', () => {
+    const known = new Set(modules.map((m: any) => m.id));
+    for (const mod of modules) {
+      const peers = peersOf(mod);
+      const ids = peers.map((peer: any) => peer.id);
+      expect(new Set(ids).size, `${mod.id} declares a peer twice`).toBe(ids.length);
+      for (const id of ids) {
+        expect(known, `${mod.id} -> ${id}`).toContain(id);
+        expect(id, `${mod.id} declares itself as a peer`).not.toBe(mod.id);
+      }
     }
   });
 
@@ -147,9 +160,18 @@ describe.each(modules.map((m: any) => [m.id, m] as const))('module %s does not d
       ...COMMON_MODULE_ENV,
       ...Object.values(CONSTRAINT_ENV),
       ...[...read].filter((name) => serviceByUrlEnv.has(name)),
+      ...peersOf(mod).map((peer: any) => peer.urlEnv),
     ]);
     const undeclared = [...read].filter((name) => !declared.has(name)).sort();
     expect(undeclared, `${mod.id} reads env vars the registry does not declare`).toEqual([]);
+  });
+
+  it('reads the URL of every peer module it declares', () => {
+    // A declared peer is a real cross-module dependency, so the code must
+    // actually read that URL — and a module with no peers declares none.
+    for (const peer of peersOf(mod)) {
+      expect(read, `${mod.id} declares peer ${peer.id} but never reads ${peer.urlEnv}`).toContain(peer.urlEnv);
+    }
   });
 
   it('declares no env var its config.ts never reads', () => {

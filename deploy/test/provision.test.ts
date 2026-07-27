@@ -25,6 +25,7 @@ import {
   renderManifest,
   writeStack,
 } from '../provision.mjs';
+import { services as registryServices } from '../../modules/registry.mjs';
 
 /** The dev defaults every service's boot guard refuses in production. */
 const KNOWN_DEFAULTS = [
@@ -101,7 +102,7 @@ describe('parseArgs', () => {
 describe('service resolution', () => {
   const idsOf = (plan: any) => plan.services.map((s: any) => s.service.id);
 
-  it('brings up only the six services mod-04 + mod-13 reference', () => {
+  it('brings up only the services mod-04 + mod-13 reference', () => {
     expect(idsOf(planStack(twoModules()))).toEqual([
       'ps-01-identity',
       'ps-03-notification-hub',
@@ -109,11 +110,14 @@ describe('service resolution', () => {
       'ps-07-audit-log',
       'ps-08-payments',
       'ps-10-number',
+      'ps-11-customers',
     ]);
   });
 
-  it('brings up all ten with --all-services', () => {
-    expect(idsOf(planStack(args('--modules', 'mod-04-invoice-billing,mod-13-offers', '--all-services')))).toHaveLength(10);
+  it('brings up every service with --all-services', () => {
+    const all = idsOf(planStack(args('--modules', 'mod-04-invoice-billing,mod-13-offers', '--all-services')));
+    expect(all).toHaveLength(registryServices.length);
+    expect(all).toContain('ps-02-workflow-engine');
   });
 
   it('brings up one service for a one-service module', () => {
@@ -139,14 +143,34 @@ describe('service resolution', () => {
     expect(documents.env.IDENTITY_URL).toBeUndefined();
   });
 
-  it('points every wired service URL at the internal container, not the domain', () => {
+  it('points every wired URL at an internal container, not the public domain', () => {
     for (const { env } of planStack(twoModules()).modules) {
       for (const [name, value] of Object.entries(env)) {
-        if (name.endsWith('_URL') && name !== 'PUBLIC_BASE_URL') {
-          expect(value, name).toMatch(/^http:\/\/ps\d\d:\d{4}$/);
-        }
+        if (!name.endsWith('_URL') || name === 'PUBLIC_BASE_URL') continue;
+        // Platform Services are ps01..ps11; a peer module is its subdomain.
+        expect(value, name).toMatch(/^http:\/\/(ps\d\d|[a-z][a-z0-9-]*):\d{4}$/);
+        expect(value, name).not.toContain('blaustern.example.com');
       }
     }
+  });
+
+  it('wires a declared peer module only when it is in the same stack', () => {
+    const both = planStack(twoModules());
+    const invoicing = both.modules.find((m: any) => m.mod.id === 'mod-04-invoice-billing')!;
+    expect(invoicing.env.OFFERS_URL).toBe('http://offers:3013');
+    expect(invoicing.peers.map((p: any) => p.id)).toEqual(['mod-13-offers']);
+
+    // Licensed MOD-04 alone: no OFFERS_URL, so it behaves exactly as before.
+    const alone = planStack(args('--modules', 'mod-04-invoice-billing'));
+    expect(alone.modules[0].env.OFFERS_URL).toBeUndefined();
+    expect(alone.modules[0].peers).toEqual([]);
+    expect(renderCompose(alone, '..')).not.toContain('OFFERS_URL');
+  });
+
+  it('makes the bridged module a compose dependency', () => {
+    const compose = renderCompose(planStack(twoModules()), '..');
+    // invoicing depends on offers, so the bridge target is up first.
+    expect(compose).toMatch(/invoicing:[\s\S]*?depends_on:[\s\S]*?- "offers"/);
   });
 
   it('sets PUBLIC_BASE_URL to the external URL where the registry demands one', () => {
@@ -317,7 +341,7 @@ describe('rendered artifacts', () => {
 
   it('runs everything in production mode on its own named volume', () => {
     const compose = files['docker-compose.yml'];
-    expect(compose.match(/NODE_ENV: "production"/g)).toHaveLength(8); // 6 services + 2 modules
+    expect(compose.match(/NODE_ENV: "production"/g)).toHaveLength(plan.services.length + plan.modules.length);
     for (const volume of ['ps01-data', 'ps10-data', 'invoicing-data', 'offers-data']) {
       expect(compose).toContain(`${volume}:/data`);
     }
@@ -377,7 +401,7 @@ describe('rendered artifacts', () => {
       supportsSso: true,
       sourceDb: null,
     });
-    expect(manifest.services).toHaveLength(6);
+    expect(manifest.services).toHaveLength(7);
     expect(manifest.services[0]).toMatchObject({ id: 'ps-01-identity', internalUrl: 'http://ps01:4001' });
     expect(manifest.placeholders).toEqual(plan.placeholders);
     expect(Date.parse(manifest.generatedAt)).not.toBeNaN();

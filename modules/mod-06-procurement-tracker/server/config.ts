@@ -35,6 +35,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     platform: {
       auditUrl: env.AUDIT_URL || undefined,
       notificationUrl: env.NOTIFICATION_URL || undefined,
+      // PS-11 Customers — when set, a supplier created here is registered with
+      // the stack's party master data as a `supplier` party.
+      customersUrl: env.CUSTOMERS_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
   };

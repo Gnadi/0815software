@@ -30,6 +30,16 @@ export interface ModuleEnv {
   secrets: string[];
 }
 
+/** Another module this one integrates with when they share a stack. */
+export interface ModulePeer {
+  id: string;
+  urlEnv: string;
+}
+
+export interface ModulePeers {
+  optional: ModulePeer[];
+}
+
 export interface ModuleConstraints {
   supportsSso: boolean;
   needsPublicBaseUrl: boolean;
@@ -47,6 +57,8 @@ export interface ModuleRegistryEntry {
   defaultPort: number;
   scope: string;
   services: ModuleServices;
+  /** Absent for every module that knows about no other module. */
+  peers?: ModulePeers;
   env: ModuleEnv;
   constraints: ModuleConstraints;
 }

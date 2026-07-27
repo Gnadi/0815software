@@ -11,7 +11,7 @@ There are two ways in:
   licensed and get a compose file, fresh secrets, TLS routing, a README and a
   manifest, with exactly the Platform Services that selection needs.
 - **`docker-compose.yml` in this directory — the reference platform stack.**
-  All ten services, no modules, hand-maintained. It is the shape a generated
+  All eleven services, no modules, hand-maintained. It is the shape a generated
   stack is modelled on and what you bring up to evaluate the platform alone.
 
 Read [`docs/PROVISIONING.md`](../docs/PROVISIONING.md) for the release flow
@@ -29,7 +29,7 @@ node deploy/provision.mjs \
 
 Reads [`modules/registry.json`](../modules/registry.json), resolves the
 selection to the **minimal** set of Platform Services those modules actually
-reference (the two above need six, not ten), and writes `docker-compose.yml`,
+reference (the two above need seven, not eleven), and writes `docker-compose.yml`,
 `.env`, `Caddyfile`, `README.md` and `manifest.json`. Every secret is generated
 fresh with `crypto.randomBytes(32)`, so no two customers share one and none is
 a repo default. Values only the customer can supply — the seller VAT id, the
@@ -39,7 +39,7 @@ Each module gets a subdomain (`invoicing.<domain>`, `offers.<domain>`); the
 Platform Services keep their subpath routes on the bare domain. The ticker
 sidecar is included only when the stack contains a tick-driven service.
 
-Useful flags: `--all-services` (include all ten regardless of the selection),
+Useful flags: `--all-services` (include every service regardless of the selection),
 `--source-db <module-id>` (required when a selected module reports on another
 module's database, i.e. MOD-08), `--org` (PS-01 organization slug, defaults to
 the customer), `--acme-email`, `--force` (overwrite a non-empty `--out`),
@@ -70,12 +70,12 @@ Docker — in production mode with freshly generated secrets, and asserts:
 - the generated `.env` has no `FILL-ME-IN` left, no value a boot guard would
   reject, and defines every variable `docker-compose.yml` references.
 
-A six-service customer stack runs in ~5s; all 14 modules against all ten
-services in ~21s. `cd deploy && npm run predeploy -- --manifest <path>` is the
+A seven-service customer stack runs in ~11s; all 14 modules against every
+service in ~21s. `cd deploy && npm run predeploy -- --manifest <path>` is the
 same thing through npm, and the generated customer README points the operator
 at it.
 
-`deploy/smoke.mjs` remains the narrower check: all ten services, no modules.
+`deploy/smoke.mjs` remains the narrower check: every service, no modules.
 
 ## Tests
 
@@ -106,7 +106,8 @@ unconfigured stack cannot come up half-secured.
 Routing (via Caddy on `https://$PLATFORM_DOMAIN`):
 `/identity` → PS-01, `/workflow` → PS-02, `/notify` → PS-03, `/ai` → PS-04,
 `/integrations` → PS-05, `/files` → PS-06, `/audit` → PS-07,
-`/payments` → PS-08, `/search` → PS-09, `/number` → PS-10.
+`/payments` → PS-08, `/search` → PS-09, `/number` → PS-10,
+`/customers` → PS-11.
 
 ## Tickers
 
@@ -154,7 +155,7 @@ rolling a customer forward is pull + rebuild + restart.
 node deploy/smoke.mjs
 ```
 
-Boots all ten services locally in production mode with generated secrets,
+Boots every service locally in production mode with generated secrets,
 waits for every `/api/health`, and verifies the cross-service identity seam:
 a PS-01 owner session (holds `platform:admin`) is accepted by PS-02, a member
 session is rejected, and security headers are present. Use it to validate a

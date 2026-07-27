@@ -22,3 +22,14 @@ export { SearchClient } from './search.js';
 export type { IndexDocInput, SearchHit, SearchResult } from './search.js';
 export { NumberClient } from './number.js';
 export type { NextNumber, SequenceConfig } from './number.js';
+export { CustomersClient } from './customers.js';
+export type {
+  MatchedOn,
+  MergeResult,
+  Party,
+  PartyInput,
+  PartyKind,
+  PartyRef,
+  ResolveInput,
+  ResolveResult,
+} from './customers.js';

@@ -389,3 +389,10 @@ state changes on [PS-07 Audit Log](../../platform/ps-07-audit-log) via the
 shared [`@0815software/platform-clients`](../../platform/clients) package
 (it can also send via PS-03 when `NOTIFICATION_URL` is set). Best-effort and
 opt-in — unset, the module runs standalone. See `server/platform.ts`.
+
+With `CUSTOMERS_URL` set, a supplier created here is registered with
+[PS-11 Customers](../../platform/ps-11-customers) as a **`supplier`** party, and
+the master `party_id` is stored on the local row. Suppliers and customers never
+match each other there, so a company you both buy from and sell to stays two
+relationships with two sets of terms — a procurement import can never rewrite a
+customer's billing address. Unset, the local `suppliers` table is the only record.

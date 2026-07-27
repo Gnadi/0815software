@@ -27,6 +27,7 @@ import {
   composeNameOf,
   internalUrlOf,
   modules as allModules,
+  peersOf,
   resolveSelection,
   schemaVersion,
   servicesOf,
@@ -100,8 +101,8 @@ Optional:
   --org <slug>          PS-01 organization slug (default: the customer slug).
   --acme-email <email>  Email Caddy registers with the ACME CA for TLS.
   --source-db <id>      Module whose database a needsSourceDb module reports on.
-  --all-services        Include all ten Platform Services, not just the ones
-                        the selection references.
+  --all-services        Include every Platform Service, not just the ones the
+                        selection references.
   --force               Overwrite a non-empty --out.
   --help                Show this message.
 
@@ -309,6 +310,18 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
     const source = planned.sourceOf ? byId.get(planned.sourceOf) : null;
     planned.sourceVolume = source ? source.volume : null;
     planned.sourceSubdomain = source ? source.subdomain : null;
+
+    // Module-to-module wiring, declared in the registry's `peers`. Only wired
+    // when the peer is in the SAME stack — a customer who did not license
+    // MOD-13 gets a MOD-04 with no OFFERS_URL, which is exactly the standalone
+    // behaviour. Internal container URL, never the public one.
+    planned.peers = [];
+    for (const peer of peersOf(planned.mod)) {
+      const target = byId.get(peer.id);
+      if (!target) continue;
+      planned.env[peer.urlEnv] = `http://${target.subdomain}:${target.mod.defaultPort}`;
+      planned.peers.push({ ...peer, subdomain: target.subdomain });
+    }
   }
 
   return {
@@ -365,10 +378,13 @@ export function renderCompose(plan, buildContext) {
     };
   }
 
-  for (const { mod, subdomain, env, volume, sourceVolume, sourceSubdomain } of plan.modules) {
-    const dependsOn = plan.services
-      .filter(({ service }) => Object.values(env).includes(internalUrlOf(service)))
-      .map(({ name }) => name);
+  for (const { mod, subdomain, env, volume, sourceVolume, sourceSubdomain, peers } of plan.modules) {
+    const dependsOn = [
+      ...plan.services
+        .filter(({ service }) => Object.values(env).includes(internalUrlOf(service)))
+        .map(({ name }) => name),
+      ...peers.map((peer) => peer.subdomain),
+    ];
     const volumes = [`${volume}:/data`];
     if (sourceVolume) volumes.push(`${sourceVolume}:/source:ro`);
     // A module opening another module's database read-only refuses to boot
@@ -545,7 +561,7 @@ export function renderManifest(plan) {
       identityOrg: plan.org,
       allServices: plan.allServices,
       ticker: plan.needsTicker,
-      modules: plan.modules.map(({ mod, subdomain, url, sourceOf }) => ({
+      modules: plan.modules.map(({ mod, subdomain, url, sourceOf, peers }) => ({
         id: mod.id,
         n: mod.n,
         label: mod.label,
@@ -554,6 +570,7 @@ export function renderManifest(plan) {
         port: mod.defaultPort,
         supportsSso: mod.constraints.supportsSso,
         sourceDb: sourceOf,
+        peers: peers.map((peer) => ({ id: peer.id, urlEnv: peer.urlEnv })),
       })),
       services: plan.services.map(({ service, name }) => ({
         id: service.id,
@@ -793,6 +810,10 @@ function summarize(plan, written) {
   out.push(`  Services  ${plan.services.length}${plan.allServices ? ' (--all-services)' : ' (minimal set)'}`);
   out.push(`    ${plan.services.map(({ service }) => service.n).join(', ')}`);
   out.push(`  Ticker    ${plan.needsTicker ? `yes — ${plan.tickTargets.map((s) => s.n).join(', ')}` : 'not needed'}`);
+  const wired = plan.modules.flatMap(({ mod, peers }) =>
+    peers.map((peer) => `${mod.n} → ${peer.id} (${peer.urlEnv})`),
+  );
+  if (wired.length > 0) out.push(`  Bridges   ${wired.join(', ')}`);
   out.push(`  Files     ${written.files.join(', ')}`);
   out.push('');
   if (plan.placeholders.length > 0) {

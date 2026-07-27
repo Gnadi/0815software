@@ -120,6 +120,27 @@
             }
           }
         },
+        "peers": {
+          "description": "Other MODULES this one integrates with when they are in the same stack. Present only where a module genuinely reads another module's URL; a generator wires it just like a service URL, and leaving it out is the standalone default. Cross-module coupling is the exception in this catalogue, so every entry here is a deliberate, reviewed decision (see docs/CUSTOMER-MASTER-DATA.md).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["optional"],
+          "properties": {
+            "optional": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "urlEnv"],
+                "properties": {
+                  "id": { "type": "string", "pattern": "^mod-[0-9]{2}-[a-z0-9-]+$" },
+                  "urlEnv": { "$ref": "#/$defs/envName" }
+                }
+              },
+              "uniqueItems": true
+            }
+          }
+        },
         "env": {
           "type": "object",
           "additionalProperties": false,

@@ -79,5 +79,29 @@ export function openDb(path: string): Database.Database {
     );
   `);
 
+  // ── Additive, idempotent schema evolution ──────────────────────────
+  // Guarded ALTERs so an existing database adopts them on the next boot,
+  // exactly like the other hand-guarded columns in this catalogue.
+  const columns = (table: string): string[] =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+
+  // The PS-11 Customers party this customer is, when the master service is
+  // wired. Null in a standalone deployment, which is why it is nullable.
+  if (!columns('customers').includes('party_id')) {
+    db.exec('ALTER TABLE customers ADD COLUMN party_id INTEGER');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_customers_party ON customers (party_id)');
+  }
+
+  // The offer this invoice was billed from. UNIQUE is what makes importing an
+  // accepted offer idempotent: a retry finds the first invoice instead of
+  // creating a second one. (SQLite treats NULLs as distinct, so hand-created
+  // invoices are unaffected.)
+  if (!columns('invoices').includes('origin_offer_number')) {
+    db.exec('ALTER TABLE invoices ADD COLUMN origin_offer_number TEXT');
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_origin_offer ON invoices (origin_offer_number)',
+    );
+  }
+
   return db;
 }

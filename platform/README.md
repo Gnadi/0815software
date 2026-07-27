@@ -42,6 +42,7 @@ through the shared [`clients`](./clients) package.
 | PS-08 | Payments         | Payment intents, refunds, reconciliation  | 4008     | Available |
 | PS-09 | Search           | Cross-entity keyword & faceted search     | 4009     | Available |
 | PS-10 | Number           | Gapless sequence numbers per scope        | 4010     | Available |
+| PS-11 | Customers        | Party master data: customers and suppliers | 4011     | Available |
 
 - [PS-01 · Identity](./ps-01-identity) — authentication, users, roles,
   permissions, OAuth (real OIDC flow + offline mock IdP), API keys,
@@ -65,6 +66,12 @@ through the shared [`clients`](./clients) package.
   over SQLite FTS5 (lexical; complements PS-04's semantic RAG).
 - [PS-10 · Number](./ps-10-number) — atomic, gapless sequence numbers per
   scope with formatting and period reset (invoice/order/offer numbering).
+- [PS-11 · Customers](./ps-11-customers) — party master data: one answer to
+  "who is this counterparty?" across every module. Customers and suppliers as
+  separate kinds that never match each other, deterministic matching (reference,
+  VAT id, email), per-module references as the migration path for module-local
+  tables, merge-with-redirect for duplicates, and the stack owner's own `self`
+  party as the single home for the seller identity.
 
 Modules consume these through the shared
 [`@0815software/platform-clients`](./clients) package — one typed client per

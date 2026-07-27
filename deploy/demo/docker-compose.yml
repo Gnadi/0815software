@@ -5,7 +5,7 @@
 #
 # Caddy terminates TLS on <DEMO_DOMAIN> (the hub) and offers./invoicing./
 # support./documents.<DEMO_DOMAIN> (the four apps). Only Caddy is published;
-# the eight platform services stay on the internal network. Databases live on
+# the nine platform services stay on the internal network. Databases live on
 # tmpfs, so `docker compose restart` resets the whole demo to seeded state.
 #
 # This mirrors the locally-verified demo/serve.mjs wiring 1:1 — same services,
@@ -39,7 +39,7 @@ x-app: &app
     ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     IDENTITY_URL: http://ps01:4001
     IDENTITY_ORG: acme
-  depends_on: [ps01, ps03, ps06, ps07, ps08, ps09, ps10, ps04]
+  depends_on: [ps01, ps03, ps06, ps07, ps08, ps09, ps10, ps11, ps04]
 
 services:
   # ── Platform services (internal only) ─────────────────────────────────────
@@ -78,6 +78,10 @@ services:
     <<: *service
     build: { context: ../.., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-10-number } }
     healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4010/api/health"] }
+  ps11:
+    <<: *service
+    build: { context: ../.., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-11-customers } }
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4011/api/health"] }
 
   # ── One-shot: stage the invoice sequence + file bucket ────────────────────
   init:
@@ -101,6 +105,7 @@ services:
       PORT: "3013"
       NOTIFICATION_URL: http://ps03:4003
       AUDIT_URL: http://ps07:4007
+      CUSTOMERS_URL: http://ps11:4011
       SELLER_NAME: Acme Corporation
       PUBLIC_BASE_URL: https://offers.${DEMO_DOMAIN}
     healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:3013/api/health"] }
@@ -116,6 +121,10 @@ services:
       AUDIT_URL: http://ps07:4007
       PAYMENTS_URL: http://ps08:4008
       NUMBER_URL: http://ps10:4010
+      CUSTOMERS_URL: http://ps11:4011
+      # The quote-to-invoice bridge: "IMPORT OFFER" in the Invoicing UI pulls an
+      # accepted offer from the Offers app as a neutral document transfer.
+      OFFERS_URL: http://offers:3013
       NOTIFICATION_INVOICE_CHANNEL: transactional-email
       SELLER_NAME: Acme Corporation
     healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:3004/api/health"] }
