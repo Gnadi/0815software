@@ -286,7 +286,19 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const info = db
       .prepare('INSERT INTO suppliers (name, contact, email, notes, created_at) VALUES (?, ?, ?, ?, ?)')
       .run(values.name, values.contact, values.email, values.notes, nowIso());
-    res.status(201).json(db.prepare('SELECT * FROM suppliers WHERE id = ?').get(info.lastInsertRowid));
+    const localId = Number(info.lastInsertRowid);
+    // Register the supplier with PS-11 as a `supplier` party, so the stack has
+    // one answer for who this vendor is. Best-effort: the local row is already
+    // written, and the party id is stored when the answer arrives.
+    void platform
+      .resolveParty({ name: values.name, contactPerson: values.contact, email: values.email, localId })
+      .then((partyId) => {
+        if (partyId !== null) db.prepare('UPDATE suppliers SET party_id = ? WHERE id = ?').run(partyId, localId);
+      })
+      .catch(() => {
+        /* buildPlatform already logs; the local row stands either way */
+      });
+    res.status(201).json(db.prepare('SELECT * FROM suppliers WHERE id = ?').get(localId));
   });
 
   app.get('/api/suppliers/:id', (req, res) => {

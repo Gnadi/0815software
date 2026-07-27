@@ -105,6 +105,14 @@ services:
     healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4010/api/ready"] }
     depends_on: [ps01]
 
+  ps11:
+    <<: *service
+    build: { context: .., dockerfile: deploy/Dockerfile, args: { SERVICE: ps-11-customers } }
+    environment: *downstream-env
+    volumes: [ps11-data:/data]
+    healthcheck: { <<: *hc, test: ["CMD", "wget", "-qO-", "http://localhost:4011/api/ready"] }
+    depends_on: [ps01]
+
   # TLS termination + per-service routing.
   caddy:
     image: caddy:2-alpine
@@ -116,7 +124,7 @@ services:
       - caddy-data:/data
       - caddy-config:/config
     networks: [platform]
-    depends_on: [ps01, ps02, ps03, ps04, ps05, ps06, ps07, ps08, ps09, ps10]
+    depends_on: [ps01, ps02, ps03, ps04, ps05, ps06, ps07, ps08, ps09, ps10, ps11]
 
   # Drives the queue/scheduler services once a minute (PS-02/03/05/08 ticks).
   ticker:
@@ -149,5 +157,6 @@ volumes:
   ps08-data: {}
   ps09-data: {}
   ps10-data: {}
+  ps11-data: {}
   caddy-data: {}
   caddy-config: {}

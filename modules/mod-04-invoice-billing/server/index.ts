@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { hardeningFromEnv } from './hardening.js';
+import { applySeller, startSellerRefresh } from './seller.js';
 import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
 import { buildLoginVerifier } from './sso.js';
@@ -28,18 +29,34 @@ const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
+const platform = buildPlatform(config.platform);
+
+// The seller letterhead: PS-11's `self` party is the authority when configured,
+// the SELLER_* env is the fallback. Applied before the first request so no
+// invoice is rendered with a stale letterhead, then refreshed periodically so
+// changing it in PS-11 does not need a restart. config.seller is mutated in
+// place — createApp captures it and the PDF reads its fields at render time.
+const usingPlatformSeller = await applySeller(config.seller, () => platform.fetchSelf());
+startSellerRefresh(config.seller, () => platform.fetchSelf(), config.sellerRefreshMs);
+
 const app = createApp({
   db,
   hardening: hardeningFromEnv(),
   auth: config.auth,
   seller: config.seller,
   staticDir,
-  platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso),
+  platform,
+  verifyLogin: buildLoginVerifier(config.sso),
 });
 
 app.listen(config.port, () => {
   console.log(`[mod-04] invoice & billing API on http://localhost:${config.port}`);
   if (staticDir) console.log(`[mod-04] serving client from ${staticDir}`);
+  console.log(
+    usingPlatformSeller
+      ? `[mod-04] seller letterhead from PS-11 Customers: ${config.seller.name}`
+      : `[mod-04] seller letterhead from SELLER_* env: ${config.seller.name}`,
+  );
   if (config.auth.password === 'admin') {
     console.warn('[mod-04] WARNING: using default credentials (admin/admin) — set ADMIN_USERNAME/ADMIN_PASSWORD');
   }

@@ -1,8 +1,9 @@
 # Platform Readiness Review
 
 *Is the 0815software platform finished and ready for customer rollout?*
-*Assessment after building PS-01…10, the shared clients package, and wiring all
-14 modules. July 2026.*
+*Assessment after building PS-01…11, the shared clients package, and wiring all
+14 modules. July 2026. Updated after the composability campaign — see
+[what that closed](#what-the-composability-campaign-closed).*
 
 ## Verdict
 
@@ -11,7 +12,7 @@
 *Updated after the finish-line campaign (Phases 1–8).* The original punch-list
 below has been worked through end to end; each item now carries its status
 inline. Every package's test suite is green and runs **fully offline** (~620
-tests across 25 packages), and `deploy/smoke.mjs` boots all ten services in
+tests across 26 packages), and `deploy/smoke.mjs` boots every service in
 production mode with generated secrets, verifying health, readiness, metrics,
 the cross-service `platform:admin` seam, and security headers.
 
@@ -41,6 +42,88 @@ archival (D2).
 
 The per-item punch-list below is retained as the audit trail, each entry
 annotated with what shipped.
+
+---
+
+## What the composability campaign closed
+
+*July 2026, after the finish-line campaign.* The gap it addressed was not a
+missing feature but a missing **seam**: fourteen modules and ten services all
+existed and were tested, and there was still no way to turn "this customer
+licensed these three modules" into a running deployment. Four things changed.
+
+### 1. One machine-readable catalogue — [`modules/registry.json`](../modules/registry.json)
+
+Module facts lived in three hardcoded copies (the marketing catalogue,
+`demo/serve.mjs`, the hosted demo hub) and none of them knew a module's port, its
+service dependencies or its deployment constraints. The registry now declares all
+of it for all 14 modules and all 11 services, and those three consumers derive
+from it. **`deploy/test/registry.test.ts` re-derives every claim from each
+package's own `server/config.ts`**, so the registry cannot quietly become a lie —
+which is what makes everything below safe to generate. See
+[`PROVISIONING.md`](./PROVISIONING.md).
+
+### 2. Provisioning — `deploy/provision.mjs`
+
+One command turns a module selection into a customer deployment: compose file,
+freshly generated secrets, Caddy TLS with a subdomain per module, an operator
+README and a `manifest.json`. It starts **only the services the selection
+references** (a two-module stack is seven, not eleven), includes the ticker
+sidecar only when something ticks, wires `IDENTITY_URL` only where SSO is
+supported, and handles MOD-08's read-only source database. A production
+`deploy/module.Dockerfile` was added — the demo one has tmpfs databases and demo
+seeding, which is not a production path.
+
+### 3. The base is verified, not asserted — `deploy/smoke-stack.mjs`
+
+`deploy/smoke.mjs` proved the services come up. This proves a *customer's stack*
+comes up: it boots exactly the manifest's services and modules, in production
+mode, with generated secrets, and checks health and readiness, every wired URL,
+SSO where the registry says so and its absence where it does not, security
+headers, the boot guard's refusal of a default secret, and that the generated
+`.env` has no placeholder left. It also boots each module a second time **with no
+service URLs at all**, so the standalone guarantee is now a test rather than a
+claim.
+
+Two capabilities had to be added to the modules for that: all 14 now expose
+`GET /api/ready` (distinct from `/api/health`, and what the generated compose
+health-checks poll) and all 14 now carry the platform's `server/hardening.ts` —
+security headers, default-deny CORS, per-IP rate limits — mounted on every real
+boot and omitted in tests, exactly as the services do it.
+
+### 4. Shared customer data — PS-11 Customers (closes part of C2)
+
+`demo/scenario.mjs` narrated "bill the accepted quote" while the code created the
+customer from scratch in MOD-04 and retyped the line items. There was no data path
+from an accepted offer to an invoice, and MOD-04/MOD-13 each owned a separate
+customer table. [`CUSTOMER-MASTER-DATA.md`](./CUSTOMER-MASTER-DATA.md) records the
+decision; the outcome is
+[**PS-11 Customers**](../platform/ps-11-customers), a Platform Service owning
+party master data with deterministic matching, per-module references (the
+migration path for the module-local tables), and the stack owner's own `self`
+party as a home for the duplicated seller identity. MOD-04 and MOD-13 consume it
+through a new `CustomersClient`, optionally as always.
+
+On top of it, the quote-to-invoice hand-off: MOD-13 exposes an accepted offer in a
+neutral, self-checking transfer shape (`shared/transfer.ts`, copied into both
+modules), and MOD-04 imports it into a draft invoice — idempotent on the offer
+number, recording it on the invoice, refusing a transfer whose totals do not add
+up. The demo now uses the real bridge, so the narrative and the code agree.
+
+PS-11 was then finished to the purpose it was built for: `kind` gained `supplier`
+(matching never crosses kinds), `POST /api/parties/:id/merge` reconciles duplicates
+the service already holds while keeping the loser's id as a redirect, and the
+`self` party is now the authority for the seller letterhead — MOD-04 and MOD-13
+read it at boot and refresh it, with their `SELLER_*` env as a per-field fallback,
+so renaming the company is one call rather than two `.env` edits and a redeploy.
+Four modules share the party list: MOD-04, MOD-13, MOD-10 (companies) and MOD-06
+(suppliers), each keeping its own row and storing the master `party_id`.
+
+**What this did not close.** MOD-03 Inventory's supplier table is not migrated
+yet, and MOD-01 Customer Portal is deliberately out — its `customers` are end
+users with logins, an identity concern (item C1) rather than master data. Nothing
+reports likely duplicates either: merging exists, finding candidates is still the
+operator's eye. None of it blocks a rollout.
 
 ---
 
@@ -183,20 +266,30 @@ their own identity models — mod-01 portal customers, mod-07 storefront guests,
 mod-09 matter users — keep local auth for now; PS-01 gains org-scoped end-user
 auth before they migrate.
 
-### C2. Integrations are mostly "emit an audit event"
+### C2. Integrations are mostly "emit an audit event" — ⏳ PARTIALLY CLOSED
+*The composability campaign closed the highest-value case: MOD-13 → MOD-04 is now
+a real data path (an accepted offer becomes a draft invoice in one action), and
+MOD-04/MOD-13 share one customer record through PS-11 Customers rather than
+keeping private copies. The rest of the list below stands.*
+
 Ten of fourteen modules only record audit events. Deeper value is unrealised:
 driving module state machines through PS-02, reconciling PS-08 settlements back
 into module ledgers, indexing *all* searchable entities into PS-09 (only mod-09
 does today), and consuming PS-04 beyond mod-12's suggest-reply.
 **Do:** deepen the integrations module by module where the ROI is clear.
 
-### C3. No UI surfaces the new capabilities
-Every integration is server-side. No module frontend yet exposes a PS-09 search
-box, a PS-08 pay button, or PS-04 assistance.
-**Do:** surface the capabilities in the module UIs.
+### C3. No UI surfaces the new capabilities — ⏳ FIRST ONE SHIPPED
+MOD-04's invoice list now has an **IMPORT OFFER** action that bills an accepted
+quote end to end, which is the first platform capability with a button on it.
+Otherwise unchanged: no module frontend yet exposes a PS-09 search box, a PS-08
+pay button, or PS-04 assistance.
+**Do:** surface the remaining capabilities in the module UIs.
 
 ### C4. Remaining new-service opportunities
-- **PS-11 Feature Flags / Config** — flagged earlier; small, genuinely
+*PS-11 is now taken by **Customers** (party master data), built during the
+composability campaign — see [`CUSTOMER-MASTER-DATA.md`](./CUSTOMER-MASTER-DATA.md).
+The next new service would be PS-12.*
+- **Feature Flags / Config** — flagged earlier; small, genuinely
   cross-cutting.
 - **Inbound Email/Bridge service** — mod-12 explicitly needs a real mailbox;
   today it accepts pre-parsed JSON. A shared inbound-email service (IMAP/

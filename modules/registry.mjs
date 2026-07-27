@@ -37,6 +37,11 @@ export function serviceById(id) {
   return found;
 }
 
+/** Other modules this one wires to when they share a stack (usually none). */
+export function peersOf(mod) {
+  return mod.peers?.optional ?? [];
+}
+
 /** Every service a module integrates with (required first, then optional). */
 export function servicesOf(mod) {
   return [...mod.services.required, ...mod.services.optional].map(serviceById);

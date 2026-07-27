@@ -6,21 +6,27 @@
  * wired stack driven headlessly and asserted end to end — the demo as a
  * pass/fail integration test (npm run e2e), handy for CI.
  *
- * Boots eight Platform Services and four business modules as real processes,
+ * Boots nine Platform Services and four business modules as real processes,
  * all sharing one identity provider and one service credential, then drives a
  * complete quote-to-cash-to-care day for the fictional company "Acme Corporation":
  *
  *   1. A salesperson signs into the Offers app — validated by PS-01 Identity (SSO).
  *   2. Acme quotes a customer: PS-03 emails the offer link, PS-07 audits it, and
  *      the customer accepts online through the public link (no login).
- *   3. Acme bills the accepted quote: the invoice number comes from PS-10
- *      (gapless), the PDF is archived in PS-06, the customer is emailed via
- *      PS-03, and the whole thing is recorded on PS-07's tamper-evident log.
- *   4. The customer pays: PS-08 Payments runs the settlement.
- *   5. A support ticket comes in; PS-04 AI drafts the reply.
- *   6. A contract is filed in the Documents app: stored in PS-06, indexed in
+ *   3. Acme bills the accepted quote WITH ONE ACTION — Invoicing pulls the
+ *      offer from Offers as a neutral document transfer, resolves the customer
+ *      through PS-11 Customers (so both apps mean the same party), and produces
+ *      a draft. Finalizing it takes the invoice number from PS-10 (gapless),
+ *      archives the PDF in PS-06, emails the customer via PS-03, and records
+ *      the lot on PS-07's tamper-evident log.
+ *   4. Acme renames itself once in PS-11 Customers and both apps' letterheads
+ *      follow, with no restart — the seller identity has one home instead of
+ *      being duplicated in two modules' SELLER_* environments.
+ *   5. The customer pays: PS-08 Payments runs the settlement.
+ *   6. A support ticket comes in; PS-04 AI drafts the reply.
+ *   7. A contract is filed in the Documents app: stored in PS-06, indexed in
  *      PS-09, and found again by full-text search.
- *   7. The platform proves itself: PS-07 verifies the audit chain over every
+ *   8. The platform proves itself: PS-07 verifies the audit chain over every
  *      action taken above, across all four apps.
  *
  * Everything runs offline with mock/console adapters — no vendor keys needed.
@@ -48,6 +54,7 @@ const P = {
   payments: boot({ group: 'platform', name: 'ps-08-payments', port: 4308, tag: 'PS-08', env: platformEnv }),
   search: boot({ group: 'platform', name: 'ps-09-search', port: 4309, tag: 'PS-09', env: platformEnv }),
   number: boot({ group: 'platform', name: 'ps-10-number', port: 4310, tag: 'PS-10', env: platformEnv }),
+  customers: boot({ group: 'platform', name: 'ps-11-customers', port: 4311, tag: 'PS-11', env: platformEnv }),
 };
 
 const ssoEnv = {
@@ -58,6 +65,10 @@ const ssoEnv = {
   SESSION_SECRET,
   INTAKE_SECRET: 'demo-intake-secret',
 };
+// Invoicing is constructed before Offers in this literal, so its OFFERS_URL is
+// the known port rather than a reference to M.offers.
+const M_OFFERS_URL = 'http://127.0.0.1:4413';
+
 const M = {
   invoicing: boot({
     group: 'modules',
@@ -72,6 +83,10 @@ const M = {
       PAYMENTS_URL: P.payments,
       NUMBER_URL: P.number,
       NOTIFICATION_INVOICE_CHANNEL: 'transactional-email',
+      CUSTOMERS_URL: P.customers,
+      // The quote-to-invoice bridge: Invoicing can fetch an accepted offer
+      // from Offers as a neutral document transfer (shared/transfer.ts).
+      OFFERS_URL: M_OFFERS_URL,
       SELLER_NAME: 'Acme Corporation',
     },
   }),
@@ -84,7 +99,11 @@ const M = {
       ...ssoEnv,
       NOTIFICATION_URL: P.notify,
       AUDIT_URL: P.audit,
+      CUSTOMERS_URL: P.customers,
       SELLER_NAME: 'Acme Corporation',
+      // Short refresh so the demo can show a letterhead change taking effect
+      // without a restart; production defaults to five minutes.
+      SELLER_REFRESH_MS: '400',
       PUBLIC_BASE_URL: 'http://127.0.0.1:4413',
     },
   }),
@@ -134,7 +153,7 @@ async function adminToken(base) {
 
 async function run() {
   console.log(c.bold('\n  0815software Platform — live demo: "A day at Acme Corporation"\n'));
-  step('Booting 8 Platform Services and 4 business apps…');
+  step(`Booting ${Object.keys(P).length} Platform Services and ${Object.keys(M).length} business apps…`);
   await waitForHealth({ ...P, ...M });
   ok('All services healthy. One identity provider, one platform, four apps.');
 
@@ -206,23 +225,42 @@ async function run() {
   const invLogin = await invoicing.post('/api/login', { username: HUMAN.email, password: HUMAN.password });
   expect(invLogin.status === 200, `invoicing SSO login failed (${invLogin.status})`);
   ok('Signed in to Invoicing via PS-01 — one identity, every app.');
-  step('Acme bills the customer for the accepted quote…');
-  const customer = await invoicing.post('/api/customers', {
-    name: 'Blaustern Café GmbH',
-    email: 'buchhaltung@blaustern.example',
-    vat_id: 'ATU12345678',
-    address: 'Hauptstraße 12, 5020 Salzburg',
-  });
-  expect(customer.status === 201, 'customer creation failed');
-  const draft = await invoicing.post('/api/invoices', {
-    customer_id: customer.body.id,
-    lines: [
-      { description: 'Consulting — platform onboarding (10h)', quantity: 10, unit_price_cents: 12000, vat_rate: 20 },
-      { description: 'Priority support, one year', quantity: 1, unit_price_cents: 90000, vat_rate: 20 },
-    ],
-  });
-  expect(draft.status === 201, `invoice draft failed (${draft.status}): ${JSON.stringify(draft.body)}`);
-  ok(`Draft invoice created for ${c.bold(customer.body.name)}.`);
+
+  step(`Acme bills quote ${c.bold(sent.body.number)} — one action, nothing retyped…`);
+  const draft = await invoicing.post('/api/invoices/import-offer', { offer_number: sent.body.number });
+  expect(draft.status === 201, `offer import failed (${draft.status}): ${JSON.stringify(draft.body)}`);
+  expect(draft.body.status === 'draft', `expected a draft, got ${draft.body.status}`);
+  ok(`Draft invoice created for ${c.bold(draft.body.customer_name)} from the accepted quote.`);
+  note('↳ Invoicing fetched the offer from Offers as a neutral document transfer (shared/transfer.ts).');
+  note('↳ PS-11 Customers resolved the customer, so both apps mean the same party.');
+
+  // The numbers are the point: no re-keying means no transcription error.
+  const offerDetail = (await offers.get(`/api/offers/${offerDraft.body.id}`)).body;
+  expect(
+    draft.body.net_cents === offerDetail.net_cents &&
+      draft.body.vat_cents === offerDetail.vat_cents &&
+      draft.body.gross_cents === offerDetail.gross_cents,
+    `totals drifted: offer ${offerDetail.gross_cents} vs invoice ${draft.body.gross_cents}`,
+  );
+  ok(`Totals and VAT survived the hand-off exactly (${c.bold(String(draft.body.gross_cents / 100))} €).`);
+
+  step('The operator clicks "bill this offer" a second time by accident…');
+  const replay = await invoicing.post('/api/invoices/import-offer', { offer_number: sent.body.number });
+  expect(replay.status === 200 && replay.body.id === draft.body.id, 'a repeated import must not create a second invoice');
+  ok('Nothing happened — the import is idempotent on the offer number. No double-billing.');
+
+  // PS-11 is the authority on who this customer is: one party, two modules.
+  const partyList = (await client(P.customers).get('/api/parties?q=Blaustern', { serviceToken: SVC_TOKEN })).body;
+  expect(partyList.parties.length === 1, `expected one PS-11 party for the customer, got ${partyList.parties.length}`);
+  const partyRefs = (
+    await client(P.customers).get(`/api/parties/${partyList.parties[0].id}/refs`, { serviceToken: SVC_TOKEN })
+  ).body;
+  const refSources = partyRefs.refs.map((r) => r.source).sort();
+  expect(
+    refSources.includes('mod-13-offers') && refSources.includes('mod-04-invoice-billing'),
+    `both modules should reference the one party, got ${refSources.join(', ')}`,
+  );
+  ok(`PS-11 holds ${c.bold('one')} customer record, referenced by both apps (${refSources.join(', ')}).`);
 
   step('Admin finalizes the invoice — watch the platform light up…');
   const finalized = await invoicing.post(`/api/invoices/${draft.body.id}/finalize`, {});
@@ -243,14 +281,53 @@ async function run() {
 
   const notifyAdmin = await adminToken(P.notify);
   const messages = (await client(P.notify).get('/api/messages', { token: notifyAdmin })).body;
-  expect(messages.messages.some((m) => m.to_address === customer.body.email), 'customer was not emailed via PS-03');
-  ok(`PS-03 Notifications queued the invoice email to ${c.bold(customer.body.email)}.`);
+  const customerEmail = prospect.body.email;
+  expect(messages.messages.some((m) => m.to_address === customerEmail), 'customer was not emailed via PS-03');
+  ok(`PS-03 Notifications queued the invoice email to ${c.bold(customerEmail)}.`);
 
   const auditAdmin = await adminToken(P.audit);
   const issuedEvents = (await client(P.audit).get(`/api/events?resource=invoice:${number}`, { token: auditAdmin })).body;
   expect(issuedEvents.events.some((e) => e.action === 'invoice.issued'), 'no invoice.issued audit event');
   ok('PS-07 Audit recorded an "invoice.issued" event on the tamper-evident chain.');
   note('One HTTP call from the app → five coordinated Platform Services.');
+
+  // ══════════════════════════════════════════════════════════════════════════
+  act('One seller identity — PS-11 owns the letterhead');
+  step('Both apps currently print the seller from their own SELLER_* env…');
+  const publicRef = encodeURIComponent(sent.body.number);
+  const beforeView = await client(M.offers).get(
+    `/api/public/offers/${publicRef}?token=${sent.body.public_token}`,
+  );
+  expect(beforeView.status === 200, `public offer view failed (${beforeView.status})`);
+  expect(
+    beforeView.body.seller_name === 'Acme Corporation',
+    `expected the env letterhead, got ${beforeView.body.seller_name}`,
+  );
+  ok(`Offer letterhead reads ${c.bold(beforeView.body.seller_name)} — from SELLER_NAME.`);
+  note('↳ PS-11 has no `self` party yet, so the env stands. It is the fallback, not a race.');
+
+  step('Acme renames itself once, in PS-11 — not in two .env files…');
+  const self = await client(P.customers).req('PUT', '/api/self', {
+    body: {
+      name: 'Acme Corporation AG',
+      vat_id: 'ATU12000000',
+      address_lines: ['Handelskai 92', '1200 Wien', 'Austria'],
+    },
+    serviceToken: SVC_TOKEN,
+  });
+  expect(self.status === 200, `setting the self party failed (${self.status})`);
+
+  // The modules re-read the seller on their refresh interval (400ms here).
+  await new Promise((r) => setTimeout(r, 1200));
+  const afterView = await client(M.offers).get(
+    `/api/public/offers/${publicRef}?token=${sent.body.public_token}`,
+  );
+  expect(
+    afterView.body.seller_name === 'Acme Corporation AG',
+    `letterhead did not follow PS-11: still ${afterView.body.seller_name}`,
+  );
+  ok(`Offer letterhead now reads ${c.bold(afterView.body.seller_name)} — no restart, no redeploy.`);
+  note('↳ One fact, one home. Invoicing picks up the same change on its own refresh.');
 
   // ══════════════════════════════════════════════════════════════════════════
   act('Payments — collecting the money through PS-08');
@@ -347,7 +424,13 @@ async function run() {
 
   console.log('');
   hr();
-  console.log(c.bold(c.green('  DEMO COMPLETE — 8 services, 4 apps, one integrated platform.')));
+  console.log(
+    c.bold(
+      c.green(
+        `  DEMO COMPLETE — ${Object.keys(P).length} services, ${Object.keys(M).length} apps, one integrated platform.`,
+      ),
+    ),
+  );
   console.log(c.dim('  SSO · quotes · gapless numbering · file archive · notifications · payments · AI · search · audit'));
   hr();
   console.log('');

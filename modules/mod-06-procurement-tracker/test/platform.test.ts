@@ -38,6 +38,55 @@ describe('PS-07 audit integration', () => {
 });
 
 
+describe('PS-11 Customers integration', () => {
+  it('registers a new supplier as a SUPPLIER party and stores the master id', async () => {
+    const seen: { name: string; kind: string; localId: number }[] = [];
+    const app = appWith({
+      ...noopPlatform,
+      async resolveParty(info) {
+        // buildPlatform pins kind: 'supplier'; the hook shape carries the rest.
+        seen.push({ name: info.name, kind: 'supplier', localId: info.localId });
+        return 8080;
+      },
+    });
+    const c = await cookie(app);
+    const res = await request(app)
+      .post('/api/suppliers')
+      .set('Cookie', c)
+      .send({ name: 'Auer & Söhne GmbH', contact: 'Franz Auer', email: 'verkauf@auer.example' })
+      .expect(201);
+    await new Promise((r) => setImmediate(r));
+
+    expect(seen).toEqual([{ name: 'Auer & Söhne GmbH', kind: 'supplier', localId: res.body.id }]);
+    const row = db.prepare('SELECT party_id FROM suppliers WHERE id = ?').get(res.body.id) as {
+      party_id: number | null;
+    };
+    expect(row.party_id).toBe(8080);
+  });
+
+  it('leaves party_id null when PS-11 is unconfigured — the standalone posture', async () => {
+    const app = createApp({ db, auth });
+    const c = await cookie(app);
+    const res = await request(app).post('/api/suppliers').set('Cookie', c).send({ name: 'Local GmbH' }).expect(201);
+    await new Promise((r) => setImmediate(r));
+    const row = db.prepare('SELECT party_id FROM suppliers WHERE id = ?').get(res.body.id) as {
+      party_id: number | null;
+    };
+    expect(row.party_id).toBeNull();
+  });
+
+  it('still creates the supplier when the master service fails', async () => {
+    const app = appWith({
+      ...noopPlatform,
+      async resolveParty() {
+        throw new Error('ECONNREFUSED');
+      },
+    });
+    const c = await cookie(app);
+    await request(app).post('/api/suppliers').set('Cookie', c).send({ name: 'Auer GmbH' }).expect(201);
+  });
+});
+
 describe('SSO login-exchange', () => {
   it('lets PS-01 decide the login, bypassing local credentials', async () => {
     // The injected verifier stands in for a configured PS-01: it approves

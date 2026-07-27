@@ -6,7 +6,8 @@ the customer-readiness campaign (closes readiness item A7).*
 ## The stance
 
 **Each customer runs their own platform instance.** A deployment is one stack:
-the ten Platform Services (PS-01…10), the modules that customer licensed, one
+the Platform Services that selection needs (PS-01…11 exist; a two-module
+stack usually needs seven), the modules that customer licensed, one
 set of secrets, and one set of SQLite database files — all owned by and
 dedicated to that customer.
 
@@ -20,7 +21,7 @@ services:
 - separate hostnames/TLS certificates.
 
 There is **no shared platform instance serving multiple customers**, so no
-query in PS-02…10 ever needs a tenant filter: everything in a database belongs
+query in PS-02…11 ever needs a tenant filter: everything in a database belongs
 to the one customer whose stack it is.
 
 ## Why this model
@@ -38,13 +39,16 @@ to the one customer whose stack it is.
 
 PS-01 remains internally multi-org (orgs/users/roles) — useful for a customer
 with subsidiaries — and PS-09 keeps its `tenant` column; both are *within* one
-customer's stack.
+customer's stack. PS-11 Customers holds that one customer's customer list, not a
+global one, for the same reason.
 
 ## Operational consequences
 
-- Provisioning a customer = bringing up the reference deployment
-  (`deploy/`, see its README) with freshly generated secrets. The production
-  boot guard refuses default secrets, so an unconfigured stack cannot start.
+- Provisioning a customer = `node deploy/provision.mjs` with their module
+  selection, which generates the stack with freshly generated secrets and only
+  the services that selection references (see
+  [`PROVISIONING.md`](./PROVISIONING.md)). The production boot guard refuses
+  default secrets, so an unconfigured stack cannot start.
 - Upgrades roll per customer: pull new images, restart; each service applies
   its pending schema migrations on boot (`server/migrations.ts`).
 - Backups, retention, and GDPR erasure are per customer by construction —

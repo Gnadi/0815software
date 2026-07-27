@@ -1,7 +1,7 @@
 # Hosted Demo
 
 The live, clickable demo — packaged to run on **one server** so customers reach
-it from a URL, no clone or local setup. It boots the eight platform services and
+it from a URL, no clone or local setup. It boots the nine platform services and
 the four business apps (Offers, Invoicing, Support, Documents), wired together,
 behind Caddy with automatic TLS. Only Caddy is exposed; the services stay
 internal.

@@ -151,5 +151,15 @@ export function openDb(path: string): Database.Database {
     );
   `);
 
+  // ── Additive, idempotent schema evolution ──────────────────────────
+  // The PS-11 Customers party this supplier is, when the master service is
+  // wired. Null in a standalone deployment, which is why it is nullable.
+  const columns = (table: string): string[] =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+  if (!columns('suppliers').includes('party_id')) {
+    db.exec('ALTER TABLE suppliers ADD COLUMN party_id INTEGER');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_suppliers_party ON suppliers (party_id)');
+  }
+
   return db;
 }

@@ -3,7 +3,7 @@
  * 0815software Platform — live, clickable demo.
  *
  * Boots four real business apps — Offers, Invoicing, Support, Documents — plus
- * exactly the Platform Services they need (eight today), each app serving its
+ * exactly the Platform Services they need (nine today), each app serving its
  * actual web UI, all wired to one shared identity provider and platform. Then
  * it serves a hub page that links you into every running app with the demo
  * logins. The selection below is a list of modules/registry.json ids; the
@@ -18,7 +18,7 @@ import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { resolveSelection, servicesOf } from '../modules/registry.mjs';
+import { peersOf, resolveSelection, servicesOf } from '../modules/registry.mjs';
 import { boot, c, client, shutdown, waitForHealth } from './lib/harness.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -114,6 +114,12 @@ function bootStack() {
     }
     if (mod.constraints.supportsSso) env.IDENTITY_ORG = ORG;
     if (mod.constraints.needsPublicBaseUrl) env.PUBLIC_BASE_URL = `http://localhost:${port}`;
+    // Module-to-module bridges from the registry, wired only when the peer is
+    // also in this demo (mod-04 → mod-13, so an accepted quote can be billed).
+    for (const peer of peersOf(mod)) {
+      const target = APPS.find((other) => other.mod.id === peer.id);
+      if (target) env[peer.urlEnv] = `http://127.0.0.1:${target.port}`;
+    }
 
     M[mod.label] = boot({ group: 'modules', name: mod.id, port, tag: mod.label, compiled: true, env });
   }
@@ -183,7 +189,7 @@ function hubHtml() {
   <div class="creds">Single sign-on: <b>owner@acme.test</b> / <b>demo-owner</b> &nbsp;·&nbsp; Documents (own login): <b>admin</b> / <b>demo-admin</b></div>
   <div class="grid">${CARDS.map(card).join('')}</div>
   <div class="story">
-    <b>Try this path:</b> in <b>Offers</b>, send a quote and accept it → in <b>Invoicing</b>, bill it and watch one "finalize" click assign a gapless number, archive the PDF, email the customer and record an audit event → collect payment → in <b>Support</b>, open a ticket and ask the AI for a reply → in <b>Documents</b>, file a contract and find it by search. Then check the audit trail — every action from every app is on one tamper-evident chain.
+    <b>Try this path:</b> in <b>Offers</b>, send a quote and accept it → in <b>Invoicing</b>, click <b>IMPORT OFFER</b> and type the quote number \u2014 the customer and every line item arrive from Offers, resolved to the same PS-11 party \u2014 then watch one "finalize" click assign a gapless number, archive the PDF, email the customer and record an audit event → collect payment → in <b>Support</b>, open a ticket and ask the AI for a reply → in <b>Documents</b>, file a contract and find it by search. Then check the audit trail — every action from every app is on one tamper-evident chain.
   </div>
   <div class="foot">Runs offline with mock adapters. See <a href="https://github.com/Gnadi/0815software/tree/main/demo">demo/README.md</a> for how it's wired.</div>
 </div></body></html>`;
