@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
+import { hardeningFromEnv } from './hardening.js';
 import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
 import { buildLoginVerifier } from './sso.js';
@@ -28,7 +29,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
-const app = createApp({ db, auth: config.auth, staticDir, platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso) });
+const app = createApp({ db, hardening: hardeningFromEnv(), auth: config.auth, staticDir, platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso) });
 
 app.listen(config.port, () => {
   console.log(`[mod-12] support ticket system API on http://localhost:${config.port}`);

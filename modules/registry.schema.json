@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://0815software.example/schemas/registry.json",
+  "title": "0815software composition registry",
+  "description": "Machine-readable description of every business module and every Platform Service in this repository. It is the single source of truth for composing a customer stack: deploy/provision.mjs, deploy/smoke-stack.mjs, the marketing catalogue (src/data/modules.ts) and both demo hubs derive from it. Presentation copy (blurbs, overviews, screenshots) deliberately stays out — see src/data/modules.ts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "services", "modules"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": {
+      "description": "Bumped only on a breaking change to this schema. A generated manifest.json records the version it was produced from.",
+      "type": "integer",
+      "const": 1
+    },
+    "services": {
+      "description": "The ten Platform Services. Modules reference them by id.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/service" }
+    },
+    "modules": {
+      "description": "The business modules, in catalogue order (MOD-01 … MOD-14).",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/module" }
+    }
+  },
+  "$defs": {
+    "envName": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$"
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "n", "label", "defaultPort", "routePrefix", "urlEnv", "tickDriven", "secrets"],
+      "properties": {
+        "id": {
+          "description": "Directory name under platform/ — also the SERVICE build arg for deploy/Dockerfile.",
+          "type": "string",
+          "pattern": "^ps-[0-9]{2}-[a-z0-9-]+$"
+        },
+        "n": { "type": "string", "pattern": "^PS-[0-9]{2}$" },
+        "label": {
+          "description": "Short human label used in generated docs and demo hubs.",
+          "type": "string",
+          "minLength": 1
+        },
+        "defaultPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "routePrefix": {
+          "description": "Subpath Caddy reverse-proxies to this service on the platform domain.",
+          "type": "string",
+          "pattern": "^/[a-z0-9-]+$"
+        },
+        "urlEnv": {
+          "description": "The env var a consumer sets to point at this service. Modules declaring this service get it wired to the internal container URL.",
+          "$ref": "#/$defs/envName"
+        },
+        "tickDriven": {
+          "description": "True when the service needs POST /api/tick to make progress. A stack containing no tick-driven service needs no ticker sidecar.",
+          "type": "boolean"
+        },
+        "secrets": {
+          "description": "Secrets that must be generated per stack for this service. Names match the service's own env vars.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/envName" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "n", "slug", "title", "label", "defaultPort", "scope", "services", "env", "constraints"],
+      "properties": {
+        "id": {
+          "description": "Directory name under modules/ — also the MODULE build arg for deploy/module.Dockerfile.",
+          "type": "string",
+          "pattern": "^mod-[0-9]{2}-[a-z0-9-]+$"
+        },
+        "n": { "type": "string", "pattern": "^MOD-[0-9]{2}$" },
+        "slug": {
+          "description": "URL slug of the module's marketing detail page.",
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "title": {
+          "description": "Catalogue title as rendered on the marketing site.",
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "description": "Short operational label. Lowercased it becomes the module's subdomain in a generated stack (Invoicing -> invoicing.<domain>), so it must be unique across modules.",
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9 ]*$"
+        },
+        "defaultPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "scope": {
+          "description": "Typical delivery scope shown in the catalogue, e.g. \"3–4 WKS\" (en dash).",
+          "type": "string",
+          "minLength": 1
+        },
+        "services": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required", "optional"],
+          "properties": {
+            "required": {
+              "description": "Services without which the module refuses to function. Empty for every module today: platform coupling is opt-in and every hook degrades gracefully (server/platform.ts returns noopPlatform when unconfigured). Do not promote a service here to express \"nice to have\".",
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true
+            },
+            "optional": {
+              "description": "Services the module integrates with when their URL is configured.",
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true
+            }
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["required", "optional", "secrets"],
+          "properties": {
+            "required": {
+              "description": "Module-specific values an operator must supply; provisioning emits FILL-ME-IN placeholders for them and lists them in its summary.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/envName" },
+              "uniqueItems": true
+            },
+            "optional": {
+              "description": "Module-specific values with a working default.",
+              "type": "array",
+              "items": { "$ref": "#/$defs/envName" },
+              "uniqueItems": true
+            },
+            "secrets": {
+              "description": "Secrets generated per module per stack (never shared, never a repo default).",
+              "type": "array",
+              "items": { "$ref": "#/$defs/envName" },
+              "uniqueItems": true
+            }
+          }
+        },
+        "constraints": {
+          "description": "Deployment constraints a generator must honour. Each maps to exactly one env var the module reads, so it cannot drift from the code.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["supportsSso", "needsPublicBaseUrl", "needsSourceDb"],
+          "properties": {
+            "supportsSso": {
+              "description": "The module delegates login to PS-01 when IDENTITY_URL is set. False for the domain-user modules whose end users are not PS-01 principals (see docs/PLATFORM-READINESS.md, item C1) — do not set IDENTITY_URL for those.",
+              "type": "boolean"
+            },
+            "needsPublicBaseUrl": {
+              "description": "The module mints externally shared links and needs PUBLIC_BASE_URL set to its real customer-facing URL, never an internal container hostname.",
+              "type": "boolean"
+            },
+            "needsSourceDb": {
+              "description": "The module reads another module's SQLite file through SOURCE_DB_PATH, opened read-only, and refuses to boot when the path is set but missing. A generator must be told which module's volume to mount read-only.",
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

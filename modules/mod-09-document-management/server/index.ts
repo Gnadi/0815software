@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
+import { hardeningFromEnv } from './hardening.js';
 import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
 import { configFromEnv } from './config.js';
@@ -25,6 +26,7 @@ const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')
 
 const app = createApp({
   db,
+  hardening: hardeningFromEnv(),
   session: config.session,
   storageDir: config.storageDir,
   maxUploadBytes: config.maxUploadBytes,

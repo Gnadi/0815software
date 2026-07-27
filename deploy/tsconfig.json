@@ -1,0 +1,29 @@
+{
+  // Every other package in this repo carries its own tsconfig; without one here,
+  // vitest's esbuild transform walks up and finds the repository root config,
+  // which extends `astro/tsconfigs/strict`. In a checkout where the root Astro
+  // dependencies are not installed that resolution fails and BOTH deploy test
+  // files die before their first assertion — the registry drift guard silently
+  // running zero tests. This file makes the package self-contained.
+  //
+  // Node-only ESM: the provisioning scripts are `.mjs`, the tests are `.ts`, and
+  // nothing here is bundled or emitted (vitest transforms in memory), so there
+  // is no outDir and no DOM/JSX in sight.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    // The scripts under test are plain ESM JavaScript. allowJs lets the tests'
+    // `import … from '../provision.mjs'` resolve; checkJs stays off so the
+    // untyped .mjs sources are not held to the tests' strictness.
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["*.mjs", "lib", "test"]
+}

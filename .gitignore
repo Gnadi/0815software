@@ -1,5 +1,8 @@
 dist/
 .vercel/
+# Generated per-customer stacks (deploy/provision.mjs) hold real secrets in
+# their .env — they belong in the customer's own private ops repo, not here.
+/customers/
 node_modules/
 .env
 .env.*

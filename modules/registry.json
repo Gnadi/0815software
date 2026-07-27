@@ -1,0 +1,448 @@
+{
+  "$schema": "./registry.schema.json",
+  "schemaVersion": 1,
+  "services": [
+    {
+      "id": "ps-01-identity",
+      "n": "PS-01",
+      "label": "Identity",
+      "defaultPort": 4001,
+      "routePrefix": "/identity",
+      "urlEnv": "IDENTITY_URL",
+      "tickDriven": false,
+      "secrets": ["SESSION_SECRET"]
+    },
+    {
+      "id": "ps-02-workflow-engine",
+      "n": "PS-02",
+      "label": "Workflow",
+      "defaultPort": 4002,
+      "routePrefix": "/workflow",
+      "urlEnv": "WORKFLOW_URL",
+      "tickDriven": true,
+      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+    },
+    {
+      "id": "ps-03-notification-hub",
+      "n": "PS-03",
+      "label": "Notifications",
+      "defaultPort": 4003,
+      "routePrefix": "/notify",
+      "urlEnv": "NOTIFICATION_URL",
+      "tickDriven": true,
+      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+    },
+    {
+      "id": "ps-04-ai-platform",
+      "n": "PS-04",
+      "label": "AI",
+      "defaultPort": 4004,
+      "routePrefix": "/ai",
+      "urlEnv": "AI_URL",
+      "tickDriven": false,
+      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+    },
+    {
+      "id": "ps-05-integration-hub",
+      "n": "PS-05",
+      "label": "Integrations",
+      "defaultPort": 4005,
+      "routePrefix": "/integrations",
+      "urlEnv": "INTEGRATION_URL",
+      "tickDriven": true,
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN",
+        "WEBHOOK_SECRET",
+        "INTEGRATION_ENCRYPTION_KEY"
+      ]
+    },
+    {
+      "id": "ps-06-file-storage",
+      "n": "PS-06",
+      "label": "Files",
+      "defaultPort": 4006,
+      "routePrefix": "/files",
+      "urlEnv": "FILES_URL",
+      "tickDriven": false,
+      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN", "SIGNING_SECRET"]
+    },
+    {
+      "id": "ps-07-audit-log",
+      "n": "PS-07",
+      "label": "Audit",
+      "defaultPort": 4007,
+      "routePrefix": "/audit",
+      "urlEnv": "AUDIT_URL",
+      "tickDriven": false,
+      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+    },
+    {
+      "id": "ps-08-payments",
+      "n": "PS-08",
+      "label": "Payments",
+      "defaultPort": 4008,
+      "routePrefix": "/payments",
+      "urlEnv": "PAYMENTS_URL",
+      "tickDriven": true,
+      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN", "WEBHOOK_SECRET"]
+    },
+    {
+      "id": "ps-09-search",
+      "n": "PS-09",
+      "label": "Search",
+      "defaultPort": 4009,
+      "routePrefix": "/search",
+      "urlEnv": "SEARCH_URL",
+      "tickDriven": false,
+      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+    },
+    {
+      "id": "ps-10-number",
+      "n": "PS-10",
+      "label": "Numbering",
+      "defaultPort": 4010,
+      "routePrefix": "/number",
+      "urlEnv": "NUMBER_URL",
+      "tickDriven": false,
+      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+    }
+  ],
+  "modules": [
+    {
+      "id": "mod-01-customer-portal",
+      "n": "MOD-01",
+      "slug": "customer-portal",
+      "title": "Customer Portal",
+      "label": "Portal",
+      "defaultPort": 3001,
+      "scope": "3–4 WKS",
+      "services": {
+        "required": [],
+        "optional": ["ps-07-audit-log"]
+      },
+      "env": {
+        "required": [],
+        "optional": ["DOCUMENTS_DIR"],
+        "secrets": ["SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": false,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": false
+      }
+    },
+    {
+      "id": "mod-02-admin-dashboard",
+      "n": "MOD-02",
+      "slug": "admin-dashboard",
+      "title": "Admin Dashboard",
+      "label": "Admin",
+      "defaultPort": 3002,
+      "scope": "2–3 WKS",
+      "services": {
+        "required": [],
+        "optional": ["ps-01-identity", "ps-07-audit-log"]
+      },
+      "env": {
+        "required": [],
+        "optional": [],
+        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": false
+      }
+    },
+    {
+      "id": "mod-03-inventory-management",
+      "n": "MOD-03",
+      "slug": "inventory-management",
+      "title": "Inventory Management",
+      "label": "Inventory",
+      "defaultPort": 3003,
+      "scope": "4–5 WKS",
+      "services": {
+        "required": [],
+        "optional": ["ps-01-identity", "ps-07-audit-log"]
+      },
+      "env": {
+        "required": [],
+        "optional": [],
+        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": false
+      }
+    },
+    {
+      "id": "mod-04-invoice-billing",
+      "n": "MOD-04",
+      "slug": "invoice-billing",
+      "title": "Invoice & Billing",
+      "label": "Invoicing",
+      "defaultPort": 3004,
+      "scope": "3–4 WKS",
+      "services": {
+        "required": [],
+        "optional": [
+          "ps-01-identity",
+          "ps-03-notification-hub",
+          "ps-06-file-storage",
+          "ps-07-audit-log",
+          "ps-08-payments",
+          "ps-10-number"
+        ]
+      },
+      "env": {
+        "required": ["SELLER_NAME", "SELLER_ADDRESS", "SELLER_VAT_ID"],
+        "optional": ["SELLER_IBAN", "SELLER_BIC", "NOTIFICATION_INVOICE_CHANNEL"],
+        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": false
+      }
+    },
+    {
+      "id": "mod-05-employee-directory",
+      "n": "MOD-05",
+      "slug": "employee-directory",
+      "title": "Employee Directory",
+      "label": "Directory",
+      "defaultPort": 3005,
+      "scope": "2–3 WKS",
+      "services": {
+        "required": [],
+        "optional": ["ps-01-identity", "ps-07-audit-log"]
+      },
+      "env": {
+        "required": [],
+        "optional": [],
+        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": false
+      }
+    },
+    {
+      "id": "mod-06-procurement-tracker",
+      "n": "MOD-06",
+      "slug": "procurement-tracker",
+      "title": "Procurement Tracker",
+      "label": "Procurement",
+      "defaultPort": 3006,
+      "scope": "4–6 WKS",
+      "services": {
+        "required": [],
+        "optional": ["ps-01-identity", "ps-03-notification-hub", "ps-07-audit-log"]
+      },
+      "env": {
+        "required": [],
+        "optional": [],
+        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": false
+      }
+    },
+    {
+      "id": "mod-07-storefront",
+      "n": "MOD-07",
+      "slug": "storefront",
+      "title": "Storefront",
+      "label": "Shop",
+      "defaultPort": 3007,
+      "scope": "5–6 WKS",
+      "services": {
+        "required": [],
+        "optional": ["ps-08-payments"]
+      },
+      "env": {
+        "required": [],
+        "optional": [],
+        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": false,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": false
+      }
+    },
+    {
+      "id": "mod-08-reporting-suite",
+      "n": "MOD-08",
+      "slug": "reporting-suite",
+      "title": "Reporting Suite",
+      "label": "Reporting",
+      "defaultPort": 3008,
+      "scope": "3–4 WKS",
+      "services": {
+        "required": [],
+        "optional": ["ps-01-identity", "ps-07-audit-log"]
+      },
+      "env": {
+        "required": [],
+        "optional": ["EXPORTS_DIR", "SCHEDULER_TICK_SECONDS"],
+        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": true
+      }
+    },
+    {
+      "id": "mod-09-document-management",
+      "n": "MOD-09",
+      "slug": "document-management",
+      "title": "Document Management",
+      "label": "Documents",
+      "defaultPort": 3009,
+      "scope": "3–4 WKS",
+      "services": {
+        "required": [],
+        "optional": ["ps-06-file-storage", "ps-07-audit-log", "ps-09-search"]
+      },
+      "env": {
+        "required": [],
+        "optional": ["STORAGE_DIR", "MAX_UPLOAD_BYTES"],
+        "secrets": ["SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": false,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": false
+      }
+    },
+    {
+      "id": "mod-10-crm-lite",
+      "n": "MOD-10",
+      "slug": "crm-lite",
+      "title": "CRM Lite",
+      "label": "CRM",
+      "defaultPort": 3010,
+      "scope": "3–5 WKS",
+      "services": {
+        "required": [],
+        "optional": ["ps-01-identity", "ps-07-audit-log"]
+      },
+      "env": {
+        "required": [],
+        "optional": [],
+        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": false
+      }
+    },
+    {
+      "id": "mod-11-time-tracking",
+      "n": "MOD-11",
+      "slug": "time-tracking",
+      "title": "Time Tracking",
+      "label": "Time",
+      "defaultPort": 3011,
+      "scope": "2–3 WKS",
+      "services": {
+        "required": [],
+        "optional": ["ps-01-identity", "ps-07-audit-log"]
+      },
+      "env": {
+        "required": [],
+        "optional": [],
+        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": false
+      }
+    },
+    {
+      "id": "mod-12-support-tickets",
+      "n": "MOD-12",
+      "slug": "support-tickets",
+      "title": "Support Ticket System",
+      "label": "Support",
+      "defaultPort": 3012,
+      "scope": "3–4 WKS",
+      "services": {
+        "required": [],
+        "optional": [
+          "ps-01-identity",
+          "ps-03-notification-hub",
+          "ps-04-ai-platform",
+          "ps-07-audit-log"
+        ]
+      },
+      "env": {
+        "required": [],
+        "optional": ["NOTIFICATION_ACK_CHANNEL"],
+        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET", "INTAKE_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": false
+      }
+    },
+    {
+      "id": "mod-13-offers",
+      "n": "MOD-13",
+      "slug": "offers",
+      "title": "Offers",
+      "label": "Offers",
+      "defaultPort": 3013,
+      "scope": "3–4 WKS",
+      "services": {
+        "required": [],
+        "optional": ["ps-01-identity", "ps-03-notification-hub", "ps-07-audit-log"]
+      },
+      "env": {
+        "required": ["SELLER_NAME", "SELLER_ADDRESS", "SELLER_VAT_ID", "SELLER_EMAIL"],
+        "optional": [],
+        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": true,
+        "needsSourceDb": false
+      }
+    },
+    {
+      "id": "mod-14-subsidies-funds",
+      "n": "MOD-14",
+      "slug": "subsidies-funds",
+      "title": "Subsidies & Funds",
+      "label": "Subsidies",
+      "defaultPort": 3014,
+      "scope": "3–4 WKS",
+      "services": {
+        "required": [],
+        "optional": ["ps-01-identity", "ps-03-notification-hub", "ps-07-audit-log"]
+      },
+      "env": {
+        "required": [],
+        "optional": [],
+        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": false,
+        "needsSourceDb": false
+      }
+    }
+  ]
+}

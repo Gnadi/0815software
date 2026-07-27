@@ -91,6 +91,39 @@ graph TD
   port. Standalone in v1 — the identity seam to PS-01 is documented, not
   wired live.
 
+## Working in this repository
+
+Every package installs and tests on its own (`npm ci && npm test` inside it).
+There is one ordering rule, and it will bite you if you skip it:
+
+> **Build `platform/clients` before installing any module.**
+>
+> ```sh
+> cd platform/clients && npm ci && npm run build
+> cd ../../modules/mod-04-invoice-billing && npm ci && npm test
+> ```
+
+Every module depends on `@0815software/platform-clients` through a `file:`
+link, and npm **copies** a `file:` dependency rather than symlinking it. A module
+installed before the clients package has been built therefore gets a copy with no
+`dist/`, and its suite fails with:
+
+```
+Failed to resolve entry for package "@0815software/platform-clients".
+```
+
+The fix is to build the clients package and reinstall the module (`rm -rf
+node_modules/@0815software && npm ci`). `deploy/module.Dockerfile` encodes the
+same order, and [`.github/workflows/test.yml`](./.github/workflows/test.yml)
+does too.
+
+`deploy/` needs no root install — it is self-contained on purpose, so the
+registry drift guard runs in a bare checkout:
+
+```sh
+cd deploy && npm ci && npm test
+```
+
 ## License
 
 MIT — see [LICENSE](./LICENSE).

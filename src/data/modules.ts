@@ -1,9 +1,17 @@
 // ─── Module catalogue data ──────────────────────────────────────────────────
-// Single source of truth for the catalogue grid (modules.astro), the homepage
+// Presentation copy for the catalogue grid (modules.astro), the homepage
 // modules section (Modules.astro) and the per-module detail pages
-// (modules/[slug].astro). Each module carries a short catalogue blurb plus a
-// longer overview, a feature list and a `screen` spec that the
-// ModuleScreenshot component renders into an on-brand UI mockup.
+// (modules/[slug].astro).
+//
+// The STRUCTURAL fields — n, slug, folder, title, scope — come from
+// modules/registry.json, the machine-readable source of truth that
+// deploy/provision.mjs and the demo hubs also read. Only the copy lives here:
+// a short catalogue blurb, a longer overview, a feature list and a `screen`
+// spec that the ModuleScreenshot component renders into an on-brand UI mockup.
+// Adding a module is therefore a registry entry plus a copy block below; the
+// registry drift test (deploy/test/registry.test.ts) fails if the two
+// disagree.
+import { registryModules, type ModuleRegistryEntry } from '../../modules/registry.ts';
 
 export interface ScreenStat { label: string; value: string; }
 export interface ScreenColumn { title: string; cards: string[]; }
@@ -29,30 +37,29 @@ export interface ModuleScreen {
   cards?: { title: string; sub: string }[];
 }
 
-export interface ModuleEntry {
-  n: string;
-  slug: string;
-  folder: string;
-  title: string;
+/** The copy this file owns, keyed by the registry's module id. */
+export interface ModulePresentation {
   body: string;
-  scope: string;
-  source: string;
   overview: string;
   features: string[];
   screen: ModuleScreen;
 }
 
+/** A catalogue entry as the pages consume it: registry facts plus copy. */
+export interface ModuleEntry extends ModulePresentation {
+  n: string;
+  slug: string;
+  folder: string;
+  title: string;
+  scope: string;
+  source: string;
+}
+
 const REPO = 'https://github.com/Gnadi/0815software/tree/main/modules';
 
-export const modules: ModuleEntry[] = [
-  {
-    n: 'MOD-01',
-    slug: 'customer-portal',
-    folder: 'mod-01-customer-portal',
-    title: 'Customer Portal',
+const presentation: Record<string, ModulePresentation> = {
+  'mod-01-customer-portal': {
     body: 'Self-service access to orders, documents, and status. No account manager required.',
-    scope: '3–4 WKS',
-    source: `${REPO}/mod-01-customer-portal`,
     overview:
       'Customers sign in with email and password and see exactly their own data: an order list with search and status filters, an order detail view with line items and a status timeline, and a document area with authenticated downloads. Strict tenant isolation is the core correctness property — every query is scoped to the signed-in customer, and requesting anyone else’s order or document returns 404, proven by tests.',
     features: [
@@ -75,14 +82,8 @@ export const modules: ModuleEntry[] = [
       ],
     },
   },
-  {
-    n: 'MOD-02',
-    slug: 'admin-dashboard',
-    folder: 'mod-02-admin-dashboard',
-    title: 'Admin Dashboard',
+  'mod-02-admin-dashboard': {
     body: 'Internal CRUD interface over any data model. Tables, filters, bulk actions, exports.',
-    scope: '2–3 WKS',
-    source: `${REPO}/mod-02-admin-dashboard`,
     overview:
       'The dashboard is config-driven: you describe your data model once, in a single TypeScript file, and the whole application — SQLite schema, REST API, validation, list views, filter row, forms and CSV exports — derives from it. No code generation, no migrations tool, no external services.',
     features: [
@@ -106,14 +107,8 @@ export const modules: ModuleEntry[] = [
       statuses: ['Active', 'Paused', 'Archived'],
     },
   },
-  {
-    n: 'MOD-03',
-    slug: 'inventory-management',
-    folder: 'mod-03-inventory-management',
-    title: 'Inventory Management',
+  'mod-03-inventory-management': {
     body: 'Stock levels, SKUs, warehouse locations, and purchase order tracking in one place.',
-    scope: '4–5 WKS',
-    source: `${REPO}/mod-03-inventory-management`,
     overview:
       'The core correctness property: stock levels are never stored, they are derived. Every change to inventory — goods in, transfers, stocktake corrections, PO receipts — is an entry in an append-only movements ledger, and the current level of any product in any warehouse is simply the sum of its movements. There is no mutable stock counter that can drift out of sync, and the test suite proves it.',
     features: [
@@ -137,14 +132,8 @@ export const modules: ModuleEntry[] = [
       statuses: ['In stock', 'Low', 'Out'],
     },
   },
-  {
-    n: 'MOD-04',
-    slug: 'invoice-billing',
-    folder: 'mod-04-invoice-billing',
-    title: 'Invoice & Billing',
+  'mod-04-invoice-billing': {
     body: 'Generate, send, and track invoices. PDF export, payment status, customer ledger.',
-    scope: '3–4 WKS',
-    source: `${REPO}/mod-04-invoice-billing`,
     overview:
       'Totals are never stored, they are derived: an invoice stores line items only — quantity, unit net price in integer cents and VAT rate — and net, VAT-per-rate and gross are always recomputed from the lines. Send invoices, export clean PDFs, track payment status and keep a running customer ledger. The test suite proves the arithmetic to the cent.',
     features: [
@@ -167,14 +156,8 @@ export const modules: ModuleEntry[] = [
       ],
     },
   },
-  {
-    n: 'MOD-05',
-    slug: 'employee-directory',
-    folder: 'mod-05-employee-directory',
-    title: 'Employee Directory',
+  'mod-05-employee-directory': {
     body: 'Org chart, roles, contact data, and department structure. Integrates with HR onboarding.',
-    scope: '2–3 WKS',
-    source: `${REPO}/mod-05-employee-directory`,
     overview:
       'A searchable directory with roles, contact data and department structure, plus a reporting hierarchy that is provably a forest — every employee has at most one manager, and nobody can manage themselves directly or transitively. The manager graph is validated on every write, and the test suite proves it stays acyclic.',
     features: [
@@ -197,14 +180,8 @@ export const modules: ModuleEntry[] = [
       ],
     },
   },
-  {
-    n: 'MOD-06',
-    slug: 'procurement-tracker',
-    folder: 'mod-06-procurement-tracker',
-    title: 'Procurement Tracker',
+  'mod-06-procurement-tracker': {
     body: 'RFQ, purchase orders, multi-tier approval workflows. Export to any ERP CSV format.',
-    scope: '4–6 WKS',
-    source: `${REPO}/mod-06-procurement-tracker`,
     overview:
       'Approval tiers are derived from the order total and frozen at submit: the threshold brackets live in one server config file, and the approval chain a request must clear is computed when it is submitted and never shifts underneath it. Run RFQs, raise purchase orders, route multi-tier approvals and export to any ERP’s CSV format.',
     features: [
@@ -228,14 +205,8 @@ export const modules: ModuleEntry[] = [
       statuses: ['Approved', 'Pending', 'Rejected'],
     },
   },
-  {
-    n: 'MOD-07',
-    slug: 'storefront',
-    folder: 'mod-07-storefront',
-    title: 'Storefront',
+  'mod-07-storefront': {
     body: 'Product catalogue, cart, checkout, and order management. No SaaS fees, no revenue cut.',
-    scope: '5–6 WKS',
-    source: `${REPO}/mod-07-storefront`,
     overview:
       'One app, two faces on one port: the public shop — no login, no accounts, just an anonymous signed cart cookie and a signed order-lookup link — and the admin, a single staff login for products, categories and orders. No SaaS fees and no cut of your revenue.',
     features: [
@@ -258,14 +229,8 @@ export const modules: ModuleEntry[] = [
       ],
     },
   },
-  {
-    n: 'MOD-08',
-    slug: 'reporting-suite',
-    folder: 'mod-08-reporting-suite',
-    title: 'Reporting Suite',
+  'mod-08-reporting-suite': {
     body: 'Scheduled exports, pivot tables, and chart embeds built on top of your existing database.',
-    scope: '3–4 WKS',
-    source: `${REPO}/mod-08-reporting-suite`,
     overview:
       'Turn a SQLite database into saved reports, server-computed pivots, hand-rolled SVG charts with signed, session-free embed URLs and scheduled CSV exports — without ever writing to the database it reports on. That read-only guarantee is the core safety property, and the test suite proves it end to end.',
     features: [
@@ -286,14 +251,8 @@ export const modules: ModuleEntry[] = [
       ],
     },
   },
-  {
-    n: 'MOD-09',
-    slug: 'document-management',
-    folder: 'mod-09-document-management',
-    title: 'Document Management',
+  'mod-09-document-management': {
     body: 'Upload, tag, version, and control access. Matter-based or project-based access controls.',
-    scope: '3–4 WKS',
-    source: `${REPO}/mod-09-document-management`,
     overview:
       'Access is matter-based: every document belongs to exactly one matter (or project), and you see a matter only if you have been granted membership on it. Documents carry an append-only version history — every upload adds a new, immutable version with its own SHA-256, size and uploader — with per-matter viewer / editor / owner access levels.',
     features: [
@@ -317,14 +276,8 @@ export const modules: ModuleEntry[] = [
       statuses: ['Owner', 'Editor', 'Viewer'],
     },
   },
-  {
-    n: 'MOD-10',
-    slug: 'crm-lite',
-    folder: 'mod-10-crm-lite',
-    title: 'CRM Lite',
+  'mod-10-crm-lite': {
     body: 'Contacts, deals, activity log, and pipeline view. No AI upsells, no seat caps, no surprises.',
-    scope: '3–5 WKS',
-    source: `${REPO}/mod-10-crm-lite`,
     overview:
       'Contacts, companies, deals, an append-only activity log and a config-driven pipeline. No AI, no seat caps, no telemetry, no external calls — the whole app is one Node process and one SQLite file. It never phones home, never counts your users, and has no "contact sales" button.',
     features: [
@@ -345,14 +298,8 @@ export const modules: ModuleEntry[] = [
       ],
     },
   },
-  {
-    n: 'MOD-11',
-    slug: 'time-tracking',
-    folder: 'mod-11-time-tracking',
-    title: 'Time Tracking',
+  'mod-11-time-tracking': {
     body: 'Project allocation, daily entry, and export to payroll or billing. Works offline.',
-    scope: '2–3 WKS',
-    source: `${REPO}/mod-11-time-tracking`,
     overview:
       'Project allocation, daily entry, weekly approval and export to payroll or billing. Time is integer minutes; money is derived, never stored — a time entry records a positive integer number of minutes, and cost is always recomputed from the rate. Works offline.',
     features: [
@@ -376,14 +323,8 @@ export const modules: ModuleEntry[] = [
       statuses: ['Approved', 'Submitted', 'Draft'],
     },
   },
-  {
-    n: 'MOD-12',
-    slug: 'support-tickets',
-    folder: 'mod-12-support-tickets',
-    title: 'Support Ticket System',
+  'mod-12-support-tickets': {
     body: 'Inbound queue, assignment, status tracking, and SLA timers. Email and web intake.',
-    scope: '3–4 WKS',
-    source: `${REPO}/mod-12-support-tickets`,
     overview:
       'An inbound support queue with assignment, a config-driven status workflow, an append-only timeline and derived SLA timers. Two intake channels — a public web form and an authenticated email-ingestion endpoint — feed a single self-contained app with no external services, no message broker and no cron.',
     features: [
@@ -404,14 +345,8 @@ export const modules: ModuleEntry[] = [
       ],
     },
   },
-  {
-    n: 'MOD-13',
-    slug: 'offers',
-    folder: 'mod-13-offers',
-    title: 'Offers',
+  'mod-13-offers': {
     body: 'Write, send, and track sales offers. Line-item quotes with discounts, validity dates, PDF export, and a customer acceptance link.',
-    scope: '3–4 WKS',
-    source: `${REPO}/mod-13-offers`,
     overview:
       'A single-admin tool for composing line-item offers (quotes / Angebote) with per-line discounts and VAT, sending them to customers via a signed acceptance link, and tracking the outcome — accepted, rejected, expired, withdrawn or superseded by a revision. Self-contained: one package.json, no external services, MIT.',
     features: [
@@ -434,14 +369,8 @@ export const modules: ModuleEntry[] = [
       ],
     },
   },
-  {
-    n: 'MOD-14',
-    slug: 'subsidies-funds',
-    folder: 'mod-14-subsidies-funds',
-    title: 'Subsidies & Funds',
+  'mod-14-subsidies-funds': {
     body: 'Track funding programs, applications, approvals, disbursements, and reporting deadlines. Never miss a grant deadline again.',
-    scope: '3–4 WKS',
-    source: `${REPO}/mod-14-subsidies-funds`,
     overview:
       'Built entirely from the applicant’s point of view: discover public and private funding programs (Förderungen), apply to them, track approvals, receive money in tranches (disbursements) and stay on top of the post-award reports you owe. It tracks your pipeline of applications and your obligations — not a grantor’s budget.',
     features: [
@@ -465,7 +394,24 @@ export const modules: ModuleEntry[] = [
       statuses: ['Approved', 'Submitted', 'Draft'],
     },
   },
-];
+};
+
+function entryFor(mod: ModuleRegistryEntry): ModuleEntry {
+  const copy = presentation[mod.id];
+  if (!copy) throw new Error(`modules/registry.json lists ${mod.id} but src/data/modules.ts has no copy for it`);
+  return {
+    n: mod.n,
+    slug: mod.slug,
+    folder: mod.id,
+    title: mod.title,
+    scope: mod.scope,
+    source: `${REPO}/${mod.id}`,
+    ...copy,
+  };
+}
+
+/** Catalogue order is the registry's order (MOD-01 … MOD-14). */
+export const modules: ModuleEntry[] = registryModules.map(entryFor);
 
 export function getModule(slug: string): ModuleEntry | undefined {
   return modules.find((m) => m.slug === slug);

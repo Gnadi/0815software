@@ -145,7 +145,7 @@ services:
 
   # ── The hub landing page ──────────────────────────────────────────────────
   hub:
-    build: { context: ./hub }
+    build: { context: ../.., dockerfile: deploy/demo/hub/Dockerfile }
     restart: unless-stopped
     networks: [demo]
     environment:

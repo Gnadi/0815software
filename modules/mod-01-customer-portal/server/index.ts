@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
+import { hardeningFromEnv } from './hardening.js';
 import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
 import { configFromEnv } from './config.js';
@@ -23,7 +24,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
-const app = createApp({ db, session: config.session, documentsDir: config.documentsDir, staticDir, platform: buildPlatform(config.platform) });
+const app = createApp({ db, hardening: hardeningFromEnv(), session: config.session, documentsDir: config.documentsDir, staticDir, platform: buildPlatform(config.platform) });
 
 app.listen(config.port, () => {
   console.log(`[mod-01] customer portal API on http://localhost:${config.port}`);
