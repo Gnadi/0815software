@@ -22,6 +22,10 @@ only).
   catch-up backfill), inbound webhooks, or manually.
 - **Outbound webhooks** are delivered with an HMAC `X-Signature`, an
   exponential backoff schedule, and dead-lettering after `MAX_ATTEMPTS`.
+  A subscription pointing into private address space is refused and dead
+  lettered with the reason: the service runs inside the customer's network,
+  so "may register a webhook" must not become "may reach the stack". The
+  stack's own hosts are exempt via `EGRESS_ALLOW_HOSTS`.
 - A single `POST /api/tick` advances the scheduler and the delivery queue —
   drive it from cron, or call it in tests with an injected clock.
 

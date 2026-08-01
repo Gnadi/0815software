@@ -17,7 +17,7 @@ const db = openDb(config.databasePath);
 
 seed(db);
 
-const app = createApp({ db, auth: config.auth, resendApiKey: config.resendApiKey, twilio: config.twilio, retentionDays: config.retentionDays, hardening: hardeningFromEnv(), logRequests: true });
+const app = createApp({ db, auth: config.auth, resendApiKey: config.resendApiKey, twilio: config.twilio, retentionDays: config.retentionDays, egress: config.egress, hardening: hardeningFromEnv(), logRequests: true });
 
 app.listen(config.port, () => {
   console.log(`[ps-03] notification hub API on http://localhost:${config.port}`);
@@ -33,7 +33,9 @@ app.listen(config.port, () => {
     // external cron is needed. POST /api/tick still works either way.
     const resolve = buildResolver({ resendApiKey: config.resendApiKey, twilio: config.twilio });
     const timer = setInterval(() => {
-      tick(db, resolve, Date.now(), config.retentionDays).catch((err) => console.error('[ps-03] tick error', err));
+      tick(db, resolve, Date.now(), config.retentionDays, { egress: config.egress }).catch((err) =>
+        console.error('[ps-03] tick error', err),
+      );
     }, config.tickIntervalMs);
     timer.unref?.();
     console.log(`[ps-03] internal ticker every ${config.tickIntervalMs}ms`);

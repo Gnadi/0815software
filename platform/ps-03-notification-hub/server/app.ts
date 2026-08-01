@@ -16,6 +16,7 @@ import {
 import type { TwilioConfig } from './providers/twilio-sms.js';
 import { DomainError, fail, reqText } from './errors.js';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
+import type { EgressPolicy, ResolveHost } from './egress.js';
 import { MIGRATIONS } from './db.js';
 import { pendingCount } from './migrations.js';
 import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
@@ -35,6 +36,10 @@ export interface AppOptions {
   fetchImpl?: FetchLike;
   /** Days to keep terminal (sent/dead) messages; pruned on tick. 0 = keep. */
   retentionDays?: number;
+  /** Which chat-webhook targets a channel may post to; index.ts passes it. */
+  egress?: EgressPolicy;
+  /** Injectable DNS resolution for the egress check (tests). */
+  resolveHost?: ResolveHost;
   /** Injectable fetch for the identity-seam verification call (tests). */
   identityFetch?: SeamFetch;
   /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
@@ -277,7 +282,7 @@ export function createApp(opts: AppOptions): express.Express {
   });
 
   app.post('/api/tick', async (_req, res) => {
-    res.json(await tick(db, resolve, now(), opts.retentionDays ?? 0));
+    res.json(await tick(db, resolve, now(), opts.retentionDays ?? 0, { egress: opts.egress, resolveHost: opts.resolveHost }));
   });
 
   // ── Terminal error middleware ──────────────────────────────────────

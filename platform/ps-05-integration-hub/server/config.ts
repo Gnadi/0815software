@@ -1,9 +1,12 @@
 import type { AuthConfig } from './auth.js';
+import { egressPolicyFromEnv, type EgressPolicy } from './egress.js';
 import { loadKey } from './crypto.js';
 import { oauthConfigFromEnv, type OAuthConfig } from './oauth.js';
 import { REGISTRY } from './provider-registry.js';
 
 export interface ServerConfig {
+  /** Which outbound targets the proxy and OAuth exchange may call. */
+  egress: EgressPolicy;
   port: number;
   databasePath: string;
   auth: AuthConfig;
@@ -21,6 +24,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
   const port = Number(env.PORT) || 4005;
   return {
     port,
+    egress: egressPolicyFromEnv(env),
     databasePath: env.DATABASE_PATH ?? './data.db',
     auth: {
       username: env.ADMIN_USERNAME ?? 'admin',

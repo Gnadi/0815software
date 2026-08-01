@@ -3,6 +3,7 @@ import type { Channel, ChannelType, Message, MessageStatus } from '../shared/typ
 import { nowIso } from './auth.js';
 import { nextBackoffMs } from './retry.js';
 import type { ProviderResolver } from './providers/index.js';
+import { checkEgressTarget, enforceEgress, OPEN_EGRESS, type EgressPolicy, type ResolveHost } from './egress.js';
 
 export interface ChannelRow {
   id: number;
@@ -154,15 +155,23 @@ export function pruneMessages(db: Database.Database, retentionDays: number, now 
  */
 let tickInFlight: Promise<unknown> = Promise.resolve();
 
+export interface TickOptions {
+  /** Which chat-webhook targets a channel may post to. */
+  egress?: EgressPolicy;
+  /** Injectable DNS resolution for the egress check (tests). */
+  resolveHost?: ResolveHost;
+}
+
 export function tick(
   db: Database.Database,
   resolve: ProviderResolver,
   now = Date.now(),
   retentionDays = 0,
+  options: TickOptions = {},
 ): Promise<QueueResult> {
   const run = tickInFlight.then(
-    () => drainDue(db, resolve, now, retentionDays),
-    () => drainDue(db, resolve, now, retentionDays),
+    () => drainDue(db, resolve, now, retentionDays, options),
+    () => drainDue(db, resolve, now, retentionDays, options),
   );
   tickInFlight = run.then(
     () => undefined,
@@ -178,7 +187,9 @@ async function drainDue(
   resolve: ProviderResolver,
   now: number,
   retentionDays: number,
+  options: TickOptions = {},
 ): Promise<QueueResult> {
+  const egress = options.egress ?? OPEN_EGRESS;
   const at = nowIso(now);
   const due = db
     .prepare(
@@ -193,6 +204,23 @@ async function drainDue(
     if (!channel) continue;
     const attempts = m.attempts + 1;
     appendEvent(db, m.id, 'attempted', { attempt: attempts }, now);
+
+    // A chat channel (Slack, Teams, Discord) posts to a URL configured on the
+    // channel, so it is an outbound target like any other and gets judged the
+    // same way. A refused one fails the message rather than the whole tick.
+    const channelConfig = JSON.parse(channel.config) as Record<string, unknown>;
+    const target = typeof channelConfig.url === 'string' ? channelConfig.url : null;
+    if (target !== null) {
+      const verdict = await checkEgressTarget(target, egress, options.resolveHost);
+      if (!enforceEgress(verdict, egress, 'ps-03', target)) {
+        db.prepare(
+          `UPDATE messages SET status = 'dead', attempts = ?, last_error = ?, updated_at = ? WHERE id = ?`,
+        ).run(attempts, `refused by egress policy: ${verdict.reason ?? 'internal target'}`, at, m.id);
+        appendEvent(db, m.id, 'dead', { error: verdict.reason }, now);
+        result.dead++;
+        continue;
+      }
+    }
 
     const provider = resolve({ provider: channel.provider, config: JSON.parse(channel.config) });
     const outcome = await provider.send({

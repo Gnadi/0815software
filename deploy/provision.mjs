@@ -305,6 +305,16 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
     return { mod, subdomain, url, prefix, env, sourceOf, sourceViewsOnly, volume: `${subdomain}-data` };
   });
 
+  // Services refuse outbound calls into private address space, which is where
+  // this whole stack lives. The hosts of the stack itself are therefore listed
+  // as the exception, so a workflow may ring back into a module of the same
+  // deployment while everything else internal stays out of reach. No service id
+  // appears here: every service gets the list, and the ones without an outbound
+  // path simply ignore it.
+  const stackHosts = [...plannedModules.map((m) => m.subdomain), ...stack.services.map(composeNameOf)]
+    .sort()
+    .join(',');
+
   const plannedServices = stack.services.map((service) => {
     const name = composeNameOf(service);
     const prefix = envPrefix(service.id);
@@ -313,6 +323,7 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
       PORT: String(service.defaultPort),
       // As for the modules: one reverse proxy (Caddy) in front of the service.
       TRUST_PROXY: '1',
+      EGRESS_ALLOW_HOSTS: stackHosts,
     };
     for (const secretName of service.secrets) {
       env[secretName] =

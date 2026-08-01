@@ -25,6 +25,7 @@ const app = createApp({
   webhookSecret: config.webhookSecret,
   oauth: config.oauth,
   selfBaseUrl: config.selfBaseUrl,
+  egress: config.egress,
   hardening: hardeningFromEnv(), logRequests: true,
 });
 

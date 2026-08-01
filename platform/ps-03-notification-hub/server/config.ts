@@ -1,7 +1,10 @@
 import type { AuthConfig } from './auth.js';
+import { egressPolicyFromEnv, type EgressPolicy } from './egress.js';
 import type { TwilioConfig } from './providers/twilio-sms.js';
 
 export interface ServerConfig {
+  /** Which chat-webhook targets a channel may post to. */
+  egress: EgressPolicy;
   port: number;
   databasePath: string;
   auth: AuthConfig;
@@ -22,6 +25,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       : null;
   return {
     port: Number(env.PORT) || 4003,
+    egress: egressPolicyFromEnv(env),
     databasePath: env.DATABASE_PATH ?? './data.db',
     auth: {
       username: env.ADMIN_USERNAME ?? 'admin',

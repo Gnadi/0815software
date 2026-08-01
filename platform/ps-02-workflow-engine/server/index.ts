@@ -17,7 +17,7 @@ const db = openDb(config.databasePath);
 
 seed(db);
 
-const app = createApp({ db, auth: config.auth, hardening: hardeningFromEnv(), logRequests: true });
+const app = createApp({ db, auth: config.auth, egress: config.egress, hardening: hardeningFromEnv(), logRequests: true });
 
 app.listen(config.port, () => {
   console.log(`[ps-02] workflow engine API on http://localhost:${config.port}`);
@@ -37,7 +37,9 @@ app.listen(config.port, () => {
       }
       // A rejected dispatch must be handled here: an unhandled rejection would
       // take the whole service down on a transient delivery failure.
-      dispatch(db, defaultFetch, Date.now()).catch((err) => console.error('[ps-02] dispatch error', err));
+      dispatch(db, defaultFetch, Date.now(), { egress: config.egress }).catch((err) =>
+        console.error('[ps-02] dispatch error', err),
+      );
     }, config.tickIntervalMs);
     timer.unref?.();
     console.log(`[ps-02] internal ticker every ${config.tickIntervalMs}ms`);

@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { Delivery, DeliveryStatus, Webhook } from '../shared/types.js';
 import { hmacSign, nowIso } from './auth.js';
 import { nextBackoffMs } from './retry.js';
+import { checkEgressTarget, enforceEgress, OPEN_EGRESS, type EgressPolicy, type ResolveHost } from './egress.js';
 
 export interface WebhookRow {
   id: number;
@@ -99,14 +100,22 @@ export interface DispatchResult {
  */
 let dispatchInFlight: Promise<unknown> = Promise.resolve();
 
+export interface DispatchOptions {
+  /** Outbound target policy. Defaults to observe-only for library callers. */
+  egress?: EgressPolicy;
+  /** Injectable resolver so tests judge targets without touching DNS. */
+  resolveHost?: ResolveHost;
+}
+
 export function dispatch(
   db: Database.Database,
   fetchImpl: FetchLike = defaultFetch,
   now = Date.now(),
+  options: DispatchOptions = {},
 ): Promise<DispatchResult> {
   const run = dispatchInFlight.then(
-    () => dispatchDue(db, fetchImpl, now),
-    () => dispatchDue(db, fetchImpl, now),
+    () => dispatchDue(db, fetchImpl, now, options),
+    () => dispatchDue(db, fetchImpl, now, options),
   );
   // Keep the chain alive whatever this run does; the caller sees the rejection.
   dispatchInFlight = run.then(
@@ -121,7 +130,9 @@ async function dispatchDue(
   db: Database.Database,
   fetchImpl: FetchLike,
   now: number,
+  options: DispatchOptions = {},
 ): Promise<DispatchResult> {
+  const egress = options.egress ?? OPEN_EGRESS;
   const at = nowIso(now);
   const due = db
     .prepare(
@@ -139,6 +150,20 @@ async function dispatchDue(
       | undefined;
     if (!hook) continue;
     const attempts = d.attempts + 1;
+
+    // A refused target will not become allowed by waiting, so it is dead
+    // lettered rather than retried — and the reason is recorded, because
+    // "my webhook never fired" needs an answer an operator can act on.
+    const verdict = await checkEgressTarget(hook.url, egress, options.resolveHost);
+    if (!enforceEgress(verdict, egress, 'ps-02', hook.url)) {
+      db.prepare(
+        `UPDATE webhook_deliveries
+         SET status = 'dead', attempts = ?, last_error = ?, updated_at = ?
+         WHERE id = ?`,
+      ).run(attempts, `refused by egress policy: ${verdict.reason ?? 'internal target'}`, at, d.id);
+      result.dead++;
+      continue;
+    }
 
     let ok = false;
     let responseStatus: number | null = null;
