@@ -7,11 +7,16 @@
  */
 
 // ── PS-01 Identity ─────────────────────────────────────────────────────
+/**
+ * What `POST /api/tokens/verify` actually returns for a session token. PS-01
+ * stores ids as INTEGER and its verdict carries no expiry — the expiry is
+ * checked during verification, not reported — so a consumer typing these as
+ * strings, or reading `expiry`, was being lied to.
+ */
 export interface SessionClaims {
-  userId: string;
-  orgId: string;
+  userId: number;
+  orgId: number;
   tokenVersion: number;
-  expiry: number;
 }
 export interface TokenVerdict {
   valid: boolean;
