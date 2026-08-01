@@ -13,6 +13,7 @@ import {
   type Schedule,
 } from '../shared/types.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createEmbedToken,
@@ -219,13 +220,23 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, username: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, username: actor });
   });
 
   // ── Public chart embed: HMAC-signed per chart id, NO session ─────────
@@ -279,7 +290,7 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: auth.username });
+    res.json({ username: actorOf(res, auth) });
   });
 
   // ── Source schema + policy (what authors write queries against) ──────
@@ -425,7 +436,7 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
     const report = getReport(db, Number(req.params.id));
     const runId = executeRun(runCtx, report, 'manual', null);
     const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(runId);
-    void platform.audit({ actor: auth.username, action: 'report.run', resource: `report:${req.params.id}`, metadata: { run_id: runId } });
+    void platform.audit({ actor: actorOf(res, auth), action: 'report.run', resource: `report:${req.params.id}`, metadata: { run_id: runId } });
     res.status(201).json(run);
   });
 

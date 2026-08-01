@@ -3,6 +3,7 @@ import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
 import { getResource, resources, type ResourceDef } from '../shared/resources.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createToken,
@@ -146,13 +147,23 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, username: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, username: actor });
   });
 
   // ── Everything below requires a valid session ────────────────────────
@@ -164,7 +175,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.get('/api/config', (_req, res) => {
-    res.json({ resources, username: auth.username });
+    res.json({ resources, username: actorOf(res, auth) });
   });
 
   app.get('/api/:resource/export.csv', (req, res) => {
@@ -230,7 +241,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       )
       .run(...columns.map((c) => values[c]));
     const row = db.prepare(`SELECT * FROM "${resource.name}" WHERE id = ?`).get(info.lastInsertRowid);
-    void platform.audit({ actor: auth.username, action: `${resource.name}.created`, resource: `${resource.name}:${info.lastInsertRowid}`, after: row });
+    void platform.audit({ actor: actorOf(res, auth), action: `${resource.name}.created`, resource: `${resource.name}:${info.lastInsertRowid}`, after: row });
     res.status(201).json(row);
   });
 
@@ -253,7 +264,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       `UPDATE "${resource.name}" SET ${columns.map((c) => `"${c}" = ?`).join(', ')} WHERE id = ?`,
     ).run(...columns.map((c) => values[c]), req.params.id);
     const row = db.prepare(`SELECT * FROM "${resource.name}" WHERE id = ?`).get(req.params.id);
-    void platform.audit({ actor: auth.username, action: `${resource.name}.updated`, resource: `${resource.name}:${req.params.id}`, after: row });
+    void platform.audit({ actor: actorOf(res, auth), action: `${resource.name}.updated`, resource: `${resource.name}:${req.params.id}`, after: row });
     res.json(row);
   });
 
@@ -265,7 +276,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       res.status(404).json({ error: 'Not found' });
       return;
     }
-    void platform.audit({ actor: auth.username, action: `${resource.name}.deleted`, resource: `${resource.name}:${req.params.id}` });
+    void platform.audit({ actor: actorOf(res, auth), action: `${resource.name}.deleted`, resource: `${resource.name}:${req.params.id}` });
     res.json({ ok: true });
   });
 

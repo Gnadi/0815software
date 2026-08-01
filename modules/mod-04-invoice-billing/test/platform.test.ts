@@ -168,12 +168,12 @@ describe('SSO login-exchange', () => {
   it('lets PS-01 decide the login, bypassing local credentials', async () => {
     // The injected verifier stands in for a configured PS-01: it approves
     // despite a wrong local password, so the module must still issue a session.
-    const app = createApp({ db, auth, seller, verifyLogin: async () => 'ok' });
+    const app = createApp({ db, auth, seller, verifyLogin: async () => ({ ok: true, actor: 'ada@acme.test' }) });
     await request(app).post('/api/login').send({ username: 'admin', password: 'wrong-password' }).expect(200);
   });
 
   it('rejects when PS-01 rejects, even with correct local credentials', async () => {
-    const app = createApp({ db, auth, seller, verifyLogin: async () => 'fail' });
+    const app = createApp({ db, auth, seller, verifyLogin: async () => ({ ok: false }) });
     await request(app).post('/api/login').send({ username: 'admin', password: 'test-password' }).expect(401);
   });
 
@@ -181,5 +181,34 @@ describe('SSO login-exchange', () => {
     const app = createApp({ db, auth, seller, verifyLogin: async () => null });
     await request(app).post('/api/login').send({ username: 'admin', password: 'nope' }).expect(401);
     await request(app).post('/api/login').send({ username: 'admin', password: 'test-password' }).expect(200);
+  });
+});
+
+describe('who issued this invoice', () => {
+  it('reaches the audit trail as the PS-01 identity, not "admin"', async () => {
+    const actors: string[] = [];
+    const app = createApp({
+      db,
+      auth,
+      seller,
+      verifyLogin: async () => ({ ok: true, actor: 'ada@acme.test' }),
+      platform: {
+        ...noopPlatform,
+        async invoiceIssued(info) {
+          actors.push(info.actor);
+        },
+      },
+    });
+    const login = await request(app).post('/api/login').send({ username: 'x', password: 'y' }).expect(200);
+    const cookie = login.headers['set-cookie']![0]!.split(';')[0]!;
+
+    const draft = await request(app)
+      .post('/api/invoices')
+      .set('Cookie', cookie)
+      .send({ customer_id: 1, lines: [{ description: 'Work', quantity: 1, unit_price_cents: 10_000, vat_rate: 20 }] });
+    expect(draft.status).toBe(201);
+    await request(app).post(`/api/invoices/${draft.body.id}/finalize`).set('Cookie', cookie).expect(200);
+
+    expect(actors).toEqual(['ada@acme.test']);
   });
 });

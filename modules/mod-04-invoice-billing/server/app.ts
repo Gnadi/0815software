@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3';
 import { VAT_RATES } from '../shared/money.js';
 import { STATUSES, type FieldError, type InvoiceStatus } from '../shared/types.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createToken,
@@ -185,13 +186,23 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, username: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, username: actor });
   });
 
   // ── Everything below requires a valid session ────────────────────────
@@ -203,7 +214,7 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: auth.username });
+    res.json({ username: actorOf(res, auth) });
   });
 
   // ── Customers ────────────────────────────────────────────────────────
@@ -338,7 +349,7 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
         invoiceId: result.invoiceId,
         customerName: detail.customer_name,
         totalFormatted: fmtEur(detail.gross_cents),
-        actor: auth.username,
+        actor: actorOf(res, auth),
       });
     }
     res.status(result.replayed ? 200 : 201).json({ ...detail, imported: !result.replayed });
@@ -379,7 +390,9 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
         customerName: detail.customer_name,
         totalFormatted: fmtEur(detail.gross_cents),
         pdf: renderInvoicePdf(detail, customer, seller),
-        actor: res.locals.username ?? 'admin',
+        // Was `res.locals.username`, which nothing ever set — so every issued
+        // invoice reached PS-07 as the literal "admin".
+        actor: actorOf(res, auth),
       });
     } catch (err) {
       // A platform side-effect must never fail the invoice itself.

@@ -13,6 +13,7 @@ import {
   type ProgramStatus,
 } from '../shared/types.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createToken,
@@ -208,13 +209,23 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, admin: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, admin: actor });
   });
 
   // ── Everything below requires a valid session ────────────────────────
@@ -226,13 +237,13 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ admin: auth.username });
+    res.json({ admin: actorOf(res, auth) });
   });
 
   // ── Config: the ONE source the UI renders the workflow from ──────────
   app.get('/api/config', (_req, res) => {
     res.json({
-      admin: auth.username,
+      admin: actorOf(res, auth),
       statuses: APPLICATION_STATUSES,
       transitions: TRANSITIONS,
       program_statuses: PROGRAM_STATUSES,
@@ -337,12 +348,12 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     if (errors.length > 0) fail(errors);
     transitionApplication(db, Number(req.params.id), {
       to: to as ApplicationStatus,
-      actor: auth.username,
+      actor: actorOf(res, auth),
       note,
       approvedAmountCents,
       at: stamp(),
     });
-    void platform.audit({ actor: auth.username, action: 'application.transitioned', resource: `application:${req.params.id}`, after: { to } });
+    void platform.audit({ actor: actorOf(res, auth), action: 'application.transitioned', resource: `application:${req.params.id}`, after: { to } });
     res.json(applicationDetail(db, Number(req.params.id), now()));
   });
 

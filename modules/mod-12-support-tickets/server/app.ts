@@ -10,6 +10,7 @@ import {
   type Status,
 } from '../shared/types.js';
 import {
+  actorOf,
   checkCredentials,
   checkIntakeSecret,
   clearedCookie,
@@ -274,13 +275,23 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, agent: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, agent: actor });
   });
 
   // ══ Everything below requires a valid agent session ═══════════════════
@@ -292,13 +303,13 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ agent: auth.username });
+    res.json({ agent: actorOf(res, auth) });
   });
 
   // Config: the ONE source the UI renders the workflow + SLA policy from.
   app.get('/api/config', (_req, res) => {
     res.json({
-      agent: auth.username,
+      agent: actorOf(res, auth),
       statuses: Object.keys(TRANSITIONS),
       priorities: Object.keys(SLA_POLICIES),
       transitions: TRANSITIONS,
@@ -357,7 +368,7 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     if (!isStatus(raw)) {
       fail([{ field: 'to', message: `to must be one of: ${Object.keys(TRANSITIONS).join(', ')}` }]);
     }
-    changeStatus(db, req.params.ref, raw, auth.username, 'agent', stamp());
+    changeStatus(db, req.params.ref, raw, actorOf(res, auth), 'agent', stamp());
     res.json(ticketDetail(db, req.params.ref, now()));
   });
 
@@ -383,7 +394,7 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     if (!isPriority(raw)) {
       fail([{ field: 'priority', message: `priority must be one of: ${Object.keys(SLA_POLICIES).join(', ')}` }]);
     }
-    changePriority(db, req.params.ref, raw, auth.username, stamp());
+    changePriority(db, req.params.ref, raw, actorOf(res, auth), stamp());
     res.json(ticketDetail(db, req.params.ref, now()));
   });
 
@@ -396,7 +407,7 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     } else {
       fail([{ field: 'assignee_id', message: 'assignee_id must be an agent id or null' }]);
     }
-    assignTicket(db, req.params.ref, assigneeId, auth.username, stamp());
+    assignTicket(db, req.params.ref, assigneeId, actorOf(res, auth), stamp());
     res.json(ticketDetail(db, req.params.ref, now()));
   });
 
@@ -412,7 +423,7 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     addComment(db, req.params.ref, {
       body: text,
       visibility,
-      actor: auth.username,
+      actor: actorOf(res, auth),
       actorType: 'agent',
       at: stamp(),
     });

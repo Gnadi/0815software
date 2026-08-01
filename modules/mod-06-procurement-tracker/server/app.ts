@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3';
 import { PO_STATUSES, RFQ_STATUSES, type FieldError, type PoStatus, type RfqStatus } from '../shared/types.js';
 import { APPROVAL_RULES, APPROVAL_TIERS } from './approval-config.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createToken,
@@ -236,13 +237,23 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, username: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, username: actor });
   });
 
   // ── Everything below requires a valid session ────────────────────────
@@ -254,7 +265,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: auth.username });
+    res.json({ username: actorOf(res, auth) });
   });
 
   // ── Config: the ONE source the UI renders rules/profiles from ────────
@@ -444,7 +455,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
 
   app.post('/api/pos/:id/submit', (req, res) => {
     submitPo(db, Number(req.params.id));
-    void platform.audit({ actor: auth.username, action: 'po.submitted', resource: `po:${req.params.id}` });
+    void platform.audit({ actor: actorOf(res, auth), action: 'po.submitted', resource: `po:${req.params.id}` });
     res.json(poDetail(db, Number(req.params.id)));
   });
 

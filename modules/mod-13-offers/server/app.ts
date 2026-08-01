@@ -10,6 +10,7 @@ import {
   type PublicOffer,
 } from '../shared/types.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createToken,
@@ -227,13 +228,23 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, username: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, username: actor });
   });
 
   // ── Public acceptance link (no login) ────────────────────────────────
@@ -309,7 +320,7 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: auth.username });
+    res.json({ username: actorOf(res, auth) });
   });
 
   // ── Dashboard ────────────────────────────────────────────────────────
@@ -474,7 +485,7 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
     finalizeOffer(db, Number(req.params.id), { sentDate: today(), at: stamp() });
     const sent = offerDetail(db, Number(req.params.id), detailCtx());
     const cust = db.prepare('SELECT c.email AS email FROM offers o JOIN customers c ON c.id = o.customer_id WHERE o.id = ?').get(Number(req.params.id)) as { email: string | null } | undefined;
-    void platform.audit({ actor: auth.username, action: 'offer.sent', resource: `offer:${req.params.id}` });
+    void platform.audit({ actor: actorOf(res, auth), action: 'offer.sent', resource: `offer:${req.params.id}` });
     void platform.notify({
       to: cust?.email ?? '',
       subject: `Your offer ${sent.number}`,

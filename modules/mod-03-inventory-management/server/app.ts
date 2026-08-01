@@ -3,6 +3,7 @@ import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
 import { UNITS, type FieldError, type Unit } from '../shared/types.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createToken,
@@ -146,13 +147,23 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, username: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, username: actor });
   });
 
   // ── Everything below requires a valid session ────────────────────────
@@ -164,7 +175,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: auth.username });
+    res.json({ username: actorOf(res, auth) });
   });
 
   app.get('/api/warehouses', (_req, res) => {
@@ -206,7 +217,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const info = db
       .prepare('INSERT INTO products (sku, name, unit, reorder_point) VALUES (?, ?, ?, ?)')
       .run(values.sku, values.name, values.unit, values.reorder_point);
-    void platform.audit({ actor: auth.username, action: 'product.created', resource: `product:${info.lastInsertRowid}`, after: values });
+    void platform.audit({ actor: actorOf(res, auth), action: 'product.created', resource: `product:${info.lastInsertRowid}`, after: values });
     res.status(201).json(db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid));
   });
 
@@ -270,7 +281,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const movementInput = { productId, warehouseId, quantity: qty, reference, note };
     const movementId =
       type === 'receipt' ? recordReceipt(db, movementInput) : recordAdjustment(db, movementInput);
-    void platform.audit({ actor: auth.username, action: `stock.${type}`, resource: `product:${productId}`, metadata: { warehouse_id: warehouseId, quantity: qty } });
+    void platform.audit({ actor: actorOf(res, auth), action: `stock.${type}`, resource: `product:${productId}`, metadata: { warehouse_id: warehouseId, quantity: qty } });
     res.status(201).json(db.prepare('SELECT * FROM movements WHERE id = ?').get(movementId));
   });
 

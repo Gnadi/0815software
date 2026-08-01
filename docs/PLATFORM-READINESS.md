@@ -256,9 +256,17 @@ The platform is wired, but most integrations are **shallow and one-directional**
 The 11 shared-admin-idiom modules (mod-02…06, 08, 10…14) now delegate login to
 PS-01 through a copy-in `server/sso.ts`: when `IDENTITY_URL` + `IDENTITY_ORG`
 are set, PS-01 validates the credentials and must grant `platform:admin`
-(configurable), and the module then issues its own local session exactly as
-before — the request path is unchanged. When unset, each module falls back to
-its local admin credentials, so standalone operation is intact. Verified per
+(configurable), and the module then issues its own local session — which now
+CARRIES the PS-01 identity, so the module's audit entries and its own history
+rows (a ticket's status changes, a submitted timesheet) name the person who
+acted instead of the shared admin account everyone signs in as. When unset,
+each module falls back to its local admin credentials and the actor is that
+account, so standalone operation is intact.
+
+Authorization is deliberately NOT split up by this: whoever may sign in may
+still do everything the module offers. Per-user capabilities inside a module
+are a separate piece of work (C2's neighbourhood), and pretending otherwise
+by half-mapping PS-01 roles would be worse than the honest single level. Verified per
 module (injected verifier: PS-01 decides, local bypassed; rejects on fail;
 local fallback when unconfigured) plus an end-to-end test booting a real PS-01
 in-process. Deliberately deferred (documented): the domain-user modules with
