@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# One-shot provisioning for a fresh Hetzner Cloud server (Ubuntu 24.04).
-# Installs Docker, clones the repo, generates secrets, and — once you've set
-# DEMO_DOMAIN + ACME_EMAIL — brings the hosted demo up.
+# One-shot provisioning for the hosted demo on a fresh server. Host-agnostic:
+# anything with a public IP, ports 80/443 open and a recent Debian or Ubuntu —
+# netcup, Hetzner, a box under a desk. Installs Docker, clones the repo,
+# generates secrets, and — once you have set DEMO_DOMAIN + ACME_EMAIL —
+# brings the demo up and installs the nightly reset.
 #
 # Run as root on the new box:
-#   curl -fsSL https://raw.githubusercontent.com/Gnadi/0815software/main/deploy/demo/setup-hetzner.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Gnadi/0815software/main/deploy/demo/setup.sh | bash
 #
 # Re-run it any time to update the repo and restart the stack.
 set -euo pipefail
@@ -19,6 +21,17 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 if ! command -v git >/dev/null 2>&1; then
   apt-get update -qq && apt-get install -y -qq git
+fi
+
+# The convenience script tracks distributions a little behind their release, so
+# on a very new Debian it can install the engine and skip the compose plugin.
+# Say so plainly instead of failing later inside `docker compose`.
+if ! docker compose version >/dev/null 2>&1; then
+  echo "!! Docker is installed but the compose plugin is missing."
+  echo "   On Debian/Ubuntu:  apt-get install -y docker-compose-plugin"
+  echo "   If that package is not found, your distribution release may be newer"
+  echo "   than Docker's repository — see https://docs.docker.com/engine/install/"
+  exit 1
 fi
 
 echo "==> Cloning / updating the repository…"
@@ -52,6 +65,15 @@ if grep -q "^DEMO_DOMAIN=demo.example.com" .env; then
   echo "!! Set DEMO_DOMAIN (and ACME_EMAIL) in $DEMO_DIR/.env first, then re-run."
   exit 1
 fi
+
+# Caddy issues certificates over HTTP-01, so both ports have to be reachable
+# from the internet. A host firewall that blocks them is the usual reason the
+# demo comes up and then serves nothing.
+for PORT in 80 443; do
+  if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+    ufw allow "$PORT"/tcp >/dev/null 2>&1 || true
+  fi
+done
 
 echo "==> Building and starting the stack (first build takes a few minutes)…"
 docker compose up -d --build

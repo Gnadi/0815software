@@ -18,6 +18,11 @@ x-service: &service
   networks: [demo]
   environment: &svc-env
     NODE_ENV: production
+    # Caddy is the single hop in front of everything here. Without this every
+    # request carries Caddy's address, so the per-IP rate limits become ONE
+    # bucket shared by every visitor to a public demo — the first person to
+    # click around fast throttles the next.
+    TRUST_PROXY: "1"
     SERVICE_TOKEN: ${SERVICE_TOKEN}
     SESSION_SECRET: ${SESSION_SECRET}
     ADMIN_PASSWORD: ${ADMIN_PASSWORD}
@@ -34,6 +39,7 @@ x-app: &app
   networks: [demo]
   environment: &app-env
     NODE_ENV: production
+    TRUST_PROXY: "1"
     PLATFORM_SERVICE_TOKEN: ${SERVICE_TOKEN}
     SESSION_SECRET: ${SESSION_SECRET}
     ADMIN_PASSWORD: ${ADMIN_PASSWORD}

@@ -11,9 +11,10 @@ for a host. For the hardened, per-customer *production* deployment, see
 [`../README.md`](../README.md) — this one optimises for "just works as a public
 demo" (shared, resettable data).
 
-> **On Hetzner Cloud?** [`HETZNER.md`](./HETZNER.md) is a click-by-click
-> runbook (create the server, DNS, one provisioning script) — start there.
-> The steps below are the host-agnostic version.
+> **Setting this up on a server?** [`HOSTING.md`](./HOSTING.md) is the
+> click-by-click runbook — create the server (netcup, Hetzner, anywhere), point
+> DNS, run one script, link it from the marketing site. Start there. The steps
+> below are the short version of the same thing.
 
 ## 1. Point DNS at the host
 
