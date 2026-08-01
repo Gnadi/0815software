@@ -538,11 +538,23 @@ describe('build context', () => {
 });
 
 describe('writeStack', () => {
-  it('writes all five artifacts', () => {
+  it('writes the stack and its monitoring config', () => {
     const dir = scratch();
     const written = writeStack(planStack(twoModules()), dir);
-    expect(written.files.sort()).toEqual(['.env', 'Caddyfile', 'README.md', 'docker-compose.yml', 'manifest.json']);
+    expect(written.files.sort()).toEqual([
+      '.env',
+      'Caddyfile',
+      'README.md',
+      'docker-compose.yml',
+      'manifest.json',
+      'monitoring/alertmanager.yml',
+      'monitoring/alerts.yml',
+      'monitoring/blackbox.yml',
+      'monitoring/prometheus.yml',
+    ]);
     expect(readFileSync(join(dir, 'manifest.json'), 'utf8')).toContain('mod-13-offers');
+    // The nested directory has to be created, not assumed.
+    expect(readFileSync(join(dir, 'monitoring', 'prometheus.yml'), 'utf8')).toContain('job_name: platform-services');
   });
 
   it('creates the directory when it does not exist', () => {

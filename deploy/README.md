@@ -128,6 +128,33 @@ stuck payment intents (PS-08), and PS-07's `audit_chain_valid` (0 = the
 tamper-evident chain is broken — alert on it). Services log one JSON line per
 request with an `X-Request-Id` that is propagated when supplied by the caller.
 
+## Monitoring
+
+A generated stack ships `monitoring/` (Prometheus, Alertmanager,
+blackbox-exporter) behind a compose profile:
+
+```sh
+cd /opt/customers/xy
+$EDITOR monitoring/alertmanager.yml     # a real receiver goes here
+docker compose --profile monitoring up -d
+```
+
+Prometheus scrapes each service's `/api/metrics` — request counters plus the
+domain gauges — and probes `/api/ready` on every service **and** module through
+blackbox-exporter, because the modules publish no Prometheus metrics of their
+own. The alert rules are generated for the stack's actual selection, so a rule
+can never watch a metric nobody publishes: `deploy/test/monitoring.test.ts`
+re-derives every target from the plan and every metric name from that service's
+source.
+
+The rules cover a container down or unready and sustained 5xx, plus the
+failures that are otherwise silent: a queue that stops draining (the ticker
+died, and mail is quietly not going out), dead letters, payments stuck in
+processing, and an audit chain that no longer verifies.
+
+Alertmanager is deliberately not routed through PS-03 — an alerting path
+through the system it watches goes quiet exactly when it matters.
+
 ## Backups
 
 ```sh

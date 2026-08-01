@@ -21,7 +21,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   composeNameOf,
@@ -473,11 +473,47 @@ export function renderCompose(plan, buildContext) {
     };
   }
 
+  // ── Monitoring, behind a compose profile ───────────────────────────────
+  // Opt-in (`--profile monitoring`) but generated for every stack, because
+  // "nobody is watching" is not a state a customer deployment should be able
+  // to reach by forgetting to set something up. Prometheus scrapes the
+  // services' own /api/metrics; the modules expose no Prometheus metrics, so
+  // their liveness is probed through blackbox-exporter against /api/ready —
+  // the same endpoint the healthchecks use.
+  services.prometheus = {
+    image: 'prom/prometheus:v2.53.0',
+    profiles: ['monitoring'],
+    restart: 'unless-stopped',
+    volumes: ['./monitoring:/etc/prometheus:ro', 'prometheus-data:/prometheus'],
+    command: [
+      '--config.file=/etc/prometheus/prometheus.yml',
+      '--storage.tsdb.path=/prometheus',
+      '--storage.tsdb.retention.time=30d',
+    ],
+    networks: ['platform'],
+  };
+  services.alertmanager = {
+    image: 'prom/alertmanager:v0.27.0',
+    profiles: ['monitoring'],
+    restart: 'unless-stopped',
+    volumes: ['./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro', 'alertmanager-data:/alertmanager'],
+    networks: ['platform'],
+  };
+  services.blackbox = {
+    image: 'prom/blackbox-exporter:v0.25.0',
+    profiles: ['monitoring'],
+    restart: 'unless-stopped',
+    volumes: ['./monitoring/blackbox.yml:/etc/blackbox_exporter/config.yml:ro'],
+    networks: ['platform'],
+  };
+
   const volumes = {};
   for (const { volume } of plan.services) volumes[volume] = {};
   for (const { volume } of plan.modules) volumes[volume] = {};
   volumes['caddy-data'] = {};
   volumes['caddy-config'] = {};
+  volumes['prometheus-data'] = {};
+  volumes['alertmanager-data'] = {};
 
   return toYaml(
     {
@@ -500,6 +536,244 @@ export function renderCompose(plan, buildContext) {
       ],
     },
   );
+}
+
+// ── Monitoring ───────────────────────────────────────────────────────────────
+
+/**
+ * Alert rules that are only emitted when the stack contains the service that
+ * exports the metric. A rule on a metric nobody publishes never fires, which
+ * looks like health and is really silence — so the rules are derived from the
+ * selection, and `deploy/test/monitoring.test.ts` checks every metric named
+ * here against that service's source.
+ */
+const ALERT_RULES = [
+  {
+    service: 'ps-07-audit-log',
+    metric: 'audit_chain_valid',
+    name: 'AuditChainBroken',
+    expr: 'audit_chain_valid == 0',
+    for: '1m',
+    severity: 'critical',
+    summary: 'PS-07 audit chain does not verify',
+    description:
+      'The hash chain over the audit log is broken: an event was altered or removed, or the database is damaged. Check GET /api/verify and the last backup.',
+  },
+  {
+    service: 'ps-03-notification-hub',
+    metric: 'notification_queued_messages',
+    name: 'NotificationQueueNotDraining',
+    expr: 'notification_queued_messages > 0',
+    for: '15m',
+    severity: 'critical',
+    summary: 'PS-03 has messages queued but not sending',
+    description:
+      'Messages have been waiting a quarter of an hour. The ticker drives sending, so this usually means the ticker container is gone — mail is silently not going out.',
+  },
+  {
+    service: 'ps-03-notification-hub',
+    metric: 'notification_dead_messages',
+    name: 'NotificationDeadLetters',
+    expr: 'increase(notification_dead_messages[1h]) > 0',
+    for: '5m',
+    severity: 'warning',
+    summary: 'PS-03 gave up on a message',
+    description: 'A message exhausted its retries. Someone did not get their invoice or notification.',
+  },
+  {
+    service: 'ps-02-workflow-engine',
+    metric: 'workflow_due_deliveries',
+    name: 'WebhookDeliveriesNotDraining',
+    expr: 'workflow_due_deliveries > 0',
+    for: '15m',
+    severity: 'warning',
+    summary: 'PS-02 webhook deliveries are not being dispatched',
+    description: 'Deliveries are due and not going out — the ticker is the usual cause.',
+  },
+  {
+    service: 'ps-02-workflow-engine',
+    metric: 'workflow_dead_deliveries',
+    name: 'WebhookDeadLetters',
+    expr: 'increase(workflow_dead_deliveries[1h]) > 0',
+    for: '5m',
+    severity: 'warning',
+    summary: 'PS-02 gave up on a webhook delivery',
+    description:
+      'A subscription exhausted its retries, or its target was refused by the egress policy. Check last_error on GET /api/deliveries.',
+  },
+  {
+    service: 'ps-08-payments',
+    metric: 'payments_processing_intents',
+    name: 'PaymentsStuckProcessing',
+    expr: 'payments_processing_intents > 0',
+    for: '30m',
+    severity: 'warning',
+    summary: 'PS-08 has payments stuck in processing',
+    description: 'Intents have been processing for half an hour: the PSP webhook may not be arriving.',
+  },
+  {
+    service: 'ps-05-integration-hub',
+    metric: 'integration_failed_sync_jobs',
+    name: 'IntegrationSyncFailing',
+    expr: 'increase(integration_failed_sync_jobs[1h]) > 0',
+    for: '5m',
+    severity: 'warning',
+    summary: 'PS-05 sync jobs are failing',
+    description: 'A third-party sync failed — expired credentials are the usual reason.',
+  },
+];
+
+/** Rules every stack gets, whatever it contains. */
+const BASE_RULES = `      - alert: ContainerDown
+        expr: up{job="platform-services"} == 0
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.instance }} is not answering Prometheus"
+          description: "The container is down, or its port is unreachable from the monitoring network."
+
+      - alert: NotReady
+        expr: probe_success == 0
+        for: 3m
+        labels: { severity: critical }
+        annotations:
+          summary: "{{ $labels.instance }} is not ready"
+          description: "/api/ready did not answer 200. A module or service is down, or its schema migrations have not finished."
+
+      - alert: ServerErrors
+        expr: sum by (service) (rate(http_requests_total{status=~"5.."}[5m])) > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.service }} is returning 5xx"
+          description: "Requests have been failing for ten minutes. Check the container's logs — every request is logged as one JSON line with a request id."`;
+
+export function renderPrometheus(plan) {
+  const scrape = plan.services.map(({ name, service }) => `${name}:${service.defaultPort}`);
+  const probes = [
+    ...plan.services.map(({ name, service }) => `http://${name}:${service.defaultPort}/api/ready`),
+    ...plan.modules.map(({ subdomain, mod }) => `http://${subdomain}:${mod.defaultPort}/api/ready`),
+  ];
+  return `# GENERATED by deploy/provision.mjs on ${plan.generatedAt} — do not hand-edit.
+#
+# Two jobs, because the two halves of the stack expose different things:
+#   platform-services — the services publish Prometheus metrics themselves
+#                       (request counters plus domain gauges: queue depths,
+#                       dead letters, the audit chain verdict).
+#   readiness         — the modules publish no Prometheus metrics, so their
+#                       health is probed through blackbox-exporter against the
+#                       same /api/ready the container healthcheck uses.
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  - job_name: platform-services
+    metrics_path: /api/metrics
+    static_configs:
+      - targets:
+${scrape.map((t) => `          - '${t}'`).join('\n')}
+
+  - job_name: readiness
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+${probes.map((t) => `          - '${t}'`).join('\n')}
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115
+`;
+}
+
+export function renderAlerts(plan) {
+  const selected = new Set(plan.services.map((s) => s.service.id));
+  const rules = ALERT_RULES.filter((rule) => selected.has(rule.service));
+  const rendered = rules
+    .map(
+      (rule) => `
+      - alert: ${rule.name}
+        expr: ${rule.expr}
+        for: ${rule.for}
+        labels: { severity: ${rule.severity} }
+        annotations:
+          summary: "${rule.summary}"
+          description: "${rule.description}"`,
+    )
+    .join('\n');
+
+  return `# GENERATED by deploy/provision.mjs on ${plan.generatedAt} — do not hand-edit.
+#
+# Only rules whose service is in THIS stack are emitted: a rule watching a
+# metric nobody publishes never fires, and silence that looks like health is
+# worse than no rule at all.
+groups:
+  - name: platform
+    rules:
+${BASE_RULES}${rendered}
+`;
+}
+
+export function renderAlertmanager(plan) {
+  return `# GENERATED by deploy/provision.mjs on ${plan.generatedAt}.
+#
+# Fill in a receiver — this is the one file here you are expected to edit.
+#
+# Deliberately NOT routed through PS-03, the stack's own notification service:
+# an alerting path that runs through the system it is watching goes quiet
+# exactly when it is needed. Use your mail provider, or a webhook into
+# whatever you already carry a pager on.
+route:
+  receiver: operator
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+
+receivers:
+  - name: operator
+    # Replace with a real target. Examples:
+    #
+    # email_configs:
+    #   - to: ops@${plan.domain}
+    #     from: alerts@${plan.domain}
+    #     smarthost: smtp.example.com:587
+    #     auth_username: alerts@${plan.domain}
+    #     auth_password: ${PLACEHOLDER}
+    #
+    # webhook_configs:
+    #   - url: https://hooks.example.com/${plan.customer}-alerts
+    webhook_configs:
+      - url: http://${PLACEHOLDER}
+`;
+}
+
+export function renderBlackbox(plan) {
+  return `# GENERATED by deploy/provision.mjs on ${plan.generatedAt} — do not hand-edit.
+#
+# One probe: does /api/ready answer 200? That is what "this module is usable"
+# means here — the endpoint reports 503 while schema migrations are pending.
+modules:
+  http_2xx:
+    prober: http
+    timeout: 10s
+    http:
+      valid_status_codes: [200]
+      preferred_ip_protocol: ip4
+`;
 }
 
 export function renderEnv(plan) {
@@ -761,6 +1035,40 @@ Optional per-module settings with working defaults are listed in each module's
 \`.env.example\`; a value absent from this stack's \`.env\` simply keeps its
 default.
 
+## Monitoring
+
+\`\`\`sh
+$EDITOR monitoring/alertmanager.yml     # put a real receiver in first
+docker compose --profile monitoring up -d
+\`\`\`
+
+Prometheus, Alertmanager and blackbox-exporter are generated into
+\`monitoring/\` and start only with that profile, so they cost nothing until you
+want them. What they watch:
+
+- **every service's own metrics** (\`/api/metrics\`): request counters plus the
+  domain gauges — queue depths, dead letters, and PS-07's chain verdict;
+- **every service AND module's readiness** (\`/api/ready\`, probed through
+  blackbox-exporter, since the modules publish no Prometheus metrics).
+
+The rules in \`monitoring/alerts.yml\` are generated for THIS selection — a rule
+watching a metric no service here publishes would never fire, and silence that
+looks like health is worse than no rule. They cover a container being down or
+unready, sustained 5xx, and the failures that are otherwise invisible: a queue
+that stops draining (the ticker died and mail is quietly not going out), dead
+letters, payments stuck in processing, and an audit chain that no longer
+verifies.
+
+\`monitoring/alertmanager.yml\` is the one file here you are meant to edit: it
+ships with a placeholder receiver. Point it at your mail provider or a webhook
+you actually carry a pager on — deliberately **not** at PS-03 in this stack,
+because an alerting path that runs through the system it watches goes quiet
+exactly when you need it.
+
+Neither Prometheus nor Alertmanager is exposed through Caddy. Reach them over
+an SSH tunnel (\`ssh -L 9090:localhost:9090\`) — they have no authentication of
+their own.
+
 ## Backups
 
 \`\`\`sh
@@ -826,6 +1134,10 @@ export function renderAll(plan, buildContext) {
     Caddyfile: renderCaddyfile(plan),
     'README.md': renderReadme(plan),
     'manifest.json': renderManifest(plan),
+    'monitoring/prometheus.yml': renderPrometheus(plan),
+    'monitoring/alerts.yml': renderAlerts(plan),
+    'monitoring/alertmanager.yml': renderAlertmanager(plan),
+    'monitoring/blackbox.yml': renderBlackbox(plan),
   };
 }
 
@@ -837,7 +1149,11 @@ export function writeStack(plan, outDir, { force = false } = {}) {
   }
   mkdirSync(abs, { recursive: true });
   const files = renderAll(plan, buildContextFor(abs));
-  for (const [name, contents] of Object.entries(files)) writeFileSync(join(abs, name), contents);
+  for (const [name, contents] of Object.entries(files)) {
+    const target = join(abs, name);
+    if (name.includes('/')) mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, contents);
+  }
   return { dir: abs, files: Object.keys(files) };
 }
 
