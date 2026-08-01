@@ -121,15 +121,25 @@ Three things the views guarantee:
   rounding, VAT rounded once per rate — because a report that disagrees with
   the PDF is worse than no report. A test asserts a view total equals
   `computeTotals()` for the same invoice.
-- **Cancelled invoices are included and marked** (`status`, `is_cancelled`),
-  so a report can filter them instead of silently missing issued numbers.
-  They are excluded from `report_receivables_aging` — a cancelled invoice is
-  not a receivable.
+- **Cancelled invoices are included and marked on every row-level view**, so a
+  report can filter them instead of silently missing issued numbers:
+  `report_invoices` and `report_invoice_lines` carry `status` /
+  `is_cancelled`; `report_payments` carries `invoice_status` /
+  `invoice_is_cancelled` (disambiguated — that view already holds
+  payment-level fields). Without the flag on the line view, a plain
+  `SELECT SUM(line_net_cents) FROM report_invoice_lines` would silently count
+  cancelled revenue. Cancelled invoices are excluded from
+  `report_receivables_aging` — a cancelled invoice is not a receivable.
 
-The views are created by a `CREATE VIEW IF NOT EXISTS` migration in
-`server/db.ts`: append-only, idempotent, no table changes. To read them, point
-MOD-08 Reporting Suite (or `sqlite3`) at the database file; MOD-08's
-`SOURCE_VIEWS_ONLY=true` restricts it to exactly this surface.
+The views are `DROP VIEW IF EXISTS` + `CREATE VIEW` on every open in
+`server/db.ts` — no table changes, no data changes. They are rebuilt rather
+than created-if-absent so a column added to the contract actually reaches a
+database that already ran the migration; a view holds no data, so rebuilding
+costs nothing. To read them, point MOD-08 Reporting Suite (or `sqlite3`) at the
+database file. `modules/registry.json` marks this module
+`publishesReportViews`, so provisioning MOD-08 with `--source-db
+mod-04-invoice-billing` sets `SOURCE_VIEWS_ONLY=true` automatically and MOD-08
+never sees the tables above.
 
 ## Invoice numbering rules
 
@@ -264,7 +274,10 @@ paid, cancelled invoices keeping their numbers, a valid `%PDF` response,
 and 401 everywhere without a session. `test/report-views.test.ts` covers the
 published contract: the views exist with exactly the documented columns,
 drafts are excluded, a view's totals equal `computeTotals()` for the same
-invoice, and the aging buckets are correct *on* their boundaries.
+invoice, the aging buckets are correct *on* their boundaries, every published
+line and payment row carries its invoice's cancellation state, and re-opening
+a database rebuilds the views so an added column reaches an existing
+deployment.
 
 ## Deploy notes
 

@@ -53,6 +53,9 @@ export function executeRun(
   );
 
   try {
+    // No published set passed: runReportQuery reads it from this very
+    // connection's catalog, so a scheduled run always sees the source's
+    // current contract rather than one snapshotted when the app booted.
     const result = runReportQuery(ctx.sourceDb, report.sql, { viewsOnly: ctx.sourceViewsOnly });
     const csv = resultToCsv(result);
 

@@ -49,6 +49,12 @@ export interface ModuleConstraints {
    * standalone when the variable is unset.
    */
   acceptsSourceDb: boolean;
+  /**
+   * The module publishes a `report_*` view contract in its own database
+   * (docs/REPORTING-CONTRACT.md). A generator that points a consumer at this
+   * module's volume must also restrict that consumer to the published views.
+   */
+  publishesReportViews: boolean;
 }
 
 export interface ModuleRegistryEntry {

@@ -28,8 +28,20 @@ import type { Express } from 'express';
 import Database from 'better-sqlite3';
 import { createApp } from '../server/app.js';
 import { openDb } from '../server/db.js';
-import { cteNames, checkReportSql, scanSourceSurface } from '../server/query-policy.js';
-import { describeSource, openSourceDb, runReportQuery, QueryError } from '../server/source-db.js';
+import {
+  cteNames,
+  checkReportSql,
+  scanSourceSurface,
+  type PolicyOptions,
+} from '../server/query-policy.js';
+import {
+  describeSource,
+  openSourceDb,
+  publishedViews,
+  runReportQuery,
+  sourcePolicy,
+  QueryError,
+} from '../server/source-db.js';
 import type { AuthConfig } from '../server/auth.js';
 
 const auth: AuthConfig = {
@@ -57,10 +69,14 @@ function buildSource(path: string): void {
   db.exec(`
     CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT, secret_note TEXT);
     CREATE TABLE invoices (id INTEGER PRIMARY KEY, customer_id INTEGER, number TEXT, gross_cents INTEGER);
+    -- A PRIVATE TABLE wearing the published prefix. The source module owns its
+    -- own names, so the prefix cannot be what authorises anything.
+    CREATE TABLE report_secrets (id INTEGER PRIMARY KEY, leaked TEXT);
     INSERT INTO customers (id, name, secret_note) VALUES (1, 'Acme GmbH', 'do not report this');
     INSERT INTO customers (id, name, secret_note) VALUES (2, 'Beta AG', 'nor this');
     INSERT INTO invoices (id, customer_id, number, gross_cents) VALUES (1, 1, 'INV-2026-0001', 12000);
     INSERT INTO invoices (id, customer_id, number, gross_cents) VALUES (2, 2, 'INV-2026-0002', 5000);
+    INSERT INTO report_secrets (id, leaked) VALUES (1, 'not a view, not published');
 
     CREATE VIEW report_invoices AS
       SELECT i.number AS invoice_number, c.name AS customer_name, i.gross_cents AS gross_cents
@@ -69,6 +85,15 @@ function buildSource(path: string): void {
       SELECT id AS customer_id, name AS customer_name FROM customers;
   `);
   db.close();
+}
+
+/**
+ * The restricted policy as the app builds it: `viewsOnly` PLUS the published
+ * set read from the source's own catalog. Passing `{ viewsOnly: true }` alone
+ * fails closed by design, which is asserted separately below.
+ */
+function strictPolicy(): PolicyOptions {
+  return sourcePolicy(sourceDb, true);
 }
 
 async function login(app: Express): Promise<string> {
@@ -130,6 +155,7 @@ describe('off by default', () => {
       'invoices',
       'report_customers',
       'report_invoices',
+      'report_secrets',
     ]);
 
     const preview = await request(open)
@@ -252,11 +278,46 @@ describe('the restriction cannot be aliased or CTE’d away', () => {
     ['the sqlite catalogue', 'SELECT name FROM sqlite_master'],
     ['a comment between FROM and the table', 'SELECT * FROM /* report_invoices */ customers'],
     ['a nested subquery three deep', 'SELECT * FROM (SELECT * FROM (SELECT * FROM customers))'],
+
+    // A private table that merely WEARS the published prefix. The source
+    // module names its own objects, so the prefix cannot be the boundary —
+    // only a real view in the catalog is published.
+    ['a private table named report_*', 'SELECT * FROM report_secrets'],
+    ['a prefixed private table behind an alias', 'SELECT * FROM report_secrets AS report_invoices'],
+
+    // A CTE declaration faked inside a string literal or a comment. The old
+    // regex read these off the raw SQL and added "customers" to the allowlist.
+    ['a fake CTE inside a string literal', `SELECT 'WITH customers AS (' AS bait FROM customers`],
+    ['a fake CTE inside a block comment', 'SELECT * FROM customers /* WITH customers AS ( */'],
+    ['a fake CTE inside a line comment', 'SELECT * FROM customers -- WITH customers AS ('],
+    ['a WINDOW clause posing as a CTE list', 'SELECT * FROM customers WINDOW x AS (), customers AS ()'],
+    [
+      'a WITH that is not the leading one',
+      'SELECT * FROM (SELECT 1) UNION WITH customers AS (SELECT 1) SELECT * FROM customers',
+    ],
+
+    // A real CTE cannot launder a private table: its body is scanned too.
+    ['a CTE whose body reads a private table', 'WITH hidden AS (SELECT * FROM customers) SELECT * FROM hidden'],
+    [
+      'a legitimate CTE alongside a private read',
+      'WITH allowed_name AS (SELECT * FROM report_invoices) SELECT * FROM customers',
+    ],
+
+    // A parenthesised table list or join clause is NOT a subquery. SQLite's
+    // grammar allows all of these and they returned private rows.
+    ['a parenthesised table', 'SELECT * FROM (customers)'],
+    ['a doubly parenthesised table', 'SELECT * FROM ((customers))'],
+    ['a parenthesised table list', 'SELECT * FROM (customers, report_invoices)'],
+    ['a parenthesised table list, published first', 'SELECT * FROM (report_invoices, customers)'],
+    ['a parenthesised join clause', 'SELECT * FROM (customers JOIN report_invoices ON 1 = 1)'],
+    ['a parenthesised operand of a JOIN', 'SELECT * FROM report_invoices JOIN (customers) ON 1 = 1'],
+    ['a parenthesised table in a UNION arm', 'SELECT * FROM report_invoices UNION SELECT * FROM (customers)'],
+    ['a parenthesised table inside a subquery', 'SELECT * FROM (SELECT * FROM (customers))'],
   ];
 
   for (const [label, sql] of evasions) {
     it(`refuses ${label}`, () => {
-      const check = checkReportSql(sql, { viewsOnly: true });
+      const check = checkReportSql(sql, strictPolicy());
       expect(check.ok, sql).toBe(false);
       expect(check.reason, sql).toMatch(/report_\* views/);
       // …and the very same query is fine when the flag is off.
@@ -283,26 +344,75 @@ describe('the restriction cannot be aliased or CTE’d away', () => {
     ['a UNION of two views', 'SELECT customer_name FROM report_invoices UNION SELECT customer_name FROM report_customers'],
     ['a table name in a string literal', "SELECT 'customers' AS label FROM report_invoices"],
     ['no table at all', 'SELECT 1 AS n'],
+
+    // CTEs must keep working — they are how any non-trivial report is written.
+    [
+      'an aggregating CTE',
+      'WITH totals AS (SELECT customer_name, SUM(gross_cents) AS amount FROM report_invoices GROUP BY customer_name) SELECT * FROM totals',
+    ],
+    [
+      'a CTE chain',
+      'WITH first_cte AS (SELECT * FROM report_invoices), second_cte AS (SELECT * FROM first_cte) SELECT * FROM second_cte',
+    ],
+    [
+      'a CTE with an explicit column list',
+      'WITH totals(who, amount) AS (SELECT customer_name, gross_cents FROM report_invoices) SELECT * FROM totals',
+    ],
+    [
+      'a MATERIALIZED CTE',
+      'WITH totals AS MATERIALIZED (SELECT * FROM report_invoices) SELECT * FROM totals',
+    ],
+    [
+      'a NOT MATERIALIZED CTE',
+      'WITH totals AS NOT MATERIALIZED (SELECT * FROM report_invoices) SELECT * FROM totals',
+    ],
+    [
+      'a CTE declared across newlines',
+      'WITH\n  totals\n  AS\n  (\n    SELECT * FROM report_invoices\n  )\nSELECT * FROM totals',
+    ],
+    [
+      'a quoted CTE name',
+      'WITH "my totals" AS (SELECT * FROM report_invoices) SELECT * FROM "my totals"',
+    ],
+    ['a subquery over a view, parenthesised twice', 'SELECT * FROM ((SELECT gross_cents FROM report_invoices))'],
+    ['a parenthesised published view', 'SELECT * FROM (report_invoices)'],
+    ['a parenthesised join of two published views', 'SELECT * FROM (report_invoices JOIN report_customers ON 1 = 1)'],
   ];
 
   for (const [label, sql] of allowed) {
     it(`allows ${label}`, () => {
-      expect(checkReportSql(sql, { viewsOnly: true }), sql).toEqual({ ok: true });
+      expect(checkReportSql(sql, strictPolicy()), sql).toEqual({ ok: true });
     });
   }
 
   it('actually executes the allowed shapes against the read-only source', () => {
     for (const [, sql] of allowed) {
-      expect(() => runReportQuery(sourceDb, sql, { viewsOnly: true }), sql).not.toThrow();
+      expect(() => runReportQuery(sourceDb, sql, strictPolicy()), sql).not.toThrow();
     }
   });
 
   it('refuses rather than guesses when a FROM operand is unreadable', () => {
     // Not valid SQL, and the scanner says so instead of shrugging it through
     // to prepare(). Unknown shape → no.
-    const check = checkReportSql('SELECT * FROM 42', { viewsOnly: true });
+    const check = checkReportSql('SELECT * FROM 42', strictPolicy());
     expect(check.ok).toBe(false);
     expect(check.reason).toMatch(/report_\* views/);
+  });
+
+  it('KNOWN LIMITATION: a CTE declared inside a subquery is refused, not excused', () => {
+    // Only a LEADING WITH binds names, so a CTE declared inside a subquery is
+    // not in the allowed set and its use reads as an unknown object. This
+    // over-refuses valid SQL; it never under-refuses, which is the direction
+    // that matters. The top-level form below is the supported way to write it.
+    const nested = 'SELECT * FROM (WITH c AS (SELECT * FROM report_invoices) SELECT * FROM c)';
+    expect(scanSourceSurface(nested).refs).toEqual(['report_invoices', 'c']);
+    expect(checkReportSql(nested, strictPolicy()).ok).toBe(false);
+    // …and it is genuinely valid SQL, which is why this is a limitation and
+    // not a defence.
+    expect(() => sourceDb.prepare(nested).all()).not.toThrow();
+
+    const topLevel = 'WITH c AS (SELECT * FROM report_invoices) SELECT * FROM c';
+    expect(checkReportSql(topLevel, strictPolicy()).ok).toBe(true);
   });
 });
 
@@ -353,7 +463,41 @@ describe('scanSourceSurface / cteNames', () => {
     expect(cteNames('WITH RECURSIVE a AS (SELECT 1) SELECT 1')).toEqual(new Set(['a']));
     expect(cteNames('WITH a AS (SELECT 1), b AS (SELECT 2) SELECT 1')).toEqual(new Set(['a', 'b']));
     expect(cteNames('WITH a(x) AS (SELECT 1) SELECT 1')).toEqual(new Set(['a']));
+    expect(cteNames('WITH a(x, y) AS (SELECT 1, 2) SELECT 1')).toEqual(new Set(['a']));
+    expect(cteNames('WITH a AS MATERIALIZED (SELECT 1) SELECT 1')).toEqual(new Set(['a']));
+    expect(cteNames('WITH a AS NOT MATERIALIZED (SELECT 1) SELECT 1')).toEqual(new Set(['a']));
+    expect(cteNames('WITH "quoted" AS (SELECT 1) SELECT 1')).toEqual(new Set(['quoted']));
+    expect(cteNames('WITH [bracketed] AS (SELECT 1) SELECT 1')).toEqual(new Set(['bracketed']));
+    expect(cteNames('WITH\n  a\n  AS\n  (\n SELECT 1\n )\nSELECT 1')).toEqual(new Set(['a']));
+    expect(cteNames('WITH a AS (SELECT * FROM (SELECT 1)) SELECT 1')).toEqual(new Set(['a']));
     expect(cteNames('SELECT * FROM t')).toEqual(new Set());
+  });
+
+  it('binds nothing from a WITH that is not a real, leading CTE clause', () => {
+    // Every one of these used to add a name to the allowlist, because the
+    // names were read off raw SQL with a regex instead of the token stream.
+    expect(cteNames(`SELECT 'WITH customers AS (' AS bait FROM customers`)).toEqual(new Set());
+    expect(cteNames('SELECT * FROM customers /* WITH customers AS ( */')).toEqual(new Set());
+    expect(cteNames('SELECT * FROM customers -- WITH customers AS (\n')).toEqual(new Set());
+    expect(cteNames('SELECT * FROM t WINDOW x AS (), customers AS ()')).toEqual(new Set());
+    expect(cteNames('SELECT * FROM a UNION WITH b AS (SELECT 1) SELECT 1')).toEqual(new Set());
+    // A half-formed clause binds nothing: no body, no binding.
+    expect(cteNames('WITH a AS SELECT 1')).toEqual(new Set());
+    expect(cteNames('WITH a')).toEqual(new Set());
+    // The first CTE still counts even when a later one is malformed.
+    expect(cteNames('WITH a AS (SELECT 1), b AS SELECT 2')).toEqual(new Set(['a']));
+  });
+
+  it('reads a parenthesised table list as tables, and a subquery as a subquery', () => {
+    expect(scanSourceSurface('SELECT * FROM (t)').refs).toEqual(['t']);
+    expect(scanSourceSurface('SELECT * FROM ((t))').refs).toEqual(['t']);
+    expect(scanSourceSurface('SELECT * FROM (a, b)').refs).toEqual(['a', 'b']);
+    expect(scanSourceSurface('SELECT * FROM (a JOIN b ON 1=1)').refs).toEqual(['a', 'b']);
+    expect(scanSourceSurface('SELECT * FROM x JOIN (y) ON 1=1').refs).toEqual(['x', 'y']);
+    // A real subquery still records only what it reads, not a phantom operand.
+    expect(scanSourceSurface('SELECT * FROM (SELECT * FROM t)').refs).toEqual(['t']);
+    expect(scanSourceSurface('SELECT * FROM (VALUES (1))').refs).toEqual([]);
+    expect(scanSourceSurface('SELECT * FROM (SELECT * FROM (u))').refs).toEqual(['u']);
   });
 });
 
@@ -361,16 +505,15 @@ describe('scanSourceSurface / cteNames', () => {
 
 describe('the older layers still do their job in views-only mode', () => {
   it('still refuses a write, before the surface check ever matters', () => {
-    const check = checkReportSql('DELETE FROM report_invoices', { viewsOnly: true });
+    const check = checkReportSql('DELETE FROM report_invoices', strictPolicy());
     expect(check.ok).toBe(false);
     expect(check.reason).toMatch(/DELETE|SELECT or WITH/);
   });
 
   it('still refuses a second statement', () => {
     expect(
-      checkReportSql('SELECT * FROM report_invoices; SELECT * FROM report_customers', {
-        viewsOnly: true,
-      }).ok,
+      checkReportSql('SELECT * FROM report_invoices; SELECT * FROM report_customers', strictPolicy())
+        .ok,
     ).toBe(false);
   });
 
@@ -381,11 +524,11 @@ describe('the older layers still do their job in views-only mode', () => {
   });
 
   it('surfaces the refusal as a 422 QueryError, not a 500', () => {
-    expect(() => runReportQuery(sourceDb, 'SELECT * FROM customers', { viewsOnly: true })).toThrow(
+    expect(() => runReportQuery(sourceDb, 'SELECT * FROM customers', strictPolicy())).toThrow(
       QueryError,
     );
     try {
-      runReportQuery(sourceDb, 'SELECT * FROM customers', { viewsOnly: true });
+      runReportQuery(sourceDb, 'SELECT * FROM customers', strictPolicy());
     } catch (err) {
       expect((err as QueryError).status).toBe(422);
     }
@@ -394,6 +537,93 @@ describe('the older layers still do their job in views-only mode', () => {
 
 // ── describeSource ───────────────────────────────────────────────────────
 
+// ── The catalog is the boundary, not the name ────────────────────────────
+
+describe('the catalog decides, not the report_ prefix', () => {
+  it('publishes real views only — a table wearing the prefix is not published', () => {
+    expect([...publishedViews(sourceDb)].sort()).toEqual(['report_customers', 'report_invoices']);
+    // report_secrets IS in the database and IS prefixed. It is a table.
+    const catalog = sourceDb
+      .prepare("SELECT type FROM sqlite_master WHERE name = 'report_secrets'")
+      .get() as { type: string };
+    expect(catalog.type).toBe('table');
+  });
+
+  it('hides a prefixed private table from discovery in restricted mode', async () => {
+    const res = await request(strict).get('/api/source').set('Cookie', strictCookie);
+    const listed = res.body.tables.map((t: { table: string }) => t.table);
+    expect(listed).toEqual(['report_customers', 'report_invoices']);
+    expect(listed).not.toContain('report_secrets');
+  });
+
+  it('refuses to query a prefixed private table, and to save a report against one', async () => {
+    const preview = await request(strict)
+      .post('/api/preview')
+      .set('Cookie', strictCookie)
+      .send({ sql: 'SELECT leaked FROM report_secrets' });
+    expect(preview.status).toBe(422);
+    expect(preview.body.error).toContain('"report_secrets"');
+
+    const save = await request(strict)
+      .post('/api/reports')
+      .set('Cookie', strictCookie)
+      .send({ name: 'prefix trick', sql: 'SELECT * FROM report_secrets' });
+    expect(save.status).toBe(422);
+  });
+
+  it('still allows the prefixed table when the restriction is off', async () => {
+    const res = await request(open)
+      .post('/api/preview')
+      .set('Cookie', openCookie)
+      .send({ sql: 'SELECT leaked FROM report_secrets' });
+    expect(res.status).toBe(200);
+    expect(res.body.rows[0].leaked).toBe('not a view, not published');
+  });
+
+  it('picks up a view published after boot, with no restart', () => {
+    // The published set is read per check, not snapshotted at boot, so a view
+    // the source module adds in a migration is usable immediately. Asserted
+    // against a throwaway database so the shared fixture stays stable.
+    const dir = mkdtempSync(join(tmpdir(), 'mod08-late-'));
+    const path = join(dir, 'late.db');
+    const writable = new Database(path);
+    writable.exec('CREATE TABLE t (id INTEGER); CREATE VIEW report_a AS SELECT 1 AS id;');
+    writable.close();
+    const ro = openSourceDb(path);
+    try {
+      expect(checkReportSql('SELECT * FROM report_b', sourcePolicy(ro, true)).ok).toBe(false);
+
+      const w2 = new Database(path);
+      w2.exec('CREATE VIEW report_b AS SELECT 2 AS id;');
+      w2.close();
+
+      // Same long-lived read-only handle, no reopen.
+      expect(checkReportSql('SELECT * FROM report_b', sourcePolicy(ro, true)).ok).toBe(true);
+      expect(describeSource(ro, sourcePolicy(ro, true)).map((t) => t.table)).toEqual([
+        'report_a',
+        'report_b',
+      ]);
+    } finally {
+      ro.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails CLOSED when viewsOnly arrives without a published set', () => {
+    // A caller that forgot to supply the allowlist must not silently get an
+    // unrestricted check. Empty set → everything that reads anything refused.
+    expect(checkReportSql('SELECT * FROM report_invoices', { viewsOnly: true }).ok).toBe(false);
+    // …but runReportQuery repairs it from the connection it is handed, which
+    // is what the scheduled-run path relies on.
+    expect(() =>
+      runReportQuery(sourceDb, 'SELECT * FROM report_invoices', { viewsOnly: true }),
+    ).not.toThrow();
+    expect(() =>
+      runReportQuery(sourceDb, 'SELECT * FROM customers', { viewsOnly: true }),
+    ).toThrow(QueryError);
+  });
+});
+
 describe('describeSource', () => {
   it('lists everything by default and only the views when restricted', () => {
     expect(describeSource(sourceDb).map((t) => t.table)).toEqual([
@@ -401,6 +631,7 @@ describe('describeSource', () => {
       'invoices',
       'report_customers',
       'report_invoices',
+      'report_secrets',
     ]);
     expect(describeSource(sourceDb, { viewsOnly: true }).map((t) => t.table)).toEqual([
       'report_customers',

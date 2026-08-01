@@ -372,7 +372,14 @@ async function bootStack(stack) {
     }
     if (mod.constraints.supportsSso && urls.has('ps-01-identity')) env.IDENTITY_ORG = SEEDED_ORG;
     if (mod.constraints.needsPublicBaseUrl) env.PUBLIC_BASE_URL = `http://127.0.0.1:${mod.defaultPort}`;
-    if (pointedAtSource(mod)) env.SOURCE_DB_PATH = makeSourceDb(mod, mod.defaultPort);
+    if (pointedAtSource(mod)) {
+      env.SOURCE_DB_PATH = makeSourceDb(mod, mod.defaultPort);
+      // Mirror the generated stack: a manifest records whether the source
+      // publishes a report_* contract, and the consumer is restricted to it.
+      if (stack.manifest?.modules.some((m) => m.id === mod.id && m.sourceViewsOnly)) {
+        env.SOURCE_VIEWS_ONLY = 'true';
+      }
+    }
 
     const peers = [];
     for (const peer of peersOf(mod)) {

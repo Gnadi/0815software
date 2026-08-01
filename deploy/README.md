@@ -42,8 +42,10 @@ sidecar is included only when the stack contains a tick-driven service.
 Useful flags: `--all-services` (include every service regardless of the selection),
 `--source-db <module-id>` (optional — point a module that accepts a source
 database, i.e. MOD-08, at another selected module's volume instead of its own
-data), `--org` (PS-01 organization slug, defaults to the customer),
-`--acme-email`, `--force` (overwrite a non-empty `--out`), `--help`.
+data; when that module declares `publishesReportViews` the consumer is
+restricted to those views automatically via `SOURCE_VIEWS_ONLY=true`), `--org`
+(PS-01 organization slug, defaults to the customer), `--acme-email`, `--force`
+(overwrite a non-empty `--out`), `--help`.
 
 Run `node deploy/provision.mjs --help` for the full list and the module ids.
 

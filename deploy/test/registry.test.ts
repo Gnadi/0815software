@@ -35,12 +35,24 @@ const COMMON_MODULE_ENV = new Set([
   'PLATFORM_SERVICE_TOKEN',
 ]);
 
-/** Constraint flag -> the single env var it stands for. */
+/**
+ * Constraint flag -> the single env var it stands for.
+ *
+ * `publishesReportViews` is deliberately absent: it is a property of the
+ * module's SCHEMA, not of its environment, so it is re-derived from that
+ * module's server/db.ts instead (see the drift block below).
+ */
 const CONSTRAINT_ENV: Record<string, string> = {
   supportsSso: 'IDENTITY_URL',
   needsPublicBaseUrl: 'PUBLIC_BASE_URL',
   acceptsSourceDb: 'SOURCE_DB_PATH',
 };
+
+/** Does this module's own schema create `report_*` views? */
+function createsReportViews(id: string): boolean {
+  const source = readFileSync(`${root}/modules/${id}/server/db.ts`, 'utf8');
+  return /\bCREATE\s+VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?report_/i.test(source);
+}
 
 function configSource(group: 'modules' | 'platform', id: string): string {
   return readFileSync(`${root}/${group}/${id}/server/config.ts`, 'utf8');
@@ -150,6 +162,16 @@ describe.each(modules.map((m: any) => [m.id, m] as const))('module %s does not d
     for (const [flag, envName] of Object.entries(CONSTRAINT_ENV)) {
       expect(mod.constraints[flag], `${mod.id}.constraints.${flag} vs ${envName}`).toBe(read.has(envName));
     }
+  });
+
+  it('declares publishesReportViews iff its db.ts actually creates report_* views', () => {
+    // The generator switches a consumer into restricted mode off this flag,
+    // so a module claiming a contract it does not publish would silently
+    // restrict MOD-08 to a set of views that do not exist.
+    expect(
+      mod.constraints.publishesReportViews,
+      `${mod.id}.constraints.publishesReportViews vs CREATE VIEW report_* in server/db.ts`,
+    ).toBe(createsReportViews(mod.id));
   });
 
   it('declares every module-specific env var its config.ts reads', () => {

@@ -125,11 +125,31 @@ export SOURCE_DB_PATH=/source/data.db   # the other module's volume, read-only
 export SOURCE_VIEWS_ONLY=true
 ```
 
-With it on, `GET /api/source` lists only `report_*` objects — the editor
-never offers a private table — and a query that reads anything else is
-refused with a `422` at save time *and* at run time. The restriction is on
-the tables a query **reads**, so an alias (`FROM customers AS report_c`), a
-CTE, a subquery, a comma-join or a quoted identifier does not get round it.
+In a generated stack you do not set this by hand: `deploy/provision.mjs`
+emits it automatically when `--source-db` names a module that publishes a
+contract (MOD-04 does).
+
+With it on, `GET /api/source` lists only the source's **published views** —
+the editor never offers a private table — and a query that reads anything
+else is refused with a `422` at save time *and* at run time. The restriction
+is on the objects a query **reads**, so none of these get round it:
+
+- an alias — `FROM customers AS report_c` reads `customers`;
+- a CTE — its body is scanned like any other `FROM`;
+- a subquery, at any depth, or a comma-join after a join constraint;
+- a **parenthesised table list or join** — `FROM (customers)`,
+  `FROM (customers, report_invoices)` — which SQLite allows and which is not
+  a subquery;
+- a quoted/bracketed identifier, a schema qualifier, or different casing;
+- a table that merely happens to be **named** `report_something`. The
+  source's own catalog authorises objects and it lists **views only**; the
+  prefix is a naming convention, not the boundary.
+
+CTEs, subqueries, joins, unions and window functions all keep working. The
+allowed set is read from the catalog on every check, so a view the source
+publishes later is usable without restarting this module. One shape is
+over-refused: a CTE declared *inside* a subquery — declare it at the top
+level instead.
 
 It is **off by default**, and off changes nothing: pointed at an arbitrary
 customer database there is no contract to enforce, and the whole schema is
@@ -164,7 +184,8 @@ place the rules live) rejects, with a `422`:
   identifiers are stripped first, so `SELECT 'DELETE me'` and a column
   aliased `"update"` are fine);
 - and, **only when `SOURCE_VIEWS_ONLY=true`**, anything that reads an object
-  outside the source's published `report_*` views (see above).
+  the source's catalog does not list as a published `report_*` view — plus
+  anything whose `FROM`/`JOIN` the scanner cannot classify (see above).
 
 The validator is a fast, explanatory gate. The **backstop** is the
 read-only connection: a write that somehow reached SQLite fails with
@@ -389,8 +410,10 @@ schedule/manual run appending history and writing a CSV whose row count
 matches the query; the scheduler tick firing a due schedule once (no
 backfill); `SOURCE_VIEWS_ONLY` in both modes — off changes nothing, on
 refuses a private table and cannot be evaded by an alias, a CTE, a
-subquery, a comma-join or a quoted identifier; and `401` everywhere without
-a session except valid embeds.
+subquery, a comma-join, a parenthesised table list, a quoted identifier or a
+private table named `report_*`, while CTEs and subqueries over published
+views keep working; and `401` everywhere without a session except valid
+embeds.
 
 ## Deploy notes
 

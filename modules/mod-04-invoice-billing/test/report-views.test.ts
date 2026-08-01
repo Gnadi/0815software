@@ -18,6 +18,9 @@
  * Every invoice here is built through the real domain functions, so the rows
  * under test got there the way a user's rows do.
  */
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 import { openDb } from '../server/db.js';
@@ -129,6 +132,8 @@ describe('the views exist and the migration is idempotent', () => {
       'unit_price_cents',
       'vat_rate',
       'line_net_cents',
+      'status',
+      'is_cancelled',
     ]);
     expect(columns('report_payments')).toEqual([
       'payment_id',
@@ -138,6 +143,8 @@ describe('the views exist and the migration is idempotent', () => {
       'payment_date',
       'amount_cents',
       'note',
+      'invoice_status',
+      'invoice_is_cancelled',
     ]);
     expect(columns('report_receivables_aging')).toEqual([
       'customer_id',
@@ -153,18 +160,66 @@ describe('the views exist and the migration is idempotent', () => {
     ]);
   });
 
-  it('re-opening a database that already has the views is a no-op, and keeps the data', () => {
-    const customer = addCustomer('Repeat GmbH');
-    const { number } = sendInvoice(customer);
+  it('REBUILDS the views on re-open, so an added column reaches an existing database', () => {
+    // The property this protects: `CREATE VIEW IF NOT EXISTS` is inert on a
+    // database that already ran it, so every column added to the contract
+    // would land in fresh test databases and never in a deployed stack.
+    // Simulated here by planting an OLD definition and re-opening.
+    const dir = mkdtempSync(join(tmpdir(), 'mod04-views-'));
+    const path = join(dir, 'data.db');
+    try {
+      const first = openDb(path);
+      const customer = Number(
+        first
+          .prepare('INSERT INTO customers (name, email, vat_id, address, created_at) VALUES (?,?,?,?,?)')
+          .run('Upgrade GmbH', null, null, null, '2026-01-01T00:00:00.000Z').lastInsertRowid,
+      );
+      first
+        .prepare(
+          `INSERT INTO invoices (number, customer_id, status, issue_date, due_date, payment_terms_days, created_at)
+           VALUES ('INV-2026-0001', ?, 'sent', '2026-01-01', '2026-01-15', 14, '2026-01-01T00:00:00.000Z')`,
+        )
+        .run(customer);
 
-    // openDb() again on the SAME connection's schema: CREATE VIEW IF NOT
-    // EXISTS must not throw, and nothing may be rewritten.
-    expect(() => openDb(':memory:')).not.toThrow();
-    const sql = db
-      .prepare("SELECT sql FROM sqlite_master WHERE name = 'report_invoices'")
-      .get() as { sql: string };
-    expect(sql.sql).toContain('report_invoices');
-    expect(reportInvoice(number)).toBeDefined();
+      // Downgrade the contract behind the module's back: a view without the
+      // cancellation columns, exactly like a database provisioned before they
+      // were added.
+      first.exec(`
+        DROP VIEW report_invoice_lines;
+        CREATE VIEW report_invoice_lines AS SELECT 'stale' AS invoice_number;
+      `);
+      expect(
+        (first.prepare('PRAGMA table_info(report_invoice_lines)').all() as { name: string }[]).map(
+          (c) => c.name,
+        ),
+      ).toEqual(['invoice_number']);
+      first.close();
+
+      const second = openDb(path);
+      try {
+        const columns = (
+          second.prepare('PRAGMA table_info(report_invoice_lines)').all() as { name: string }[]
+        ).map((c) => c.name);
+        expect(columns).toContain('is_cancelled');
+        expect(columns).toContain('line_net_cents');
+        // Every view is back to the current definition, not just the one we
+        // clobbered, and the data underneath is untouched.
+        const views = (
+          second
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name")
+            .all() as { name: string }[]
+        ).map((v) => v.name);
+        expect(views).toEqual([...REPORT_VIEWS].sort());
+        expect(
+          second.prepare('SELECT COUNT(*) AS n FROM report_invoices').get(),
+        ).toEqual({ n: 1 });
+        expect(second.prepare('SELECT COUNT(*) AS n FROM customers').get()).toEqual({ n: 1 });
+      } finally {
+        second.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('adds no table and changes no existing one', () => {
@@ -355,6 +410,83 @@ describe('cancelled invoices are included and marked', () => {
     expect(row.days_overdue).toBe(0);
 
     expect(agingFor(customer)).toBeUndefined();
+  });
+
+  it('marks cancellation on the LINE and PAYMENT views, not only on the header', () => {
+    // Without this, `SELECT SUM(line_net_cents) FROM report_invoice_lines`
+    // silently counts cancelled revenue and there is no column to filter on.
+    const customer = addCustomer('Mixed Fate GmbH');
+    const live = sendInvoice(customer, [
+      { description: 'Kept A', quantity: 1, unitPriceCents: 10_000, vatRate: 20 },
+      { description: 'Kept B', quantity: 2, unitPriceCents: 2_500, vatRate: 20 },
+    ]);
+    const doomed = sendInvoice(customer, [
+      { description: 'Voided', quantity: 1, unitPriceCents: 40_000, vatRate: 20 },
+    ]);
+    recordPayment(db, live.id, { date: todayIso(), amountCents: 1_000, note: 'part' });
+    recordPayment(db, doomed.id, { date: todayIso(), amountCents: 2_000, note: 'refund me' });
+    cancelInvoice(db, doomed.id, 'ordered in error', '2026-07-01T09:00:00.000Z');
+
+    const lines = db
+      .prepare('SELECT * FROM report_invoice_lines ORDER BY invoice_number, line_position')
+      .all() as any[];
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      // Every published row is filterable: it says which invoice it belongs
+      // to and whether that invoice still stands.
+      expect(line.status, line.invoice_number).toMatch(/^(sent|cancelled)$/);
+      expect(line.is_cancelled).toBe(line.invoice_number === doomed.number ? 1 : 0);
+    }
+    const liveNet = db
+      .prepare('SELECT SUM(line_net_cents) AS n FROM report_invoice_lines WHERE is_cancelled = 0')
+      .get() as { n: number };
+    expect(liveNet.n).toBe(15_000);
+
+    const payments = db
+      .prepare('SELECT * FROM report_payments ORDER BY payment_id')
+      .all() as any[];
+    expect(payments).toHaveLength(2);
+    for (const payment of payments) {
+      expect(payment.invoice_status).toMatch(/^(sent|cancelled)$/);
+      expect(payment.invoice_is_cancelled).toBe(
+        payment.invoice_number === doomed.number ? 1 : 0,
+      );
+    }
+    // A payment against a cancelled invoice is still a real payment and is
+    // still published — it is money that moved and probably needs refunding.
+    const againstCancelled = payments.filter((p) => p.invoice_is_cancelled === 1);
+    expect(againstCancelled).toHaveLength(1);
+    expect(againstCancelled[0].amount_cents).toBe(2_000);
+    expect(againstCancelled[0].invoice_status).toBe('cancelled');
+
+    // The header view agrees with both detail views.
+    expect(reportInvoice(doomed.number).is_cancelled).toBe(1);
+    expect(reportInvoice(live.number).is_cancelled).toBe(0);
+  });
+
+  it('leaves no published row without a way to tell whether it was cancelled', () => {
+    const customer = addCustomer('Coverage GmbH');
+    const kept = sendInvoice(customer);
+    const killed = sendInvoice(customer);
+    recordPayment(db, kept.id, { date: todayIso(), amountCents: 500, note: null });
+    recordPayment(db, killed.id, { date: todayIso(), amountCents: 500, note: null });
+    cancelInvoice(db, killed.id, 'test', '2026-07-01T09:00:00.000Z');
+
+    // Contract rule 3, asserted as a property rather than per-row: no row in
+    // either detail view has a NULL cancellation marker.
+    for (const [view, flag] of [
+      ['report_invoice_lines', 'is_cancelled'],
+      ['report_payments', 'invoice_is_cancelled'],
+    ] as const) {
+      const unknown = db
+        .prepare(`SELECT COUNT(*) AS n FROM ${view} WHERE ${flag} IS NULL`)
+        .get() as { n: number };
+      expect(unknown.n, view).toBe(0);
+      const marked = db
+        .prepare(`SELECT COUNT(*) AS n FROM ${view} WHERE ${flag} = 1`)
+        .get() as { n: number };
+      expect(marked.n, view).toBe(1);
+    }
   });
 });
 

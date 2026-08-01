@@ -127,20 +127,42 @@ export function openDb(path: string): Database.Database {
  *    api.test.ts asserts a view total equals computeTotals() for the same
  *    invoice. (SQLite's round() and JS's Math.round() agree on the
  *    non-negative values this schema allows: quantity > 0, unit price >= 0.)
- * 3. CANCELLED INVOICES ARE INCLUDED AND MARKED (`status`, `is_cancelled`), so
- *    a report can filter them rather than silently miss numbers that were
- *    issued. Only `report_receivables_aging` drops them — a cancelled invoice
- *    is not a receivable.
+ * 3. CANCELLED INVOICES ARE INCLUDED AND MARKED, so a report can filter them
+ *    rather than silently miss numbers that were issued. Every row-level view
+ *    carries the flag, not just the header: `report_invoices` and
+ *    `report_invoice_lines` as `status` / `is_cancelled`, `report_payments` as
+ *    `invoice_status` / `invoice_is_cancelled` (disambiguated, because that
+ *    view already carries payment-level fields). Only
+ *    `report_receivables_aging` drops them — a cancelled invoice is not a
+ *    receivable.
  *
- * `CREATE VIEW IF NOT EXISTS` only, no table changes: this migration is
- * append-only and idempotent like every other one in this catalogue, and a
- * database that already has the views is untouched.
+ * NO TABLE CHANGES: this migration only ever touches views.
+ *
+ * The views are DROPPED AND RECREATED on every open, deliberately. A view
+ * holds no data, so rebuilding one costs nothing and loses nothing — whereas
+ * `CREATE VIEW IF NOT EXISTS` is inert on any database that has already run
+ * it, which would mean an added column reached fresh test databases and never
+ * reached a deployed stack. Tests would pass while the contract stayed broken
+ * in production. Rebuilding is what makes the "adding a column is a compatible
+ * change" promise in docs/REPORTING-CONTRACT.md actually true on upgrade.
+ *
+ * Order matters in one direction only: `report_receivables_aging` reads
+ * `report_invoices`, so drop runs in reverse dependency order and create in
+ * dependency order.
  */
 function ensureReportViews(db: Database.Database): void {
+  // Reverse dependency order: dependants first.
+  db.exec(`
+    DROP VIEW IF EXISTS report_receivables_aging;
+    DROP VIEW IF EXISTS report_payments;
+    DROP VIEW IF EXISTS report_invoice_lines;
+    DROP VIEW IF EXISTS report_invoices;
+  `);
+
   db.exec(`
     -- One row per non-draft invoice: the header, the customer, the money.
     -- Key: invoice_number (unique, immutable — kept even when cancelled).
-    CREATE VIEW IF NOT EXISTS report_invoices AS
+    CREATE VIEW report_invoices AS
     SELECT
       i.number                                        AS invoice_number,
       i.issue_date                                    AS issue_date,
@@ -193,7 +215,9 @@ function ensureReportViews(db: Database.Database): void {
     WHERE i.status <> 'draft';
 
     -- Line-level detail, joined to the invoice number a reader can cite.
-    CREATE VIEW IF NOT EXISTS report_invoice_lines AS
+    -- Carries the PARENT invoice's cancellation state: without it a plain
+    -- SUM(line_net_cents) silently counts revenue that was cancelled.
+    CREATE VIEW report_invoice_lines AS
     SELECT
       i.number                                          AS invoice_number,
       i.issue_date                                      AS issue_date,
@@ -202,13 +226,18 @@ function ensureReportViews(db: Database.Database): void {
       l.quantity                                        AS quantity,
       l.unit_price_cents                                AS unit_price_cents,
       l.vat_rate                                        AS vat_rate,
-      CAST(ROUND(l.quantity * l.unit_price_cents) AS INTEGER) AS line_net_cents
+      CAST(ROUND(l.quantity * l.unit_price_cents) AS INTEGER) AS line_net_cents,
+      i.status                                          AS status,
+      CASE WHEN i.status = 'cancelled' THEN 1 ELSE 0 END AS is_cancelled
     FROM invoice_lines l
     JOIN invoices i ON i.id = l.invoice_id
     WHERE i.status <> 'draft';
 
     -- Payments, joined to the invoice they settle and the customer who paid.
-    CREATE VIEW IF NOT EXISTS report_payments AS
+    -- The invoice's cancellation state is named invoice_* here: this view
+    -- already carries payment-level fields, so an unqualified "status" would
+    -- read as the payment's own.
+    CREATE VIEW report_payments AS
     SELECT
       pay.id                                            AS payment_id,
       i.number                                          AS invoice_number,
@@ -216,7 +245,9 @@ function ensureReportViews(db: Database.Database): void {
       c.name                                            AS customer_name,
       pay.date                                          AS payment_date,
       pay.amount_cents                                  AS amount_cents,
-      pay.note                                          AS note
+      pay.note                                          AS note,
+      i.status                                          AS invoice_status,
+      CASE WHEN i.status = 'cancelled' THEN 1 ELSE 0 END AS invoice_is_cancelled
     FROM payments pay
     JOIN invoices i ON i.id = pay.invoice_id
     JOIN customers c ON c.id = i.customer_id
@@ -225,7 +256,7 @@ function ensureReportViews(db: Database.Database): void {
     -- Open receivables per customer in the conventional aging buckets.
     -- Cancelled invoices are excluded (not a receivable); so is anything
     -- already settled, which is why every row has outstanding_cents > 0.
-    CREATE VIEW IF NOT EXISTS report_receivables_aging AS
+    CREATE VIEW report_receivables_aging AS
     SELECT
       customer_id,
       customer_name,
