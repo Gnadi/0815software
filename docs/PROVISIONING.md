@@ -23,7 +23,8 @@ modules/registry.json          the source of truth: 14 modules, 11 services
         │
         └─ deploy/test/registry.test.ts
                                      → re-derives every registry claim from each
-                                       package's own server/config.ts
+                                       package's own server/config.ts (and
+                                       server/db.ts for the view contract)
 ```
 
 Nothing in that chain is hand-maintained twice. The marketing catalogue
@@ -35,8 +36,9 @@ hub read the same registry, so a new module is a package plus a registry entry.
 [`modules/registry.json`](../modules/registry.json) declares, per module: its id,
 catalogue number, slug, title, short operational label, default port, typical
 scope, the Platform Services it integrates with, its module-specific env vars and
-secrets, any module peers it bridges to, and three deployment constraints —
-`supportsSso`, `needsPublicBaseUrl`, `needsSourceDb`. It also carries the eleven
+secrets, any module peers it bridges to, and four deployment constraints —
+`supportsSso`, `needsPublicBaseUrl`, `acceptsSourceDb`, `publishesReportViews`.
+It also carries the eleven
 Platform Services with their ports, Caddy route prefixes, URL env var,
 tick-driven flag and per-stack secrets.
 
@@ -47,10 +49,12 @@ Two properties make it trustworthy rather than decorative:
   `noopPlatform` when a URL is unset. `required` is reserved for a module that
   genuinely refuses to work, and nothing qualifies today.
 - **A drift test re-derives every claim from the code.**
-  `deploy/test/registry.test.ts` reads each package's own `server/config.ts` and
-  compares: ports, which `*_URL` vars are actually read, the three constraints,
-  the tick-driven flag, per-service secrets, and that no declared env var is
-  fictional. Corrupt an entry and the suite fails naming the mismatch.
+  `deploy/test/registry.test.ts` reads each package's own source and compares:
+  ports, which `*_URL` vars are actually read, the four constraints (three
+  against `server/config.ts`, `publishesReportViews` against the `CREATE VIEW
+  report_*` statements in `server/db.ts`), the tick-driven flag, per-service
+  secrets, and that no declared env var is fictional. Corrupt an entry and the
+  suite fails naming the mismatch.
 
 Adding a module: build the package, add a registry entry, add a copy block to
 `src/data/modules.ts`. Adding a service: build the package, add a registry entry.
@@ -91,13 +95,22 @@ What it decides for you:
   is in the *same* stack: a customer who licensed MOD-04 without MOD-13 gets no
   `OFFERS_URL`, and MOD-04's offer-import endpoint answers 501.
 
-Two cases need a flag:
+Two cases need attention:
 
-- **MOD-08 Reporting Suite** reports on another module's database, opened
-  read-only, and refuses to boot if the path is set but missing. Pass
-  `--source-db <module-id>`; the generator mounts that module's volume read-only
-  at `/source` and makes MOD-08 wait for it to be healthy, because a fresh volume
-  has no database file yet.
+- **MOD-08 Reporting Suite** *can* report on another module's database, opened
+  read-only. This is **optional**: with no flag, MOD-08 is provisioned
+  standalone against its own generated source database, which is a valid
+  single-module stack. Pass `--source-db <module-id>` to point it at another
+  selected module instead; the generator mounts that module's volume read-only
+  at `/source`, sets `SOURCE_DB_PATH`, and makes MOD-08 wait for the owning
+  module to be healthy, because a fresh volume has no database file yet.
+  **If that module declares `publishesReportViews`, the generator also sets
+  `SOURCE_VIEWS_ONLY=true`**, so MOD-08 is restricted to the published
+  `report_*` views and never sees the source's private tables — no hand edit
+  needed. A source that publishes no views is left unrestricted, because
+  implying a contract that does not exist would restrict MOD-08 to nothing.
+  The summary line says which case applied. See
+  [`REPORTING-CONTRACT.md`](./REPORTING-CONTRACT.md).
 - **Values only the customer can supply** — the seller name, address and VAT id,
   the ACME contact — are written as `FILL-ME-IN` and listed in the summary.
 

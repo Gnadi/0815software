@@ -306,10 +306,12 @@ function freshSecret() {
 }
 
 /**
- * A module that reports on another module's database opens SOURCE_DB_PATH
- * read-only and refuses to boot when the path is set but missing. In a real
- * stack that file is another container's volume; here we create an empty one
- * with the module's own better-sqlite3 so the read-only open succeeds.
+ * A module POINTED AT another module's database opens SOURCE_DB_PATH read-only
+ * and refuses to boot when the path is set but missing. In a real stack that
+ * file is another container's volume; here we create an empty one with the
+ * module's own better-sqlite3 so the read-only open succeeds. Only called for
+ * a module the stack actually pointed somewhere — accepting a source database
+ * is optional, and the standalone checks deliberately set nothing.
  */
 function makeSourceDb(mod, port) {
   const path = join(dataDir, `${mod.id}-${port}-source.db`);
@@ -343,6 +345,16 @@ async function bootStack(stack) {
   // when both modules are in this stack — the same rule the generator applies.
   const modulePorts = new Map(stack.modules.map((mod) => [mod.id, mod.defaultPort]));
 
+  // Whether a module that ACCEPTS a source database was actually pointed at
+  // one. A manifest records the operator's choice (`sourceDb`, null when the
+  // module was provisioned standalone); an ad-hoc --modules run has no such
+  // record, so it exercises the pointed-at-a-database configuration.
+  const pointedAtSource = (mod) => {
+    if (!mod.constraints.acceptsSourceDb) return false;
+    if (!stack.manifest) return true;
+    return stack.manifest.modules.some((m) => m.id === mod.id && m.sourceDb);
+  };
+
   const modules = [];
   for (const mod of stack.modules) {
     const env = {
@@ -360,7 +372,14 @@ async function bootStack(stack) {
     }
     if (mod.constraints.supportsSso && urls.has('ps-01-identity')) env.IDENTITY_ORG = SEEDED_ORG;
     if (mod.constraints.needsPublicBaseUrl) env.PUBLIC_BASE_URL = `http://127.0.0.1:${mod.defaultPort}`;
-    if (mod.constraints.needsSourceDb) env.SOURCE_DB_PATH = makeSourceDb(mod, mod.defaultPort);
+    if (pointedAtSource(mod)) {
+      env.SOURCE_DB_PATH = makeSourceDb(mod, mod.defaultPort);
+      // Mirror the generated stack: a manifest records whether the source
+      // publishes a report_* contract, and the consumer is restricted to it.
+      if (stack.manifest?.modules.some((m) => m.id === mod.id && m.sourceViewsOnly)) {
+        env.SOURCE_VIEWS_ONLY = 'true';
+      }
+    }
 
     const peers = [];
     for (const peer of peersOf(mod)) {
@@ -438,11 +457,16 @@ async function login(url, credentials) {
   return res.status;
 }
 
-/** A module booted with no platform URLs at all must still come up and serve. */
+/**
+ * A module booted with no platform URLs at all must still come up and serve.
+ *
+ * SOURCE_DB_PATH is deliberately NOT set here either, even for a module that
+ * accepts one: accepting a source database is optional, so "standalone" has to
+ * mean nothing wired at all. The module generates its own source on first boot.
+ */
 async function checkStandalone(mod, port) {
   const env = { ...SMOKE_VALUES, ADMIN_PASSWORD: freshSecret(), SESSION_SECRET: freshSecret() };
   for (const name of mod.env.secrets) env[name] = freshSecret();
-  if (mod.constraints.needsSourceDb) env.SOURCE_DB_PATH = makeSourceDb(mod, port);
   const { url } = boot({ group: 'modules', id: mod.id, port, env });
   try {
     await waitForHealth(`${mod.n} standalone`, url, 45_000);
@@ -700,13 +724,10 @@ async function main(argv) {
     id: guardModule.id,
     label: `${guardModule.n} ${guardModule.title}`,
     port: guardModule.defaultPort + 2500,
-    env: {
-      ...SMOKE_VALUES,
-      ADMIN_PASSWORD: freshSecret(),
-      ...(guardModule.constraints.needsSourceDb
-        ? { SOURCE_DB_PATH: makeSourceDb(guardModule, guardModule.defaultPort + 2500) }
-        : {}),
-    },
+    // No SOURCE_DB_PATH even for a module that accepts one: the production
+    // boot guard runs before any source handling, and a source database is
+    // not a precondition for booting.
+    env: { ...SMOKE_VALUES, ADMIN_PASSWORD: freshSecret() },
   });
   if (stack.services.length > 0) {
     await checkBootGuard({

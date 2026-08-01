@@ -99,6 +99,48 @@ invoice whose payments cover the gross total, payment status
 (`unpaid` / `partially_paid` / `paid`) from the sum of payments, and
 `overdue` from `due_date < today` — none of these exist as columns.
 
+### Published reporting views (`report_*`)
+
+The five tables above are **private**. What other software may read is the
+set of `report_*` views this module publishes in the same database — its
+reporting contract. The tables stay free to be refactored; the views are the
+promise. Full stance and rules:
+[`docs/REPORTING-CONTRACT.md`](../../docs/REPORTING-CONTRACT.md).
+
+| View | One row per | Key |
+| ---- | ----------- | --- |
+| `report_invoices` | non-draft invoice — dates, status, customer name and VAT id, net/VAT/gross, paid, outstanding, days overdue | `invoice_number` |
+| `report_invoice_lines` | invoice line, with `line_net_cents` | `invoice_number` + `line_position` |
+| `report_payments` | payment, joined to invoice number and customer | `payment_id` |
+| `report_receivables_aging` | customer with an open balance, in the buckets current / 1-30 / 31-60 / 61-90 / 90+ | `customer_id` |
+
+Three things the views guarantee:
+
+- **Drafts never appear.** No number, no issue date, not a business fact yet.
+- **Money matches this module's own arithmetic exactly** — per-line net
+  rounding, VAT rounded once per rate — because a report that disagrees with
+  the PDF is worse than no report. A test asserts a view total equals
+  `computeTotals()` for the same invoice.
+- **Cancelled invoices are included and marked on every row-level view**, so a
+  report can filter them instead of silently missing issued numbers:
+  `report_invoices` and `report_invoice_lines` carry `status` /
+  `is_cancelled`; `report_payments` carries `invoice_status` /
+  `invoice_is_cancelled` (disambiguated — that view already holds
+  payment-level fields). Without the flag on the line view, a plain
+  `SELECT SUM(line_net_cents) FROM report_invoice_lines` would silently count
+  cancelled revenue. Cancelled invoices are excluded from
+  `report_receivables_aging` — a cancelled invoice is not a receivable.
+
+The views are `DROP VIEW IF EXISTS` + `CREATE VIEW` on every open in
+`server/db.ts` — no table changes, no data changes. They are rebuilt rather
+than created-if-absent so a column added to the contract actually reaches a
+database that already ran the migration; a view holds no data, so rebuilding
+costs nothing. To read them, point MOD-08 Reporting Suite (or `sqlite3`) at the
+database file. `modules/registry.json` marks this module
+`publishesReportViews`, so provisioning MOD-08 with `--source-db
+mod-04-invoice-billing` sets `SOURCE_VIEWS_ONLY=true` automatically and MOD-08
+never sees the tables above.
+
 ## Invoice numbering rules
 
 - Format: `INV-<year>-<seq>` with a 4-digit zero-padded sequence,
@@ -229,7 +271,13 @@ across concurrent finalizations, sent-invoice immutability (409),
 per-line rounding and mixed-VAT totals (incl. 3 × €0.33), payment status
 transitions with overpayment 422, ledger running balance = invoiced −
 paid, cancelled invoices keeping their numbers, a valid `%PDF` response,
-and 401 everywhere without a session.
+and 401 everywhere without a session. `test/report-views.test.ts` covers the
+published contract: the views exist with exactly the documented columns,
+drafts are excluded, a view's totals equal `computeTotals()` for the same
+invoice, the aging buckets are correct *on* their boundaries, every published
+line and payment row carries its invoice's cancellation state, and re-opening
+a database rebuilds the views so an added column reaches an existing
+deployment.
 
 ## Deploy notes
 

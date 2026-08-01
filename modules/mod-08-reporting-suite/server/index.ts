@@ -42,13 +42,19 @@ const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
-const app = createApp({ db, hardening: hardeningFromEnv(), sourceDb, auth: config.auth, exportsDir: config.exportsDir, staticDir, platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso) });
+const app = createApp({ db, hardening: hardeningFromEnv(), sourceDb, sourceViewsOnly: config.sourceViewsOnly, auth: config.auth, exportsDir: config.exportsDir, staticDir, platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso) });
 
-startScheduler({ db, sourceDb, exportsDir: config.exportsDir }, config.schedulerTickSeconds);
+startScheduler(
+  { db, sourceDb, exportsDir: config.exportsDir, sourceViewsOnly: config.sourceViewsOnly },
+  config.schedulerTickSeconds,
+);
 
 app.listen(config.port, () => {
   console.log(`[mod-08] reporting suite API on http://localhost:${config.port}`);
   console.log(`[mod-08] source db (read-only): ${config.sourceDbPath}`);
+  if (config.sourceViewsOnly) {
+    console.log('[mod-08] SOURCE_VIEWS_ONLY: reports may read only the source’s report_* views');
+  }
   if (staticDir) console.log(`[mod-08] serving client from ${staticDir}`);
   if (config.auth.password === 'admin') {
     console.warn('[mod-08] WARNING: using default credentials (admin/admin) — set ADMIN_USERNAME/ADMIN_PASSWORD');

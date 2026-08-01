@@ -28,17 +28,22 @@ import { createProgram } from './programs.js';
  * expressed as offsets from the seed day, so the derived overdue/at-risk/
  * upcoming states are stable whenever you seed.
  *
+ * That guarantee holds only while the reader's "now" IS the seed day, which
+ * is why `base` is a parameter. A caller that pins the clock — a test, a demo
+ * at a fixed date — must seed at the same instant, or the dataset drifts out
+ * from under it as the real calendar advances and deliberately-overdue rows
+ * stop being overdue. Defaults to now, so the app and the CLI are unchanged.
+ *
  * Idempotent: the dataset is relational, so seeding is all-or-nothing — if
  * any program already exists the seed is skipped entirely.
  */
-export function seed(db: Database.Database): void {
+export function seed(db: Database.Database, base: number = Date.now()): void {
   const { count } = db.prepare('SELECT COUNT(*) AS count FROM programs').get() as { count: number };
   if (count > 0) {
     console.log(`[seed] database already contains ${count} programs, skipping`);
     return;
   }
 
-  const base = Date.now();
   const DAY = 86_400_000;
   /** ISO timestamp for `m` minutes before the seed moment. */
   const ago = (m: number): string => nowIso(base - m * 60_000);

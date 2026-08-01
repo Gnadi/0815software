@@ -277,9 +277,29 @@ describe('secrets', () => {
 describe('mod-08 source database', () => {
   const both = 'mod-08-reporting-suite,mod-04-invoice-billing';
 
-  it('refuses to generate without --source-db, naming the candidates', () => {
-    expect(() => planStack(args('--modules', both))).toThrow(/needs --source-db/);
-    expect(() => planStack(args('--modules', both))).toThrow(/mod-04-invoice-billing/);
+  it('provisions mod-08 alone, against its own source database', () => {
+    // The registry says mod-08 ACCEPTS a source database, not that it needs
+    // one: server/config.ts defaults SOURCE_DB_PATH to ./source.db and the
+    // module generates a demo source at boot. A single-module stack is valid.
+    const plan = planStack(args('--modules', 'mod-08-reporting-suite'));
+    const reporting = plan.modules.find((m: any) => m.mod.id === 'mod-08-reporting-suite')!;
+    expect(plan.modules).toHaveLength(1);
+    expect(reporting.env.SOURCE_DB_PATH).toBeUndefined();
+    expect(reporting.sourceOf).toBeNull();
+    expect(reporting.sourceVolume).toBeNull();
+
+    const compose = renderCompose(plan, '..');
+    expect(compose).toContain('reporting:');
+    expect(compose).not.toContain('/source:ro');
+    expect(compose).not.toContain('SOURCE_DB_PATH');
+    expect(JSON.parse(renderManifest(plan)).modules[0].sourceDb).toBeNull();
+  });
+
+  it('leaves the source database out of a multi-module stack when not asked for', () => {
+    const plan = planStack(args('--modules', both));
+    const reporting = plan.modules.find((m: any) => m.mod.id === 'mod-08-reporting-suite')!;
+    expect(reporting.env.SOURCE_DB_PATH).toBeUndefined();
+    expect(renderCompose(plan, '..')).not.toContain('/source:ro');
   });
 
   it('refuses a source module that is not in the selection', () => {
@@ -294,9 +314,9 @@ describe('mod-08 source database', () => {
     );
   });
 
-  it('refuses --source-db when nothing needs one', () => {
+  it('refuses --source-db when nothing accepts one', () => {
     expect(() => planStack(args('--modules', 'mod-13-offers', '--source-db', 'mod-13-offers'))).toThrow(
-      /no selected module declares needsSourceDb/,
+      /no selected module accepts a source database/,
     );
   });
 
@@ -309,6 +329,68 @@ describe('mod-08 source database', () => {
     const compose = renderCompose(plan, '..');
     expect(compose).toContain('"invoicing-data:/source:ro"');
     expect(compose).toMatch(/invoicing:\n {8}condition: "service_healthy"/);
+  });
+
+  it('restricts the consumer to report_* views when the source publishes a contract', () => {
+    // MOD-04 declares publishesReportViews, so pointing MOD-08 at it must
+    // enable the contract by itself — leaving that to a hand edit of .env
+    // means the default deployment reads MOD-04's private tables.
+    const plan = planStack(args('--modules', both, '--source-db', 'mod-04-invoice-billing'));
+    const reporting = plan.modules.find((m: any) => m.mod.id === 'mod-08-reporting-suite')!;
+    expect(reporting.env.SOURCE_DB_PATH).toBe('/source/data.db');
+    // config.ts parses SOURCE_VIEWS_ONLY === 'true', so the exact string matters.
+    expect(reporting.env.SOURCE_VIEWS_ONLY).toBe('true');
+    expect(reporting.sourceViewsOnly).toBe(true);
+
+    const compose = renderCompose(plan, '..');
+    expect(compose).toContain('SOURCE_DB_PATH: "/source/data.db"');
+    expect(compose).toContain('SOURCE_VIEWS_ONLY: "true"');
+
+    const manifest = JSON.parse(renderManifest(plan));
+    const entry = manifest.modules.find((m: any) => m.id === 'mod-08-reporting-suite');
+    expect(entry).toMatchObject({ sourceDb: 'mod-04-invoice-billing', sourceViewsOnly: true });
+  });
+
+  it('leaves the consumer unrestricted when the source publishes no views', () => {
+    // MOD-03 has no report_* contract. Implying one would restrict MOD-08 to
+    // a surface that does not exist, so this stays exactly as it was.
+    const plan = planStack(
+      args(
+        '--modules',
+        'mod-03-inventory-management,mod-08-reporting-suite',
+        '--source-db',
+        'mod-03-inventory-management',
+      ),
+    );
+    const reporting = plan.modules.find((m: any) => m.mod.id === 'mod-08-reporting-suite')!;
+    expect(reporting.env.SOURCE_DB_PATH).toBe('/source/data.db');
+    expect(reporting.env.SOURCE_VIEWS_ONLY).toBeUndefined();
+    expect(reporting.sourceViewsOnly).toBe(false);
+    expect(renderCompose(plan, '..')).not.toContain('SOURCE_VIEWS_ONLY');
+  });
+
+  it('sets no SOURCE_VIEWS_ONLY at all when there is no --source-db', () => {
+    const plan = planStack(args('--modules', 'mod-08-reporting-suite'));
+    const reporting = plan.modules[0]!;
+    expect(reporting.env.SOURCE_VIEWS_ONLY).toBeUndefined();
+    expect(reporting.sourceViewsOnly).toBe(false);
+    expect(renderCompose(plan, '..')).not.toContain('SOURCE_VIEWS_ONLY');
+  });
+
+  it('drives restricted mode off the registry, naming no module in the generator', () => {
+    // The pairing must follow the declared constraint, not a hard-coded id:
+    // a second module that publishes a contract has to work with no change
+    // to deploy/provision.mjs.
+    const generator = readFileSync(
+      fileURLToPath(new URL('../provision.mjs', import.meta.url)),
+      'utf8',
+    );
+    // Comments stripped: the usage example in the file header cites real
+    // module ids on purpose, and documentation cannot branch on anything.
+    const code = generator.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const mentioned = [...code.matchAll(/\bmod-\d{2}-[a-z-]+\b/g)].map((m) => m[0]);
+    expect(mentioned, 'provision.mjs logic must not name a module id').toEqual([]);
+    expect(code).toContain('publishesReportViews');
   });
 });
 

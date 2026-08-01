@@ -100,7 +100,12 @@ Required:
 Optional:
   --org <slug>          PS-01 organization slug (default: the customer slug).
   --acme-email <email>  Email Caddy registers with the ACME CA for TLS.
-  --source-db <id>      Module whose database a needsSourceDb module reports on.
+  --source-db <id>      Point a module that accepts a source database at another
+                        selected module's volume (mounted read-only). Optional:
+                        without it such a module runs against its own data.
+                        When the named module publishes a report_* view
+                        contract, the consumer is restricted to those views
+                        automatically (SOURCE_VIEWS_ONLY=true).
   --all-services        Include every Platform Service, not just the ones the
                         selection references.
   --force               Overwrite a non-empty --out.
@@ -213,26 +218,24 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
   const stack = resolveSelection(options.moduleIds, { allServices: options.allServices });
   const serviceById = new Map(stack.services.map((s) => [s.id, s]));
 
-  // A module reporting on another module's database needs that module's volume.
-  const needsSource = stack.modules.filter((m) => m.constraints.needsSourceDb);
-  if (needsSource.length > 0 && !options.sourceDb) {
-    fail(
-      `${needsSource.map((m) => m.id).join(', ')} reports on another module's database and needs ` +
-        `--source-db <module-id>. Pick one of the other selected modules: ` +
-        `${stack.modules.filter((m) => !m.constraints.needsSourceDb).map((m) => m.id).join(', ') || '(none — select one)'}`,
-    );
-  }
+  // A module that ACCEPTS a source database can be pointed at another module's
+  // volume — optionally. Without --source-db it is provisioned standalone and
+  // reports on its own data, which is the module's own documented default; the
+  // generator has no business inventing a dependency the code does not have.
+  const acceptsSource = stack.modules.filter((m) => m.constraints.acceptsSourceDb);
   if (options.sourceDb) {
-    if (needsSource.length === 0) {
-      fail(`--source-db was given but no selected module declares needsSourceDb — drop the flag`);
+    if (acceptsSource.length === 0) {
+      fail(`--source-db was given but no selected module accepts a source database — drop the flag`);
     }
     if (!stack.modules.some((m) => m.id === options.sourceDb)) {
       fail(`--source-db "${options.sourceDb}" is not in --modules; a stack can only mount a volume it creates`);
     }
-    if (needsSource.some((m) => m.id === options.sourceDb)) {
+    if (acceptsSource.some((m) => m.id === options.sourceDb)) {
       fail(`--source-db "${options.sourceDb}" reports on a source database itself — pick a different module`);
     }
   }
+
+  const sourceModule = options.sourceDb ? stack.modules.find((m) => m.id === options.sourceDb) : null;
 
   const secrets = generateSecrets(stack, secret);
 
@@ -279,10 +282,23 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
       if (mod.env.optional.includes(name)) env[name] = path;
     }
 
-    const sourceOf = mod.constraints.needsSourceDb ? options.sourceDb : null;
-    if (sourceOf) env.SOURCE_DB_PATH = '/source/data.db';
+    // Only set when the operator asked for it: an unset SOURCE_DB_PATH is what
+    // makes the module generate/keep its own source, so leaving it out is the
+    // standalone deployment, not a missing setting.
+    const sourceOf = mod.constraints.acceptsSourceDb ? (options.sourceDb ?? null) : null;
+    // When the source module publishes a report_* view contract, the consumer
+    // is restricted to it automatically — that pairing is the whole point of
+    // the contract, and leaving it to a hand edit of .env means the default
+    // deployment reads the source's private tables. Driven entirely by the
+    // registry flag: no module id appears in this generator.
+    const sourceViewsOnly = sourceOf !== null && sourceModule?.constraints.publishesReportViews === true;
+    if (sourceOf) {
+      env.SOURCE_DB_PATH = '/source/data.db';
+      // config.ts reads `SOURCE_VIEWS_ONLY === 'true'`, so emit exactly that.
+      if (sourceViewsOnly) env.SOURCE_VIEWS_ONLY = 'true';
+    }
 
-    return { mod, subdomain, url, prefix, env, sourceOf, volume: `${subdomain}-data` };
+    return { mod, subdomain, url, prefix, env, sourceOf, sourceViewsOnly, volume: `${subdomain}-data` };
   });
 
   const plannedServices = stack.services.map((service) => {
@@ -561,7 +577,7 @@ export function renderManifest(plan) {
       identityOrg: plan.org,
       allServices: plan.allServices,
       ticker: plan.needsTicker,
-      modules: plan.modules.map(({ mod, subdomain, url, sourceOf, peers }) => ({
+      modules: plan.modules.map(({ mod, subdomain, url, sourceOf, sourceViewsOnly, peers }) => ({
         id: mod.id,
         n: mod.n,
         label: mod.label,
@@ -570,6 +586,7 @@ export function renderManifest(plan) {
         port: mod.defaultPort,
         supportsSso: mod.constraints.supportsSso,
         sourceDb: sourceOf,
+        sourceViewsOnly,
         peers: peers.map((peer) => ({ id: peer.id, urlEnv: peer.urlEnv })),
       })),
       services: plan.services.map(({ service, name }) => ({
@@ -804,8 +821,15 @@ function summarize(plan, written) {
   out.push(`  Provisioned "${plan.customer}" into ${written.dir}`);
   out.push('');
   out.push(`  Modules   ${plan.modules.length}`);
-  for (const { mod, url, sourceOf } of plan.modules) {
-    out.push(`    ${mod.n}  ${url.padEnd(44)} ${sourceOf ? `reports on ${sourceOf}` : ''}`.trimEnd());
+  for (const { mod, url, sourceOf, sourceViewsOnly } of plan.modules) {
+    const source = sourceOf
+      ? sourceViewsOnly
+        ? `reports on ${sourceOf} (report_* views only)`
+        : `reports on ${sourceOf} (full schema — it publishes no report_* views)`
+      : mod.constraints.acceptsSourceDb
+        ? 'reports on its own source db (no --source-db given)'
+        : '';
+    out.push(`    ${mod.n}  ${url.padEnd(44)} ${source}`.trimEnd());
   }
   out.push(`  Services  ${plan.services.length}${plan.allServices ? ' (--all-services)' : ' (minimal set)'}`);
   out.push(`    ${plan.services.map(({ service }) => service.n).join(', ')}`);

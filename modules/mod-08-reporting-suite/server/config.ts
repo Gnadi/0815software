@@ -14,6 +14,14 @@ export interface ServerConfig {
   sourceDbPath: string;
   /** True when sourceDbPath came from the environment (must exist). */
   sourceDbExplicit: boolean;
+  /**
+   * Restrict every report to the source's published `report_*` views — the
+   * reporting contract (docs/REPORTING-CONTRACT.md). OFF by default: pointed
+   * at an arbitrary customer database there is no contract to hold anyone to,
+   * and the whole schema is exactly what an author wants. Turn it on when the
+   * source is a module that publishes a set.
+   */
+  sourceViewsOnly: boolean;
   exportsDir: string;
   schedulerTickSeconds: number;
   auth: AuthConfig;
@@ -35,6 +43,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     databasePath: env.DATABASE_PATH ?? './data.db',
     sourceDbPath: sourceDbExplicit ? env.SOURCE_DB_PATH! : DEFAULT_SOURCE_DB,
     sourceDbExplicit,
+    sourceViewsOnly: env.SOURCE_VIEWS_ONLY === 'true',
     exportsDir: env.EXPORTS_DIR ?? './exports',
     schedulerTickSeconds: Number(env.SCHEDULER_TICK_SECONDS) || 60,
     auth: {

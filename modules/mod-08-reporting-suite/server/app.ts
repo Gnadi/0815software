@@ -28,10 +28,10 @@ import { noopPlatform, type PlatformHooks } from './platform.js';
 import { nullVerifier, type LoginVerifier } from './sso.js';
 import { DomainError, nowIso } from './errors.js';
 import { computePivot } from './pivot.js';
-import { checkReportSql, QUERY_POLICY } from './query-policy.js';
+import { checkReportSql, QUERY_POLICY, type PolicyOptions } from './query-policy.js';
 import { executeRun, type RunContext } from './runs.js';
 import { nextDueAt } from './scheduler.js';
-import { describeSource, runReportQuery } from './source-db.js';
+import { describeSource, runReportQuery, sourcePolicy } from './source-db.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -82,7 +82,7 @@ interface ReportInput {
   sql: string;
 }
 
-function validateReport(input: Record<string, unknown>): ReportInput {
+function validateReport(input: Record<string, unknown>, policy: PolicyOptions): ReportInput {
   const errors: FieldError[] = [];
   const name = reqText(input.name, 'name', errors, 160);
   const description = optText(input.description, 'description', errors, 500);
@@ -90,7 +90,7 @@ function validateReport(input: Record<string, unknown>): ReportInput {
   if (sql === '') {
     errors.push({ field: 'sql', message: 'sql is required' });
   } else {
-    const check = checkReportSql(sql);
+    const check = checkReportSql(sql, policy);
     if (!check.ok) errors.push({ field: 'sql', message: check.reason ?? 'Query rejected by policy' });
   }
   if (errors.length > 0) fail(errors);
@@ -156,6 +156,12 @@ export interface AppOptions {
   hardening?: HardeningConfig;
   db: Database.Database;
   sourceDb: Database.Database;
+  /**
+   * Restrict every query to the source's published `report_*` views — the
+   * reporting contract. Defaults to false, which is the module's headline
+   * feature: pointed at any SQLite file, the whole schema is fair game.
+   */
+  sourceViewsOnly?: boolean;
   auth: AuthConfig;
   exportsDir: string;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
@@ -165,15 +171,21 @@ export interface AppOptions {
   verifyLogin?: LoginVerifier;
 }
 
-export function createApp({ db, hardening, sourceDb, auth, exportsDir, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
+export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, auth, exportsDir, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
   const app = express();
+  // The policy for THIS request, with the published view set read fresh from
+  // the source's catalog (see source-db.ts `sourcePolicy` for why per-check
+  // rather than snapshotted at boot). Called at every validation and every
+  // execution, so a query can never be checked under looser rules than it
+  // runs under — and a view the source publishes later needs no restart here.
+  const policy = (): PolicyOptions => sourcePolicy(sourceDb, sourceViewsOnly);
 
   // Transport hardening: security headers, a default-deny CORS policy and
   // per-IP rate limits. Mounted only when a config is passed — index.ts always
   // passes one, tests do not, so suites stay unthrottled and deterministic.
   if (hardening) app.use(hardeningMiddleware(hardening));
   app.use(express.json({ limit: '1mb' }));
-  const runCtx: RunContext = { db, sourceDb, exportsDir };
+  const runCtx: RunContext = { db, sourceDb, exportsDir, sourceViewsOnly };
 
   // ── Public routes ────────────────────────────────────────────────────
   app.get('/api/health', (_req, res) => {
@@ -228,7 +240,7 @@ export function createApp({ db, hardening, sourceDb, auth, exportsDir, staticDir
       return;
     }
     try {
-      const result = runReportQuery(sourceDb, report.sql);
+      const result = runReportQuery(sourceDb, report.sql, policy());
       const svg = renderChartSvg(result, {
         kind: chart.kind,
         x: chart.x_column,
@@ -263,8 +275,12 @@ export function createApp({ db, hardening, sourceDb, auth, exportsDir, staticDir
   // ── Source schema + policy (what authors write queries against) ──────
   app.get('/api/source', (_req, res) => {
     res.json({
-      tables: describeSource(sourceDb),
-      policy: { max_rows: QUERY_POLICY.maxRows, timeout_ms: QUERY_POLICY.timeoutMs },
+      tables: describeSource(sourceDb, policy()),
+      policy: {
+        max_rows: QUERY_POLICY.maxRows,
+        timeout_ms: QUERY_POLICY.timeoutMs,
+        views_only: sourceViewsOnly,
+      },
     });
   });
 
@@ -282,7 +298,7 @@ export function createApp({ db, hardening, sourceDb, auth, exportsDir, staticDir
   });
 
   app.post('/api/reports', (req, res) => {
-    const input = validateReport(body(req));
+    const input = validateReport(body(req), policy());
     const info = db
       .prepare(
         `INSERT INTO reports (name, description, sql, created_at, updated_at)
@@ -298,7 +314,7 @@ export function createApp({ db, hardening, sourceDb, auth, exportsDir, staticDir
 
   app.put('/api/reports/:id', (req, res) => {
     const report = getReport(db, Number(req.params.id));
-    const input = validateReport(body(req));
+    const input = validateReport(body(req), policy());
     db.prepare('UPDATE reports SET name = ?, description = ?, sql = ?, updated_at = ? WHERE id = ?').run(
       input.name,
       input.description,
@@ -319,7 +335,7 @@ export function createApp({ db, hardening, sourceDb, auth, exportsDir, staticDir
   app.post('/api/reports/:id/run', (req, res) => {
     const report = getReport(db, Number(req.params.id));
     try {
-      res.json(runReportQuery(sourceDb, report.sql));
+      res.json(runReportQuery(sourceDb, report.sql, policy()));
     } catch (err) {
       const status = (err as { status?: number }).status ?? 500;
       if (status === 422) {
@@ -333,13 +349,13 @@ export function createApp({ db, hardening, sourceDb, auth, exportsDir, staticDir
   // ── Ad-hoc SQL preview (edit-time, not yet saved) ────────────────────
   app.post('/api/preview', (req, res) => {
     const sql = typeof body(req).sql === 'string' ? (body(req).sql as string) : '';
-    const check = checkReportSql(sql);
+    const check = checkReportSql(sql, policy());
     if (!check.ok) {
       res.status(422).json({ error: check.reason });
       return;
     }
     try {
-      res.json(runReportQuery(sourceDb, sql));
+      res.json(runReportQuery(sourceDb, sql, policy()));
     } catch (err) {
       const status = (err as { status?: number }).status ?? 500;
       if (status === 422) {
@@ -354,7 +370,7 @@ export function createApp({ db, hardening, sourceDb, auth, exportsDir, staticDir
   app.get('/api/reports/:id/export.csv', (req, res) => {
     const report = getReport(db, Number(req.params.id));
     try {
-      const result = runReportQuery(sourceDb, report.sql);
+      const result = runReportQuery(sourceDb, report.sql, policy());
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader(
         'Content-Disposition',
@@ -377,7 +393,7 @@ export function createApp({ db, hardening, sourceDb, auth, exportsDir, staticDir
     const config = validatePivotConfig(body(req));
     let result;
     try {
-      result = runReportQuery(sourceDb, report.sql);
+      result = runReportQuery(sourceDb, report.sql, policy());
     } catch (err) {
       const status = (err as { status?: number }).status ?? 500;
       if (status === 422) {
@@ -416,7 +432,7 @@ export function createApp({ db, hardening, sourceDb, auth, exportsDir, staticDir
     const y = reqText(input.y_column, 'y_column', errors, 120);
     if (errors.length > 0) fail(errors);
     try {
-      const result = runReportQuery(sourceDb, report.sql);
+      const result = runReportQuery(sourceDb, report.sql, policy());
       const svg = renderChartSvg(result, { kind: kind as ChartConfig['kind'], x, y });
       res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
       res.send(svg);
@@ -465,7 +481,7 @@ export function createApp({ db, hardening, sourceDb, auth, exportsDir, staticDir
     const chart = getChart(db, Number(req.params.id));
     const report = getReport(db, chart.report_id);
     try {
-      const result = runReportQuery(sourceDb, report.sql);
+      const result = runReportQuery(sourceDb, report.sql, policy());
       const svg = renderChartSvg(result, { kind: chart.kind, x: chart.x_column, y: chart.y_column });
       res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
       res.send(svg);

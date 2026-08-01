@@ -28,7 +28,8 @@ the `IDENTITY_URL` seam, and a client added to `platform/clients`.
 | 2 | **PS-09 Search** | **Build if** modules need cross-entity/faceted search | Keyword + faceted search over many entity types; complements PS-04 RAG (semantic) rather than duplicating it. Lower urgency. |
 | — | Feature Flags / Config | Fold into a small service later | Genuinely cross-cutting but tiny; can wait or ship as a lightweight PS-10. |
 | — | Scheduling / Reminders | **Don't build** | Covered by PS-02 (schedules/triggers) + PS-03 (delivery). A new service would overlap both. |
-| — | Reporting / Analytics | **Don't build** | MOD-08 Reporting Suite is a whole module; a service would duplicate it. Feed it from PS-02/PS-07 instead. |
+| — | Reporting **presentation** | **Don't build** | MOD-08 Reporting Suite is a whole module; a service would duplicate it. |
+| — | Reporting **read models** (possible PS-12) | **Not yet** — a convention covers it | Modules publish `report_*` views in their own database (`docs/REPORTING-CONTRACT.md`). Zero runtime cost. Revisit on a *second* consumer or a need to report across hosts. |
 | — | Localization / i18n | **Don't build now** | Belongs to the marketing site's i18n refactor (see `docs/ANALYSIS.md`), not the module platform. |
 
 ---
@@ -129,9 +130,61 @@ or faceted search beyond its local `LIKE` queries — otherwise it's premature.
 - **Scheduling / Reminders.** Rejected: PS-02 already does interval schedules
   and triggers, and PS-03 does delivery. A reminders service would straddle
   both. Build reminders as a PS-02 workflow + PS-03 send instead.
-- **Reporting / Analytics.** Rejected: MOD-08 Reporting Suite is a full module;
-  a service would duplicate it. If shared metrics are needed, source them from
-  PS-07 (audit events) and PS-02 (instance data), not a new service.
+- **Reporting / Analytics.** This entry used to read "rejected — MOD-08 is a
+  full module, source shared metrics from PS-07 and PS-02 instead." That answer
+  is right about one question and never addressed the other, so it is split
+  here. See the next entry.
+
+- **Reporting, split in two.** There are two different services hiding under
+  one name, and they deserve separate verdicts.
+
+  **A service that PRESENTS reports** — query editor, pivots, charts, scheduled
+  CSV exports, embeds. **Still rejected, and the original reasoning holds.**
+  MOD-08 Reporting Suite *is* that, as a licensable module. A service version
+  would duplicate a module we already ship.
+
+  **A service that DELIVERS read models to consumers** — a place other software
+  asks "what is true now" and gets a stable, documented answer that survives the
+  owning module refactoring its tables. This was never actually weighed. It is
+  a different job from presentation, and the old PS-07/PS-02 answer only covers
+  half of it: **PS-07 answers "what happened" — an append-only event log — and
+  a read model answers "what is true now."** MOD-08's job is the second kind. A
+  receivables aging report is not a stream of events; it is the current balance
+  per customer, and reconstructing it by folding an audit log would be both
+  slower and less correct than asking the system that owns the data.
+
+  **Chosen step: a view contract, not a service.** A module that wants to be
+  reported on publishes `report_*` views in its own database; those views are
+  its public contract and its tables stay private and refactorable. MOD-08 is
+  pointed at the database and, with `SOURCE_VIEWS_ONLY` on, may read only those
+  views. Full write-up in
+  [`REPORTING-CONTRACT.md`](./REPORTING-CONTRACT.md); MOD-04 is the reference
+  implementation.
+
+  It wins on cost, and that is the whole argument. A service costs **another
+  container in most stacks** — plus its volume, its secret, its healthcheck, a
+  client in `platform/clients`, and a network hop on every query. The
+  convention costs a migration in the module that opts in and a config flag in
+  the module that consumes. It is also not throwaway work: the `report_*`
+  contract is exactly what a PS-12 would have to carry anyway, so adopting it
+  now is the first step of that service rather than a detour around it.
+
+  **The concrete trigger for revisiting PS-12** — either one is enough:
+
+  1. **A second consumer of cross-module read models.** Realistically MOD-02
+     Admin Dashboard, which today has no cross-module data at all. One consumer
+     reading one database over a mounted volume needs no service; two consumers
+     wanting the same read models across several modules is a service, because
+     that is the point where "each consumer mounts each volume" stops scaling
+     and the contract needs an owner.
+  2. **Reporting across hosts.** The view contract works because MOD-08 and its
+     source share a stack on one host and one volume mount
+     ([`DEPLOYMENT-MODEL.md`](./DEPLOYMENT-MODEL.md)). A customer whose modules
+     are split across hosts, or a need to report across customers, cannot be
+     served by a file mount at all.
+
+  Until one of those lands, a service here would be a container per customer
+  bought with no consumer to spend it on.
 - **Localization / i18n.** Out of platform scope — this is the marketing
   site's build-time i18n refactor (`docs/ANALYSIS.md` §3), not a module
   concern.
@@ -145,6 +198,10 @@ or faceted search beyond its local `LIKE` queries — otherwise it's premature.
 3. **PS-09 Search** — only when a module's local search is outgrown; FTS5 keeps
    it cheap when the need is real.
 4. Revisit Feature Flags (PS-10) if runtime toggles become a recurring ask.
+5. Revisit **PS-12 Read Models** only on one of its two triggers above (a
+   second consumer of cross-module read models, or reporting across hosts).
+   Until then the `report_*` view contract is the answer, and rolling it out to
+   a second module is the cheaper next move.
 
 ## Verification (per new service)
 

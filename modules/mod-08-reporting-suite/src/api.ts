@@ -71,7 +71,7 @@ function put(values: Record<string, unknown>): RequestInit & { method: string } 
 
 export interface SourceSchema {
   tables: { table: string; columns: string[] }[];
-  policy: { max_rows: number; timeout_ms: number };
+  policy: { max_rows: number; timeout_ms: number; views_only: boolean };
 }
 
 export const api = {

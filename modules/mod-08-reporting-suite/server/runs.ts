@@ -12,6 +12,12 @@ export interface RunContext {
   /** Read-only source db (where the report query runs). */
   sourceDb: Database.Database;
   exportsDir: string;
+  /**
+   * Restrict queries to the source's published `report_*` views. A scheduled
+   * run is held to the same surface as an interactive one — a report saved
+   * before the flag was turned on starts failing, visibly, in its run history.
+   */
+  sourceViewsOnly?: boolean;
 }
 
 /** Safe filename fragment from a report name. */
@@ -47,7 +53,10 @@ export function executeRun(
   );
 
   try {
-    const result = runReportQuery(ctx.sourceDb, report.sql);
+    // No published set passed: runReportQuery reads it from this very
+    // connection's catalog, so a scheduled run always sees the source's
+    // current contract rather than one snapshotted when the app booted.
+    const result = runReportQuery(ctx.sourceDb, report.sql, { viewsOnly: ctx.sourceViewsOnly });
     const csv = resultToCsv(result);
 
     mkdirSync(ctx.exportsDir, { recursive: true });

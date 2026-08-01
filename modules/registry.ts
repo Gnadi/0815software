@@ -43,7 +43,18 @@ export interface ModulePeers {
 export interface ModuleConstraints {
   supportsSso: boolean;
   needsPublicBaseUrl: boolean;
-  needsSourceDb: boolean;
+  /**
+   * The module can be pointed at another SQLite database via SOURCE_DB_PATH
+   * (read-only). It ACCEPTS one — it does not require one; the module runs
+   * standalone when the variable is unset.
+   */
+  acceptsSourceDb: boolean;
+  /**
+   * The module publishes a `report_*` view contract in its own database
+   * (docs/REPORTING-CONTRACT.md). A generator that points a consumer at this
+   * module's volume must also restrict that consumer to the published views.
+   */
+  publishesReportViews: boolean;
 }
 
 export interface ModuleRegistryEntry {
