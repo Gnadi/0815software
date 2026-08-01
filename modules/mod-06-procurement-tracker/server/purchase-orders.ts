@@ -12,6 +12,11 @@ import type {
 } from '../shared/types.js';
 import { requiredTiers, tierLabel } from './approval-config.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+export function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 /** Error with an HTTP status and optional per-field details. */
 export class DomainError extends Error {
   status: number;
@@ -170,10 +175,10 @@ export function listPos(db: Database.Database, opts: { status?: PoStatus; search
   const pos = db
     .prepare(
       `SELECT p.* FROM purchase_orders p JOIN suppliers s ON s.id = p.supplier_id
-       ${search ? 'WHERE p.number LIKE ? OR s.name LIKE ?' : ''}
+       ${search ? 'WHERE p.number LIKE ? ESCAPE \'\\\' OR s.name LIKE ? ESCAPE \'\\\'' : ''}
        ORDER BY p.number DESC`,
     )
-    .all(...(search ? [`%${search}%`, `%${search}%`] : [])) as PoStoredRow[];
+    .all(...(search ? [likeTerm(search), likeTerm(search)] : [])) as PoStoredRow[];
   let rows = pos.map((po) => toRow(db, po));
   if (opts.status) rows = rows.filter((r) => r.status === opts.status);
   return rows;

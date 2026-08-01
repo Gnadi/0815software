@@ -1,4 +1,6 @@
 import type { ProviderEntry } from './provider-registry.js';
+import { DomainError } from './errors.js';
+import { checkEgressTarget, enforceEgress, type EgressPolicy, type ResolveHost } from './egress.js';
 
 /** Injectable HTTP client (returns status + body text) so tests stay offline. */
 export type FetchLike = (
@@ -13,6 +15,24 @@ export const defaultFetch: FetchLike = async (url, init) => {
 
 function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
+}
+
+/**
+ * Wrap an HTTP client so every outbound call is judged first.
+ *
+ * This service proxies calls to URLs that come from a connection's stored
+ * credentials — a `base_url` an operator typed. Wrapping the client rather than
+ * each call site means the OAuth token exchange and refresh are covered by the
+ * same rule as the proxy itself; there is no second door.
+ */
+export function guardedFetch(inner: FetchLike, policy: EgressPolicy, resolveHost?: ResolveHost): FetchLike {
+  return async (url, init) => {
+    const verdict = await checkEgressTarget(url, policy, resolveHost);
+    if (!enforceEgress(verdict, policy, 'ps-05', url)) {
+      throw new DomainError(403, `Refused outbound request: ${verdict.reason ?? 'internal target'}`);
+    }
+    return inner(url, init);
+  };
 }
 
 /** Build the auth headers for a connection from its decrypted credentials. */

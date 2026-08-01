@@ -79,10 +79,10 @@ foreign tenant) · **409** (conflict).
 | Method & path | Purpose |
 | ------------- | ------- |
 | `GET /api/health` | Liveness. |
-| `POST /api/login` | `{org_slug,email,password}` → `{token,user}` + session cookie. |
+| `POST /api/login` | `{org_slug,email,password}` → `{token,user}` + session cookie. Repeated failures against one account slow every further attempt down (no lockout — see `server/throttle.ts`). |
 | `POST /api/logout` | Clear the session cookie. |
-| `GET /api/oauth/:provider/authorize` | `?org_slug=` → records a CSRF state nonce, 302 to the provider (or the mock IdP). |
-| `GET /api/oauth/:provider/callback` | Consumes the state, resolves the identity, provisions-or-links the user, issues a session. |
+| `GET /api/oauth/:provider/authorize` | `?org_slug=` → records a CSRF state nonce, 302 to the provider (or the mock IdP). `?redirect_uri=` must be same-site or allowlisted. |
+| `GET /api/oauth/:provider/callback` | Consumes the state (single-use, 10-minute TTL), resolves the identity, provisions-or-links the user, issues a session. |
 
 ### Authenticated
 
@@ -91,13 +91,15 @@ foreign tenant) · **409** (conflict).
 | `GET /api/me` | any | Current identity, roles, permissions. |
 | `POST /api/tokens/verify` | any | `{token}` → `{valid, claims?}` — **cross-service contract**. |
 | `GET /api/permissions` | any | The permission catalog. |
+| `POST /api/me/sessions/revoke` | any user | Invalidate all your sessions (bumps `token_version`); returns a fresh token for this caller. |
+| `POST /api/users/:id/sessions/revoke` | `user:write` | Invalidate all of a user's sessions. |
 | `GET /api/orgs` | `org:read` | The caller's organization. |
-| `POST /api/orgs` | `org:write` | Provision a new organization. |
+| `POST /api/orgs` | `org:write` | Provision an organization (`{slug,name,owner?:{email,name,password}}`). Without an `owner` nobody can log into it. |
 | `GET /api/users` | `user:read` | List users in the caller's org. |
 | `POST /api/users` | `user:write` | Create a user (`{email,name,password,role_keys?}`). |
 | `GET /api/users/:id` | `user:read` | Fetch a user (foreign tenant → 404). |
 | `PATCH /api/users/:id` | `user:write` | Update name/status. |
-| `POST /api/users/:id/password` | `user:write` or self | Reset password (bumps `token_version`). |
+| `POST /api/users/:id/password` | `user:write` (other) or self | Set password (bumps `token_version`). Changing your **own** requires `current_password`. |
 | `GET /api/roles` | `role:read` | System roles + org custom roles. |
 | `POST /api/roles` | `role:write` | Create a custom role (`{key,name,permissions[]}`). |
 | `POST /api/users/:id/roles` | `role:write` | Assign a role (`{role_id}`). |

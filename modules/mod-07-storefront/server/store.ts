@@ -18,6 +18,11 @@ import {
   type ShortageItem,
 } from '../shared/types.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+export function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 /** Error with an HTTP status, optional per-field details, and optional shortage items. */
 export class DomainError extends Error {
   status: number;
@@ -72,8 +77,8 @@ export function shopProducts(db: Database.Database, opts: ShopListOptions = {}):
   }
   const search = opts.search?.trim();
   if (search) {
-    clauses.push('(p.name LIKE ? OR p.description LIKE ? OR p.sku LIKE ?)');
-    const like = `%${search}%`;
+    clauses.push('(p.name LIKE ? ESCAPE \'\\\' OR p.description LIKE ? ESCAPE \'\\\' OR p.sku LIKE ? ESCAPE \'\\\')');
+    const like = likeTerm(search);
     params.push(like, like, like);
   }
   return db
@@ -418,8 +423,8 @@ export function listOrders(db: Database.Database, opts: OrderListOptions = {}): 
   }
   const search = opts.search?.trim();
   if (search) {
-    clauses.push('(ref LIKE ? OR customer_name LIKE ? OR email LIKE ?)');
-    const like = `%${search}%`;
+    clauses.push('(ref LIKE ? ESCAPE \'\\\' OR customer_name LIKE ? ESCAPE \'\\\' OR email LIKE ? ESCAPE \'\\\')');
+    const like = likeTerm(search);
     params.push(like, like, like);
   }
   const orders = db

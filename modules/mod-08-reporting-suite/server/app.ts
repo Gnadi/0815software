@@ -13,6 +13,7 @@ import {
   type Schedule,
 } from '../shared/types.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createEmbedToken,
@@ -32,6 +33,11 @@ import { checkReportSql, QUERY_POLICY, type PolicyOptions } from './query-policy
 import { executeRun, type RunContext } from './runs.js';
 import { nextDueAt } from './scheduler.js';
 import { describeSource, runReportQuery, sourcePolicy } from './source-db.js';
+
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -183,7 +189,12 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   // Transport hardening: security headers, a default-deny CORS policy and
   // per-IP rate limits. Mounted only when a config is passed — index.ts always
   // passes one, tests do not, so suites stay unthrottled and deterministic.
-  if (hardening) app.use(hardeningMiddleware(hardening));
+  if (hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
+    app.use(hardeningMiddleware(hardening));
+  }
   app.use(express.json({ limit: '1mb' }));
   const runCtx: RunContext = { db, sourceDb, exportsDir, sourceViewsOnly };
 
@@ -209,13 +220,23 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, username: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, username: actor });
   });
 
   // ── Public chart embed: HMAC-signed per chart id, NO session ─────────
@@ -269,7 +290,7 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: auth.username });
+    res.json({ username: actorOf(res, auth) });
   });
 
   // ── Source schema + policy (what authors write queries against) ──────
@@ -290,10 +311,10 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
     const reports = db
       .prepare(
         `SELECT * FROM reports
-         ${search ? 'WHERE name LIKE @s OR description LIKE @s' : ''}
+         ${search ? 'WHERE name LIKE @s ESCAPE \'\\\' OR description LIKE @s ESCAPE \'\\\'' : ''}
          ORDER BY name`,
       )
-      .all(search ? { s: `%${search}%` } : {});
+      .all(search ? { s: likeTerm(search) } : {});
     res.json({ reports });
   });
 
@@ -415,7 +436,7 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
     const report = getReport(db, Number(req.params.id));
     const runId = executeRun(runCtx, report, 'manual', null);
     const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(runId);
-    void platform.audit({ actor: auth.username, action: 'report.run', resource: `report:${req.params.id}`, metadata: { run_id: runId } });
+    void platform.audit({ actor: actorOf(res, auth), action: 'report.run', resource: `report:${req.params.id}`, metadata: { run_id: runId } });
     res.status(201).json(run);
   });
 

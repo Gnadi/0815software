@@ -22,6 +22,10 @@ only).
   catch-up backfill), inbound webhooks, or manually.
 - **Outbound webhooks** are delivered with an HMAC `X-Signature`, an
   exponential backoff schedule, and dead-lettering after `MAX_ATTEMPTS`.
+  A subscription pointing into private address space is refused and dead
+  lettered with the reason: the service runs inside the customer's network,
+  so "may register a webhook" must not become "may reach the stack". The
+  stack's own hosts are exempt via `EGRESS_ALLOW_HOSTS`.
 - A single `POST /api/tick` advances the scheduler and the delivery queue —
   drive it from cron, or call it in tests with an injected clock.
 
@@ -77,7 +81,7 @@ Admin routes need a session cookie or `Authorization: Bearer <token>`
 | `GET /api/health` | none | Liveness. |
 | `POST /api/login` | none | `{username,password}` → admin token + cookie. |
 | `POST /api/logout` | none | Clear the cookie. |
-| `POST /api/events` | `X-Service-Token` | Ingest an event; matches `event` triggers, enqueues webhooks. |
+| `POST /api/events` | `X-Service-Token` | Ingest an event; matches `event` triggers, enqueues webhooks. Answers `{matched, instance_ids, enqueued, skipped, replayed}` — the fan-out is one transaction, and a trigger whose workflow is disabled is `skipped`, not an error. |
 | `POST /api/hooks/:token` | token in path | Inbound webhook receiver. |
 
 ### Admin

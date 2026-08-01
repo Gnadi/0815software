@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { nowIso } from './auth.js';
 import { startInstance } from './events.js';
+import { currentDefinition } from './workflows.js';
 
 /**
  * Interval scheduler, modelled on mod-08: a schedule trigger fires when
@@ -42,9 +43,22 @@ export function runSchedules(db: Database.Database, now = Date.now()): number {
   let fired = 0;
   for (const trigger of triggers) {
     if (!isDue(trigger.last_run_at, intervalSeconds(trigger.config), now)) continue;
-    startInstance(db, { key: trigger.workflow_key, triggerId: trigger.id, now });
-    db.prepare('UPDATE triggers SET last_run_at = ? WHERE id = ?').run(nowIso(now), trigger.id);
-    fired++;
+    // A schedule pointing at a disabled or deleted workflow is dormant, not
+    // broken: skip it quietly, and leave last_run_at alone so re-enabling the
+    // workflow makes it due again immediately.
+    const defRow = currentDefinition(db, trigger.workflow_key);
+    if (!defRow || defRow.enabled !== 1) continue;
+    // Anything else that goes wrong must not stop every other schedule in the
+    // deployment from ever firing again.
+    try {
+      db.transaction(() => {
+        startInstance(db, { key: trigger.workflow_key, triggerId: trigger.id, now });
+        db.prepare('UPDATE triggers SET last_run_at = ? WHERE id = ?').run(nowIso(now), trigger.id);
+      })();
+      fired++;
+    } catch (err) {
+      console.error(`[ps-02] schedule trigger ${trigger.id} (${trigger.workflow_key}) failed:`, err);
+    }
   }
   return fired;
 }

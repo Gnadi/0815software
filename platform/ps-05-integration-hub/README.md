@@ -19,7 +19,10 @@ only).
   type, and inbound signature scheme, validated at boot.
 - **Generic proxy** issues REST or GraphQL calls through a connection,
   decrypting the credentials and injecting the correct auth header — so a
-  module never handles the secret itself.
+  module never handles the secret itself. Every outbound call — the proxy and
+  the OAuth token exchange alike — is checked first: a target resolving into
+  private address space is refused with 403, so a connection cannot be aimed
+  at the rest of the stack (`EGRESS_ALLOW_HOSTS` lists the exceptions).
 - **Inbound webhooks** are verified per provider (GitHub / Stripe / Shopify
   HMAC schemes) and recorded with their `signature_valid` verdict.
 - **OAuth connect** (authorize/callback), **token refresh** and **sync jobs**

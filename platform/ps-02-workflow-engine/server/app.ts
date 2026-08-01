@@ -34,6 +34,7 @@ import {
 import { advanceInstance, ingestEvent, startInstance } from './events.js';
 import { runSchedules } from './scheduler.js';
 import { defaultFetch, dispatch, mapDelivery, mapWebhook, type DeliveryRow, type FetchLike, type WebhookRow } from './webhooks.js';
+import { OPEN_EGRESS, type EgressPolicy, type ResolveHost } from './egress.js';
 import type { WorkflowDefinitionBody } from '../shared/types.js';
 
 export interface AppOptions {
@@ -43,6 +44,10 @@ export interface AppOptions {
   fetchImpl?: FetchLike;
   /** Injectable fetch for the identity-seam verification call (tests). */
   identityFetch?: SeamFetch;
+  /** Which outbound webhook targets are allowed; index.ts passes the real one. */
+  egress?: EgressPolicy;
+  /** Injectable DNS resolution for the egress check (tests). */
+  resolveHost?: ResolveHost;
   /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
   hardening?: HardeningConfig;
   /** Emit one JSON log line per request (default false; index.ts passes true). */
@@ -58,9 +63,14 @@ function body(req: Request): Record<string, unknown> {
   return (req.body ?? {}) as Record<string, unknown>;
 }
 
-export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch, identityFetch, hardening, logRequests }: AppOptions): express.Express {
+export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch, identityFetch, egress = OPEN_EGRESS, resolveHost, hardening, logRequests }: AppOptions): express.Express {
   const app = express();
-  if (hardening) app.use(hardeningMiddleware(hardening));
+  if (hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
+    app.use(hardeningMiddleware(hardening));
+  }
   app.use(requestTelemetry({ service: 'ps-02', log: logRequests === true }));
   app.use(express.json({ limit: '256kb' }));
 
@@ -384,7 +394,7 @@ export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch, 
   // ── Tick: drive scheduler + dispatcher once ────────────────────────
   app.post('/api/tick', async (_req, res) => {
     const scheduled = runSchedules(db, now());
-    const dispatched = await dispatch(db, fetchImpl, now());
+    const dispatched = await dispatch(db, fetchImpl, now(), { egress, resolveHost });
     res.json({ scheduled, ...dispatched });
   });
 

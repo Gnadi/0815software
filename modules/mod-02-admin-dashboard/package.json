@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-02-admin-dashboard",
   "version": "0.1.0",
-  "description": "MOD-02 Admin Dashboard — internal CRUD interface over any data model. Tables, filters, bulk actions, exports.",
+  "description": "MOD-02 Admin Dashboard \u2014 internal CRUD interface over any data model. Tables, filters, bulk actions, exports.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -11,6 +11,7 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/server/index.js",
+    "backup": "node scripts/backup.mjs",
     "test": "vitest run",
     "preview": "npm run build && npm start"
   },

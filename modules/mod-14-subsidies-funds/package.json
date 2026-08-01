@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-14-subsidies-funds",
   "version": "0.1.0",
-  "description": "MOD-14 Subsidies & Funds — track funding programs, your applications, approvals, disbursed tranches, and post-award reporting deadlines. From the applicant's point of view.",
+  "description": "MOD-14 Subsidies & Funds \u2014 track funding programs, your applications, approvals, disbursed tranches, and post-award reporting deadlines. From the applicant's point of view.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -11,6 +11,7 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/server/index.js",
+    "backup": "node scripts/backup.mjs",
     "test": "vitest run",
     "preview": "npm run build && npm start"
   },

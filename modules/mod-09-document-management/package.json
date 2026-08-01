@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-09-document-management",
   "version": "0.1.0",
-  "description": "MOD-09 Document Management — upload, tag, version, and control access. Matter-based access controls.",
+  "description": "MOD-09 Document Management \u2014 upload, tag, version, and control access. Matter-based access controls.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -11,6 +11,7 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/server/index.js",
+    "backup": "node scripts/backup.mjs",
     "test": "vitest run",
     "preview": "npm run build && npm start"
   },

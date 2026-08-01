@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3';
 import { PO_STATUSES, RFQ_STATUSES, type FieldError, type PoStatus, type RfqStatus } from '../shared/types.js';
 import { APPROVAL_RULES, APPROVAL_TIERS } from './approval-config.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createToken,
@@ -46,6 +47,7 @@ import {
   type RfqInput,
   type RfqLineInput,
 } from './rfqs.js';
+import { likeTerm } from './purchase-orders.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -205,7 +207,12 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   // Transport hardening: security headers, a default-deny CORS policy and
   // per-IP rate limits. Mounted only when a config is passed — index.ts always
   // passes one, tests do not, so suites stay unthrottled and deterministic.
-  if (hardening) app.use(hardeningMiddleware(hardening));
+  if (hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
+    app.use(hardeningMiddleware(hardening));
+  }
   app.use(express.json({ limit: '1mb' }));
 
   // ── Public routes ────────────────────────────────────────────────────
@@ -230,13 +237,23 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, username: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, username: actor });
   });
 
   // ── Everything below requires a valid session ────────────────────────
@@ -248,7 +265,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: auth.username });
+    res.json({ username: actorOf(res, auth) });
   });
 
   // ── Config: the ONE source the UI renders rules/profiles from ────────
@@ -274,10 +291,10 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
                 (SELECT COUNT(*) FROM rfq_invitations i WHERE i.supplier_id = s.id) AS rfq_count,
                 (SELECT COUNT(*) FROM purchase_orders p WHERE p.supplier_id = s.id) AS po_count
          FROM suppliers s
-         ${search ? 'WHERE s.name LIKE @s OR s.email LIKE @s OR s.contact LIKE @s' : ''}
+         ${search ? 'WHERE s.name LIKE @s ESCAPE \'\\\' OR s.email LIKE @s ESCAPE \'\\\' OR s.contact LIKE @s ESCAPE \'\\\'' : ''}
          ORDER BY s.name`,
       )
-      .all(search ? { s: `%${search}%` } : {});
+      .all(search ? { s: likeTerm(search) } : {});
     res.json({ suppliers });
   });
 
@@ -438,7 +455,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
 
   app.post('/api/pos/:id/submit', (req, res) => {
     submitPo(db, Number(req.params.id));
-    void platform.audit({ actor: auth.username, action: 'po.submitted', resource: `po:${req.params.id}` });
+    void platform.audit({ actor: actorOf(res, auth), action: 'po.submitted', resource: `po:${req.params.id}` });
     res.json(poDetail(db, Number(req.params.id)));
   });
 

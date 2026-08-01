@@ -8,8 +8,12 @@ import { IdentityClient, ServiceError } from '@0815software/platform-clients';
  * delegated. When unset, mod-10 falls back to its local admin credentials.
  */
 
-export type LoginOutcome = 'ok' | 'fail' | null;
-/** null -> SSO not configured, caller should use local credentials. */
+/**
+ * `null` -> SSO not configured, the caller should use local credentials.
+ * Otherwise the verdict, and on success WHO PS-01 says this is — the module
+ * stamps that on everything the resulting session goes on to do.
+ */
+export type LoginOutcome = { ok: true; actor: string } | { ok: false } | null;
 export type LoginVerifier = (username: unknown, password: unknown) => Promise<LoginOutcome>;
 
 export interface SsoConfig {
@@ -30,19 +34,22 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
   const permission = cfg.identityPermission ?? 'platform:admin';
   const client = new IdentityClient({ baseUrl: cfg.identityUrl });
   return async (username, password): Promise<LoginOutcome> => {
-    if (typeof username !== 'string' || typeof password !== 'string') return 'fail';
+    if (typeof username !== 'string' || typeof password !== 'string') return { ok: false };
     try {
-      const { token } = await client.login(org, username, password);
+      const { token, user } = await client.login(org, username, password);
       const verdict = await client.verify(token);
-      if (!verdict.valid) return 'fail';
+      if (!verdict.valid) return { ok: false };
       // PS-01 returns the principal's permissions on verify (Phase 1).
       const perms = (verdict as { permissions?: string[] }).permissions ?? [];
-      return permission && !perms.includes(permission) ? 'fail' : 'ok';
+      if (permission && !perms.includes(permission)) return { ok: false };
+      // The PS-01 email is the identity worth recording: stable, unique within
+      // the organization, and readable by whoever reads the trail later.
+      return { ok: true, actor: user.email };
     } catch (err) {
       // Bad credentials (401) and identity outages both fail closed — SSO,
       // once configured, is never silently bypassed by the local fallback.
       if (!(err instanceof ServiceError)) console.warn('[mod-10] identity login unavailable:', err);
-      return 'fail';
+      return { ok: false };
     }
   };
 }

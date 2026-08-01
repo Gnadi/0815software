@@ -3,6 +3,7 @@ import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
 import { EMPLOYEE_STATUSES, type EmployeeStatus, type FieldError } from '../shared/types.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createToken,
@@ -146,7 +147,12 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   // Transport hardening: security headers, a default-deny CORS policy and
   // per-IP rate limits. Mounted only when a config is passed — index.ts always
   // passes one, tests do not, so suites stay unthrottled and deterministic.
-  if (hardening) app.use(hardeningMiddleware(hardening));
+  if (hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
+    app.use(hardeningMiddleware(hardening));
+  }
   app.use(express.json({ limit: '1mb' }));
 
   // ── Public routes ────────────────────────────────────────────────────
@@ -171,13 +177,23 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, username: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, username: actor });
   });
 
   // ── Everything below requires a valid session ────────────────────────
@@ -189,7 +205,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: auth.username });
+    res.json({ username: actorOf(res, auth) });
   });
 
   // ── Departments ──────────────────────────────────────────────────────
@@ -255,7 +271,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
 
   app.post('/api/employees', (req, res) => {
     const id = createEmployee(db, validateEmployee(body(req)));
-    void platform.audit({ actor: auth.username, action: 'employee.created', resource: `employee:${id}` });
+    void platform.audit({ actor: actorOf(res, auth), action: 'employee.created', resource: `employee:${id}` });
     res.status(201).json(employeeDetail(db, id));
   });
 
@@ -270,7 +286,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
 
   app.post('/api/employees/:id/offboard', (req, res) => {
     offboardEmployee(db, Number(req.params.id));
-    void platform.audit({ actor: auth.username, action: 'employee.offboarded', resource: `employee:${req.params.id}` });
+    void platform.audit({ actor: actorOf(res, auth), action: 'employee.offboarded', resource: `employee:${req.params.id}` });
     res.json(employeeDetail(db, Number(req.params.id)));
   });
 

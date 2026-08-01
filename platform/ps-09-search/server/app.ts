@@ -40,7 +40,12 @@ function body(req: Request): Record<string, unknown> {
 export function createApp(opts: AppOptions): express.Express {
   const { db, auth } = opts;
   const app = express();
-  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
+  if (opts.hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (opts.hardening.trustProxy > 0) app.set('trust proxy', opts.hardening.trustProxy);
+    app.use(hardeningMiddleware(opts.hardening));
+  }
   app.use(requestTelemetry({ service: 'ps-09', log: opts.logRequests === true }));
   app.use(express.json({ limit: '512kb' }));
 

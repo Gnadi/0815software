@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-12-support-tickets",
   "version": "0.1.0",
-  "description": "MOD-12 Support Ticket System — inbound queue, assignment, status tracking, and derived SLA timers. Email and web intake.",
+  "description": "MOD-12 Support Ticket System \u2014 inbound queue, assignment, status tracking, and derived SLA timers. Email and web intake.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -11,6 +11,7 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/server/index.js",
+    "backup": "node scripts/backup.mjs",
     "test": "vitest run",
     "preview": "npm run build && npm start"
   },

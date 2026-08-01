@@ -118,6 +118,10 @@ export interface IngestResult {
   matched: number;
   instance_ids: number[];
   enqueued: number;
+  /** Triggers whose workflow is disabled or gone — reported, never fatal. */
+  skipped: number;
+  /** Starts that resolved to an instance this idempotency key already made. */
+  replayed: number;
 }
 
 interface TriggerRow {
@@ -155,20 +159,41 @@ export function ingestEvent(
     .prepare(`SELECT * FROM triggers WHERE type IN (${placeholders}) AND enabled = 1`)
     .all(...matchTypes) as TriggerRow[];
 
-  const instanceIds: number[] = [];
-  for (const trigger of triggers) {
-    const config = JSON.parse(trigger.config) as { event?: string };
-    if (config.event !== opts.type) continue;
-    const started = startInstance(db, {
-      key: trigger.workflow_key,
-      input: payload,
-      idempotencyKey: opts.idempotencyKey ?? null,
-      triggerId: trigger.id,
-      now,
-    });
-    instanceIds.push(started.instance.id);
-  }
+  // One event is one unit of work: either every matching trigger starts and
+  // every webhook is enqueued, or nothing is. Without the transaction, a
+  // trigger that fails halfway leaves the earlier instances started and the
+  // caller holding an error, with no way to tell what did happen.
+  return db.transaction((): IngestResult => {
+    const instanceIds: number[] = [];
+    let skipped = 0;
+    let replayed = 0;
+    for (const trigger of triggers) {
+      const config = JSON.parse(trigger.config) as { event?: string };
+      if (config.event !== opts.type) continue;
+      // An enabled trigger pointing at a disabled or deleted workflow is a
+      // configuration state, not a bad request: skip it and keep fanning out
+      // rather than failing the whole ingest for the other subscribers.
+      const defRow = currentDefinition(db, trigger.workflow_key);
+      if (!defRow || defRow.enabled !== 1) {
+        skipped += 1;
+        continue;
+      }
+      const started = startInstance(db, {
+        key: trigger.workflow_key,
+        input: payload,
+        idempotencyKey: opts.idempotencyKey ?? null,
+        triggerId: trigger.id,
+        now,
+      });
+      // Two triggers on one workflow, ingested under a single idempotency
+      // key, resolve to the SAME instance — the second start is a replay, not
+      // a second run. Reporting it twice told the caller a fan-out happened
+      // that never did, so the id is listed once and the replay is counted.
+      if (!started.created) replayed += 1;
+      if (!instanceIds.includes(started.instance.id)) instanceIds.push(started.instance.id);
+    }
 
-  const enqueued = enqueueDeliveries(db, opts.type, payload, now);
-  return { matched: instanceIds.length, instance_ids: instanceIds, enqueued };
+    const enqueued = enqueueDeliveries(db, opts.type, payload, now);
+    return { matched: instanceIds.length, instance_ids: instanceIds, enqueued, skipped, replayed };
+  })();
 }

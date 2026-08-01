@@ -33,6 +33,9 @@ import type { SelfParty } from './seller.js';
  * Raised when a configured offer source refuses or fails. Carries the upstream
  * status so the route can pass a useful code to the operator rather than 500.
  */
+/** How long the offer source gets to answer before the import gives up. */
+const OFFER_FETCH_TIMEOUT_MS = 10_000;
+
 export class OfferFetchError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -260,8 +263,12 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
 
     async fetchOffer(offerNumber: string): Promise<unknown | null> {
       if (!offersUrl) return null;
+      // Bounded like every platform-client call: an offers instance that
+      // accepts the connection and then stalls must not hold the operator's
+      // import request open indefinitely.
       const res = await fetch(`${offersUrl}/api/offers/${encodeURIComponent(offerNumber)}/transfer`, {
         headers: cfg.serviceToken ? { 'X-Service-Token': cfg.serviceToken } : {},
+        signal: AbortSignal.timeout(OFFER_FETCH_TIMEOUT_MS),
       });
       const text = await res.text();
       let parsed: unknown;

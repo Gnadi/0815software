@@ -21,6 +21,26 @@ export interface HardeningConfig {
   hsts: boolean;
   /** Socket inactivity timeout in ms. 0 disables. */
   requestTimeoutMs: number;
+  /**
+   * Number of reverse proxies in front of this service (Express `trust proxy`).
+   * 0 = trust nobody: `req.ip` is the socket peer. Behind the stack's Caddy
+   * that peer is Caddy for every request, which collapses per-IP rate limiting
+   * into one shared bucket and records the proxy in audit trails — so a
+   * proxied deployment must set TRUST_PROXY=1. Never enable it when the
+   * service is reachable directly: clients could then forge X-Forwarded-For.
+   */
+  trustProxy: number;
+}
+
+/**
+ * Read TRUST_PROXY: a hop count, or "true"/"false". Defaults to 0 (off), so a
+ * service exposed directly cannot be fooled by a forged X-Forwarded-For.
+ */
+export function trustProxyHops(raw: string | undefined): number {
+  if (raw === undefined || raw === '' || raw === 'false') return 0;
+  if (raw === 'true') return 1;
+  const hops = Number(raw);
+  return Number.isInteger(hops) && hops > 0 ? hops : 0;
 }
 
 export function hardeningFromEnv(env: NodeJS.ProcessEnv = process.env): HardeningConfig {
@@ -33,6 +53,7 @@ export function hardeningFromEnv(env: NodeJS.ProcessEnv = process.env): Hardenin
       .filter(Boolean),
     hsts: env.HSTS === 'true' || env.NODE_ENV === 'production',
     requestTimeoutMs: env.REQUEST_TIMEOUT_MS !== undefined ? Number(env.REQUEST_TIMEOUT_MS) : 30_000,
+    trustProxy: trustProxyHops(env.TRUST_PROXY),
   };
 }
 

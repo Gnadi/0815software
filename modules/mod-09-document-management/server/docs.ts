@@ -12,6 +12,11 @@ import {
   type UserRef,
 } from '../shared/types.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 /** Error with an HTTP status and optional per-field details. */
 export class DomainError extends Error {
   status: number;
@@ -337,8 +342,8 @@ export function listDocuments(
     params.push(filter.tag);
   }
   if (filter.search) {
-    clauses.push('d.title LIKE ?');
-    params.push(`%${filter.search}%`);
+    clauses.push('d.title LIKE ? ESCAPE \'\\\'');
+    params.push(likeTerm(filter.search));
   }
 
   const rows = db

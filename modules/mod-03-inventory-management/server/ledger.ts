@@ -1,6 +1,11 @@
 import type Database from 'better-sqlite3';
 import type { MovementRow, StockRow, Warehouse } from '../shared/types.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 /** Error with an HTTP status and optional per-field details. */
 export class DomainError extends Error {
   status: number;
@@ -79,10 +84,10 @@ export function stockOverview(
   const products = db
     .prepare(
       `SELECT id, sku, name, unit, reorder_point FROM products
-       ${search ? 'WHERE sku LIKE ? OR name LIKE ?' : ''}
+       ${search ? 'WHERE sku LIKE ? ESCAPE \'\\\' OR name LIKE ? ESCAPE \'\\\'' : ''}
        ORDER BY sku`,
     )
-    .all(...(search ? [`%${search}%`, `%${search}%`] : [])) as Omit<
+    .all(...(search ? [likeTerm(search), likeTerm(search)] : [])) as Omit<
     StockRow,
     'levels' | 'total' | 'low'
   >[];

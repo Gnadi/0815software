@@ -149,6 +149,76 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 5,
+    name: 'auth_events-password_change_denied-type',
+    up(db) {
+      // Same rebuild as migration 4, for the failed self-service password
+      // change — a burst of these is what a stolen session looks like, so it
+      // has to be on the trail.
+      db.exec(`
+      CREATE TABLE auth_events_new (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        org_id     INTEGER,
+        user_id    INTEGER,
+        type       TEXT    NOT NULL
+                   CHECK (type IN ('login_ok', 'login_fail', 'logout', 'token_issued',
+                                   'apikey_created', 'apikey_revoked', 'password_changed',
+                                   'password_change_denied', 'user_erased')),
+        ip         TEXT,
+        meta       TEXT    NOT NULL DEFAULT '{}',
+        created_at TEXT    NOT NULL
+      );
+      INSERT INTO auth_events_new (id, org_id, user_id, type, ip, meta, created_at)
+        SELECT id, org_id, user_id, type, ip, meta, created_at FROM auth_events;
+      DROP TABLE auth_events;
+      ALTER TABLE auth_events_new RENAME TO auth_events;
+      CREATE INDEX IF NOT EXISTS idx_auth_events_org ON auth_events(org_id, created_at, id);
+    `);
+    },
+  },
+  {
+    id: 6,
+    name: 'auth_events-sessions_revoked-type',
+    up(db) {
+      // Same rebuild again, for the explicit session revocation. (SQLite still
+      // cannot alter a CHECK in place; a widened type set is a new table.)
+      db.exec(`
+      CREATE TABLE auth_events_new (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        org_id     INTEGER,
+        user_id    INTEGER,
+        type       TEXT    NOT NULL
+                   CHECK (type IN ('login_ok', 'login_fail', 'logout', 'token_issued',
+                                   'apikey_created', 'apikey_revoked', 'password_changed',
+                                   'password_change_denied', 'sessions_revoked', 'user_erased')),
+        ip         TEXT,
+        meta       TEXT    NOT NULL DEFAULT '{}',
+        created_at TEXT    NOT NULL
+      );
+      INSERT INTO auth_events_new (id, org_id, user_id, type, ip, meta, created_at)
+        SELECT id, org_id, user_id, type, ip, meta, created_at FROM auth_events;
+      DROP TABLE auth_events;
+      ALTER TABLE auth_events_new RENAME TO auth_events;
+      CREATE INDEX IF NOT EXISTS idx_auth_events_org ON auth_events(org_id, created_at, id);
+    `);
+    },
+  },
+  {
+    id: 7,
+    name: 'login_throttle',
+    up(db) {
+      // Failed logins per submitted (org, email) — see server/throttle.ts for
+      // why the key is what was TYPED rather than an account that exists.
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS login_throttle (
+        key        TEXT    PRIMARY KEY,
+        fails      INTEGER NOT NULL,
+        updated_at TEXT    NOT NULL
+      );
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

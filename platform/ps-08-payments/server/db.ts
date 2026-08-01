@@ -59,6 +59,23 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 2,
+    name: 'refund-idempotency',
+    up(db) {
+      // Refunds get the same replay protection intents already have: a caller
+      // whose request timed out has no way to tell whether the money moved,
+      // and retrying must not refund a second time.
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS refund_idempotency (
+        key          TEXT    PRIMARY KEY,
+        intent_id    INTEGER NOT NULL REFERENCES payment_intents(id) ON DELETE CASCADE,
+        amount_minor INTEGER NOT NULL,
+        created_at   TEXT    NOT NULL
+      );
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

@@ -50,6 +50,7 @@ import {
 } from './store.js';
 import { ordersCsv } from './csv.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
+import { likeTerm } from './store.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -154,7 +155,12 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   // Transport hardening: security headers, a default-deny CORS policy and
   // per-IP rate limits. Mounted only when a config is passed — index.ts always
   // passes one, tests do not, so suites stay unthrottled and deterministic.
-  if (hardening) app.use(hardeningMiddleware(hardening));
+  if (hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
+    app.use(hardeningMiddleware(hardening));
+  }
   app.use(express.json({ limit: '256kb' }));
 
   /** Verified cart id from the signed cookie, or null. Tampering = no cart. */
@@ -393,8 +399,8 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const params: (string | number)[] = [];
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
     if (search) {
-      clauses.push('(p.name LIKE ? OR p.sku LIKE ?)');
-      params.push(`%${search}%`, `%${search}%`);
+      clauses.push('(p.name LIKE ? ESCAPE \'\\\' OR p.sku LIKE ? ESCAPE \'\\\')');
+      params.push(likeTerm(search), likeTerm(search));
     }
     if (typeof req.query.category === 'string' && /^\d+$/.test(req.query.category)) {
       clauses.push('p.category_id = ?');

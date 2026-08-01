@@ -76,7 +76,12 @@ export function createApp(opts: AppOptions): express.Express {
   const providerFor = (name: string): PaymentProvider => (name === 'mock' ? mockProvider : defaultProvider);
 
   const app = express();
-  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
+  if (opts.hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (opts.hardening.trustProxy > 0) app.set('trust proxy', opts.hardening.trustProxy);
+    app.use(hardeningMiddleware(opts.hardening));
+  }
   app.use(requestTelemetry({ service: 'ps-08', log: opts.logRequests === true }));
   app.use(
     express.json({
@@ -220,8 +225,10 @@ export function createApp(opts: AppOptions): express.Express {
   app.post('/api/intents/:id/refund', requireCaller, (req, res, next) => {
     void (async () => {
       const row = getIntentRow(db, idParam(req) ?? -1);
-      const amountMinor = body(req).amount_minor === undefined ? undefined : Number(body(req).amount_minor);
-      await refundIntent(db, providerFor(row.provider), row, amountMinor, now());
+      const b = body(req);
+      const amountMinor = b.amount_minor === undefined ? undefined : Number(b.amount_minor);
+      const idempotencyKey = typeof b.idempotency_key === 'string' && b.idempotency_key !== '' ? b.idempotency_key : null;
+      await refundIntent(db, providerFor(row.provider), row, amountMinor, now(), idempotencyKey);
       res.json(intentDetail(db, getIntentRow(db, row.id)));
     })().catch(next);
   });

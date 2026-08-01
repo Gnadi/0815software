@@ -3,6 +3,7 @@ import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
 import { getResource, resources, type ResourceDef } from '../shared/resources.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createToken,
@@ -14,6 +15,11 @@ import { toCsv } from './csv.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import { nullVerifier, type LoginVerifier } from './sso.js';
 import { validateRecord } from './validate.js';
+
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
 
 interface ListQuery {
   where: string;
@@ -36,8 +42,8 @@ function buildListQuery(resource: ResourceDef, query: Request['query']): ListQue
   if (search) {
     const searchable = resource.fields.filter((f) => f.type === 'text' || f.type === 'select');
     if (searchable.length > 0) {
-      clauses.push(`(${searchable.map((f) => `"${f.name}" LIKE ?`).join(' OR ')})`);
-      for (const _ of searchable) params.push(`%${search}%`);
+      clauses.push(`(${searchable.map((f) => `"${f.name}" LIKE ? ESCAPE \'\\\'`).join(' OR ')})`);
+      for (const _ of searchable) params.push(likeTerm(search));
     }
   }
 
@@ -46,8 +52,8 @@ function buildListQuery(resource: ResourceDef, query: Request['query']): ListQue
     if (value === undefined) continue;
     switch (field.type) {
       case 'text':
-        clauses.push(`"${field.name}" LIKE ?`);
-        params.push(`%${value}%`);
+        clauses.push(`"${field.name}" LIKE ? ESCAPE \'\\\'`);
+        params.push(likeTerm(value));
         break;
       case 'number':
         clauses.push(`"${field.name}" = ?`);
@@ -105,7 +111,12 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   // Transport hardening: security headers, a default-deny CORS policy and
   // per-IP rate limits. Mounted only when a config is passed — index.ts always
   // passes one, tests do not, so suites stay unthrottled and deterministic.
-  if (hardening) app.use(hardeningMiddleware(hardening));
+  if (hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
+    app.use(hardeningMiddleware(hardening));
+  }
   app.use(express.json({ limit: '1mb' }));
 
   const findResource = (req: Request, res: Response): ResourceDef | undefined => {
@@ -136,13 +147,23 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, username: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, username: actor });
   });
 
   // ── Everything below requires a valid session ────────────────────────
@@ -154,7 +175,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.get('/api/config', (_req, res) => {
-    res.json({ resources, username: auth.username });
+    res.json({ resources, username: actorOf(res, auth) });
   });
 
   app.get('/api/:resource/export.csv', (req, res) => {
@@ -220,7 +241,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       )
       .run(...columns.map((c) => values[c]));
     const row = db.prepare(`SELECT * FROM "${resource.name}" WHERE id = ?`).get(info.lastInsertRowid);
-    void platform.audit({ actor: auth.username, action: `${resource.name}.created`, resource: `${resource.name}:${info.lastInsertRowid}`, after: row });
+    void platform.audit({ actor: actorOf(res, auth), action: `${resource.name}.created`, resource: `${resource.name}:${info.lastInsertRowid}`, after: row });
     res.status(201).json(row);
   });
 
@@ -243,7 +264,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       `UPDATE "${resource.name}" SET ${columns.map((c) => `"${c}" = ?`).join(', ')} WHERE id = ?`,
     ).run(...columns.map((c) => values[c]), req.params.id);
     const row = db.prepare(`SELECT * FROM "${resource.name}" WHERE id = ?`).get(req.params.id);
-    void platform.audit({ actor: auth.username, action: `${resource.name}.updated`, resource: `${resource.name}:${req.params.id}`, after: row });
+    void platform.audit({ actor: actorOf(res, auth), action: `${resource.name}.updated`, resource: `${resource.name}:${req.params.id}`, after: row });
     res.json(row);
   });
 
@@ -255,7 +276,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       res.status(404).json({ error: 'Not found' });
       return;
     }
-    void platform.audit({ actor: auth.username, action: `${resource.name}.deleted`, resource: `${resource.name}:${req.params.id}` });
+    void platform.audit({ actor: actorOf(res, auth), action: `${resource.name}.deleted`, resource: `${resource.name}:${req.params.id}` });
     res.json({ ok: true });
   });
 

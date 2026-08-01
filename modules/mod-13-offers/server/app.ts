@@ -10,6 +10,7 @@ import {
   type PublicOffer,
 } from '../shared/types.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createToken,
@@ -42,6 +43,7 @@ import {
 } from './offers.js';
 import { renderOfferPdf } from './pdf.js';
 import { verifyOfferToken } from './tokens.js';
+import { likeTerm } from './offers.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -184,7 +186,12 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
   // Transport hardening: security headers, a default-deny CORS policy and
   // per-IP rate limits. Mounted only when a config is passed — index.ts always
   // passes one, tests do not, so suites stay unthrottled and deterministic.
-  if (hardening) app.use(hardeningMiddleware(hardening));
+  if (hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
+    app.use(hardeningMiddleware(hardening));
+  }
   app.use(express.json({ limit: '1mb' }));
   const today = (): string => (clock ? clock() : todayIso());
   // Timestamp for audit events. With an injected clock we anchor events to
@@ -221,13 +228,23 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, username: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, username: actor });
   });
 
   // ── Public acceptance link (no login) ────────────────────────────────
@@ -303,7 +320,7 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: auth.username });
+    res.json({ username: actorOf(res, auth) });
   });
 
   // ── Dashboard ────────────────────────────────────────────────────────
@@ -344,10 +361,10 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
          FROM customers c LEFT JOIN offers o ON o.customer_id = c.id
          WHERE 1 = 1
          ${includeArchived ? '' : 'AND c.archived_at IS NULL'}
-         ${search ? 'AND (c.name LIKE @s OR c.email LIKE @s OR c.vat_id LIKE @s OR c.contact_person LIKE @s)' : ''}
+         ${search ? 'AND (c.name LIKE @s ESCAPE \'\\\' OR c.email LIKE @s ESCAPE \'\\\' OR c.vat_id LIKE @s ESCAPE \'\\\' OR c.contact_person LIKE @s ESCAPE \'\\\')' : ''}
          GROUP BY c.id ORDER BY c.archived_at IS NOT NULL, c.name`,
       )
-      .all(search ? { s: `%${search}%` } : {});
+      .all(search ? { s: likeTerm(search) } : {});
     res.json({ customers });
   });
 
@@ -468,7 +485,7 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
     finalizeOffer(db, Number(req.params.id), { sentDate: today(), at: stamp() });
     const sent = offerDetail(db, Number(req.params.id), detailCtx());
     const cust = db.prepare('SELECT c.email AS email FROM offers o JOIN customers c ON c.id = o.customer_id WHERE o.id = ?').get(Number(req.params.id)) as { email: string | null } | undefined;
-    void platform.audit({ actor: auth.username, action: 'offer.sent', resource: `offer:${req.params.id}` });
+    void platform.audit({ actor: actorOf(res, auth), action: 'offer.sent', resource: `offer:${req.params.id}` });
     void platform.notify({
       to: cust?.email ?? '',
       subject: `Your offer ${sent.number}`,

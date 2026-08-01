@@ -11,6 +11,11 @@ import type {
 } from '../shared/types.js';
 import { offerToken } from './tokens.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+export function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 /** Error with an HTTP status and optional per-field details. */
 export class DomainError extends Error {
   status: number;
@@ -131,10 +136,10 @@ export function listOffers(db: Database.Database, opts: ListOptions = {}, today 
   const offers = db
     .prepare(
       `SELECT o.* FROM offers o JOIN customers c ON c.id = o.customer_id
-       ${search ? 'WHERE o.number LIKE ? OR o.title LIKE ? OR c.name LIKE ?' : ''}
+       ${search ? 'WHERE o.number LIKE ? ESCAPE \'\\\' OR o.title LIKE ? ESCAPE \'\\\' OR c.name LIKE ? ESCAPE \'\\\'' : ''}
        ORDER BY o.number IS NULL DESC, o.created_at DESC, o.id DESC`,
     )
-    .all(...(search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [])) as OfferStoredRow[];
+    .all(...(search ? [likeTerm(search), likeTerm(search), likeTerm(search)] : [])) as OfferStoredRow[];
 
   let rows = offers.map((offer) => toRow(db, offer, today));
   if (opts.status) rows = rows.filter((r) => r.status === opts.status);

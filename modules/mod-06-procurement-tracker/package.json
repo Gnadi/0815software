@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-06-procurement-tracker",
   "version": "0.1.0",
-  "description": "MOD-06 Procurement Tracker — RFQ, purchase orders, multi-tier approval workflows. Export to any ERP CSV format.",
+  "description": "MOD-06 Procurement Tracker \u2014 RFQ, purchase orders, multi-tier approval workflows. Export to any ERP CSV format.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -11,6 +11,7 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/server/index.js",
+    "backup": "node scripts/backup.mjs",
     "test": "vitest run",
     "preview": "npm run build && npm start"
   },

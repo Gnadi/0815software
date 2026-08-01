@@ -119,6 +119,14 @@ describe('parties', () => {
     const byEmail = await request(app).get('/api/parties?q=beta.example').set(svc());
     expect(byEmail.body.parties).toHaveLength(1);
 
+    // A search term is matched literally: SQLite's LIKE has no default escape
+    // character, so an unescaped "%" would silently list every party and "_"
+    // would match any character.
+    const wildcard = await request(app).get('/api/parties?q=%25').set(svc());
+    expect(wildcard.body.parties).toHaveLength(0);
+    const underscore = await request(app).get('/api/parties?q=Bet_').set(svc());
+    expect(underscore.body.parties).toHaveLength(0);
+
     await request(app).post(`/api/parties/${beta.body.party.id}/archive`).set(svc()).expect(200);
     const active = await request(app).get('/api/parties').set(svc());
     expect(active.body.parties.map((p: Party) => p.name)).toEqual(['Alpha GmbH']);

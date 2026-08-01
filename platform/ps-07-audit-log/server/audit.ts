@@ -176,19 +176,27 @@ export interface PruneResult {
 }
 
 /**
- * Retention with integrity: delete events older than `retentionDays` (a
- * chronological prefix of the chain) and advance the anchor to the hash of the
- * last pruned event, so `verifyChain` still validates the surviving events.
+ * Retention with integrity: delete events older than `retentionDays` and
+ * advance the anchor to the hash of the last pruned event, so `verifyChain`
+ * still validates the surviving events.
+ *
+ * The chain is ordered by `id`, so what gets deleted must be a PREFIX of it —
+ * and `recorded_at` is only a proxy for that order. A clock that steps
+ * backwards (NTP correction, a restored backup, an injected test clock) makes
+ * the two disagree, and deleting by timestamp would then punch a hole in the
+ * middle of the chain: every surviving event after the hole fails
+ * verification, permanently, with nothing to repair it from. So the cutoff is
+ * resolved to an id first, and the delete is expressed on the id.
  */
 export function pruneForRetention(db: Database.Database, retentionDays: number, now = Date.now()): PruneResult {
   if (!retentionDays || retentionDays <= 0) return { pruned: 0, anchor: getAnchor(db) };
   const cutoff = nowIso(now - retentionDays * 86_400_000);
   const lastPruned = db
-    .prepare('SELECT hash FROM audit_events WHERE recorded_at < ? ORDER BY id DESC LIMIT 1')
-    .get(cutoff) as { hash: string } | undefined;
+    .prepare('SELECT id, hash FROM audit_events WHERE recorded_at < ? ORDER BY id DESC LIMIT 1')
+    .get(cutoff) as { id: number; hash: string } | undefined;
   if (!lastPruned) return { pruned: 0, anchor: getAnchor(db) };
   return db.transaction((): PruneResult => {
-    const info = db.prepare('DELETE FROM audit_events WHERE recorded_at < ?').run(cutoff);
+    const info = db.prepare('DELETE FROM audit_events WHERE id <= ?').run(lastPruned.id);
     setAnchor(db, lastPruned.hash);
     return { pruned: info.changes, anchor: lastPruned.hash };
   })();

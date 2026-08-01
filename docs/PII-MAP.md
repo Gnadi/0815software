@@ -37,6 +37,39 @@ erases a person, it should also: call PS-01 erase if that person is a platform
 user, delete their PS-09 index documents, and rely on PS-03/PS-07 retention to
 age out message bodies and audit snapshots.
 
+## Subject access & portability (Art. 15 / 20)
+
+"Send me everything you hold about me" arrives with a one-month deadline, and
+reading SQLite files by hand is not an answer. Each service that holds
+subject-addressable personal data exposes `GET /api/export?subject=<email>`:
+
+| Service | What it returns |
+| --- | --- |
+| **PS-01 Identity** | The user account (never the password hash), their roles, their auth events, API keys they minted — and failed logins recorded under an address with no account, which are still a trace about that person. Scoped to the caller's organization; requires `user:write`, not the directory-level `user:read` that every role down to viewer holds. |
+| **PS-03 Notification** | Messages sent to that address, with subject and body — an invoice mail is personal data with content — plus their delivery events. |
+| **PS-07 Audit** | Events they caused (`actor`), and events that merely mention them: a before/after snapshot can embed someone's data without their name ever being the actor. An export never deletes; the chain is append-only, and erasure there is the retention window instead. |
+| **PS-11 Customers** | The party master record (the PRIMARY copy, not a mirror), its per-module references — which say which other systems here hold a row about the same person — and any duplicate merged into it. |
+
+The other services hold nothing addressable by a data subject: PS-02/PS-04
+hold caller-supplied payloads bound at the source module, PS-05 holds
+third-party credentials, PS-06 opaque objects, PS-08 pseudonymous financial
+records, PS-09 a mirror of module records, PS-10 counters.
+
+`deploy/export-subject.mjs` fans out across one customer's stack and assembles
+a single report:
+
+```sh
+node deploy/export-subject.mjs --manifest ./customers/xy/manifest.json \
+  --subject ada@example.com --out ada.json
+```
+
+**Read the report's `gaps` before sending it.** The modules hold the domain
+records — this person's invoices, tickets, time entries — and have no export
+endpoint yet, so every module in the stack is listed as a gap with what to
+inspect instead, and `complete` is `false` whenever anything was missed. A
+service that could not be reached is recorded as a gap too, never as an empty
+source: a service that is down must not read as a service with nothing to say.
+
 ## Configuring retention
 
 Set `RETENTION_DAYS` on the services that support it (PS-03, PS-07). `0` (the
@@ -51,4 +84,11 @@ deployment's ticker/cron.
   [`PLATFORM-READINESS.md`](./PLATFORM-READINESS.md) D2.
 - **Automated cross-service erasure orchestration** (one "erase this person"
   call fanning out to every service) — today it is the operator/module's job,
-  guided by this map.
+  guided by this map. The read side of that fan-out now exists
+  (`deploy/export-subject.mjs`); the write side does not, deliberately, because
+  an erasure that half-succeeds across four services is worse than one an
+  operator performs deliberately.
+- **Module-side subject export.** The platform services answer for themselves;
+  the fourteen modules do not, so a subject access request still needs a manual
+  pass over the module holding that person's domain records. The fan-out names
+  each one rather than hiding the gap.

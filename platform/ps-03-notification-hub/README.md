@@ -15,7 +15,10 @@ only).
   is a no-op that "delivers" without any external call. Real single-`fetch`
   adapters (no SDKs) ship for email (`resend-email`), SMS (`twilio-sms`),
   chat (`slack` / `teams` / `discord` incoming webhooks) and generic
-  `webhook`.
+  `webhook`. A channel URL that resolves into private address space is
+  refused and the message dead lettered — a channel is an outbound target
+  like any other, and this service sits inside the customer's network
+  (`EGRESS_ALLOW_HOSTS` lists what may be reached).
 - **Graceful degradation**: a channel whose real provider is not configured
   (an email channel with no `RESEND_API_KEY`, an SMS channel with no Twilio
   credentials, a chat channel with no webhook url) automatically falls back

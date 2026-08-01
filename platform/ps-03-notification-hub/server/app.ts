@@ -16,6 +16,7 @@ import {
 import type { TwilioConfig } from './providers/twilio-sms.js';
 import { DomainError, fail, reqText } from './errors.js';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
+import type { EgressPolicy, ResolveHost } from './egress.js';
 import { MIGRATIONS } from './db.js';
 import { pendingCount } from './migrations.js';
 import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
@@ -23,6 +24,7 @@ import { latestTemplate, mapTemplate, renderTemplate, type TemplateRow } from '.
 import { enqueue, mapChannel, mapMessage, tick, type ChannelRow, type MessageRow } from './queue.js';
 import { buildResolver } from './providers/registry.js';
 import type { FetchLike, ProviderResolver } from './providers/index.js';
+import { exportSubject } from './export.js';
 
 export interface AppOptions {
   db: Database.Database;
@@ -35,6 +37,10 @@ export interface AppOptions {
   fetchImpl?: FetchLike;
   /** Days to keep terminal (sent/dead) messages; pruned on tick. 0 = keep. */
   retentionDays?: number;
+  /** Which chat-webhook targets a channel may post to; index.ts passes it. */
+  egress?: EgressPolicy;
+  /** Injectable DNS resolution for the egress check (tests). */
+  resolveHost?: ResolveHost;
   /** Injectable fetch for the identity-seam verification call (tests). */
   identityFetch?: SeamFetch;
   /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
@@ -59,7 +65,12 @@ export function createApp(opts: AppOptions): express.Express {
     buildResolver({ resendApiKey: opts.resendApiKey ?? null, twilio: opts.twilio ?? null, fetchImpl: opts.fetchImpl });
 
   const app = express();
-  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
+  if (opts.hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (opts.hardening.trustProxy > 0) app.set('trust proxy', opts.hardening.trustProxy);
+    app.use(hardeningMiddleware(opts.hardening));
+  }
   app.use(requestTelemetry({ service: 'ps-03', log: opts.logRequests === true }));
   app.use(express.json({ limit: '256kb' }));
 
@@ -244,6 +255,16 @@ export function createApp(opts: AppOptions): express.Express {
   });
 
   // ── Messages ───────────────────────────────────────────────────────
+  /**
+   * Subject access / portability: everything this service holds about one
+   * person. See server/export.ts for what that includes.
+   */
+  app.get('/api/export', (req, res) => {
+    const subject = typeof req.query.subject === 'string' ? req.query.subject.trim() : '';
+    if (!subject) fail(422, 'subject query parameter is required');
+    res.json(exportSubject(db, subject, nowIso(now())));
+  });
+
   app.get('/api/messages', (req, res) => {
     const rows = (
       typeof req.query.status === 'string'
@@ -272,7 +293,7 @@ export function createApp(opts: AppOptions): express.Express {
   });
 
   app.post('/api/tick', async (_req, res) => {
-    res.json(await tick(db, resolve, now(), opts.retentionDays ?? 0));
+    res.json(await tick(db, resolve, now(), opts.retentionDays ?? 0, { egress: opts.egress, resolveHost: opts.resolveHost }));
   });
 
   // ── Terminal error middleware ──────────────────────────────────────

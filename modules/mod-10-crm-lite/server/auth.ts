@@ -21,19 +21,49 @@ function safeEqual(a: string, b: string): boolean {
   return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
 }
 
-/** Stateless session token: "<expiryMillis>.<hmac(expiryMillis)>". */
-export function createToken(config: AuthConfig, now = Date.now()): string {
-  const expiry = String(now + config.ttlHours * 3600_000);
-  return `${expiry}.${sign(expiry, config.secret)}`;
+/**
+ * Stateless session token: "<expiryMillis>.<actor base64url>.<hmac(payload)>".
+ *
+ * The actor is who logged in. Every operator signs in through one shared admin
+ * account, so without it this module's audit entries and history rows all read
+ * "admin" — true, and useless for answering who changed something. With SSO
+ * configured the actor is the identity PS-01 itself validated; standalone it is
+ * the local admin, exactly as before.
+ */
+export function createToken(config: AuthConfig, actor: string = config.username, now = Date.now()): string {
+  const payload = `${now + config.ttlHours * 3600_000}.${Buffer.from(actor, 'utf8').toString('base64url')}`;
+  return `${payload}.${sign(payload, config.secret)}`;
+}
+
+export interface Session {
+  /** Who this session belongs to — a PS-01 identity, or the local admin. */
+  actor: string;
+}
+
+/** Verify a token and return whose it is, or null. */
+export function readToken(config: AuthConfig, token: string, now = Date.now()): Session | null {
+  const parts = token.split('.');
+
+  // Two parts is the format from before the actor was carried. It stays valid
+  // until it expires — an upgrade should not sign everyone out — and can only
+  // have been minted for the local admin. Drop this branch once no session
+  // predating the upgrade can still be alive (one SESSION_TTL_HOURS).
+  if (parts.length === 2) {
+    const [expiry, mac] = parts as [string, string];
+    if (!/^\d+$/.test(expiry) || Number(expiry) < now) return null;
+    return safeEqual(mac, sign(expiry, config.secret)) ? { actor: config.username } : null;
+  }
+
+  if (parts.length !== 3) return null;
+  const [expiry, actorPart, mac] = parts as [string, string, string];
+  if (!/^\d+$/.test(expiry) || Number(expiry) < now) return null;
+  if (!safeEqual(mac, sign(`${expiry}.${actorPart}`, config.secret))) return null;
+  const actor = Buffer.from(actorPart, 'base64url').toString('utf8');
+  return actor === '' ? null : { actor };
 }
 
 export function verifyToken(config: AuthConfig, token: string, now = Date.now()): boolean {
-  const dot = token.indexOf('.');
-  if (dot < 1) return false;
-  const expiry = token.slice(0, dot);
-  const mac = token.slice(dot + 1);
-  if (!/^\d+$/.test(expiry) || Number(expiry) < now) return false;
-  return safeEqual(mac, sign(expiry, config.secret));
+  return readToken(config, token, now) !== null;
 }
 
 export function parseCookies(header: string | undefined): Record<string, string> {
@@ -71,13 +101,25 @@ export function clearedCookie(): string {
   return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
+/**
+ * Session gate. Publishes the caller on `res.locals.actor`, which is what the
+ * routes stamp onto audit events and the module's own history rows.
+ */
 export function requireAuth(config: AuthConfig) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const token = parseCookies(req.headers.cookie)[COOKIE_NAME];
-    if (token && verifyToken(config, token)) {
+    const session = token ? readToken(config, token) : null;
+    if (session) {
+      res.locals.actor = session.actor;
       next();
       return;
     }
     res.status(401).json({ error: 'Authentication required' });
   };
+}
+
+/** Who is making the current request; the local admin when nothing said. */
+export function actorOf(res: Response, config: AuthConfig): string {
+  const actor = res.locals.actor as unknown;
+  return typeof actor === 'string' && actor !== '' ? actor : config.username;
 }

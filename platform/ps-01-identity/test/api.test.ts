@@ -99,6 +99,39 @@ describe('RBAC', () => {
   });
 });
 
+describe('self-service password change', () => {
+  it('requires the current password, so a stolen token cannot take the account over', async () => {
+    const admin = await login('acme', 'admin@acme.test', 'demo-admin');
+    const created = await request(app)
+      .post('/api/users')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ email: 'selfchange@acme.test', name: 'Self Change', password: 'password-111' });
+    const userId = created.body.user.id as number;
+    const session = await login('acme', 'selfchange@acme.test', 'password-111');
+
+    const noCurrent = await request(app)
+      .post(`/api/users/${userId}/password`)
+      .set('Authorization', `Bearer ${session.token}`)
+      .send({ new_password: 'password-222' });
+    expect(noCurrent.status).toBe(422);
+
+    const wrongCurrent = await request(app)
+      .post(`/api/users/${userId}/password`)
+      .set('Authorization', `Bearer ${session.token}`)
+      .send({ current_password: 'not-it', new_password: 'password-222' });
+    expect(wrongCurrent.status).toBe(422);
+    // The password is unchanged after both attempts.
+    expect((await login('acme', 'selfchange@acme.test', 'password-111')).status).toBe(200);
+
+    const ok = await request(app)
+      .post(`/api/users/${userId}/password`)
+      .set('Authorization', `Bearer ${session.token}`)
+      .send({ current_password: 'password-111', new_password: 'password-222' });
+    expect(ok.status).toBe(200);
+    expect((await login('acme', 'selfchange@acme.test', 'password-222')).status).toBe(200);
+  });
+});
+
 describe('password reset revokes prior tokens', () => {
   it('invalidates an old token after the password changes', async () => {
     // Seed a dedicated user so other tests are unaffected.
@@ -408,15 +441,121 @@ describe('schema migrations', () => {
       const keyCols = (upgraded.prepare("PRAGMA table_info('api_keys')").all() as { name: string }[]).map((c) => c.name);
       expect(oauthCols).toContain('org_slug'); // migration 2 applied
       expect(keyCols).toContain('scopes'); // migration 3 applied
-      expect((upgraded.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(4);
+      expect((upgraded.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(7);
       upgraded.close();
 
       // Re-opening applies nothing further.
       const again = openDb(path);
-      expect((again.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(4);
+      expect((again.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(7);
       again.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('session revocation', () => {
+  it('kills every session of a user and keeps the caller signed in', async () => {
+    const admin = await login('acme', 'admin@acme.test', 'demo-admin');
+    await request(app)
+      .post('/api/users')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ email: 'revoke@acme.test', name: 'Revoke Me', password: 'password-111' });
+
+    // Two live sessions, as a user with a laptop and a phone would have.
+    const laptop = await login('acme', 'revoke@acme.test', 'password-111');
+    const phone = await login('acme', 'revoke@acme.test', 'password-111');
+    expect((await request(app).get('/api/me').set('Authorization', `Bearer ${laptop.token}`)).status).toBe(200);
+
+    const revoked = await request(app)
+      .post('/api/me/sessions/revoke')
+      .set('Authorization', `Bearer ${phone.token}`);
+    expect(revoked.status).toBe(200);
+    expect(revoked.body.token).toBeTruthy();
+
+    // The other session is gone, this one continues with the fresh token, and
+    // the password still works — revoking is not a reset.
+    expect((await request(app).get('/api/me').set('Authorization', `Bearer ${laptop.token}`)).status).toBe(401);
+    expect((await request(app).get('/api/me').set('Authorization', `Bearer ${phone.token}`)).status).toBe(401);
+    const withFresh = await request(app).get('/api/me').set('Authorization', `Bearer ${revoked.body.token}`);
+    expect(withFresh.status).toBe(200);
+    expect((await login('acme', 'revoke@acme.test', 'password-111')).status).toBe(200);
+  });
+
+  it('lets an admin revoke someone else, and refuses a foreign tenant', async () => {
+    const admin = await login('acme', 'admin@acme.test', 'demo-admin');
+    const created = await request(app)
+      .post('/api/users')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ email: 'revoke2@acme.test', name: 'Revoke Two', password: 'password-111' });
+    const victim = await login('acme', 'revoke2@acme.test', 'password-111');
+
+    const res = await request(app)
+      .post(`/api/users/${created.body.user.id}/sessions/revoke`)
+      .set('Authorization', `Bearer ${admin.token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.token).toBeNull(); // the admin's own session is untouched
+    expect((await request(app).get('/api/me').set('Authorization', `Bearer ${victim.token}`)).status).toBe(401);
+    expect((await request(app).get('/api/me').set('Authorization', `Bearer ${admin.token}`)).status).toBe(200);
+
+    const globexUser = db.prepare('SELECT id FROM users WHERE email = ?').get('owner@globex.test') as { id: number };
+    const foreign = await request(app)
+      .post(`/api/users/${globexUser.id}/sessions/revoke`)
+      .set('Authorization', `Bearer ${admin.token}`);
+    expect(foreign.status).toBe(404);
+  });
+
+  it('refuses an API key, which has no sessions', async () => {
+    const owner = await login('acme', 'owner@acme.test', 'demo-owner');
+    const minted = await request(app)
+      .post('/api/api-keys')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ name: 'revoke-key' });
+    const res = await request(app)
+      .post('/api/me/sessions/revoke')
+      .set('Authorization', `Bearer ${minted.body.secret}`);
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('provisioning an organization', () => {
+  it('creates it with an owner who can actually log in', async () => {
+    const owner = await login('acme', 'owner@acme.test', 'demo-owner');
+    const res = await request(app)
+      .post('/api/orgs')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({
+        slug: 'initech',
+        name: 'Initech',
+        owner: { email: 'boss@initech.test', name: 'Bill Boss', password: 'password-999' },
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.owner.email).toBe('boss@initech.test');
+
+    const fresh = await login('initech', 'boss@initech.test', 'password-999');
+    expect(fresh.status).toBe(200);
+    const me = await request(app).get('/api/me').set('Authorization', `Bearer ${fresh.token}`);
+    expect(me.body.permissions).toContain('user:write');
+  });
+
+  it('still allows an empty org, but says what that means', async () => {
+    const owner = await login('acme', 'owner@acme.test', 'demo-owner');
+    const res = await request(app)
+      .post('/api/orgs')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ slug: 'hollow', name: 'Hollow Co' });
+    expect(res.status).toBe(201);
+    expect(res.body.owner).toBeNull();
+    expect(res.body.warning).toMatch(/nobody can log in/i);
+  });
+
+  it('rejects a weak owner password before creating anything', async () => {
+    const owner = await login('acme', 'owner@acme.test', 'demo-owner');
+    const res = await request(app)
+      .post('/api/orgs')
+      .set('Authorization', `Bearer ${owner.token}`)
+      .send({ slug: 'weak', name: 'Weak Co', owner: { email: 'a@b.test', name: 'A', password: 'short' } });
+    expect(res.status).toBe(422);
+    expect(db.prepare('SELECT 1 FROM organizations WHERE slug = ?').get('weak')).toBeUndefined();
   });
 });

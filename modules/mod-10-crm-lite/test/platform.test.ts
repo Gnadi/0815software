@@ -86,12 +86,12 @@ describe('SSO login-exchange', () => {
   it('lets PS-01 decide the login, bypassing local credentials', async () => {
     // The injected verifier stands in for a configured PS-01: it approves
     // despite a wrong local password, so the module must still issue a session.
-    const app = createApp({ db, auth, verifyLogin: async () => 'ok' });
+    const app = createApp({ db, auth, verifyLogin: async () => ({ ok: true, actor: 'ada@acme.test' }) });
     await request(app).post('/api/login').send({ username: 'admin', password: 'wrong-password' }).expect(200);
   });
 
   it('rejects when PS-01 rejects, even with correct local credentials', async () => {
-    const app = createApp({ db, auth, verifyLogin: async () => 'fail' });
+    const app = createApp({ db, auth, verifyLogin: async () => ({ ok: false }) });
     await request(app).post('/api/login').send({ username: 'admin', password: 'test-password' }).expect(401);
   });
 

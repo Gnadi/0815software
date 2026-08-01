@@ -195,29 +195,82 @@ export function settleProcessing(db: Database.Database, now = Date.now()): numbe
   return settled;
 }
 
-/** Refund (full or partial) a succeeded intent. */
+/**
+ * Refund (full or partial) a succeeded intent.
+ *
+ * The refundable balance is claimed BEFORE the provider call, in one
+ * synchronous step. Checking the balance and only then awaiting the PSP would
+ * leave a window in which a second concurrent refund reads the same balance
+ * and passes the same check — two requests for the full amount would then both
+ * be accepted and the intent would be refunded twice over. If the provider
+ * rejects the refund, the claim is rolled back.
+ */
 export async function refundIntent(
   db: Database.Database,
   provider: PaymentProvider,
   row: IntentRow,
   amountMinor: number | undefined,
   now = Date.now(),
+  idempotencyKey: string | null = null,
 ): Promise<void> {
-  const { status, refunded } = foldStatus(eventsOf(db, row.id), row.amount_minor);
-  if (status !== 'succeeded' && status !== 'partially_refunded') {
-    throw new DomainError(422, `Only a captured payment can be refunded (status ${status})`);
+  if (idempotencyKey !== null) {
+    const seen = db.prepare('SELECT intent_id, amount_minor FROM refund_idempotency WHERE key = ?').get(idempotencyKey) as
+      | { intent_id: number; amount_minor: number }
+      | undefined;
+    if (seen) {
+      // A replay of the same refund is a no-op; the same key for a different
+      // refund is a caller bug worth reporting rather than guessing at.
+      if (seen.intent_id !== row.id || (amountMinor !== undefined && seen.amount_minor !== amountMinor)) {
+        throw new DomainError(409, 'Idempotency key already used for a different refund');
+      }
+      return;
+    }
   }
-  const remaining = row.amount_minor - refunded;
-  const amount = amountMinor ?? remaining;
-  if (!Number.isInteger(amount) || amount <= 0) {
-    throw new DomainError(422, 'Validation failed', [{ field: 'amount_minor', message: 'must be a positive integer' }]);
+
+  const { eventId, ledgerId, amount } = db.transaction(() => {
+    const { status, refunded } = foldStatus(eventsOf(db, row.id), row.amount_minor);
+    if (status !== 'succeeded' && status !== 'partially_refunded') {
+      throw new DomainError(422, `Only a captured payment can be refunded (status ${status})`);
+    }
+    const remaining = row.amount_minor - refunded;
+    const claimed = amountMinor ?? remaining;
+    if (!Number.isInteger(claimed) || claimed <= 0) {
+      throw new DomainError(422, 'Validation failed', [
+        { field: 'amount_minor', message: 'must be a positive integer' },
+      ]);
+    }
+    if (claimed > remaining) {
+      throw new DomainError(422, `Refund exceeds the refundable balance (${remaining})`);
+    }
+    appendEvent(db, row.id, 'refunded', now, claimed);
+    ledgerEntry(db, row.id, 'debit', claimed, 'refund', now);
+    // The key is claimed with the balance: a concurrent replay of the same key
+    // hits the primary key here rather than reaching the provider twice.
+    if (idempotencyKey !== null) {
+      db.prepare('INSERT INTO refund_idempotency (key, intent_id, amount_minor, created_at) VALUES (?, ?, ?, ?)').run(
+        idempotencyKey,
+        row.id,
+        claimed,
+        nowIso(now),
+      );
+    }
+    const event = db.prepare('SELECT MAX(id) AS id FROM intent_events WHERE intent_id = ?').get(row.id) as { id: number };
+    const ledger = db.prepare('SELECT MAX(id) AS id FROM ledger_entries WHERE intent_id = ?').get(row.id) as { id: number };
+    return { eventId: event.id, ledgerId: ledger.id, amount: claimed };
+  })();
+
+  try {
+    await provider.refund({ public_id: row.public_id }, amount);
+  } catch (err) {
+    // The money never moved, so neither should the record of it — including
+    // the idempotency claim, or a legitimate retry would be swallowed.
+    db.transaction(() => {
+      db.prepare('DELETE FROM intent_events WHERE id = ?').run(eventId);
+      db.prepare('DELETE FROM ledger_entries WHERE id = ?').run(ledgerId);
+      if (idempotencyKey !== null) db.prepare('DELETE FROM refund_idempotency WHERE key = ?').run(idempotencyKey);
+    })();
+    throw err;
   }
-  if (amount > remaining) {
-    throw new DomainError(422, `Refund exceeds the refundable balance (${remaining})`);
-  }
-  await provider.refund({ public_id: row.public_id }, amount);
-  appendEvent(db, row.id, 'refunded', now, amount);
-  ledgerEntry(db, row.id, 'debit', amount, 'refund', now);
 }
 
 /** Reconcile a settlement signalled by an inbound PSP webhook. */

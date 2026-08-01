@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { hashPassword, nowIso } from './auth.js';
+import { DomainError } from './errors.js';
 import type { UserRow } from './identity.js';
 
 /**
@@ -32,6 +33,50 @@ export interface OAuthProviderConfig {
 }
 
 export type OAuthConfig = Partial<Record<OAuthProvider, OAuthProviderConfig>>;
+
+/**
+ * How long a CSRF state nonce stays usable. A state is single-use anyway; the
+ * window bounds how long a leaked authorize URL remains redeemable and lets the
+ * table be pruned instead of growing for the life of the deployment.
+ */
+export const STATE_TTL_MS = 10 * 60_000;
+
+/**
+ * Is this a redirect target we are willing to append a session token to?
+ *
+ * The callback hands the freshly minted token to `redirect_uri`, so an
+ * unvalidated value would let anyone mail a victim an authorize link and
+ * collect their session. Accepted: a same-site path, this service's own
+ * origin, or an operator-configured origin from `OAUTH_REDIRECT_ALLOWLIST`.
+ */
+export function isAllowedRedirect(
+  redirectUri: string,
+  allowlist: readonly string[],
+  selfBaseUrl: string,
+): boolean {
+  // A relative path is same-site by construction. "//host" is protocol-relative
+  // — an absolute URL in disguise — and must not slip through.
+  if (redirectUri.startsWith('/') && !redirectUri.startsWith('//')) return true;
+
+  let target: URL;
+  try {
+    target = new URL(redirectUri);
+  } catch {
+    return false;
+  }
+  if (target.protocol !== 'http:' && target.protocol !== 'https:') return false;
+
+  const origins = new Set<string>();
+  for (const candidate of [selfBaseUrl, ...allowlist]) {
+    if (!candidate) continue;
+    try {
+      origins.add(new URL(candidate).origin);
+    } catch {
+      /* an unparseable allowlist entry simply allows nothing */
+    }
+  }
+  return origins.has(target.origin);
+}
 
 const DEFAULT_ENDPOINTS: Record<OAuthProvider, Omit<OAuthProviderConfig, 'clientId' | 'clientSecret'>> = {
   google: {
@@ -105,9 +150,19 @@ interface StateRow {
 export function beginAuthorize(
   db: Database.Database,
   provider: OAuthProvider,
-  opts: { orgSlug: string; redirectUri: string | null; providerConfig?: OAuthProviderConfig; selfBaseUrl: string },
+  opts: {
+    orgSlug: string;
+    redirectUri: string | null;
+    providerConfig?: OAuthProviderConfig;
+    selfBaseUrl: string;
+    /** Unconfigured provider → offline mock IdP. Off in production. */
+    allowMockIdp?: boolean;
+  },
   now = Date.now(),
 ): string {
+  if (!opts.providerConfig && opts.allowMockIdp === false) {
+    throw new DomainError(501, `OAuth provider "${provider}" is not configured`);
+  }
   const state = randomBytes(16).toString('hex');
   db.prepare(
     'INSERT INTO oauth_states (provider, state, org_slug, redirect_uri, created_at) VALUES (?, ?, ?, ?, ?)',
@@ -181,8 +236,18 @@ export async function fetchIdentity(
   return { email, name, subject };
 }
 
-/** Consume a stored state nonce (single-use) and return it, or undefined. */
-export function consumeState(db: Database.Database, provider: string, state: unknown): StateRow | undefined {
+/**
+ * Consume a stored state nonce (single-use) and return it, or undefined. A
+ * nonce older than `STATE_TTL_MS` is consumed but not honoured, and every call
+ * clears whatever else has expired so an abandoned authorize cannot accumulate.
+ */
+export function consumeState(
+  db: Database.Database,
+  provider: string,
+  state: unknown,
+  now = Date.now(),
+): StateRow | undefined {
+  db.prepare('DELETE FROM oauth_states WHERE created_at < ?').run(nowIso(now - STATE_TTL_MS));
   if (typeof state !== 'string' || state.length === 0) return undefined;
   const row = db.prepare('SELECT * FROM oauth_states WHERE state = ? AND provider = ?').get(state, provider) as
     | StateRow

@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3';
 import { weekStartOf } from '../shared/time.js';
 import type { FieldError } from '../shared/types.js';
 import {
+  actorOf,
   checkCredentials,
   clearedCookie,
   createToken,
@@ -172,7 +173,12 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   // Transport hardening: security headers, a default-deny CORS policy and
   // per-IP rate limits. Mounted only when a config is passed — index.ts always
   // passes one, tests do not, so suites stay unthrottled and deterministic.
-  if (hardening) app.use(hardeningMiddleware(hardening));
+  if (hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
+    app.use(hardeningMiddleware(hardening));
+  }
   app.use(express.json({ limit: '1mb' }));
 
   // ── Public routes ────────────────────────────────────────────────────
@@ -197,13 +203,23 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
     const viaSso = await verifyLogin(username, password);
-    const authed = viaSso === null ? checkCredentials(auth, username, password) : viaSso === 'ok';
-    if (!authed) {
+    // Who signed in: the PS-01 identity when SSO validated it, the local admin
+    // otherwise. It rides in the session token and ends up on every audit
+    // entry and history row the session writes.
+    const actor =
+      viaSso === null
+        ? checkCredentials(auth, username, password)
+          ? auth.username
+          : null
+        : viaSso.ok
+          ? viaSso.actor
+          : null;
+    if (actor === null) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
-    res.json({ ok: true, username: auth.username });
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
+    res.json({ ok: true, username: actor });
   });
 
   // ── Everything below requires a valid session ────────────────────────
@@ -215,7 +231,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: auth.username });
+    res.json({ username: actorOf(res, auth) });
   });
 
   // ── Projects & tasks ─────────────────────────────────────────────────
@@ -352,7 +368,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       const weekStart = reqDate(body(req).week_start, 'week_start', errors);
       const note = withNote ? optText(body(req).note, 'note', errors, 300) : null;
       if (errors.length > 0) fail(errors);
-      res.json(fn(db, employeeId, weekStartOf(weekStart), auth.username, note));
+      res.json(fn(db, employeeId, weekStartOf(weekStart), actorOf(res, auth), note));
     };
   }
 
@@ -361,8 +377,8 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const employeeId = reqId(body(req).employee_id, 'employee_id', errors);
     const weekStart = reqDate(body(req).week_start, 'week_start', errors);
     if (errors.length > 0) fail(errors);
-    const submitted = submitTimesheet(db, employeeId, weekStartOf(weekStart), auth.username);
-    void platform.audit({ actor: auth.username, action: 'timesheet.submitted', resource: `employee:${employeeId}`, metadata: { week_start: weekStartOf(weekStart) } });
+    const submitted = submitTimesheet(db, employeeId, weekStartOf(weekStart), actorOf(res, auth));
+    void platform.audit({ actor: actorOf(res, auth), action: 'timesheet.submitted', resource: `employee:${employeeId}`, metadata: { week_start: weekStartOf(weekStart) } });
     res.json(submitted);
   });
   app.post('/api/timesheets/approve', transitionHandler(approveTimesheet, true));

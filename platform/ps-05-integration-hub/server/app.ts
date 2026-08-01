@@ -19,7 +19,8 @@ import { providerEntry, publicRegistry, REGISTRY } from './provider-registry.js'
 import { connectionEvent, createConnection, credentialsOf, mapConnection, type ConnectionRow } from './connections.js';
 import { encrypt } from './crypto.js';
 import { storeWebhookEvent, verifySignature } from './webhooks.js';
-import { defaultFetch, proxyGraphql, proxyRest, type FetchLike } from './proxy.js';
+import { defaultFetch, guardedFetch, proxyGraphql, proxyRest, type FetchLike } from './proxy.js';
+import { OPEN_EGRESS, type EgressPolicy, type ResolveHost } from './egress.js';
 import { withRetry } from './retry-fetch.js';
 import { createSyncJob, listSyncJobs, mapSyncJob, runSyncJobs } from './sync.js';
 import {
@@ -39,6 +40,10 @@ export interface AppOptions {
   webhookSecret: string;
   now?: () => number;
   fetchImpl?: FetchLike;
+  /** Which outbound targets are allowed; index.ts passes the real policy. */
+  egress?: EgressPolicy;
+  /** Injectable DNS resolution for the egress check (tests). */
+  resolveHost?: ResolveHost;
   oauth?: OAuthConfig;
   selfBaseUrl?: string;
   /** Injectable fetch for the identity-seam verification call (tests). */
@@ -62,12 +67,24 @@ function rawBodyOf(req: Request): string {
 
 export function createApp(opts: AppOptions): express.Express {
   const { db, auth, encryptionKey, webhookSecret, now = Date.now } = opts;
-  const fetchImpl = opts.fetchImpl ?? withRetry(defaultFetch);
+  // Every outbound call goes through the egress guard, injected or not: a
+  // test double may still be pointed at an internal URL by the same route an
+  // attacker would use.
+  const fetchImpl = guardedFetch(
+    opts.fetchImpl ?? withRetry(defaultFetch),
+    opts.egress ?? OPEN_EGRESS,
+    opts.resolveHost,
+  );
   const oauth: OAuthConfig = opts.oauth ?? {};
   const selfBaseUrl = opts.selfBaseUrl ?? 'http://localhost:4005';
 
   const app = express();
-  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
+  if (opts.hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (opts.hardening.trustProxy > 0) app.set('trust proxy', opts.hardening.trustProxy);
+    app.use(hardeningMiddleware(opts.hardening));
+  }
   app.use(requestTelemetry({ service: 'ps-05', log: opts.logRequests === true }));
   app.use(
     express.json({

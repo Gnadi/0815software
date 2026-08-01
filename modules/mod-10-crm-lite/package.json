@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-10-crm-lite",
   "version": "0.1.0",
-  "description": "MOD-10 CRM Lite — contacts, companies, deals, an append-only activity log and a config-driven pipeline. No AI upsells, no seat caps, no telemetry.",
+  "description": "MOD-10 CRM Lite \u2014 contacts, companies, deals, an append-only activity log and a config-driven pipeline. No AI upsells, no seat caps, no telemetry.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -11,6 +11,7 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/server/index.js",
+    "backup": "node scripts/backup.mjs",
     "test": "vitest run",
     "preview": "npm run build && npm start"
   },

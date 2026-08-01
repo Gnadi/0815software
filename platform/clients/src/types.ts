@@ -7,11 +7,16 @@
  */
 
 // ── PS-01 Identity ─────────────────────────────────────────────────────
+/**
+ * What `POST /api/tokens/verify` actually returns for a session token. PS-01
+ * stores ids as INTEGER and its verdict carries no expiry — the expiry is
+ * checked during verification, not reported — so a consumer typing these as
+ * strings, or reading `expiry`, was being lied to.
+ */
 export interface SessionClaims {
-  userId: string;
-  orgId: string;
+  userId: number;
+  orgId: number;
   tokenVersion: number;
-  expiry: number;
 }
 export interface TokenVerdict {
   valid: boolean;
@@ -36,9 +41,14 @@ export interface RunWorkflowInput {
 }
 /** Fan-out result of ingesting an event (POST /api/events). */
 export interface IngestResult {
+  /** Distinct instances the event started (a replayed key counts once). */
   matched: number;
   instance_ids: number[];
   enqueued: number;
+  /** Matching triggers whose workflow is disabled or gone. */
+  skipped: number;
+  /** Starts that resolved to an instance this idempotency key already made. */
+  replayed: number;
 }
 export interface WorkflowInstance {
   id: number;
