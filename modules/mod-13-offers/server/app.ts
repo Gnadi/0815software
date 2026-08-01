@@ -42,6 +42,7 @@ import {
 } from './offers.js';
 import { renderOfferPdf } from './pdf.js';
 import { verifyOfferToken } from './tokens.js';
+import { likeTerm } from './offers.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -349,10 +350,10 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
          FROM customers c LEFT JOIN offers o ON o.customer_id = c.id
          WHERE 1 = 1
          ${includeArchived ? '' : 'AND c.archived_at IS NULL'}
-         ${search ? 'AND (c.name LIKE @s OR c.email LIKE @s OR c.vat_id LIKE @s OR c.contact_person LIKE @s)' : ''}
+         ${search ? 'AND (c.name LIKE @s ESCAPE \'\\\' OR c.email LIKE @s ESCAPE \'\\\' OR c.vat_id LIKE @s ESCAPE \'\\\' OR c.contact_person LIKE @s ESCAPE \'\\\')' : ''}
          GROUP BY c.id ORDER BY c.archived_at IS NOT NULL, c.name`,
       )
-      .all(search ? { s: `%${search}%` } : {});
+      .all(search ? { s: likeTerm(search) } : {});
     res.json({ customers });
   });
 

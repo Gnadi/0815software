@@ -50,6 +50,7 @@ import {
 } from './store.js';
 import { ordersCsv } from './csv.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
+import { likeTerm } from './store.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -398,8 +399,8 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const params: (string | number)[] = [];
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
     if (search) {
-      clauses.push('(p.name LIKE ? OR p.sku LIKE ?)');
-      params.push(`%${search}%`, `%${search}%`);
+      clauses.push('(p.name LIKE ? ESCAPE \'\\\' OR p.sku LIKE ? ESCAPE \'\\\')');
+      params.push(likeTerm(search), likeTerm(search));
     }
     if (typeof req.query.category === 'string' && /^\d+$/.test(req.query.category)) {
       clauses.push('p.category_id = ?');

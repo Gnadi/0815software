@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { categoryLabel, type ProgramDetail, type ProgramRow, type ProgramStatus } from '../shared/types.js';
 import { applicationsForProgram } from './applications.js';
 import { DomainError, nowIso, requireRow } from './core.js';
+import { likeTerm } from './applications.js';
 
 interface ProgramStoredRow {
   id: number;
@@ -69,10 +70,10 @@ export function listPrograms(
   const programs = db
     .prepare(
       `SELECT * FROM programs
-       ${search ? 'WHERE name LIKE @s OR funding_body LIKE @s' : ''}
+       ${search ? 'WHERE name LIKE @s ESCAPE \'\\\' OR funding_body LIKE @s ESCAPE \'\\\'' : ''}
        ORDER BY status, name`,
     )
-    .all(search ? { s: `%${search}%` } : {}) as ProgramStoredRow[];
+    .all(search ? { s: likeTerm(search) } : {}) as ProgramStoredRow[];
   let rows = programs.map((p) => toRow(db, p));
   if (opts.status) rows = rows.filter((r) => r.status === opts.status);
   if (opts.category) rows = rows.filter((r) => r.category === opts.category);

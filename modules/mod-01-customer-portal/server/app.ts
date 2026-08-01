@@ -18,6 +18,11 @@ import {
 } from './auth.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 interface CustomerRow {
   id: number;
   email: string;
@@ -202,12 +207,12 @@ export function createApp({ db, hardening, session, documentsDir, staticDir, pla
     const search = str(req.query.search);
     if (search) {
       clauses.push(
-        `(o.order_no LIKE ? OR EXISTS (
+        `(o.order_no LIKE ? ESCAPE \'\\\' OR EXISTS (
            SELECT 1 FROM order_items i
-           WHERE i.order_id = o.id AND (i.description LIKE ? OR i.sku LIKE ?)
+           WHERE i.order_id = o.id AND (i.description LIKE ? ESCAPE \'\\\' OR i.sku LIKE ? ESCAPE \'\\\')
          ))`,
       );
-      const like = `%${search}%`;
+      const like = likeTerm(search);
       params.push(like, like, like);
     }
 

@@ -35,6 +35,7 @@ import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js
 import { importTransfer, MODULE_ID } from './transfer-import.js';
 import type { DocumentTransfer } from '../shared/transfer.js';
 import { nullVerifier, type LoginVerifier } from './sso.js';
+import { likeTerm } from './invoices.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -212,10 +213,10 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
       .prepare(
         `SELECT c.*, COUNT(i.id) AS invoice_count
          FROM customers c LEFT JOIN invoices i ON i.customer_id = c.id
-         ${search ? 'WHERE c.name LIKE @s OR c.email LIKE @s OR c.vat_id LIKE @s' : ''}
+         ${search ? 'WHERE c.name LIKE @s ESCAPE \'\\\' OR c.email LIKE @s ESCAPE \'\\\' OR c.vat_id LIKE @s ESCAPE \'\\\'' : ''}
          GROUP BY c.id ORDER BY c.name`,
       )
-      .all(search ? { s: `%${search}%` } : {});
+      .all(search ? { s: likeTerm(search) } : {});
     res.json({ customers });
   });
 

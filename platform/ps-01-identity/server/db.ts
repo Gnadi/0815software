@@ -177,6 +177,33 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 6,
+    name: 'auth_events-sessions_revoked-type',
+    up(db) {
+      // Same rebuild again, for the explicit session revocation. (SQLite still
+      // cannot alter a CHECK in place; a widened type set is a new table.)
+      db.exec(`
+      CREATE TABLE auth_events_new (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        org_id     INTEGER,
+        user_id    INTEGER,
+        type       TEXT    NOT NULL
+                   CHECK (type IN ('login_ok', 'login_fail', 'logout', 'token_issued',
+                                   'apikey_created', 'apikey_revoked', 'password_changed',
+                                   'password_change_denied', 'sessions_revoked', 'user_erased')),
+        ip         TEXT,
+        meta       TEXT    NOT NULL DEFAULT '{}',
+        created_at TEXT    NOT NULL
+      );
+      INSERT INTO auth_events_new (id, org_id, user_id, type, ip, meta, created_at)
+        SELECT id, org_id, user_id, type, ip, meta, created_at FROM auth_events;
+      DROP TABLE auth_events;
+      ALTER TABLE auth_events_new RENAME TO auth_events;
+      CREATE INDEX IF NOT EXISTS idx_auth_events_org ON auth_events(org_id, created_at, id);
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

@@ -2,6 +2,11 @@ import type Database from 'better-sqlite3';
 import type { Company, CompanyRow } from '../shared/types.js';
 import { DomainError, nowIso, requireRow } from './domain.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+export function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 export interface CompanyInput {
   name: string;
   domain: string | null;
@@ -24,10 +29,10 @@ export function listCompanies(db: Database.Database, search?: string): CompanyRo
               (SELECT COUNT(*) FROM contacts k WHERE k.company_id = c.id) AS contact_count,
               (SELECT COUNT(*) FROM deals d WHERE d.company_id = c.id) AS deal_count
        FROM companies c
-       ${term ? 'WHERE c.name LIKE @s OR c.domain LIKE @s' : ''}
+       ${term ? 'WHERE c.name LIKE @s ESCAPE \'\\\' OR c.domain LIKE @s ESCAPE \'\\\'' : ''}
        ORDER BY c.name`,
     )
-    .all(term ? { s: `%${term}%` } : {}) as CompanyRow[];
+    .all(term ? { s: likeTerm(term) } : {}) as CompanyRow[];
 }
 
 export function createCompany(db: Database.Database, input: CompanyInput): number {

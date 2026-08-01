@@ -211,7 +211,22 @@ export async function refundIntent(
   row: IntentRow,
   amountMinor: number | undefined,
   now = Date.now(),
+  idempotencyKey: string | null = null,
 ): Promise<void> {
+  if (idempotencyKey !== null) {
+    const seen = db.prepare('SELECT intent_id, amount_minor FROM refund_idempotency WHERE key = ?').get(idempotencyKey) as
+      | { intent_id: number; amount_minor: number }
+      | undefined;
+    if (seen) {
+      // A replay of the same refund is a no-op; the same key for a different
+      // refund is a caller bug worth reporting rather than guessing at.
+      if (seen.intent_id !== row.id || (amountMinor !== undefined && seen.amount_minor !== amountMinor)) {
+        throw new DomainError(409, 'Idempotency key already used for a different refund');
+      }
+      return;
+    }
+  }
+
   const { eventId, ledgerId, amount } = db.transaction(() => {
     const { status, refunded } = foldStatus(eventsOf(db, row.id), row.amount_minor);
     if (status !== 'succeeded' && status !== 'partially_refunded') {
@@ -229,6 +244,16 @@ export async function refundIntent(
     }
     appendEvent(db, row.id, 'refunded', now, claimed);
     ledgerEntry(db, row.id, 'debit', claimed, 'refund', now);
+    // The key is claimed with the balance: a concurrent replay of the same key
+    // hits the primary key here rather than reaching the provider twice.
+    if (idempotencyKey !== null) {
+      db.prepare('INSERT INTO refund_idempotency (key, intent_id, amount_minor, created_at) VALUES (?, ?, ?, ?)').run(
+        idempotencyKey,
+        row.id,
+        claimed,
+        nowIso(now),
+      );
+    }
     const event = db.prepare('SELECT MAX(id) AS id FROM intent_events WHERE intent_id = ?').get(row.id) as { id: number };
     const ledger = db.prepare('SELECT MAX(id) AS id FROM ledger_entries WHERE intent_id = ?').get(row.id) as { id: number };
     return { eventId: event.id, ledgerId: ledger.id, amount: claimed };
@@ -237,10 +262,12 @@ export async function refundIntent(
   try {
     await provider.refund({ public_id: row.public_id }, amount);
   } catch (err) {
-    // The money never moved, so neither should the record of it.
+    // The money never moved, so neither should the record of it — including
+    // the idempotency claim, or a legitimate retry would be swallowed.
     db.transaction(() => {
       db.prepare('DELETE FROM intent_events WHERE id = ?').run(eventId);
       db.prepare('DELETE FROM ledger_entries WHERE id = ?').run(ledgerId);
+      if (idempotencyKey !== null) db.prepare('DELETE FROM refund_idempotency WHERE key = ?').run(idempotencyKey);
     })();
     throw err;
   }

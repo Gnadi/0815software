@@ -21,7 +21,9 @@ MIT-licensed, self-contained (Express 5 + SQLite, Node built-in crypto only).
   An optional **Stripe** adapter (a single `fetch`, no SDK) activates when
   `STRIPE_SECRET_KEY` is set and confirms synchronously.
 - **Refunds** — full or partial against a captured payment, validated against
-  the refundable balance.
+  the refundable balance. The balance is claimed before the PSP is called, so
+  two concurrent refunds can never exceed it, and an `idempotency_key` makes a
+  retried request a no-op rather than a second refund.
 - **Ledger** — append-only credits (on capture) and debits (on refund) per
   intent; `GET /api/ledger` is the reconciliation view.
 - **Inbound webhooks** — `POST /api/webhooks/:provider`, HMAC-verified and
@@ -73,7 +75,7 @@ curl -s -X POST localhost:4008/api/tick -H 'X-Service-Token: dev-service-token'
 | `POST /api/intents` | caller | Create an intent (`confirm:true` to confirm at once). Idempotent. |
 | `GET /api/intents` · `GET /api/intents/:id` | caller | List / read (folded status, events, ledger). |
 | `POST /api/intents/:id/confirm` | caller | Confirm with the provider. |
-| `POST /api/intents/:id/refund` | caller | Refund full or `{amount_minor}` partial. |
+| `POST /api/intents/:id/refund` | caller | Refund full or `{amount_minor}` partial; idempotent on `{idempotency_key}`. |
 | `GET /api/ledger` | caller | The reconciliation ledger. |
 | `POST /api/tick` | caller | Settle processing mock intents. |
 

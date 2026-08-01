@@ -21,6 +21,11 @@ import {
 import { evaluateSla, AT_RISK_MINUTES } from './sla-config.js';
 import { allowedTransitions, canTransition, INITIAL_STATUS } from './status-config.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 /** Error with an HTTP status and optional per-field details. */
 export class DomainError extends Error {
   status: number;
@@ -218,10 +223,10 @@ export function listTickets(db: Database.Database, opts: ListOpts, nowMs: number
   const tickets = db
     .prepare(
       `SELECT * FROM tickets
-       ${search ? 'WHERE ref LIKE @s OR subject LIKE @s OR requester_name LIKE @s OR requester_email LIKE @s' : ''}
+       ${search ? 'WHERE ref LIKE @s ESCAPE \'\\\' OR subject LIKE @s ESCAPE \'\\\' OR requester_name LIKE @s ESCAPE \'\\\' OR requester_email LIKE @s ESCAPE \'\\\'' : ''}
        ORDER BY created_at DESC, id DESC`,
     )
-    .all(search ? { s: `%${search}%` } : {}) as TicketStoredRow[];
+    .all(search ? { s: likeTerm(search) } : {}) as TicketStoredRow[];
 
   let rows = tickets.map((t) => buildRow(db, t, eventsOf(db, t.id), nowMs));
   if (opts.status) rows = rows.filter((r) => r.status === opts.status);

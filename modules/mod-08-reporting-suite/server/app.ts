@@ -33,6 +33,11 @@ import { executeRun, type RunContext } from './runs.js';
 import { nextDueAt } from './scheduler.js';
 import { describeSource, runReportQuery, sourcePolicy } from './source-db.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 // ── Tiny validation helpers ────────────────────────────────────────────
 
 function body(req: Request): Record<string, unknown> {
@@ -295,10 +300,10 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
     const reports = db
       .prepare(
         `SELECT * FROM reports
-         ${search ? 'WHERE name LIKE @s OR description LIKE @s' : ''}
+         ${search ? 'WHERE name LIKE @s ESCAPE \'\\\' OR description LIKE @s ESCAPE \'\\\'' : ''}
          ORDER BY name`,
       )
-      .all(search ? { s: `%${search}%` } : {});
+      .all(search ? { s: likeTerm(search) } : {});
     res.json({ reports });
   });
 

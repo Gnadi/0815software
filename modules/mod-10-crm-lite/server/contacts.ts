@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type { Contact, ContactRow } from '../shared/types.js';
 import { getCompany } from './companies.js';
 import { nowIso, requireRow } from './domain.js';
+import { likeTerm } from './companies.js';
 
 export interface ContactInput {
   name: string;
@@ -29,8 +30,8 @@ export function listContacts(db: Database.Database, opts: { search?: string; com
   const where: string[] = [];
   const params: Record<string, unknown> = { today: today() };
   if (term) {
-    where.push('(k.name LIKE @s OR k.email LIKE @s OR k.title LIKE @s)');
-    params.s = `%${term}%`;
+    where.push('(k.name LIKE @s ESCAPE \'\\\' OR k.email LIKE @s ESCAPE \'\\\' OR k.title LIKE @s ESCAPE \'\\\')');
+    params.s = likeTerm(term);
   }
   if (opts.companyId) {
     where.push('k.company_id = @companyId');

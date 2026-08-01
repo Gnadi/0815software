@@ -46,6 +46,7 @@ import {
   type RfqInput,
   type RfqLineInput,
 } from './rfqs.js';
+import { likeTerm } from './purchase-orders.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -279,10 +280,10 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
                 (SELECT COUNT(*) FROM rfq_invitations i WHERE i.supplier_id = s.id) AS rfq_count,
                 (SELECT COUNT(*) FROM purchase_orders p WHERE p.supplier_id = s.id) AS po_count
          FROM suppliers s
-         ${search ? 'WHERE s.name LIKE @s OR s.email LIKE @s OR s.contact LIKE @s' : ''}
+         ${search ? 'WHERE s.name LIKE @s ESCAPE \'\\\' OR s.email LIKE @s ESCAPE \'\\\' OR s.contact LIKE @s ESCAPE \'\\\'' : ''}
          ORDER BY s.name`,
       )
-      .all(search ? { s: `%${search}%` } : {});
+      .all(search ? { s: likeTerm(search) } : {});
     res.json({ suppliers });
   });
 

@@ -11,6 +11,11 @@ import type {
   PersonRef,
 } from '../shared/types.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 /** Error with an HTTP status and optional per-field details. */
 export class DomainError extends Error {
   status: number;
@@ -182,8 +187,8 @@ export function listEmployees(db: Database.Database, filters: EmployeeFilters): 
   const where: string[] = [];
   const params: Record<string, unknown> = {};
   if (filters.search) {
-    where.push('(e.name LIKE @search OR e.email LIKE @search OR e.job_title LIKE @search)');
-    params.search = `%${filters.search}%`;
+    where.push('(e.name LIKE @search ESCAPE \'\\\' OR e.email LIKE @search ESCAPE \'\\\' OR e.job_title LIKE @search ESCAPE \'\\\')');
+    params.search = likeTerm(filters.search);
   }
   if (filters.departmentId !== undefined) {
     where.push('e.department_id = @department');

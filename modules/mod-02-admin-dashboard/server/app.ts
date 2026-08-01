@@ -15,6 +15,11 @@ import { noopPlatform, type PlatformHooks } from './platform.js';
 import { nullVerifier, type LoginVerifier } from './sso.js';
 import { validateRecord } from './validate.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 interface ListQuery {
   where: string;
   params: (string | number)[];
@@ -36,8 +41,8 @@ function buildListQuery(resource: ResourceDef, query: Request['query']): ListQue
   if (search) {
     const searchable = resource.fields.filter((f) => f.type === 'text' || f.type === 'select');
     if (searchable.length > 0) {
-      clauses.push(`(${searchable.map((f) => `"${f.name}" LIKE ?`).join(' OR ')})`);
-      for (const _ of searchable) params.push(`%${search}%`);
+      clauses.push(`(${searchable.map((f) => `"${f.name}" LIKE ? ESCAPE \'\\\'`).join(' OR ')})`);
+      for (const _ of searchable) params.push(likeTerm(search));
     }
   }
 
@@ -46,8 +51,8 @@ function buildListQuery(resource: ResourceDef, query: Request['query']): ListQue
     if (value === undefined) continue;
     switch (field.type) {
       case 'text':
-        clauses.push(`"${field.name}" LIKE ?`);
-        params.push(`%${value}%`);
+        clauses.push(`"${field.name}" LIKE ? ESCAPE \'\\\'`);
+        params.push(likeTerm(value));
         break;
       case 'number':
         clauses.push(`"${field.name}" = ?`);

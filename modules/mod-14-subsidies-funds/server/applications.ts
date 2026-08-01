@@ -18,6 +18,11 @@ import { getProgramRow } from './programs.js';
 import { AT_RISK_DAYS, deadlineState, obligationState } from './reporting-config.js';
 import { allowedTransitions, canTransition, INITIAL_STATUS } from './status-config.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+export function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 // ── Stored rows ────────────────────────────────────────────────────────
 interface ApplicationStoredRow {
   id: number;
@@ -168,10 +173,10 @@ export function listApplications(db: Database.Database, opts: ListOpts = {}): Ap
   const apps = db
     .prepare(
       `SELECT * FROM applications
-       ${search ? 'WHERE ref LIKE @s OR title LIKE @s OR reference LIKE @s' : ''}
+       ${search ? 'WHERE ref LIKE @s ESCAPE \'\\\' OR title LIKE @s ESCAPE \'\\\' OR reference LIKE @s ESCAPE \'\\\'' : ''}
        ORDER BY created_at DESC, id DESC`,
     )
-    .all(search ? { s: `%${search}%` } : {}) as ApplicationStoredRow[];
+    .all(search ? { s: likeTerm(search) } : {}) as ApplicationStoredRow[];
   let rows = apps.map((a) => buildRow(db, a));
   if (opts.status) rows = rows.filter((r) => r.status === opts.status);
   if (opts.programId) rows = rows.filter((r) => r.program_id === opts.programId);

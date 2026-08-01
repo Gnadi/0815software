@@ -87,3 +87,40 @@ describe('retention with chain integrity', () => {
     expect(verifyChain(db).valid).toBe(false);
   });
 });
+
+describe('retention when the clock is not monotonic', () => {
+  it('still prunes a prefix of the chain, so the survivors verify', async () => {
+    // A backwards clock step — an NTP correction, a restored backup — makes
+    // recorded_at disagree with the chain's id order. Event 'b' is recorded
+    // BEFORE 'a' by the wall clock, yet chains after it.
+    await record('a'); // day 0
+    clock -= 5 * DAY;
+    await record('b'); // "day -5", but id 2
+    clock += 25 * DAY;
+    await record('c'); // day 20
+
+    // Cutoff is day 5: by timestamp that selects 'a' AND 'b' — which is not a
+    // prefix, because pruning both while keeping nothing in between is fine,
+    // but pruning only the timestamp-old ones out of the middle is not. The
+    // prune must resolve to an id and take everything up to it.
+    const result = pruneForRetention(db, 15, clock);
+    expect(result.pruned).toBe(2);
+
+    const verdict = verifyChain(db);
+    expect(verdict.valid).toBe(true);
+    expect(verdict.count).toBe(1);
+  });
+
+  it('never leaves a hole when the old event sits after a newer one', async () => {
+    await record('a'); // day 0 — old
+    clock += 30 * DAY;
+    await record('b'); // day 30 — recent
+    clock -= 29 * DAY;
+    await record('c'); // "day 1" by the clock, but id 3
+
+    // By timestamp, 'a' and 'c' are past a day-5 cutoff while 'b' is not.
+    // Deleting exactly those would break the chain at 'b' forever.
+    pruneForRetention(db, 15, Date.parse('2026-01-01T00:00:00Z') + 20 * DAY);
+    expect(verifyChain(db).valid).toBe(true);
+  });
+});

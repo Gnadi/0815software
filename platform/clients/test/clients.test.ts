@@ -138,3 +138,57 @@ describe('per-service client shapes', () => {
     expect(out.formatted).toBe('INV-2026-0001');
   });
 });
+
+describe('timeouts and retries', () => {
+  /** A fetch that fails the first `failures` calls, then answers. */
+  function flaky(failures: number, mode: 'throw' | 'status'): { fetch: FetchLike; count: () => number } {
+    let calls = 0;
+    const fetch: FetchLike = async () => {
+      calls += 1;
+      if (calls <= failures) {
+        if (mode === 'throw') throw new Error('connect ECONNREFUSED');
+        return { ok: false, status: 503, text: async () => '{"error":"unavailable"}' };
+      }
+      return { ok: true, status: 200, text: async () => '{"ok":true}' };
+    };
+    return { fetch, count: () => calls };
+  }
+
+  it('passes an abort signal so a stalled service cannot hang the caller', async () => {
+    let seenSignal: AbortSignal | undefined;
+    const fetch: FetchLike = async (_url, init) => {
+      seenSignal = init?.signal;
+      return { ok: true, status: 200, text: async () => '{}' };
+    };
+    await new NumberClient({ baseUrl: 'http://n', fetch }).get('invoice');
+    expect(seenSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('retries a GET that fails in transport', async () => {
+    const { fetch, count } = flaky(1, 'throw');
+    const client = new NumberClient({ baseUrl: 'http://n', fetch, retryDelayMs: 0 });
+    await expect(client.get('invoice')).resolves.toBeTruthy();
+    expect(count()).toBe(2);
+  });
+
+  it('retries a GET that gets a 503', async () => {
+    const { fetch, count } = flaky(1, 'status');
+    const client = new NumberClient({ baseUrl: 'http://n', fetch, retryDelayMs: 0 });
+    await expect(client.get('invoice')).resolves.toBeTruthy();
+    expect(count()).toBe(2);
+  });
+
+  it('gives up after the configured attempts and surfaces the failure', async () => {
+    const { fetch, count } = flaky(99, 'throw');
+    const client = new NumberClient({ baseUrl: 'http://n', fetch, retries: 2, retryDelayMs: 0 });
+    await expect(client.get('invoice')).rejects.toThrow(/ECONNREFUSED/);
+    expect(count()).toBe(3);
+  });
+
+  it('never replays a write — the client cannot know if it landed', async () => {
+    const { fetch, count } = flaky(1, 'status');
+    const client = new NumberClient({ baseUrl: 'http://n', fetch, retryDelayMs: 0 });
+    await expect(client.next('invoice')).rejects.toBeInstanceOf(ServiceError);
+    expect(count()).toBe(1);
+  });
+});

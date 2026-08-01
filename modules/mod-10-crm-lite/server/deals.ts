@@ -10,6 +10,7 @@ import {
 import { getCompany } from './companies.js';
 import { activitiesForDeal } from './activities.js';
 import { DomainError, nowIso, requireRow } from './domain.js';
+import { likeTerm } from './companies.js';
 
 interface DealStoredRow {
   id: number;
@@ -83,8 +84,8 @@ export function listDeals(
   const where: string[] = [];
   const params: Record<string, unknown> = {};
   if (term) {
-    where.push('d.title LIKE @s');
-    params.s = `%${term}%`;
+    where.push('d.title LIKE @s ESCAPE \'\\\'');
+    params.s = likeTerm(term);
   }
   if (opts.stage) {
     where.push('d.stage = @stage');

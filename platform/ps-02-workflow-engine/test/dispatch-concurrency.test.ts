@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type Database from 'better-sqlite3';
 import { openDb } from '../server/db.js';
 import { dispatch, enqueueDeliveries, type FetchLike } from '../server/webhooks.js';
+import { ingestEvent } from '../server/events.js';
 
 /**
  * A delivery is only marked attempted AFTER its HTTP call returns, so two
@@ -57,5 +58,47 @@ describe('overlapping dispatch runs', () => {
     await expect(dispatch(db, boom, T0)).resolves.toMatchObject({ delivered: 0 });
     const ok: FetchLike = async () => ({ ok: true, status: 200 });
     await expect(dispatch(db, ok, T0 + 86_400_000)).resolves.toMatchObject({ delivered: 2 });
+  });
+});
+
+describe('event fan-out accounting', () => {
+  it('reports one instance when two triggers on one workflow share a key', () => {
+    db.exec(`
+      INSERT INTO workflow_definitions (key, version, name, definition, enabled, created_at)
+      VALUES ('onboard', 1, 'Onboard',
+              '{"initial":"start","steps":["start","done"],"transitions":{"start":["done"]},"terminal":["done"]}',
+              1, '2026-01-01T00:00:00Z');
+      INSERT INTO triggers (workflow_key, type, config, enabled, created_at)
+        VALUES ('onboard', 'event', '{"event":"customer.created"}', 1, '2026-01-01T00:00:00Z');
+      INSERT INTO triggers (workflow_key, type, config, enabled, created_at)
+        VALUES ('onboard', 'event', '{"event":"customer.created"}', 1, '2026-01-01T00:00:00Z');
+    `);
+
+    const result = ingestEvent(db, { type: 'customer.created', idempotencyKey: 'evt-1', now: T0 });
+
+    // Both triggers matched, but the idempotency key means one instance ran.
+    expect(result.instance_ids).toHaveLength(1);
+    expect(result.matched).toBe(1);
+    expect(result.replayed).toBe(1);
+    expect((db.prepare('SELECT COUNT(*) AS n FROM workflow_instances').get() as { n: number }).n).toBe(1);
+  });
+
+  it('skips a trigger whose workflow is disabled instead of failing the ingest', () => {
+    db.exec(`
+      INSERT INTO workflow_definitions (key, version, name, definition, enabled, created_at)
+      VALUES ('live', 1, 'Live', '{"initial":"a","steps":["a"],"transitions":{},"terminal":[]}', 1, '2026-01-01T00:00:00Z');
+      INSERT INTO workflow_definitions (key, version, name, definition, enabled, created_at)
+      VALUES ('dead', 1, 'Dead', '{"initial":"a","steps":["a"],"transitions":{},"terminal":[]}', 0, '2026-01-01T00:00:00Z');
+      INSERT INTO triggers (workflow_key, type, config, enabled, created_at)
+        VALUES ('dead', 'event', '{"event":"order.paid"}', 1, '2026-01-01T00:00:00Z');
+      INSERT INTO triggers (workflow_key, type, config, enabled, created_at)
+        VALUES ('live', 'event', '{"event":"order.paid"}', 1, '2026-01-01T00:00:00Z');
+    `);
+
+    const result = ingestEvent(db, { type: 'order.paid', now: T0 });
+
+    expect(result.matched).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.enqueued).toBe(2); // the webhooks seeded above still fire
   });
 });

@@ -19,6 +19,12 @@ wrapper over the built-in `fetch`, matching the services' own "no SDKs" rule.
   `Authorization: Bearer` when supplied — the identity-propagation path.
 - A non-2xx response raises a typed `ServiceError` carrying the status and the
   service's `{ error }` body.
+- Every request is **bounded** (`timeoutMs`, default 10 s) so a service that
+  accepts the connection and then stalls cannot hold a module's request open;
+  a **GET** is retried once by default (`retries`, `retryDelayMs`) after a
+  timeout, a transport failure or a 502/503/504. Writes are never replayed —
+  the client cannot know whether one carried an idempotency key, so replaying
+  is the caller's decision, made with a key the service understands.
 - The `fetch` implementation is injectable (`ClientOptions.fetch`), so module
   tests exercise the wiring completely offline.
 

@@ -94,3 +94,53 @@ describe('concurrent refunds', () => {
     expect(intentDetail(db, getIntentRow(db, id)).amount_refunded_minor).toBe(5_000);
   });
 });
+
+describe('refund idempotency', () => {
+  it('replays as a no-op instead of refunding twice', async () => {
+    const id = await settledIntent(8_000);
+
+    await refundIntent(db, slowProvider, getIntentRow(db, id), 3_000, T0, 'refund-1');
+    await refundIntent(db, slowProvider, getIntentRow(db, id), 3_000, T0, 'refund-1');
+
+    expect(intentDetail(db, getIntentRow(db, id)).amount_refunded_minor).toBe(3_000);
+  });
+
+  it('survives the retry racing the original', async () => {
+    const id = await settledIntent(8_000);
+    const row = getIntentRow(db, id);
+
+    // Both calls succeed — the retry is a no-op, not an error, which is what
+    // a client that cannot tell whether its first attempt landed needs.
+    const results = await Promise.allSettled([
+      refundIntent(db, slowProvider, row, 8_000, T0, 'refund-2'),
+      refundIntent(db, slowProvider, row, 8_000, T0, 'refund-2'),
+    ]);
+    expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+
+    const detail = intentDetail(db, getIntentRow(db, id));
+    expect(detail.amount_refunded_minor).toBe(8_000);
+    // The money moved exactly once.
+    expect(detail.ledger?.filter((e) => e.direction === 'debit')).toHaveLength(1);
+  });
+
+  it('rejects the same key used for a different refund', async () => {
+    const id = await settledIntent(8_000);
+    await refundIntent(db, slowProvider, getIntentRow(db, id), 3_000, T0, 'refund-3');
+    await expect(
+      refundIntent(db, slowProvider, getIntentRow(db, id), 4_000, T0, 'refund-3'),
+    ).rejects.toThrow(/different refund/);
+  });
+
+  it('frees the key when the provider refuses, so a retry still works', async () => {
+    const id = await settledIntent(8_000);
+    const failing: PaymentProvider = {
+      ...slowProvider,
+      async refund() {
+        throw new Error('psp declined');
+      },
+    };
+    await expect(refundIntent(db, failing, getIntentRow(db, id), 8_000, T0, 'refund-4')).rejects.toThrow();
+    await refundIntent(db, slowProvider, getIntentRow(db, id), 8_000, T0, 'refund-4');
+    expect(intentDetail(db, getIntentRow(db, id)).amount_refunded_minor).toBe(8_000);
+  });
+});

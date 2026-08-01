@@ -41,9 +41,14 @@ export interface RunWorkflowInput {
 }
 /** Fan-out result of ingesting an event (POST /api/events). */
 export interface IngestResult {
+  /** Distinct instances the event started (a replayed key counts once). */
   matched: number;
   instance_ids: number[];
   enqueued: number;
+  /** Matching triggers whose workflow is disabled or gone. */
+  skipped: number;
+  /** Starts that resolved to an instance this idempotency key already made. */
+  replayed: number;
 }
 export interface WorkflowInstance {
   id: number;

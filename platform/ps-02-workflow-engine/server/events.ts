@@ -120,6 +120,8 @@ export interface IngestResult {
   enqueued: number;
   /** Triggers whose workflow is disabled or gone — reported, never fatal. */
   skipped: number;
+  /** Starts that resolved to an instance this idempotency key already made. */
+  replayed: number;
 }
 
 interface TriggerRow {
@@ -164,6 +166,7 @@ export function ingestEvent(
   return db.transaction((): IngestResult => {
     const instanceIds: number[] = [];
     let skipped = 0;
+    let replayed = 0;
     for (const trigger of triggers) {
       const config = JSON.parse(trigger.config) as { event?: string };
       if (config.event !== opts.type) continue;
@@ -182,10 +185,15 @@ export function ingestEvent(
         triggerId: trigger.id,
         now,
       });
-      instanceIds.push(started.instance.id);
+      // Two triggers on one workflow, ingested under a single idempotency
+      // key, resolve to the SAME instance — the second start is a replay, not
+      // a second run. Reporting it twice told the caller a fan-out happened
+      // that never did, so the id is listed once and the replay is counted.
+      if (!started.created) replayed += 1;
+      if (!instanceIds.includes(started.instance.id)) instanceIds.push(started.instance.id);
     }
 
     const enqueued = enqueueDeliveries(db, opts.type, payload, now);
-    return { matched: instanceIds.length, instance_ids: instanceIds, enqueued, skipped };
+    return { matched: instanceIds.length, instance_ids: instanceIds, enqueued, skipped, replayed };
   })();
 }

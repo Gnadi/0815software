@@ -10,6 +10,7 @@ import type {
   RfqStoredStatus,
 } from '../shared/types.js';
 import { createPo, DomainError, getSupplier, nowIso, requireRow } from './purchase-orders.js';
+import { likeTerm } from './purchase-orders.js';
 
 interface RfqStoredRow {
   id: number;
@@ -71,8 +72,8 @@ function toRow(db: Database.Database, rfq: RfqStoredRow): RfqRow {
 export function listRfqs(db: Database.Database, opts: { status?: RfqStatus; search?: string } = {}): RfqRow[] {
   const search = opts.search?.trim();
   const rfqs = db
-    .prepare(`SELECT * FROM rfqs ${search ? 'WHERE title LIKE ?' : ''} ORDER BY id DESC`)
-    .all(...(search ? [`%${search}%`] : [])) as RfqStoredRow[];
+    .prepare(`SELECT * FROM rfqs ${search ? 'WHERE title LIKE ? ESCAPE \'\\\'' : ''} ORDER BY id DESC`)
+    .all(...(search ? [likeTerm(search)] : [])) as RfqStoredRow[];
   let rows = rfqs.map((rfq) => toRow(db, rfq));
   if (opts.status) rows = rows.filter((r) => r.status === opts.status);
   return rows;

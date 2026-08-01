@@ -13,6 +13,11 @@ import type {
   StoredStatus,
 } from '../shared/types.js';
 
+/** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
+export function likeTerm(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+}
+
 /** Error with an HTTP status and optional per-field details. */
 export class DomainError extends Error {
   status: number;
@@ -151,10 +156,10 @@ export function listInvoices(
   const invoices = db
     .prepare(
       `SELECT i.* FROM invoices i JOIN customers c ON c.id = i.customer_id
-       ${search ? 'WHERE i.number LIKE ? OR c.name LIKE ?' : ''}
+       ${search ? 'WHERE i.number LIKE ? ESCAPE \'\\\' OR c.name LIKE ? ESCAPE \'\\\'' : ''}
        ORDER BY i.number IS NULL DESC, i.number DESC, i.id DESC`,
     )
-    .all(...(search ? [`%${search}%`, `%${search}%`] : [])) as InvoiceStoredRow[];
+    .all(...(search ? [likeTerm(search), likeTerm(search)] : [])) as InvoiceStoredRow[];
 
   let rows = invoices.map((invoice) => toRow(db, invoice, today).row);
   if (opts.status) rows = rows.filter((r) => r.status === opts.status);

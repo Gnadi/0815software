@@ -12,6 +12,16 @@ import type {
 } from '../shared/types.js';
 import { PARTY_KINDS } from '../shared/types.js';
 
+/** Escape LIKE wildcards so a term matches literally — needs an ESCAPE clause. */
+export function escapeLike(term: string): string {
+  return term.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+/** A LIKE pattern that matches the term as a literal substring. */
+export function likeTerm(term: string): string {
+  return `%${escapeLike(term)}%`;
+}
+
 /**
  * Party master data — the whole domain of PS-11.
  *
@@ -204,9 +214,13 @@ export function listParties(db: Database.Database, filter: ListFilter = {}): Par
     params.push(filter.kind);
   }
   if (filter.q) {
-    where.push('(name LIKE ? OR IFNULL(email, \'\') LIKE ? OR IFNULL(vat_id, \'\') LIKE ?)');
-    const like = `%${filter.q}%`;
-    params.push(like, like, filter.q.replace(/\s+/g, '').toUpperCase() + '%');
+    where.push('(name LIKE ? ESCAPE \'\\\' OR IFNULL(email, \'\') LIKE ? ESCAPE \'\\\' OR IFNULL(vat_id, \'\') LIKE ? ESCAPE \'\\\')');
+    const like = likeTerm(filter.q);
+    // The VAT id is matched as a prefix, so it keeps its trailing wildcard —
+    // but the term itself is still escaped, or a typed "%" would match every
+    // party that has any VAT id at all.
+    const vatPrefix = `${escapeLike(normalizeVatId(filter.q) ?? '')}%`;
+    params.push(like, like, vatPrefix);
   }
   const limit = Math.min(Math.max(filter.limit ?? 100, 1), 500);
   const sql = `SELECT * FROM parties ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY name COLLATE NOCASE, id LIMIT ?`;

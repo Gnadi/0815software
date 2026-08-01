@@ -348,6 +348,38 @@ export function createApp({
     });
   });
 
+  /**
+   * Revoke every session of a user — the "I lost my laptop" button.
+   *
+   * Sessions are stateless HMAC tokens, so there is nothing to delete: what
+   * invalidates them is `token_version`, and until now only a password change
+   * bumped it. Someone who suspects a stolen token but has no reason to change
+   * their password had no way to act on it, and an administrator had none at
+   * all short of resetting the account's password.
+   *
+   * The caller's own new session is issued in the same response, so revoking
+   * does not log you out of the browser you are asking from.
+   */
+  const revokeSessions = (req: Request, res: Response, target: UserRow): void => {
+    db.prepare('UPDATE users SET token_version = token_version + 1 WHERE id = ?').run(target.id);
+    logEvent('sessions_revoked', target.org_id, target.id, req);
+    const fresh = userById.get(target.id) as UserRow;
+    const p = principalOf(res);
+    const isSelf = p.kind === 'user' && p.userId === target.id;
+    res.json({ revoked: true, token: isSelf ? issueSession(res, fresh) : null });
+  };
+
+  app.post('/api/me/sessions/revoke', (req, res) => {
+    const p = principalOf(res);
+    if (p.kind !== 'user') fail(403, 'An API key has no sessions to revoke');
+    revokeSessions(req, res, userRowOf(res));
+  });
+
+  app.post('/api/users/:id/sessions/revoke', (req, res) => {
+    require(res, 'user:write');
+    revokeSessions(req, res, requireUserInOrg(res, idParam(req)));
+  });
+
   app.get('/api/permissions', (_req, res) => {
     res.json({ permissions: PERMISSIONS });
   });
@@ -368,10 +400,60 @@ export function createApp({
       fail(422, 'Validation failed', [{ field: 'slug', message: 'must be lowercase alphanumeric/dashes' }]);
     }
     if (orgBySlug.get(slug)) fail(409, 'An organization with that slug already exists');
-    const info = db
-      .prepare(`INSERT INTO organizations (slug, name, status, created_at) VALUES (?, ?, 'active', ?)`)
-      .run(slug, name, nowIso(now()));
-    res.status(201).json({ organization: mapOrg(orgById.get(info.lastInsertRowid) as OrgRow) });
+
+    /**
+     * An organization with no user is a dead end: `POST /api/users` always
+     * creates into the CALLER's org, and login needs a user inside the new
+     * one — so nothing could ever enter an org created bare. An `owner` block
+     * is therefore how a usable org is provisioned. It stays optional for the
+     * caller who really does want an empty shell (a migration filling users in
+     * by another route), and that case now says so out loud in the response.
+     */
+    let owner: { email: string; name: string; password: string } | null = null;
+    if (b.owner !== undefined && b.owner !== null) {
+      if (typeof b.owner !== 'object') {
+        fail(422, 'Validation failed', [{ field: 'owner', message: 'must be an object' }]);
+      }
+      const o = b.owner as Record<string, unknown>;
+      const password = typeof o.password === 'string' ? o.password : '';
+      if (password.length < MIN_PASSWORD_LENGTH) {
+        fail(422, 'Validation failed', [
+          { field: 'owner.password', message: `must be at least ${MIN_PASSWORD_LENGTH} characters` },
+        ]);
+      }
+      owner = { email: reqEmail(o, 'email'), name: reqText(o, 'name', 200), password };
+    }
+
+    const created = db.transaction((): { org: OrgRow; user: UserRow | null } => {
+      const at = nowIso(now());
+      const info = db
+        .prepare(`INSERT INTO organizations (slug, name, status, created_at) VALUES (?, ?, 'active', ?)`)
+        .run(slug, name, at);
+      const org = orgById.get(info.lastInsertRowid) as OrgRow;
+      if (!owner) return { org, user: null };
+
+      const userInfo = db
+        .prepare(`INSERT INTO users (org_id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)`)
+        .run(org.id, owner.email, owner.name, hashPassword(owner.password), at);
+      const role = db.prepare('SELECT id FROM roles WHERE key = ? AND org_id IS NULL').get('owner') as
+        | { id: number }
+        | undefined;
+      if (!role) fail(500, 'The system "owner" role is missing — the database was not seeded');
+      db.prepare('INSERT OR IGNORE INTO user_roles (user_id, role_id, created_at) VALUES (?, ?, ?)').run(
+        Number(userInfo.lastInsertRowid),
+        role.id,
+        at,
+      );
+      return { org, user: userById.get(userInfo.lastInsertRowid) as UserRow };
+    })();
+
+    res.status(201).json({
+      organization: mapOrg(created.org),
+      owner: created.user ? mapUser(created.user) : null,
+      ...(created.user
+        ? {}
+        : { warning: 'Created with no user: nobody can log into this organization until one exists.' }),
+    });
   });
 
   // ── Users (always scoped to the caller's org) ──────────────────────

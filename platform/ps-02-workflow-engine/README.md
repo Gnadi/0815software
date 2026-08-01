@@ -77,7 +77,7 @@ Admin routes need a session cookie or `Authorization: Bearer <token>`
 | `GET /api/health` | none | Liveness. |
 | `POST /api/login` | none | `{username,password}` → admin token + cookie. |
 | `POST /api/logout` | none | Clear the cookie. |
-| `POST /api/events` | `X-Service-Token` | Ingest an event; matches `event` triggers, enqueues webhooks. |
+| `POST /api/events` | `X-Service-Token` | Ingest an event; matches `event` triggers, enqueues webhooks. Answers `{matched, instance_ids, enqueued, skipped, replayed}` — the fan-out is one transaction, and a trigger whose workflow is disabled is `skipped`, not an error. |
 | `POST /api/hooks/:token` | token in path | Inbound webhook receiver. |
 
 ### Admin

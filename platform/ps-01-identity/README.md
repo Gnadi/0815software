@@ -91,8 +91,10 @@ foreign tenant) · **409** (conflict).
 | `GET /api/me` | any | Current identity, roles, permissions. |
 | `POST /api/tokens/verify` | any | `{token}` → `{valid, claims?}` — **cross-service contract**. |
 | `GET /api/permissions` | any | The permission catalog. |
+| `POST /api/me/sessions/revoke` | any user | Invalidate all your sessions (bumps `token_version`); returns a fresh token for this caller. |
+| `POST /api/users/:id/sessions/revoke` | `user:write` | Invalidate all of a user's sessions. |
 | `GET /api/orgs` | `org:read` | The caller's organization. |
-| `POST /api/orgs` | `org:write` | Provision a new organization. |
+| `POST /api/orgs` | `org:write` | Provision an organization (`{slug,name,owner?:{email,name,password}}`). Without an `owner` nobody can log into it. |
 | `GET /api/users` | `user:read` | List users in the caller's org. |
 | `POST /api/users` | `user:write` | Create a user (`{email,name,password,role_keys?}`). |
 | `GET /api/users/:id` | `user:read` | Fetch a user (foreign tenant → 404). |
