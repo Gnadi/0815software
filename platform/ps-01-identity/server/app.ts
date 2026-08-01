@@ -34,6 +34,17 @@ import {
 import { keySummary, mintApiKey, verifyApiKey, type ApiKeyRow } from './api-keys.js';
 import { verifyProvidedToken } from './tokens.js';
 import {
+  clearFailures,
+  delayFor,
+  failureCount,
+  pruneThrottle,
+  realSleep,
+  recordFailure,
+  DEFAULT_THROTTLE,
+  type Sleep,
+  type ThrottleConfig,
+} from './throttle.js';
+import {
   beginAuthorize,
   consumeState,
   fetchIdentity,
@@ -76,6 +87,10 @@ export interface AppOptions {
   redirectAllowlist?: string[];
   /** Injectable clock; defaults to the wall clock. */
   now?: () => number;
+  /** Per-account login backoff. */
+  throttle?: ThrottleConfig;
+  /** Injectable sleep so tests exercise the backoff without waiting for it. */
+  sleep?: Sleep;
   /** Injectable fetch for the OAuth token/userinfo exchange (tests). */
   fetch?: FetchLike;
   /** Rate limiting / security headers / CORS; omitted in tests, set on boot. */
@@ -101,6 +116,8 @@ export function createApp({
   allowMockIdp = true,
   redirectAllowlist = [],
   now = Date.now,
+  throttle = DEFAULT_THROTTLE,
+  sleep = realSleep,
   fetch: injectedFetch,
   hardening,
   logRequests,
@@ -181,35 +198,50 @@ export function createApp({
     res.type('text/plain').send(renderMetrics('ps-01', gauges));
   });
 
-  app.post('/api/login', (req, res) => {
-    const b = body(req);
-    const orgSlug = typeof b.org_slug === 'string' ? b.org_slug.trim() : '';
-    const email = typeof b.email === 'string' ? b.email.trim().toLowerCase() : '';
-    const password = typeof b.password === 'string' ? b.password : '';
-    if (!orgSlug || !email || !password) {
-      fail(422, 'org_slug, email and password are required');
-    }
+  app.post('/api/login', (req, res, next) => {
+    void (async () => {
+      const b = body(req);
+      const orgSlug = typeof b.org_slug === 'string' ? b.org_slug.trim() : '';
+      const email = typeof b.email === 'string' ? b.email.trim().toLowerCase() : '';
+      const password = typeof b.password === 'string' ? b.password : '';
+      if (!orgSlug || !email || !password) {
+        fail(422, 'org_slug, email and password are required');
+      }
 
-    const org = orgBySlug.get(orgSlug) as OrgRow | undefined;
-    const user =
-      org && org.status === 'active'
-        ? (userByOrgEmail.get(org.id, email) as UserRow | undefined)
-        : undefined;
-    // Always run scrypt (real or dummy) so timing never reveals whether the
-    // organization or email exists.
-    const ok = user
-      ? user.status === 'active' && verifyPassword(password, user.password_hash)
-      : (verifyPassword(password, DUMMY_PASSWORD_HASH), false);
+      // Guessing at ONE account has to get expensive, however many addresses
+      // the guesses come from — the per-IP limiter cannot see that. The wait
+      // is paid before the attempt is judged, so every guess costs it, and it
+      // is keyed on what was submitted, so the delay cannot be used to tell a
+      // real account from an invented one. See server/throttle.ts.
+      const waited = delayFor(failureCount(db, orgSlug, email, throttle, now()), throttle);
+      if (waited > 0) await sleep(waited);
 
-    if (!user || !ok) {
-      logEvent('login_fail', org?.id ?? null, user?.id ?? null, req, { email });
-      fail(401, 'Invalid organization, email or password');
-    }
+      const org = orgBySlug.get(orgSlug) as OrgRow | undefined;
+      const user =
+        org && org.status === 'active'
+          ? (userByOrgEmail.get(org.id, email) as UserRow | undefined)
+          : undefined;
+      // Always run scrypt (real or dummy) so timing never reveals whether the
+      // organization or email exists.
+      const ok = user
+        ? user.status === 'active' && verifyPassword(password, user.password_hash)
+        : (verifyPassword(password, DUMMY_PASSWORD_HASH), false);
 
-    const token = issueSession(res, user);
-    logEvent('login_ok', user.org_id, user.id, req);
-    logEvent('token_issued', user.org_id, user.id, req);
-    res.json({ token, user: mapUser(user) });
+      if (!user || !ok) {
+        recordFailure(db, orgSlug, email, throttle, now());
+        logEvent('login_fail', org?.id ?? null, user?.id ?? null, req, { email, delayed_ms: waited });
+        fail(401, 'Invalid organization, email or password');
+      }
+
+      // A correct password ends the backoff: the legitimate owner pays the
+      // wait once, not for as long as someone else keeps guessing.
+      clearFailures(db, orgSlug, email);
+      pruneThrottle(db, throttle, now());
+      const token = issueSession(res, user);
+      logEvent('login_ok', user.org_id, user.id, req);
+      logEvent('token_issued', user.org_id, user.id, req);
+      res.json({ token, user: mapUser(user) });
+    })().catch(next);
   });
 
   app.post('/api/logout', (_req, res) => {

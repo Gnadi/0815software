@@ -204,6 +204,21 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 7,
+    name: 'login_throttle',
+    up(db) {
+      // Failed logins per submitted (org, email) — see server/throttle.ts for
+      // why the key is what was TYPED rather than an account that exists.
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS login_throttle (
+        key        TEXT    PRIMARY KEY,
+        fails      INTEGER NOT NULL,
+        updated_at TEXT    NOT NULL
+      );
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

@@ -20,6 +20,7 @@ const app = createApp({
   oauth: config.oauth,
   selfBaseUrl: config.selfBaseUrl,
   allowMockIdp: config.allowMockIdp,
+  throttle: config.throttle,
   redirectAllowlist: config.redirectAllowlist,
   hardening: hardeningFromEnv(), logRequests: true,
 });

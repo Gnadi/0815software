@@ -441,12 +441,12 @@ describe('schema migrations', () => {
       const keyCols = (upgraded.prepare("PRAGMA table_info('api_keys')").all() as { name: string }[]).map((c) => c.name);
       expect(oauthCols).toContain('org_slug'); // migration 2 applied
       expect(keyCols).toContain('scopes'); // migration 3 applied
-      expect((upgraded.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(6);
+      expect((upgraded.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(7);
       upgraded.close();
 
       // Re-opening applies nothing further.
       const again = openDb(path);
-      expect((again.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(6);
+      expect((again.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(7);
       again.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });

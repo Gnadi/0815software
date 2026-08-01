@@ -79,7 +79,7 @@ foreign tenant) · **409** (conflict).
 | Method & path | Purpose |
 | ------------- | ------- |
 | `GET /api/health` | Liveness. |
-| `POST /api/login` | `{org_slug,email,password}` → `{token,user}` + session cookie. |
+| `POST /api/login` | `{org_slug,email,password}` → `{token,user}` + session cookie. Repeated failures against one account slow every further attempt down (no lockout — see `server/throttle.ts`). |
 | `POST /api/logout` | Clear the session cookie. |
 | `GET /api/oauth/:provider/authorize` | `?org_slug=` → records a CSRF state nonce, 302 to the provider (or the mock IdP). `?redirect_uri=` must be same-site or allowlisted. |
 | `GET /api/oauth/:provider/callback` | Consumes the state (single-use, 10-minute TTL), resolves the identity, provisions-or-links the user, issues a session. |

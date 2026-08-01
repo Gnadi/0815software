@@ -1,4 +1,5 @@
 import type { SessionConfig } from './auth.js';
+import { throttleConfigFromEnv, type ThrottleConfig } from './throttle.js';
 import { oauthConfigFromEnv, type OAuthConfig } from './oauth.js';
 
 export interface ServerConfig {
@@ -8,6 +9,8 @@ export interface ServerConfig {
   oauth: OAuthConfig;
   /** Public base URL of this service, used to build OAuth redirect URIs. */
   selfBaseUrl: string;
+  /** Per-account login backoff — the brake on password spraying. */
+  throttle: ThrottleConfig;
   /**
    * Whether an unconfigured provider may use the offline mock IdP, which
    * resolves an identity WITHOUT any credential. Development only: off in
@@ -30,6 +33,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       secureCookie: env.COOKIE_SECURE !== undefined ? env.COOKIE_SECURE === 'true' : env.NODE_ENV === 'production',
     },
     oauth: oauthConfigFromEnv(env),
+    throttle: throttleConfigFromEnv(env),
     selfBaseUrl: env.SELF_BASE_URL ?? `http://localhost:${port}`,
     allowMockIdp:
       env.OAUTH_ALLOW_MOCK !== undefined ? env.OAUTH_ALLOW_MOCK === 'true' : env.NODE_ENV !== 'production',
