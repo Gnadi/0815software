@@ -88,11 +88,39 @@ export interface DispatchResult {
   dead: number;
 }
 
-/** Attempt every due delivery once, applying backoff / dead-lettering. */
-export async function dispatch(
+/**
+ * One dispatch run at a time, per process.
+ *
+ * A delivery is only marked attempted AFTER its HTTP call returns, so two
+ * overlapping runs — the internal ticker and a `POST /api/tick`, or one slow
+ * run and the next timer firing — both select the same due rows and deliver
+ * every webhook twice. Callers therefore queue behind the run in flight
+ * instead of racing it.
+ */
+let dispatchInFlight: Promise<unknown> = Promise.resolve();
+
+export function dispatch(
   db: Database.Database,
   fetchImpl: FetchLike = defaultFetch,
   now = Date.now(),
+): Promise<DispatchResult> {
+  const run = dispatchInFlight.then(
+    () => dispatchDue(db, fetchImpl, now),
+    () => dispatchDue(db, fetchImpl, now),
+  );
+  // Keep the chain alive whatever this run does; the caller sees the rejection.
+  dispatchInFlight = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/** Attempt every due delivery once, applying backoff / dead-lettering. */
+async function dispatchDue(
+  db: Database.Database,
+  fetchImpl: FetchLike,
+  now: number,
 ): Promise<DispatchResult> {
   const at = nowIso(now);
   const due = db

@@ -143,13 +143,41 @@ export function pruneMessages(db: Database.Database, retentionDays: number, now 
   return info.changes;
 }
 
-/** Attempt every due message once, applying backoff / dead-lettering, then
- *  prune terminal messages past the retention window. */
-export async function tick(
+/**
+ * One tick at a time, per process.
+ *
+ * A message is only marked attempted AFTER the provider call returns, so two
+ * overlapping ticks — the internal ticker and a `POST /api/tick`, or one slow
+ * provider and the next timer firing — both pick up the same queued rows and
+ * send every message twice. Since "twice" here means a customer receiving two
+ * copies of the same invoice mail, callers queue behind the run in flight.
+ */
+let tickInFlight: Promise<unknown> = Promise.resolve();
+
+export function tick(
   db: Database.Database,
   resolve: ProviderResolver,
   now = Date.now(),
   retentionDays = 0,
+): Promise<QueueResult> {
+  const run = tickInFlight.then(
+    () => drainDue(db, resolve, now, retentionDays),
+    () => drainDue(db, resolve, now, retentionDays),
+  );
+  tickInFlight = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/** Attempt every due message once, applying backoff / dead-lettering, then
+ *  prune terminal messages past the retention window. */
+async function drainDue(
+  db: Database.Database,
+  resolve: ProviderResolver,
+  now: number,
+  retentionDays: number,
 ): Promise<QueueResult> {
   const at = nowIso(now);
   const due = db

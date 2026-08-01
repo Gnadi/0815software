@@ -257,6 +257,10 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
     const env = {
       NODE_ENV: 'production',
       PORT: String(mod.defaultPort),
+      // Caddy is the single hop in front of every module here; without this
+      // the per-IP rate limiter sees only Caddy's address and throttles the
+      // whole customer as one client.
+      TRUST_PROXY: '1',
       PLATFORM_SERVICE_TOKEN: '${PLATFORM_SERVICE_TOKEN}',
     };
     for (const name of mod.env.secrets) env[name] = `\${${prefix}${name}}`;
@@ -307,6 +311,8 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
     const env = {
       NODE_ENV: 'production',
       PORT: String(service.defaultPort),
+      // As for the modules: one reverse proxy (Caddy) in front of the service.
+      TRUST_PROXY: '1',
     };
     for (const secretName of service.secrets) {
       env[secretName] =

@@ -99,6 +99,39 @@ describe('RBAC', () => {
   });
 });
 
+describe('self-service password change', () => {
+  it('requires the current password, so a stolen token cannot take the account over', async () => {
+    const admin = await login('acme', 'admin@acme.test', 'demo-admin');
+    const created = await request(app)
+      .post('/api/users')
+      .set('Authorization', `Bearer ${admin.token}`)
+      .send({ email: 'selfchange@acme.test', name: 'Self Change', password: 'password-111' });
+    const userId = created.body.user.id as number;
+    const session = await login('acme', 'selfchange@acme.test', 'password-111');
+
+    const noCurrent = await request(app)
+      .post(`/api/users/${userId}/password`)
+      .set('Authorization', `Bearer ${session.token}`)
+      .send({ new_password: 'password-222' });
+    expect(noCurrent.status).toBe(422);
+
+    const wrongCurrent = await request(app)
+      .post(`/api/users/${userId}/password`)
+      .set('Authorization', `Bearer ${session.token}`)
+      .send({ current_password: 'not-it', new_password: 'password-222' });
+    expect(wrongCurrent.status).toBe(422);
+    // The password is unchanged after both attempts.
+    expect((await login('acme', 'selfchange@acme.test', 'password-111')).status).toBe(200);
+
+    const ok = await request(app)
+      .post(`/api/users/${userId}/password`)
+      .set('Authorization', `Bearer ${session.token}`)
+      .send({ current_password: 'password-111', new_password: 'password-222' });
+    expect(ok.status).toBe(200);
+    expect((await login('acme', 'selfchange@acme.test', 'password-222')).status).toBe(200);
+  });
+});
+
 describe('password reset revokes prior tokens', () => {
   it('invalidates an old token after the password changes', async () => {
     // Seed a dedicated user so other tests are unaffected.
@@ -408,12 +441,12 @@ describe('schema migrations', () => {
       const keyCols = (upgraded.prepare("PRAGMA table_info('api_keys')").all() as { name: string }[]).map((c) => c.name);
       expect(oauthCols).toContain('org_slug'); // migration 2 applied
       expect(keyCols).toContain('scopes'); // migration 3 applied
-      expect((upgraded.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(4);
+      expect((upgraded.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(5);
       upgraded.close();
 
       // Re-opening applies nothing further.
       const again = openDb(path);
-      expect((again.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(4);
+      expect((again.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(5);
       again.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -10,7 +10,6 @@ import {
   nowIso,
   parseBearer,
   parseCookies,
-  requireAuth,
   SERVICE_HEADER,
   sessionCookie,
   verifyIdentityToken,
@@ -92,7 +91,12 @@ export function createApp(opts: AppOptions): express.Express {
   };
 
   const app = express();
-  if (opts.hardening) app.use(hardeningMiddleware(opts.hardening));
+  if (opts.hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (opts.hardening.trustProxy > 0) app.set('trust proxy', opts.hardening.trustProxy);
+    app.use(hardeningMiddleware(opts.hardening));
+  }
   app.use(requestTelemetry({ service: 'ps-04', log: opts.logRequests === true }));
   app.use(express.json({ limit: '512kb' }));
 
@@ -121,7 +125,31 @@ export function createApp(opts: AppOptions): express.Express {
     }
     res.status(401).json({ error: 'Authentication required' });
   };
-  const requireAdmin = requireAuth(auth);
+  /**
+   * Admin gate (prompt management). A local admin session, or — when the
+   * identity seam is configured — a PS-01 principal holding `platform:admin`,
+   * the same rule every other service's admin routes follow. `requireAuth`
+   * alone knows only the local token, which left PS-01 admins locked out of
+   * PS-04 while they could administer PS-02, PS-03, PS-05…
+   */
+  const requireAdmin = (req: Request, res: Response, next: NextFunction): void => {
+    const token = parseBearer(req.headers.authorization) ?? parseCookies(req.headers.cookie)[COOKIE_NAME];
+    if (token && verifyToken(auth, token)) {
+      next();
+      return;
+    }
+    if (token && auth.identityUrl) {
+      const doFetch = opts.identityFetch ?? (globalThis.fetch as unknown as SeamFetch);
+      void verifyIdentityToken(auth.identityUrl, token, doFetch)
+        .then((ok) => {
+          if (ok) next();
+          else res.status(401).json({ error: 'Authentication required' });
+        })
+        .catch(() => res.status(401).json({ error: 'Authentication required' }));
+      return;
+    }
+    res.status(401).json({ error: 'Authentication required' });
+  };
 
   // ── Public ─────────────────────────────────────────────────────────
   app.get('/api/health', (_req, res) => {

@@ -60,7 +60,12 @@ function body(req: Request): Record<string, unknown> {
 
 export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch, identityFetch, hardening, logRequests }: AppOptions): express.Express {
   const app = express();
-  if (hardening) app.use(hardeningMiddleware(hardening));
+  if (hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
+    app.use(hardeningMiddleware(hardening));
+  }
   app.use(requestTelemetry({ service: 'ps-02', log: logRequests === true }));
   app.use(express.json({ limit: '256kb' }));
 

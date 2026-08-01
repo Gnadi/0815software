@@ -65,7 +65,7 @@ export async function verifyIdentityToken(
   }
 }
 
-export const COOKIE_NAME = 'ps10_session';
+export const COOKIE_NAME = 'ps11_session';
 export const SERVICE_HEADER = 'x-service-token';
 
 export function nowIso(ms: number = Date.now()): string {

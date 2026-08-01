@@ -37,6 +37,7 @@ import {
   beginAuthorize,
   consumeState,
   fetchIdentity,
+  isAllowedRedirect,
   isOAuthProvider,
   linkUser,
   mockIdentity,
@@ -60,6 +61,19 @@ export interface AppOptions {
   oauth?: OAuthConfig;
   /** Public base URL used to build OAuth redirect URIs. */
   selfBaseUrl?: string;
+  /**
+   * Whether an UNCONFIGURED provider may fall back to the offline mock IdP.
+   * The mock resolves an identity with no credential at all, so it is a
+   * development affordance only: `index.ts` turns it off in production.
+   * Defaults to true so tests and `npm run dev:api` work out of the box.
+   */
+  allowMockIdp?: boolean;
+  /**
+   * Origins a post-login `redirect_uri` may point at, beyond this service's
+   * own. The callback appends the session token to that URL, so anything not
+   * listed here (and not a same-site path) is refused.
+   */
+  redirectAllowlist?: string[];
   /** Injectable clock; defaults to the wall clock. */
   now?: () => number;
   /** Injectable fetch for the OAuth token/userinfo exchange (tests). */
@@ -84,13 +98,20 @@ export function createApp({
   session,
   oauth = {},
   selfBaseUrl = `http://localhost:4001`,
+  allowMockIdp = true,
+  redirectAllowlist = [],
   now = Date.now,
   fetch: injectedFetch,
   hardening,
   logRequests,
 }: AppOptions): express.Express {
   const app = express();
-  if (hardening) app.use(hardeningMiddleware(hardening));
+  if (hardening) {
+    // Behind the stack's reverse proxy every socket peer is the proxy, so the
+    // forwarded chain is what per-IP limiting and audit logging must read.
+    if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
+    app.use(hardeningMiddleware(hardening));
+  }
   app.use(requestTelemetry({ service: 'ps-01', log: logRequests === true }));
   app.use(express.json({ limit: '256kb' }));
 
@@ -212,9 +233,19 @@ export function createApp({
     const org = orgBySlug.get(orgSlug) as OrgRow | undefined;
     if (!org || org.status !== 'active') fail(404, 'Unknown organization');
     const redirect = typeof req.query.redirect_uri === 'string' ? req.query.redirect_uri : null;
+    // The callback hands the session token to this URL — only ever to an
+    // origin the operator vouched for.
+    if (redirect !== null && !isAllowedRedirect(redirect, redirectAllowlist, selfBaseUrl)) {
+      fail(422, 'redirect_uri is not an allowed redirect target');
+    }
     res.redirect(
       302,
-      beginAuthorize(db, provider, { orgSlug, redirectUri: redirect, providerConfig: oauth[provider], selfBaseUrl }, now()),
+      beginAuthorize(
+        db,
+        provider,
+        { orgSlug, redirectUri: redirect, providerConfig: oauth[provider], selfBaseUrl, allowMockIdp },
+        now(),
+      ),
     );
   });
 
@@ -223,7 +254,7 @@ export function createApp({
       const provider = req.params.provider as string;
       if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
 
-      const stateRow = consumeState(db, provider, req.query.state);
+      const stateRow = consumeState(db, provider, req.query.state, now());
       if (!stateRow) fail(400, 'Invalid or expired OAuth state');
       const code = typeof req.query.code === 'string' ? req.query.code : '';
       if (!code) fail(422, 'code is required');
@@ -232,6 +263,11 @@ export function createApp({
       if (!org || org.status !== 'active') fail(400, 'Organization no longer available');
 
       const cfg = oauth[provider];
+      // Defence in depth: authorize already refuses to mint a state for an
+      // unconfigured provider when the mock is off, so this cannot normally be
+      // reached — but the mock resolves an identity with no credential, and
+      // that must never be one stale row away from issuing a session.
+      if (!cfg && !allowMockIdp) fail(501, `OAuth provider "${provider}" is not configured`);
       const identity = cfg
         ? await fetchIdentity(cfg, code, `${selfBaseUrl}/api/oauth/${provider}/callback`, doFetch)
         : mockIdentity(provider, org.slug);
@@ -241,7 +277,7 @@ export function createApp({
       logEvent('login_ok', user.org_id, user.id, req, { via: `oauth:${provider}` });
       logEvent('token_issued', user.org_id, user.id, req);
 
-      if (stateRow.redirect_uri) {
+      if (stateRow.redirect_uri && isAllowedRedirect(stateRow.redirect_uri, redirectAllowlist, selfBaseUrl)) {
         const sep = stateRow.redirect_uri.includes('?') ? '&' : '?';
         res.redirect(302, `${stateRow.redirect_uri}${sep}token=${encodeURIComponent(token)}`);
       } else {
@@ -425,6 +461,17 @@ export function createApp({
     if (!isSelf) require(res, 'user:write');
     const user = requireUserInOrg(res, id);
     const b = body(req);
+    // Changing your OWN password proves you still know the old one, so a
+    // stolen session token cannot be turned into permanent account takeover.
+    // An administrator resetting SOMEONE ELSE's password does not know it and
+    // is authorized by `user:write` instead — that is the reset path.
+    if (isSelf) {
+      const current = typeof b.current_password === 'string' ? b.current_password : '';
+      if (!verifyPassword(current, user.password_hash)) {
+        logEvent('password_change_denied', user.org_id, user.id, req);
+        fail(422, 'Validation failed', [{ field: 'current_password', message: 'is incorrect' }]);
+      }
+    }
     const newPassword = typeof b.new_password === 'string' ? b.new_password : '';
     if (newPassword.length < MIN_PASSWORD_LENGTH) {
       fail(422, 'Validation failed', [

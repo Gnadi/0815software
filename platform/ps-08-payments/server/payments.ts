@@ -195,7 +195,16 @@ export function settleProcessing(db: Database.Database, now = Date.now()): numbe
   return settled;
 }
 
-/** Refund (full or partial) a succeeded intent. */
+/**
+ * Refund (full or partial) a succeeded intent.
+ *
+ * The refundable balance is claimed BEFORE the provider call, in one
+ * synchronous step. Checking the balance and only then awaiting the PSP would
+ * leave a window in which a second concurrent refund reads the same balance
+ * and passes the same check — two requests for the full amount would then both
+ * be accepted and the intent would be refunded twice over. If the provider
+ * rejects the refund, the claim is rolled back.
+ */
 export async function refundIntent(
   db: Database.Database,
   provider: PaymentProvider,
@@ -203,21 +212,38 @@ export async function refundIntent(
   amountMinor: number | undefined,
   now = Date.now(),
 ): Promise<void> {
-  const { status, refunded } = foldStatus(eventsOf(db, row.id), row.amount_minor);
-  if (status !== 'succeeded' && status !== 'partially_refunded') {
-    throw new DomainError(422, `Only a captured payment can be refunded (status ${status})`);
+  const { eventId, ledgerId, amount } = db.transaction(() => {
+    const { status, refunded } = foldStatus(eventsOf(db, row.id), row.amount_minor);
+    if (status !== 'succeeded' && status !== 'partially_refunded') {
+      throw new DomainError(422, `Only a captured payment can be refunded (status ${status})`);
+    }
+    const remaining = row.amount_minor - refunded;
+    const claimed = amountMinor ?? remaining;
+    if (!Number.isInteger(claimed) || claimed <= 0) {
+      throw new DomainError(422, 'Validation failed', [
+        { field: 'amount_minor', message: 'must be a positive integer' },
+      ]);
+    }
+    if (claimed > remaining) {
+      throw new DomainError(422, `Refund exceeds the refundable balance (${remaining})`);
+    }
+    appendEvent(db, row.id, 'refunded', now, claimed);
+    ledgerEntry(db, row.id, 'debit', claimed, 'refund', now);
+    const event = db.prepare('SELECT MAX(id) AS id FROM intent_events WHERE intent_id = ?').get(row.id) as { id: number };
+    const ledger = db.prepare('SELECT MAX(id) AS id FROM ledger_entries WHERE intent_id = ?').get(row.id) as { id: number };
+    return { eventId: event.id, ledgerId: ledger.id, amount: claimed };
+  })();
+
+  try {
+    await provider.refund({ public_id: row.public_id }, amount);
+  } catch (err) {
+    // The money never moved, so neither should the record of it.
+    db.transaction(() => {
+      db.prepare('DELETE FROM intent_events WHERE id = ?').run(eventId);
+      db.prepare('DELETE FROM ledger_entries WHERE id = ?').run(ledgerId);
+    })();
+    throw err;
   }
-  const remaining = row.amount_minor - refunded;
-  const amount = amountMinor ?? remaining;
-  if (!Number.isInteger(amount) || amount <= 0) {
-    throw new DomainError(422, 'Validation failed', [{ field: 'amount_minor', message: 'must be a positive integer' }]);
-  }
-  if (amount > remaining) {
-    throw new DomainError(422, `Refund exceeds the refundable balance (${remaining})`);
-  }
-  await provider.refund({ public_id: row.public_id }, amount);
-  appendEvent(db, row.id, 'refunded', now, amount);
-  ledgerEntry(db, row.id, 'debit', amount, 'refund', now);
 }
 
 /** Reconcile a settlement signalled by an inbound PSP webhook. */

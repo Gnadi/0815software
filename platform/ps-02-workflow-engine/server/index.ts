@@ -32,10 +32,12 @@ app.listen(config.port, () => {
     const timer = setInterval(() => {
       try {
         runSchedules(db, Date.now());
-        void dispatch(db, defaultFetch, Date.now());
       } catch (err) {
-        console.error('[ps-02] tick error', err);
+        console.error('[ps-02] schedule error', err);
       }
+      // A rejected dispatch must be handled here: an unhandled rejection would
+      // take the whole service down on a transient delivery failure.
+      dispatch(db, defaultFetch, Date.now()).catch((err) => console.error('[ps-02] dispatch error', err));
     }, config.tickIntervalMs);
     timer.unref?.();
     console.log(`[ps-02] internal ticker every ${config.tickIntervalMs}ms`);
