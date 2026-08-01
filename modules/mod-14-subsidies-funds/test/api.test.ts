@@ -31,7 +31,12 @@ interface Harness {
 /** Build a fresh in-memory app; `withSeed` loads the example dataset. */
 async function harness(withSeed = false): Promise<Harness> {
   const db = openDb(':memory:');
-  if (withSeed) seed(db);
+  // Seed AT the same instant the clock below is pinned to. The seeded
+  // deadlines are offsets from the seed day, so seeding at the real Date.now()
+  // while reading at T0 makes the dataset drift as the calendar advances —
+  // a "10 days overdue" program stops being overdue once the real date passes
+  // T0 + 10 days, and the suite starts failing on a date rather than a commit.
+  if (withSeed) seed(db, T0);
   let nowMs = T0;
   const app = createApp({ db, auth, now: () => nowMs });
   const res = await request(app).post('/api/login').send({ username: 'admin', password: 'test-password' });
