@@ -33,6 +33,7 @@ import {
 } from './identity.js';
 import { keySummary, mintApiKey, verifyApiKey, type ApiKeyRow } from './api-keys.js';
 import { verifyProvidedToken } from './tokens.js';
+import { exportSubject } from './export.js';
 import {
   clearFailures,
   delayFor,
@@ -410,6 +411,22 @@ export function createApp({
   app.post('/api/users/:id/sessions/revoke', (req, res) => {
     require(res, 'user:write');
     revokeSessions(req, res, requireUserInOrg(res, idParam(req)));
+  });
+
+  /**
+   * Subject access / portability: everything this service holds about one
+   * person, by email. See server/export.ts for what is included and what is
+   * deliberately not.
+   */
+  app.get('/api/export', (req, res) => {
+    // `user:write`, not `user:read`: every role down to viewer holds the read
+    // permission because it is the directory, and this is not directory data —
+    // it copies out auth events with IP addresses. Disclosing someone's record
+    // is an administrative act.
+    require(res, 'user:write');
+    const subject = typeof req.query.subject === 'string' ? req.query.subject.trim() : '';
+    if (!subject) fail(422, 'subject query parameter is required');
+    res.json(exportSubject(db, principalOf(res).orgId, subject, nowIso(now())));
   });
 
   app.get('/api/permissions', (_req, res) => {

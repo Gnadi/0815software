@@ -61,19 +61,26 @@ admin modules (C1), the real Stripe-Signature scheme + `retryFetch` + gated
 live suites (A5 scaffolding), and compliance basics — audit retention with
 chain integrity, message retention, GDPR erasure, PII map (D1).
 
-**What remains — and it is genuinely only these — needs the user, not the
-repo:**
+**What remains that needs the user, not the repo:**
 1. **Vendor keys.** Run `npm run test:live` per service with real
    Stripe/Resend/Twilio/OpenAI/Anthropic/OAuth keys to validate the adapters
-   against production (A5's last mile).
+   against production (A5's last mile). Until this is done, the first customer
+   is the test.
 2. **npm publish.** Create the `0815software` npm org, add `NPM_TOKEN`, push a
    `platform-clients-v*` tag so modules can move off `file:` links (B3).
-3. **A host + domain** for the reference deployment (Caddy issues the certs).
+3. **A host + domain** for the reference deployment (Caddy issues the certs),
+   an off-host copy of the backups, and a receiver in
+   `monitoring/alertmanager.yml`.
+
+Closed since that list was written: backups covering every module and PS-11
+with a tested restore (A6), monitoring generated per stack with alert rules
+derived from the selection, an upgrade test in all 25 packages, and subject
+access / portability across the four services that hold personal data (D1).
 
 Deferred by explicit decision (documented, not blocking a first rollout):
 mod-01/07/09 domain-user SSO, deeper per-module integrations (C2/C3),
-data-export endpoints and cross-service erasure orchestration, and e-invoicing
-archival (D2).
+module-side subject export and cross-service erasure orchestration, per-user
+authorization inside modules, and e-invoicing archival (D2).
 
 The per-item punch-list below is retained as the audit trail, each entry
 annotated with what shipped.
@@ -381,9 +388,16 @@ See `docs/PLATFORM-SERVICE-OPPORTUNITIES.md` for the ranked list.
   lives per service/module and the retention/erasure lever for each.
 - Encryption-at-rest still covers PS-05 credentials specifically; full
   disk/volume encryption is a deployment concern (per-customer stack).
-**Remaining:** export ("data portability") endpoints and automated
-cross-service erasure orchestration — today erasure is operator/module-driven,
-guided by the PII map.
+- **Subject access / portability.** PS-01, PS-03, PS-07 and PS-11 — the four
+  services that hold subject-addressable personal data — answer
+  `GET /api/export?subject=<email>`, and `deploy/export-subject.mjs` assembles
+  one report across a customer's stack. It reports its own gaps: the modules
+  have no export endpoint, so each is listed with what to inspect instead, and
+  a service that could not be reached is a gap rather than an empty source.
+**Remaining:** module-side subject export, and automated cross-service erasure
+orchestration — erasure stays operator/module-driven, guided by the PII map,
+because an erasure that half-succeeds across four services is worse than one
+performed deliberately.
 
 ### D2. Invoice/legal specifics
 PS-10 delivers gapless numbering (a real DACH requirement — good). Still open:

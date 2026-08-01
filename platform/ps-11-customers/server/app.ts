@@ -38,6 +38,7 @@ import {
   resolveParty,
   updateParty,
 } from './parties.js';
+import { exportSubject } from './export.js';
 import { PARTY_KINDS, type PartyKind } from '../shared/types.js';
 
 export interface AppOptions {
@@ -160,6 +161,16 @@ export function createApp(opts: AppOptions): express.Express {
   app.post('/api/parties/resolve', requireCaller, (req, res) => {
     const result = resolveParty(db, body(req) as never, at());
     res.status(result.created ? 201 : 200).json(result);
+  });
+
+  /**
+   * Subject access / portability: everything this service holds about one
+   * person. See server/export.ts for what that includes.
+   */
+  app.get('/api/export', requireCaller, (req, res) => {
+    const subject = typeof req.query.subject === 'string' ? req.query.subject.trim() : '';
+    if (!subject) fail(422, 'subject query parameter is required');
+    res.json(exportSubject(db, subject, nowIso(now())));
   });
 
   app.get('/api/parties', requireCaller, (req, res) => {

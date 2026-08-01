@@ -24,6 +24,7 @@ import { latestTemplate, mapTemplate, renderTemplate, type TemplateRow } from '.
 import { enqueue, mapChannel, mapMessage, tick, type ChannelRow, type MessageRow } from './queue.js';
 import { buildResolver } from './providers/registry.js';
 import type { FetchLike, ProviderResolver } from './providers/index.js';
+import { exportSubject } from './export.js';
 
 export interface AppOptions {
   db: Database.Database;
@@ -254,6 +255,16 @@ export function createApp(opts: AppOptions): express.Express {
   });
 
   // ── Messages ───────────────────────────────────────────────────────
+  /**
+   * Subject access / portability: everything this service holds about one
+   * person. See server/export.ts for what that includes.
+   */
+  app.get('/api/export', (req, res) => {
+    const subject = typeof req.query.subject === 'string' ? req.query.subject.trim() : '';
+    if (!subject) fail(422, 'subject query parameter is required');
+    res.json(exportSubject(db, subject, nowIso(now())));
+  });
+
   app.get('/api/messages', (req, res) => {
     const rows = (
       typeof req.query.status === 'string'

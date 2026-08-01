@@ -5,6 +5,7 @@ import {
   checkServiceToken,
   clearedCookie,
   createToken,
+  nowIso,
   requireAuth,
   SERVICE_HEADER,
   sessionCookie,
@@ -17,6 +18,7 @@ import { MIGRATIONS } from './db.js';
 import { pendingCount } from './migrations.js';
 import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
 import { findByIdempotencyKey, listEvents, pruneForRetention, recordEvent, verifyChain } from './audit.js';
+import { exportSubject } from './export.js';
 
 export interface AppOptions {
   db: Database.Database;
@@ -132,6 +134,16 @@ export function createApp(opts: AppOptions): express.Express {
 
   // ── Admin gate (reads + integrity) ─────────────────────────────────
   app.use('/api', requireAuth(auth, { fetch: opts.identityFetch }));
+
+  /**
+   * Subject access / portability: everything this service holds about one
+   * person. See server/export.ts for what that includes.
+   */
+  app.get('/api/export', (req, res) => {
+    const subject = typeof req.query.subject === 'string' ? req.query.subject.trim() : '';
+    if (!subject) fail(422, 'subject query parameter is required');
+    res.json(exportSubject(db, subject, nowIso(now())));
+  });
 
   app.get('/api/events', (req, res) => {
     const q = req.query;
