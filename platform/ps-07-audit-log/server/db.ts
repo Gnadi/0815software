@@ -38,9 +38,21 @@ export const MIGRATIONS: Migration[] = [
     name: 'audit_events-idempotency_key',
     up(db) {
       // Not part of the hash canonical form, so existing chains stay valid.
+      //
+      // Guarded, like every other ALTER in the catalogue: a database created
+      // before the migration runner existed has no `schema_migrations`, so
+      // every migration is pending against a schema that may already carry the
+      // column — and an unguarded ADD COLUMN then fails the boot outright,
+      // which is the opposite of the "adopt a pre-runner database cleanly"
+      // property this runner is documented to have.
+      const columns = (db.prepare("PRAGMA table_info('audit_events')").all() as { name: string }[]).map(
+        (c) => c.name,
+      );
+      if (!columns.includes('idempotency_key')) {
+        db.exec('ALTER TABLE audit_events ADD COLUMN idempotency_key TEXT');
+      }
       db.exec(`
-      ALTER TABLE audit_events ADD COLUMN idempotency_key TEXT;
-      CREATE UNIQUE INDEX idx_audit_idempotency
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_idempotency
         ON audit_events(idempotency_key) WHERE idempotency_key IS NOT NULL;
     `);
     },
