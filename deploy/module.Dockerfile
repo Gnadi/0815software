@@ -33,5 +33,7 @@ ENV NODE_ENV=production
 # The database (and anything else the module persists: documents, exports,
 # uploads) lives on the mounted volume — see the generated docker-compose.yml.
 ENV DATABASE_PATH=/data/data.db
+# `npm run backup` writes here, on the same volume; deploy/backup.sh drives it.
+ENV BACKUP_DIR=/data/backups
 
 CMD ["node", "dist/server/server/index.js"]

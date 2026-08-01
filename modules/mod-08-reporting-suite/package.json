@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-08-reporting-suite",
   "version": "0.1.0",
-  "description": "MOD-08 Reporting Suite — scheduled exports, pivot tables, and chart embeds built on top of your existing database.",
+  "description": "MOD-08 Reporting Suite \u2014 scheduled exports, pivot tables, and chart embeds built on top of your existing database.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -11,6 +11,7 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/server/index.js",
+    "backup": "node scripts/backup.mjs",
     "test": "vitest run",
     "preview": "npm run build && npm start"
   },

@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-13-offers",
   "version": "0.1.0",
-  "description": "MOD-13 Offers — write, send, and track sales offers. Line-item quotes with discounts, validity dates, PDF export, and a customer acceptance link.",
+  "description": "MOD-13 Offers \u2014 write, send, and track sales offers. Line-item quotes with discounts, validity dates, PDF export, and a customer acceptance link.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -11,6 +11,7 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/server/index.js",
+    "backup": "node scripts/backup.mjs",
     "test": "vitest run",
     "preview": "npm run build && npm start"
   },

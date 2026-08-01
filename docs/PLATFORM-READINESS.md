@@ -7,18 +7,53 @@
 
 ## Verdict
 
-**Customer-rollout-ready, pending the user's vendor keys and npm org.**
+**Pilot-ready. Not yet ready for a paying customer with a promise attached.**
 
-*Updated after the finish-line campaign (Phases 1–8).* The original punch-list
-below has been worked through end to end; each item now carries its status
-inline. Every package's test suite is green and runs **fully offline** (~620
-tests across 26 packages), and `deploy/smoke.mjs` boots every service in
+*Revised August 2026, after a review of the modules and Platform Services.*
+The earlier verdict below ("rollout-ready, pending vendor keys and npm org")
+was too generous, and it is worth being precise about why, because the reasons
+are all of one kind — **operational proof, not code quality**.
+
+The review found and closed real defects: an unconfigured OAuth provider issued
+sessions with no credential at all, the post-login redirect handed the session
+token to any origin, overlapping ticks sent every queued notification twice,
+concurrent refunds could exceed the payment, and nothing set Express's
+`trust proxy` behind the stack's own Caddy, so the per-IP rate limits throttled
+every customer as one client. Those are fixed and covered by tests that fail
+against the unfixed code.
+
+What was NOT true when the old verdict was written is that backups worked. They
+did not — see A6. That is now closed and, more importantly, tested by restoring.
+
+What still stands between here and a paying customer:
+
+1. **Vendor adapters have never run against the real APIs** (A5). Stripe,
+   Resend, Twilio and OAuth are scaffolded, fixture-tested and gated behind
+   `npm run test:live`. Until those run with real keys, the first customer is
+   the test — and the first thing they would notice is invoices not arriving.
+2. **Nothing watches the stack.** `/api/metrics` and `/api/ready` are served;
+   no one scrapes them and no one is paged. If a ticker stops, mail silently
+   stops going out and the customer finds out first.
+3. **The off-host copy of the backups** is an operator step per deployment, and
+   an unexercised restore on the customer's own hardware is still a hope.
+
+None of that is a rewrite; it is a checklist. A pilot customer — reduced price,
+told plainly that they are an early installation, in close contact — is a
+reasonable next step today. An SLA is not.
+
+*Updated after the finish-line campaign (Phases 1–8), then corrected by the
+review above.* The original punch-list below has been worked through end to
+end; each item now carries its status inline. Every package's test suite is
+green and runs **fully offline** (~1200 tests across 26 packages), and
+`deploy/smoke-stack.mjs` boots a customer's stack — services and modules — in
 production mode with generated secrets, verifying health, readiness, metrics,
-the cross-service `platform:admin` seam, and security headers.
+the cross-service `platform:admin` seam, security headers, SSO, and that every
+module still boots standalone.
 
 **What's closed (in code):** production boot guards + in-code hardening
 (A1/A4), scoped service credentials and `platform:admin` seam RBAC (A2/A3),
-schema migrations + backups (A6), a per-customer reference deployment with
+schema migrations + backups with a tested restore (A6), a per-customer
+reference deployment with
 Caddy TLS, tickers, and a smoke test (A7 + TLS/secrets/tickers), observability
 — structured logs, `/api/ready`, `/api/metrics`, domain gauges (B1/B2),
 OpenAPI + real-client contract tests (B4), SSO login-exchange across the 11
@@ -181,14 +216,38 @@ The realism gap is now closed in code, leaving only the user-supplied keys:
 **Remaining (user action):** supply the vendor keys and run `test:live` to
 validate against production — the one step that cannot be done from the repo.
 
-### A6. Persistence is single-file SQLite with no migrations, backups, or HA
-Each service is one SQLite file. Schema evolution is `CREATE TABLE IF NOT
-EXISTS` plus a couple of hand-guarded `ALTER TABLE`s — there is **no migration
-framework**, no backup/restore, no replication. SQLite is single-writer, so the
-tick-driven queues (PS-02/03/05/08) and the gapless counters (PS-10) are
-correct on one instance but do not scale horizontally.
-**Do:** adopt a migration tool; automate backup/restore; decide the scale story
-(Postgres, or SQLite + streaming replication) before multi-instance.
+### A6. Persistence is single-file SQLite with no migrations, backups, or HA — ⏳ BACKUPS CLOSED, HA OPEN
+Migrations shipped (`server/migrations.ts`, append-only and idempotent, applied
+on boot).
+
+**Backups were claimed closed before they were.** `deploy/backup.sh` iterated a
+hardcoded `ps01…ps10`, so PS-11 — every counterparty, VAT id and bank detail —
+was never snapshotted, and no module was either: the invoices, offers, tickets
+and time entries had no backup at all. The generated customer README pointed at
+a script that, run as documented, backed up the reference stack in the repo
+rather than the customer's. What is true now:
+
+- every one of the 25 packages ships `scripts/backup.mjs` + `npm run backup`,
+  using better-sqlite3's online backup API (never a file copy of a live
+  database);
+- the three modules that keep files beside their database (MOD-01 documents,
+  MOD-08 exports, MOD-09 storage) copy those too — a database-only snapshot
+  there restores a catalogue of files that are gone;
+- `deploy/backup.sh <stack-dir>` discovers the running containers instead of
+  listing them, so a stack cannot silently outgrow the script;
+- **restore is tested, not asserted**: three suites destroy a database (MOD-09
+  destroys the files as well) and read the data back out through the module's
+  own routes afterwards;
+- `deploy/test/backup.test.ts` re-derives the coverage from the registry, so a
+  new package without a backup script fails the build.
+
+Still open: the snapshots land on the same volume as the source, so getting
+them off the host is an operator step (rsync/restic), and there is no HA —
+SQLite is single-writer, so the tick-driven queues (PS-02/03/05/08) and the
+gapless counters (PS-10) are correct on one instance and do not scale
+horizontally.
+**Do:** decide the scale story (Postgres, or SQLite + streaming replication)
+before multi-instance; automate the off-host copy per deployment.
 
 ### A7. Multi-tenancy is inconsistent across services
 PS-01 is strictly multi-tenant; PS-09 has a `tenant` column. **PS-02, 03, 04,

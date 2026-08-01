@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-07-storefront",
   "version": "0.1.0",
-  "description": "MOD-07 Storefront — product catalogue, cart, checkout, and order management. No SaaS fees, no revenue cut.",
+  "description": "MOD-07 Storefront \u2014 product catalogue, cart, checkout, and order management. No SaaS fees, no revenue cut.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -11,6 +11,7 @@
     "seed": "tsx server/seed.ts",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/server/index.js",
+    "backup": "node scripts/backup.mjs",
     "test": "vitest run",
     "preview": "npm run build && npm start"
   },

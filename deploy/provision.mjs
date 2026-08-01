@@ -764,18 +764,35 @@ default.
 ## Backups
 
 \`\`\`sh
-<repo>/deploy/backup.sh
+<repo>/deploy/backup.sh "$(pwd)"     # run from THIS directory
 \`\`\`
 
-Snapshots every service database onto its own volume (\`/data/backups\`) using
-better-sqlite3's online backup API. Schedule it from the host's cron (e.g.
-\`0 2 * * *\`). Module databases live on their own volumes at \`/data/data.db\`.
+Pass this stack's directory. Without it the script backs up the reference
+stack inside the repository instead of yours. Schedule it from the host's
+cron, e.g.
 
-**Restore** = stop the container, replace \`/data/data.db\` with a snapshot,
-start it again; pending schema migrations apply on boot.
+\`\`\`
+0 2 * * *  <repo>/deploy/backup.sh <this directory> >> backup.log 2>&1
+\`\`\`
 
-Back \`.env\` up separately from the volumes — it holds the secrets, and a
-restored volume is useless with the wrong \`SESSION_SECRET\`.
+It asks the stack which containers are running and snapshots every one that
+can back itself up — the services AND the modules, which is where this
+customer's invoices, offers and tickets actually are. Each snapshot is
+online-consistent (better-sqlite3's backup API, never a file copy of a live
+database) and lands in \`/data/backups\` on that container's own volume. A
+module that keeps files beside its database copies those alongside.
+
+**Restore** = stop the container, replace \`/data/data.db\` with a snapshot (and
+the files directory beside it, where there is one), start it again; pending
+schema migrations apply on boot.
+
+Two steps this does not do for you, and both matter:
+
+- **Copy the snapshots off this host.** They sit on the same volumes as the
+  originals — which survives a bad deploy, not a lost disk. Add an rsync or
+  restic job to another machine; that is what makes this a backup.
+- **Back \`.env\` up separately.** It holds the secrets, and a restored volume
+  is useless with the wrong \`SESSION_SECRET\`.
 
 ## Upgrades
 
