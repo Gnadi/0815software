@@ -40,8 +40,8 @@ import { modules } from '../data/modules';
       {platform.map((svc) => (
         <a class="svc-row" href={`/platform/${svc.slug}`}>
           <span class="svc-row__num">{svc.n}</span>
-          <span class="svc-row__title">{svc.title}</span>
-          <span class="svc-row__purpose">{svc.purpose}</span>
+          <span class="svc-row__title" data-i18n={`svc.${svc.slug}.title`}>{svc.title}</span>
+          <span class="svc-row__purpose" data-i18n={`svc.${svc.slug}.purpose`}>{svc.purpose}</span>
           <span class="svc-row__arrow" aria-hidden="true">→</span>
         </a>
       ))}
@@ -58,7 +58,7 @@ import { modules } from '../data/modules';
       {modules.map((mod) => (
         <a class="mod-row" href={`/modules/${mod.slug}`}>
           <span class="mod-row__num">{mod.n}</span>
-          <span class="mod-row__title">{mod.title}</span>
+          <span class="mod-row__title" data-i18n={`mod.${mod.slug}.title`}>{mod.title}</span>
           <span class="mod-row__arrow" aria-hidden="true">→</span>
         </a>
       ))}

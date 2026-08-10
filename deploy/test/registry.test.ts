@@ -271,6 +271,40 @@ describe('public Platform Services catalogue stays in sync', () => {
 });
 
 /**
+ * The landing page translates itself by swapping `[data-i18n]` text against a
+ * dictionary, and `applyLang` silently skips a key it cannot find. That makes a
+ * missing translation invisible: the catalogue rows simply stayed English in
+ * German, which is how they went unnoticed. A new service or module must
+ * therefore arrive with its copy in BOTH languages, or this fails.
+ */
+describe('catalogue rows are translated in every language', () => {
+  const dict = readFileSync(`${root}/src/i18n/translations.ts`, 'utf8');
+  const deAt = dict.indexOf('\n  de: {');
+  expect(deAt).toBeGreaterThan(0);
+  const blocks = { en: dict.slice(dict.indexOf('\n  en: {'), deAt), de: dict.slice(deAt) };
+
+  const serviceSlugs = [...readFileSync(`${root}/src/data/platform.ts`, 'utf8').matchAll(/^ {4}slug: '([a-z0-9-]+)',$/gm)]
+    .map((m) => m[1]);
+
+  // The keys Platform.astro renders: services show a title and a purpose,
+  // modules show a title.
+  const required = [
+    ...serviceSlugs.flatMap((slug) => [`svc.${slug}.title`, `svc.${slug}.purpose`]),
+    ...modules.map((m: any) => `mod.${m.slug}.title`),
+  ];
+
+  it.each(['en', 'de'] as const)('%s has copy for every catalogue row', (lang) => {
+    const missing = required.filter((key) => !blocks[lang].includes(`'${key}':`));
+    expect(missing, `missing ${lang} translations`).toEqual([]);
+  });
+
+  it('covers all 11 services and all 14 modules', () => {
+    expect(serviceSlugs).toHaveLength(services.length);
+    expect(required).toHaveLength(services.length * 2 + modules.length);
+  });
+});
+
+/**
  * The shared client package is the documented way a module reaches a service.
  * A service without a client is a service modules must hand-roll `fetch` for —
  * exactly the duplication the package exists to remove — so a new PS-xx that
