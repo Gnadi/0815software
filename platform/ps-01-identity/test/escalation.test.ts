@@ -8,7 +8,7 @@
  * role, and assigning an existing higher role. Each turned `role:write` /
  * `apikey:write` into a path to Owner.
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import Database from 'better-sqlite3';
@@ -23,7 +23,12 @@ const as = (t: string) => ({ Authorization: `Bearer ${t}` });
 let app: Express;
 let db: Database.Database;
 
-beforeEach(async () => {
+// Seeded once, not per test: `seed()` scrypt-hashes five credentials, and
+// re-running it for every case loads the same libuv threadpool that
+// event-loop.test.ts measures — the two files run in parallel. No case here
+// changes what another case asserts on: the escalation attempts are all
+// refused, and the two positive cases touch only the Owner and the Member.
+beforeAll(async () => {
   db = openDb(':memory:');
   await seed(db);
   app = createApp({ db, session });
@@ -92,12 +97,12 @@ describe('an Owner is unaffected', () => {
       .expect(201);
   });
 
-  it('can still grant an Administrator a role it holds itself', async () => {
+  it('can still grant a user a role it holds itself', async () => {
     const t = await ownerToken();
     const users = await request(app).get('/api/users').set(as(t));
-    const admin = users.body.users.find((u: { email: string }) => u.email === 'admin@acme.test');
+    const member = users.body.users.find((u: { email: string }) => u.email === 'member@acme.test');
     const roles = await request(app).get('/api/roles').set(as(t));
-    const member = roles.body.roles.find((r: { key: string }) => r.key === 'member');
-    await request(app).post(`/api/users/${admin.id}/roles`).set(as(t)).send({ role_id: member.id }).expect(200);
+    const viewer = roles.body.roles.find((r: { key: string }) => r.key === 'viewer');
+    await request(app).post(`/api/users/${member.id}/roles`).set(as(t)).send({ role_id: viewer.id }).expect(200);
   });
 });

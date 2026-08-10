@@ -9,11 +9,11 @@ export class PaymentsClient extends BaseClient {
   }
 
   getIntent(id: number): Promise<PaymentIntent> {
-    return this.apiGet(`/api/intents/${id}`);
+    return this.apiGet(`/api/intents/${encodeURIComponent(String(id))}`);
   }
 
   confirm(id: number): Promise<PaymentIntent> {
-    return this.apiPost<PaymentIntent>(`/api/intents/${id}/confirm`, {});
+    return this.apiPost<PaymentIntent>(`/api/intents/${encodeURIComponent(String(id))}/confirm`, {});
   }
 
   /**
@@ -26,7 +26,7 @@ export class PaymentsClient extends BaseClient {
     const body: Record<string, unknown> = {};
     if (amountMinor !== undefined) body.amount_minor = amountMinor;
     if (idempotencyKey !== undefined) body.idempotency_key = idempotencyKey;
-    return this.apiPost<PaymentIntent>(`/api/intents/${id}/refund`, body);
+    return this.apiPost<PaymentIntent>(`/api/intents/${encodeURIComponent(String(id))}/refund`, body);
   }
 
   ledger(): Promise<{ ledger: LedgerEntry[] }> {

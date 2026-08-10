@@ -4,8 +4,19 @@
  * Every service ships local-dev defaults for its secrets so `npm run dev:api`
  * works out of the box. In production those defaults are a critical
  * misconfiguration, so the guard REFUSES TO BOOT (throws before `listen`)
- * when NODE_ENV=production and any secret still carries a well-known default.
+ * when NODE_ENV=production and any secret is unusable.
  * Outside production it stays silent — the existing console warnings cover dev.
+ *
+ * Two ways a secret is unusable, and the second is the likelier accident:
+ *
+ *  - it still carries a **well-known default** from the shipped .env.example;
+ *  - it is **empty or blank**. Config reads secrets as `env.X ?? 'dev-default'`,
+ *    and `??` falls back only on undefined — so `SESSION_SECRET=` in a compose
+ *    file, or an unset variable interpolated into one, yields an EMPTY secret
+ *    rather than the default. That boots a service whose session HMAC is keyed
+ *    on the empty string (forgeable by anyone who guesses it is empty) and
+ *    whose admin login accepts an empty password. Checking only against known
+ *    defaults let exactly that through.
  */
 
 const KNOWN_DEFAULTS = new Set([
@@ -27,11 +38,22 @@ export interface SecretCheck {
 
 export function assertProductionConfig(secrets: SecretCheck[], env: NodeJS.ProcessEnv = process.env): void {
   if (env.NODE_ENV !== 'production') return;
-  const offenders = secrets.filter((s) => s.value !== undefined && KNOWN_DEFAULTS.has(s.value));
-  if (offenders.length > 0) {
+
+  const blank: string[] = [];
+  const defaulted: string[] = [];
+  for (const secret of secrets) {
+    if (secret.value === undefined) continue; // genuinely optional — not set, not used
+    if (secret.value.trim() === '') blank.push(secret.name);
+    else if (KNOWN_DEFAULTS.has(secret.value)) defaulted.push(secret.name);
+  }
+
+  const problems: string[] = [];
+  if (defaulted.length > 0) problems.push(`still set to a shipped default: ${defaulted.join(', ')}`);
+  if (blank.length > 0) problems.push(`empty or blank: ${blank.join(', ')}`);
+  if (problems.length > 0) {
     throw new Error(
-      `refusing to start in production with default secrets: ${offenders.map((o) => o.name).join(', ')} — ` +
-        'set real values (openssl rand -hex 32) before deploying',
+      `refusing to start in production with unusable secrets — ${problems.join('; ')}. ` +
+        'Set real values (openssl rand -hex 32) before deploying.',
     );
   }
 }
