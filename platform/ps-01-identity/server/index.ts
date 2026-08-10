@@ -12,7 +12,7 @@ const db = openDb(config.databasePath);
 // First start on an empty database: load the demo tenants so the service
 // is usable immediately. A database with existing organizations is never
 // touched.
-seed(db);
+await seed(db);
 
 const app = createApp({
   db,

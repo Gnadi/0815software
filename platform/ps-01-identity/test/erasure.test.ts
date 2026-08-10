@@ -16,9 +16,9 @@ const as = (t: string) => ({ Authorization: `Bearer ${t}` });
 const login = (email: string, password: string) =>
   request(app).post('/api/login').send({ org_slug: 'acme', email, password });
 
-beforeEach(() => {
+beforeEach(async () => {
   db = openDb(':memory:');
-  seed(db);
+  await seed(db);
   app = createApp({ db, session });
 });
 

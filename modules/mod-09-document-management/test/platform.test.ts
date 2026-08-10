@@ -28,10 +28,10 @@ async function editorCookieAndMatter(app: Express): Promise<{ cookie: string; ma
   return { cookie, matterId: matter.id };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   storageDir = mkdtempSync(join(tmpdir(), 'mod09-plat-'));
   db = openDb(':memory:');
-  seed(db, storageDir);
+  await seed(db, storageDir);
 });
 afterEach(() => rmSync(storageDir, { recursive: true, force: true }));
 

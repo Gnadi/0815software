@@ -25,17 +25,18 @@ export interface TokenVerdict {
   permissions?: Permission[];
 }
 
-export function verifyProvidedToken(
+export async function verifyProvidedToken(
   db: Database.Database,
   session: SessionConfig,
   token: unknown,
   now = Date.now(),
-): TokenVerdict {
+): Promise<TokenVerdict> {
   if (typeof token !== 'string') return { valid: false };
 
-  // Machine credential: a PS-01 API key.
+  // Machine credential: a PS-01 API key. Hashed verification is async so the
+  // scrypt work lands on the threadpool, not this service's event loop.
   if (token.startsWith('psk_')) {
-    const key = verifyApiKey(db, token, now);
+    const key = await verifyApiKey(db, token, now);
     if (!key) return { valid: false };
     return { valid: true, permissions: key.scopes ?? [...PERMISSIONS] };
   }

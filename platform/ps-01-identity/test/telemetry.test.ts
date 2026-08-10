@@ -12,9 +12,9 @@ const session: SessionConfig = { secret: 'test-secret', ttlHours: 12, secureCook
 let db: Database.Database;
 let app: Express;
 
-beforeEach(() => {
+beforeEach(async () => {
   db = openDb(':memory:');
-  seed(db);
+  await seed(db);
   app = createApp({ db, session });
 });
 

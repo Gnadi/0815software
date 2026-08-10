@@ -18,7 +18,7 @@ let db: Database.Database;
 
 beforeAll(async () => {
   db = openDb(':memory:');
-  seed(db);
+  await seed(db);
   server = createApp({ db, session }).listen(0);
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });

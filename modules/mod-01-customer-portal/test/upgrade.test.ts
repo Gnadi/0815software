@@ -48,9 +48,9 @@ afterEach(() => {
 });
 
 describe('upgrading an existing installation', () => {
-  it('re-opens a populated database without changing the schema or losing rows', () => {
+  it('re-opens a populated database without changing the schema or losing rows', async () => {
     const db = openDb(dbPath);
-    seed(db, join(work, "documents"));
+    await seed(db, join(work, "documents"));
     const schema = schemaOf(db);
     const before = census(db);
     expect(Object.values(before).some((n) => n > 0), 'the seed produced no rows').toBe(true);
@@ -63,9 +63,9 @@ describe('upgrading an existing installation', () => {
     reopened.close();
   });
 
-  it('survives being opened repeatedly, as a restart loop would', () => {
+  it('survives being opened repeatedly, as a restart loop would', async () => {
     const db = openDb(dbPath);
-    seed(db, join(work, "documents"));
+    await seed(db, join(work, "documents"));
     const before = census(db);
     db.close();
 

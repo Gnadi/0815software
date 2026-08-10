@@ -261,22 +261,27 @@ export function consumeState(
  * authorize step recorded. Returns the user row; a new user gets a random
  * (unusable-for-login) password hash and the default `member` role.
  */
-export function linkUser(
+export async function linkUser(
   db: Database.Database,
   orgId: number,
   identity: ResolvedIdentity,
   now = Date.now(),
-): UserRow {
+): Promise<UserRow> {
   const email = identity.email.trim().toLowerCase();
   const existing = db.prepare('SELECT * FROM users WHERE org_id = ? AND email = ?').get(orgId, email) as
     | UserRow
     | undefined;
   if (existing) return existing;
 
+  // An OAuth-linked account has no usable password; it still gets a random
+  // one so the column is never empty. Hashed before the (synchronous)
+  // transaction, since hashing is async — see server/auth.ts.
+  const placeholderHash = await hashPassword(randomBytes(24).toString('hex'));
+
   return db.transaction((): UserRow => {
     const info = db
       .prepare(`INSERT INTO users (org_id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .run(orgId, email, identity.name, hashPassword(randomBytes(24).toString('hex')), nowIso(now));
+      .run(orgId, email, identity.name, placeholderHash, nowIso(now));
     const userId = Number(info.lastInsertRowid);
     const member = db
       .prepare('SELECT id FROM roles WHERE key = ? AND (org_id IS NULL OR org_id = ?)')

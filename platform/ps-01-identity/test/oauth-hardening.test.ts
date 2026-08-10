@@ -21,9 +21,9 @@ const SELF = 'https://identity.example.com';
 
 let db: Database.Database;
 
-beforeEach(() => {
+beforeEach(async () => {
   db = openDb(':memory:');
-  seed(db);
+  await seed(db);
 });
 
 const appWith = (opts: Parameters<typeof createApp>[0] extends infer T ? Partial<T> : never): Express =>

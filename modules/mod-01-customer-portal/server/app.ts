@@ -8,7 +8,7 @@ import {
   clearedCookie,
   COOKIE_NAME,
   createToken,
-  DUMMY_PASSWORD_HASH,
+  dummyPasswordHash,
   hashPassword,
   parseCookies,
   sessionCookie,
@@ -73,6 +73,12 @@ export interface AppOptions {
 }
 
 export function createApp({ db, hardening, session, documentsDir, staticDir, platform = noopPlatform }: AppOptions): express.Express {
+  // Compute the equal-work dummy hash now, at startup and off the event loop,
+  // so no request ever pays for generating it. Otherwise the first login
+  // against an unknown account would be measurably slower than every later
+  // one — a timing difference this hash exists to remove.
+  void dummyPasswordHash();
+
   const app = express();
 
   // Transport hardening: security headers, a default-deny CORS policy and
@@ -113,24 +119,28 @@ export function createApp({ db, hardening, session, documentsDir, staticDir, pla
     }
   });
 
-  app.post('/api/login', (req, res) => {
-    const { email, password } = (req.body ?? {}) as Record<string, unknown>;
-    if (typeof email !== 'string' || typeof password !== 'string') {
-      res.status(422).json({ error: 'Email and password are required' });
-      return;
-    }
-    const customer = customerByEmail.get(email.trim().toLowerCase()) as CustomerRow | undefined;
-    // Verify against a dummy hash on unknown emails so timing does not
-    // reveal whether an account exists.
-    const ok = customer
-      ? verifyPassword(password, customer.password_hash)
-      : verifyPassword(password, DUMMY_PASSWORD_HASH);
-    if (!customer || !ok) {
-      res.status(401).json({ error: 'Invalid email or password' });
-      return;
-    }
-    issueSession(res, customer);
-    res.json({ customer: profileOf(customer) });
+  app.post('/api/login', (req, res, next) => {
+    void (async () => {
+      const { email, password } = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof email !== 'string' || typeof password !== 'string') {
+        res.status(422).json({ error: 'Email and password are required' });
+        return;
+      }
+      const customer = customerByEmail.get(email.trim().toLowerCase()) as CustomerRow | undefined;
+      // Verify against a dummy hash on unknown emails so timing does not
+      // reveal whether an account exists. The await keeps that work off the
+      // event loop — see server/auth.ts.
+      const ok = await verifyPassword(
+        password,
+        customer ? customer.password_hash : await dummyPasswordHash(),
+      );
+      if (!customer || !ok) {
+        res.status(401).json({ error: 'Invalid email or password' });
+        return;
+      }
+      issueSession(res, customer);
+      res.json({ customer: profileOf(customer) });
+    })().catch(next);
   });
 
   // ── Everything below requires a valid customer session ───────────────
@@ -162,7 +172,8 @@ export function createApp({ db, hardening, session, documentsDir, staticDir, pla
     res.json({ customer: profileOf(me(res)) });
   });
 
-  app.post('/api/me/password', (req, res) => {
+  app.post('/api/me/password', (req, res, next) => {
+    void (async () => {
     const { currentPassword, newPassword } = (req.body ?? {}) as Record<string, unknown>;
     if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
       res.status(422).json({ error: 'Current and new password are required' });
@@ -173,13 +184,13 @@ export function createApp({ db, hardening, session, documentsDir, staticDir, pla
       return;
     }
     const customer = me(res);
-    if (!verifyPassword(currentPassword, customer.password_hash)) {
+    if (!(await verifyPassword(currentPassword, customer.password_hash))) {
       res.status(401).json({ error: 'Current password is incorrect' });
       return;
     }
     const nextVersion = customer.token_version + 1;
     db.prepare('UPDATE customers SET password_hash = ?, token_version = ? WHERE id = ?').run(
-      hashPassword(newPassword),
+      await hashPassword(newPassword),
       nextVersion,
       customer.id,
     );
@@ -187,6 +198,7 @@ export function createApp({ db, hardening, session, documentsDir, staticDir, pla
     issueSession(res, { ...customer, token_version: nextVersion });
     void platform.audit({ actor: `customer:${customer.id}`, action: 'password.changed', resource: `customer:${customer.id}` });
     res.json({ ok: true });
+    })().catch(next);
   });
 
   // ── Orders (always scoped to the signed-in customer) ─────────────────

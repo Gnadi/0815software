@@ -68,10 +68,10 @@ function upload(
     .send(bytes);
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   storageDir = mkdtempSync(join(tmpdir(), 'mod09-test-'));
   db = openDb(':memory:');
-  seed(db, storageDir);
+  await seed(db, storageDir);
   app = createApp({ db, session, storageDir, maxUploadBytes: MAX_UPLOAD });
 });
 

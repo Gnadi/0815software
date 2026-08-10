@@ -7,7 +7,7 @@ import {
   clearedCookie,
   COOKIE_NAME,
   createToken,
-  DUMMY_PASSWORD_HASH,
+  dummyPasswordHash,
   hashPassword,
   parseCookies,
   sessionCookie,
@@ -93,6 +93,12 @@ export function createApp({
   staticDir,
   platform = noopPlatform,
 }: AppOptions): express.Express {
+  // Compute the equal-work dummy hash now, at startup and off the event loop,
+  // so no request ever pays for generating it. Otherwise the first login
+  // against an unknown account would be measurably slower than every later
+  // one — a timing difference this hash exists to remove.
+  void dummyPasswordHash();
+
   const app = express();
 
   // Transport hardening: security headers, a default-deny CORS policy and
@@ -138,24 +144,25 @@ export function createApp({
     }
   });
 
-  app.post('/api/login', (req, res) => {
-    const { username, password } = (req.body ?? {}) as Record<string, unknown>;
-    if (typeof username !== 'string' || typeof password !== 'string') {
-      res.status(422).json({ error: 'Username and password are required' });
-      return;
-    }
-    const user = userByUsername.get(username.trim().toLowerCase()) as UserRow | undefined;
-    // Verify against a dummy hash on unknown usernames so timing does not
-    // reveal whether an account exists.
-    const ok = user
-      ? verifyPassword(password, user.password_hash)
-      : verifyPassword(password, DUMMY_PASSWORD_HASH);
-    if (!user || !ok) {
-      res.status(401).json({ error: 'Invalid username or password' });
-      return;
-    }
-    issueSession(res, user);
-    res.json({ user: profileOf(user) });
+  app.post('/api/login', (req, res, next) => {
+    void (async () => {
+      const { username, password } = (req.body ?? {}) as Record<string, unknown>;
+      if (typeof username !== 'string' || typeof password !== 'string') {
+        res.status(422).json({ error: 'Username and password are required' });
+        return;
+      }
+      const user = userByUsername.get(username.trim().toLowerCase()) as UserRow | undefined;
+      // Verify against a dummy hash on unknown usernames so timing does not
+      // reveal whether an account exists. The await keeps that work off the
+      // event loop — see server/auth.ts.
+      const ok = await verifyPassword(password, user ? user.password_hash : await dummyPasswordHash());
+      if (!user || !ok) {
+        res.status(401).json({ error: 'Invalid username or password' });
+        return;
+      }
+      issueSession(res, user);
+      res.json({ user: profileOf(user) });
+    })().catch(next);
   });
 
   // ── Everything below requires a valid session ─────────────────────────
@@ -187,7 +194,8 @@ export function createApp({
     res.json({ user: profileOf(me(res)) });
   });
 
-  app.post('/api/me/password', (req, res) => {
+  app.post('/api/me/password', (req, res, next) => {
+    void (async () => {
     const { currentPassword, newPassword } = (req.body ?? {}) as Record<string, unknown>;
     if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
       res.status(422).json({ error: 'Current and new password are required' });
@@ -198,18 +206,19 @@ export function createApp({
       return;
     }
     const user = me(res);
-    if (!verifyPassword(currentPassword, user.password_hash)) {
+    if (!(await verifyPassword(currentPassword, user.password_hash))) {
       res.status(401).json({ error: 'Current password is incorrect' });
       return;
     }
     const nextVersion = user.token_version + 1;
     db.prepare('UPDATE users SET password_hash = ?, token_version = ? WHERE id = ?').run(
-      hashPassword(newPassword),
+      await hashPassword(newPassword),
       nextVersion,
       user.id,
     );
     issueSession(res, { ...user, token_version: nextVersion });
     res.json({ ok: true });
+    })().catch(next);
   });
 
   // ── Users (directory for all; management for admins) ──────────────────
@@ -217,7 +226,8 @@ export function createApp({
     res.json({ users: listUsers(db) });
   });
 
-  app.post('/api/users', (req, res) => {
+  app.post('/api/users', (req, res, next) => {
+    void (async () => {
     requireAdmin(res);
     const b = (req.body ?? {}) as Record<string, unknown>;
     const username = str(b.username)?.toLowerCase();
@@ -229,8 +239,9 @@ export function createApp({
     if (password.length < MIN_PASSWORD_LENGTH) {
       throw new DomainError(422, `password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
-    const id = createUser(db, { username, name, role, passwordHash: hashPassword(password) });
+    const id = createUser(db, { username, name, role, passwordHash: await hashPassword(password) });
     res.status(201).json({ user: db.prepare('SELECT id, username, name, role, created_at FROM users WHERE id = ?').get(id) });
+    })().catch(next);
   });
 
   // ── Matters ───────────────────────────────────────────────────────────

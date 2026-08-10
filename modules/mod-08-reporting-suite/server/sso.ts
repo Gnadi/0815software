@@ -13,7 +13,10 @@ import { IdentityClient, ServiceError } from '@0815software/platform-clients';
  * Otherwise the verdict, and on success WHO PS-01 says this is — the module
  * stamps that on everything the resulting session goes on to do.
  */
-export type LoginOutcome = { ok: true; actor: string } | { ok: false } | null;
+export type LoginOutcome =
+  | { ok: true; actor: string }
+  | { ok: false; reason: 'rejected' | 'unavailable' }
+  | null;
 export type LoginVerifier = (username: unknown, password: unknown) => Promise<LoginOutcome>;
 
 export interface SsoConfig {
@@ -34,22 +37,27 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
   const permission = cfg.identityPermission ?? 'platform:admin';
   const client = new IdentityClient({ baseUrl: cfg.identityUrl });
   return async (username, password): Promise<LoginOutcome> => {
-    if (typeof username !== 'string' || typeof password !== 'string') return { ok: false };
+    if (typeof username !== 'string' || typeof password !== 'string') return { ok: false, reason: 'rejected' };
     try {
       const { token, user } = await client.login(org, username, password);
       const verdict = await client.verify(token);
-      if (!verdict.valid) return { ok: false };
+      if (!verdict.valid) return { ok: false, reason: 'rejected' };
       // PS-01 returns the principal's permissions on verify (Phase 1).
       const perms = (verdict as { permissions?: string[] }).permissions ?? [];
-      if (permission && !perms.includes(permission)) return { ok: false };
+      if (permission && !perms.includes(permission)) return { ok: false, reason: 'rejected' };
       // The PS-01 email is the identity worth recording: stable, unique within
       // the organization, and readable by whoever reads the trail later.
       return { ok: true, actor: user.email };
     } catch (err) {
-      // Bad credentials (401) and identity outages both fail closed — SSO,
-      // once configured, is never silently bypassed by the local fallback.
-      if (!(err instanceof ServiceError)) console.warn('[mod-08] identity login unavailable:', err);
-      return { ok: false };
+      // Both fail closed — SSO, once configured, is never silently bypassed by
+      // the local fallback. They are not the same answer to the caller though.
+      // PS-01 answering "no" is a rejected credential; PS-01 being unreachable
+      // is an outage, and reporting one as the other sends a user off to reset
+      // a password that was never wrong while hiding a broken deployment from
+      // whoever has to fix it.
+      if (err instanceof ServiceError) return { ok: false, reason: 'rejected' };
+      console.warn('[mod-08] identity login unavailable:', err);
+      return { ok: false, reason: 'unavailable' };
     }
   };
 }

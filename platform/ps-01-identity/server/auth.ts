@@ -1,4 +1,5 @@
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
 import type { SessionClaims } from '../shared/types.js';
 
 export interface SessionConfig {
@@ -21,18 +22,39 @@ export function nowIso(ms: number = Date.now()): string {
 }
 
 // ── Password hashing (node built-in scrypt, no extra dependencies) ─────
+//
+// ASYNCHRONOUS ON PURPOSE. scrypt is deliberately expensive — ~90ms per call
+// here — and `scryptSync` spends all of it on the event loop, which in a
+// single-threaded server means the whole process is deaf for that time. This
+// service is the one every module and every other service authenticates
+// through: `POST /api/tokens/verify` is on the hot path of every authorized
+// request in the platform. With the synchronous variant, 30 concurrent login
+// attempts (a password spray that the per-account throttle deliberately does
+// not delay, because each guess hits a different account) queued behind each
+// other and pushed /api/tokens/verify from 2ms to 854ms — the platform's
+// authorization path stalls for as long as someone keeps guessing.
+//
+// The callback form hands the work to libuv's threadpool instead, so hashing
+// runs off the loop and in parallel. Everything that hashes a password is
+// therefore async, all the way up to the request handlers.
+
+const scryptAsync = promisify(scrypt) as (
+  password: string,
+  salt: Buffer,
+  keylen: number,
+) => Promise<Buffer>;
 
 /** Hash a secret as "scrypt:<salt hex>:<derived key hex>". */
-export function hashPassword(password: string): string {
+export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
-  const key = scryptSync(password, salt, SCRYPT_KEYLEN);
+  const key = await scryptAsync(password, salt, SCRYPT_KEYLEN);
   return `scrypt:${salt.toString('hex')}:${key.toString('hex')}`;
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [scheme, saltHex, keyHex] = stored.split(':');
   if (scheme !== 'scrypt' || !saltHex || !keyHex) return false;
-  const key = scryptSync(password, Buffer.from(saltHex, 'hex'), SCRYPT_KEYLEN);
+  const key = await scryptAsync(password, Buffer.from(saltHex, 'hex'), SCRYPT_KEYLEN);
   return safeEqualBuf(key, Buffer.from(keyHex, 'hex'));
 }
 
@@ -40,8 +62,16 @@ export function verifyPassword(password: string, stored: string): boolean {
  * Hash of a random password, used to burn equal scrypt work when a login
  * hits an unknown account — so response timing never reveals whether the
  * organization/email exists.
+ *
+ * Memoized rather than computed at import: a process that never verifies a
+ * password (the seed CLI) should not pay for it, and the first caller that
+ * does gets the same hash every later one sees.
  */
-export const DUMMY_PASSWORD_HASH = hashPassword(randomBytes(16).toString('hex'));
+let dummyHash: Promise<string> | null = null;
+export function dummyPasswordHash(): Promise<string> {
+  dummyHash ??= hashPassword(randomBytes(16).toString('hex'));
+  return dummyHash;
+}
 
 // ── Stateless HMAC-signed session token ────────────────────────────────
 // Token: "<userId>.<orgId>.<tokenVersion>.<expiryMillis>.<hmac(payload)>".
