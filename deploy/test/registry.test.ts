@@ -247,3 +247,53 @@ describe('marketing catalogue stays in sync', () => {
     }
   });
 });
+
+/**
+ * The Platform Services catalogue drifted where the module one could not: it is
+ * hand-written copy with no structural tie to the registry, and it fell six
+ * services behind — the public site advertised five while eleven shipped.
+ * `src/data/platform.ts` now self-checks at build time; this is the same check
+ * in the suite, so the failure arrives from `npm test` too and names the
+ * service that was forgotten.
+ */
+describe('public Platform Services catalogue stays in sync', () => {
+  const source = readFileSync(`${root}/src/data/platform.ts`, 'utf8');
+  const listed = [...source.matchAll(/^ {4}folder: '(ps-[a-z0-9-]+)',$/gm)].map((m) => m[1]);
+
+  it('lists every Platform Service in the registry, exactly once, in order', () => {
+    expect(listed).toEqual(services.map((s: any) => s.id));
+  });
+
+  it('gives each one the port the registry declares', () => {
+    const ports = [...source.matchAll(/^ {4}port: (\d+),$/gm)].map((m) => Number(m[1]));
+    expect(ports).toEqual(services.map((s: any) => s.defaultPort));
+  });
+});
+
+/**
+ * The shared client package is the documented way a module reaches a service.
+ * A service without a client is a service modules must hand-roll `fetch` for —
+ * exactly the duplication the package exists to remove — so a new PS-xx that
+ * arrives without one fails here.
+ */
+describe('platform clients cover the catalogue', () => {
+  const index = readFileSync(`${root}/platform/clients/src/index.ts`, 'utf8');
+  const exported = new Set([...index.matchAll(/export \{ (\w+Client) \}/g)].map((m) => m[1]));
+
+  // Every client lives in platform/clients/src/<name>.ts and is re-exported
+  // from index.ts. The file name is the service's subject: ps-02-workflow-engine
+  // → workflow.ts, ps-06-file-storage → files.ts.
+  const clientModules = [...index.matchAll(/from '\.\/(\w+)\.js'/g)].map((m) => m[1]);
+
+  it.each(services.map((s: any) => [s.id] as const))('%s has a client module', (id) => {
+    const subject = id.replace(/^ps-\d+-/, '').split('-')[0];
+    expect(
+      clientModules.filter((m) => m.startsWith(subject)),
+      `no client module in platform/clients/src for ${id} (expected one named after "${subject}")`,
+    ).not.toHaveLength(0);
+  });
+
+  it('exports exactly as many service clients as the registry has services', () => {
+    expect(exported.size).toBe(services.length);
+  });
+});

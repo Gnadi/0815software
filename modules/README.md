@@ -45,7 +45,7 @@ catalogue: for every module its id, catalogue number, slug, title, operational
 label, default port, typical scope, the Platform Services it integrates with,
 its module-specific env vars and secrets, and its deployment constraints
 (SSO-capable, needs a public base URL, needs a co-located source database).
-The same file carries the ten Platform Services with their ports, Caddy route
+The same file carries the eleven Platform Services with their ports, Caddy route
 prefixes, URL env var, tick-driven flag and per-stack secrets.
 
 It is a **source of truth, not documentation**: the marketing catalogue

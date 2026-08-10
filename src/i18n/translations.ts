@@ -65,7 +65,7 @@ export const T: Record<Lang, Record<string, string>> = {
     // ─── Modules ────────────────────────────────────────────────────────
     'modules.cta':       'Explore the modules →',
     'platform.h2':       'One platform. Standard problems, solved fast.',
-    'platform.intro':    '0815software is a platform: five shared backend services — identity, workflow, notifications, AI and integrations — that let us assemble standard business software at high speed, with stable, high-quality results. The modules are what we ship on top; the platform is what makes them quick to build and boring to run.',
+    'platform.intro':    '0815software is a platform: eleven shared backend services — identity, workflow, notifications, AI, integrations, file storage, audit, payments, search, numbering and customer master data — that let us assemble standard business software at high speed, with stable, high-quality results. The modules are what we ship on top; the platform is what makes them quick to build and boring to run.',
     'platform.cta':      'Explore the platform →',
 
     // ─── Procedure ──────────────────────────────────────────────────────
@@ -170,7 +170,7 @@ export const T: Record<Lang, Record<string, string>> = {
     // ─── Modules ────────────────────────────────────────────────────────
     'modules.cta':       'Module entdecken →',
     'platform.h2':       'Eine Plattform. Standardprobleme, schnell gelöst.',
-    'platform.intro':    '0815software ist eine Plattform: fünf gemeinsame Backend-Dienste — Identität, Workflow, Benachrichtigungen, KI und Integrationen — mit denen wir Standard-Business-Software mit hoher Geschwindigkeit und stabiler, hoher Qualität zusammensetzen. Die Module sind das, was wir darauf ausliefern; die Plattform macht sie schnell baubar und langweilig im Betrieb.',
+    'platform.intro':    '0815software ist eine Plattform: elf gemeinsame Backend-Dienste — Identität, Workflow, Benachrichtigungen, KI, Integrationen, Dateispeicher, Audit, Zahlungen, Suche, Nummernvergabe und Kundenstammdaten — mit denen wir Standard-Business-Software mit hoher Geschwindigkeit und stabiler, hoher Qualität zusammensetzen. Die Module sind das, was wir darauf ausliefern; die Plattform macht sie schnell baubar und langweilig im Betrieb.',
     'platform.cta':      'Plattform entdecken →',
 
     // ─── Procedure ──────────────────────────────────────────────────────
