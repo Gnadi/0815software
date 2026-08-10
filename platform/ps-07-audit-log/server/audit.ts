@@ -89,7 +89,12 @@ export function recordEvent(db: Database.Database, input: AuditEventInput, now =
     const tail = db.prepare('SELECT hash FROM audit_events ORDER BY id DESC LIMIT 1').get() as
       | { hash: string }
       | undefined;
-    const prevHash = tail?.hash ?? null;
+    // With no live rows the chain continues from the RETENTION ANCHOR, not from
+    // nothing: once retention has pruned every surviving event the table is
+    // empty while the chain is not, and starting the next event at `null` links
+    // it to a predecessor `verifyChain` does not believe in — leaving the log
+    // permanently unverifiable, with nothing left to repair it from.
+    const prevHash = tail?.hash ?? getAnchor(db);
     const hash = computeHash(fields, prevHash);
     const info = db
       .prepare(
@@ -110,6 +115,8 @@ export function recordEvent(db: Database.Database, input: AuditEventInput, now =
         recordedAt,
         input.idempotency_key ?? null,
       );
+    // Same transaction as the INSERT: the marker can never lag the log.
+    setHead(db, hash);
     return mapEvent(db.prepare('SELECT * FROM audit_events WHERE id = ?').get(info.lastInsertRowid) as EventRow);
   })();
 }
@@ -157,16 +164,53 @@ export function listEvents(db: Database.Database, filter: ListFilter = {}): Audi
 }
 
 const ANCHOR_KEY = 'retention_anchor';
+const HEAD_KEY = 'chain_head';
+
+function getMeta(db: Database.Database, key: string): string | undefined {
+  return (db.prepare('SELECT value FROM audit_meta WHERE key = ?').get(key) as { value: string } | undefined)?.value;
+}
+
+function setMeta(db: Database.Database, key: string, value: string): void {
+  db.prepare('INSERT INTO audit_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
+}
+
+/**
+ * The hash the chain is known to end at.
+ *
+ * A hash chain proves that nothing in the MIDDLE of the log changed: rewrite or
+ * remove an event and every hash after it stops matching. It says nothing about
+ * events removed from the END — the survivors still form a perfectly valid
+ * chain, which is precisely the edit an attacker covering their tracks would
+ * make. `DELETE FROM audit_events WHERE id >= n` used to verify clean, and so
+ * did wiping the table outright.
+ *
+ * So the head is recorded separately on every append, and verification checks
+ * that the live chain still reaches it. Rewriting this marker as well means
+ * recomputing the chain from the anchor — the same work tampering with any
+ * other link already costs, which is the bar "tamper-evident" is claiming.
+ *
+ * Stored as the empty string for "chain is empty and nothing was pruned"
+ * (i.e. `null`); ABSENT means a database predating this marker, whose head is
+ * unknown and whose truncation therefore cannot be judged.
+ */
+export function getHead(db: Database.Database): string | null | undefined {
+  const raw = getMeta(db, HEAD_KEY);
+  if (raw === undefined) return undefined;
+  return raw === '' ? null : raw;
+}
+
+function setHead(db: Database.Database, hash: string | null): void {
+  setMeta(db, HEAD_KEY, hash ?? '');
+}
 
 /** The hash the live chain continues from — the last pruned event's hash, or
  *  null when nothing has been pruned. Lets verification survive retention. */
 export function getAnchor(db: Database.Database): string | null {
-  const row = db.prepare('SELECT value FROM audit_meta WHERE key = ?').get(ANCHOR_KEY) as { value: string } | undefined;
-  return row?.value ?? null;
+  return getMeta(db, ANCHOR_KEY) ?? null;
 }
 
 function setAnchor(db: Database.Database, hash: string): void {
-  db.prepare('INSERT INTO audit_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(ANCHOR_KEY, hash);
+  setMeta(db, ANCHOR_KEY, hash);
 }
 
 export interface PruneResult {
@@ -222,9 +266,15 @@ export function verifyChain(db: Database.Database): ChainVerdict {
       prevHash,
     );
     if (expected !== row.hash || row.prev_hash !== prevHash) {
-      return { valid: false, count: rows.length, broken_at: row.id };
+      return { valid: false, count: rows.length, broken_at: row.id, broken_kind: 'link' };
     }
     prevHash = row.hash;
+  }
+  // Every link holds — but do the links still reach the head that was recorded
+  // when the last event was appended? If not, the log was cut off at the end.
+  const head = getHead(db);
+  if (head !== undefined && head !== prevHash) {
+    return { valid: false, count: rows.length, broken_kind: 'truncated' };
   }
   return { valid: true, count: rows.length };
 }
