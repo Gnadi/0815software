@@ -345,6 +345,33 @@ describe('security baseline', () => {
     ).not.toThrow();
   });
 
+  it('boot guard refuses an EMPTY secret, not just a defaulted one', async () => {
+    const { assertProductionConfig } = await import('../server/guard.js');
+    const prod = { NODE_ENV: 'production' } as NodeJS.ProcessEnv;
+
+    // `SESSION_SECRET=` in a compose file reaches config as '', not undefined —
+    // `??` does not fall back — which used to boot a service whose session HMAC
+    // is keyed on the empty string and whose admin password is the empty string.
+    for (const value of ['', ' ', '\t\n']) {
+      expect(() => assertProductionConfig([{ name: 'SESSION_SECRET', value }], prod), `value ${JSON.stringify(value)}`)
+        .toThrow(/SESSION_SECRET/);
+    }
+    expect(() =>
+      assertProductionConfig(
+        [
+          { name: 'SESSION_SECRET', value: '' },
+          { name: 'ADMIN_PASSWORD', value: 'change-me' },
+        ],
+        prod,
+      ),
+    ).toThrow(/ADMIN_PASSWORD[\s\S]*SESSION_SECRET|SESSION_SECRET[\s\S]*ADMIN_PASSWORD/);
+
+    // An optional secret that is simply not configured stays allowed.
+    expect(() => assertProductionConfig([{ name: 'OPTIONAL', value: undefined }], prod)).not.toThrow();
+    // …and a blank one outside production is still only a dev concern.
+    expect(() => assertProductionConfig([{ name: 'SESSION_SECRET', value: '' }], {} as NodeJS.ProcessEnv)).not.toThrow();
+  });
+
   it('rate-limits login bursts and sets security headers', async () => {
     const { hardeningFromEnv } = await import('../server/hardening.js');
     const hardened = createApp({

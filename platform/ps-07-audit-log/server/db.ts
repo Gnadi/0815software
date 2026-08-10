@@ -71,6 +71,25 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 4,
+    name: 'chain_head',
+    up(db) {
+      // The truncation marker (see `getHead`). Backfilled from the current tail
+      // so a database written before this migration starts being protected
+      // immediately, rather than staying unjudgeable until its next append.
+      // The empty string means "chain empty, nothing pruned".
+      const tail = db.prepare('SELECT hash FROM audit_events ORDER BY id DESC LIMIT 1').get() as
+        | { hash: string }
+        | undefined;
+      const anchor = db.prepare("SELECT value FROM audit_meta WHERE key = 'retention_anchor'").get() as
+        | { value: string }
+        | undefined;
+      db.prepare(
+        "INSERT INTO audit_meta (key, value) VALUES ('chain_head', ?) ON CONFLICT(key) DO NOTHING",
+      ).run(tail?.hash ?? anchor?.value ?? '');
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

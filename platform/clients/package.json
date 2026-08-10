@@ -1,7 +1,7 @@
 {
   "name": "@0815software/platform-clients",
   "version": "0.1.0",
-  "description": "Typed HTTP clients for the 0815software Platform Services (PS-01…07). Zero runtime dependencies — a thin wrapper over the built-in fetch.",
+  "description": "Typed HTTP clients for the 0815software Platform Services (PS-01…11). Zero runtime dependencies — a thin wrapper over the built-in fetch.",
   "license": "MIT",
   "type": "module",
   "main": "dist/index.js",

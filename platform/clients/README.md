@@ -13,7 +13,8 @@ wrapper over the built-in `fetch`, matching the services' own "no SDKs" rule.
 - One client per service: `IdentityClient` (PS-01), `WorkflowClient` (PS-02),
   `NotificationClient` (PS-03), `AiClient` (PS-04), `IntegrationClient`
   (PS-05), `FilesClient` (PS-06), `AuditClient` (PS-07), `PaymentsClient`
-  (PS-08), `SearchClient` (PS-09), `NumberClient` (PS-10).
+  (PS-08), `SearchClient` (PS-09), `NumberClient` (PS-10), `CustomersClient`
+  (PS-11).
 - Every client extends a shared `BaseClient` that presents `X-Service-Token`
   for machine calls and forwards an end-user's PS-01 session token as
   `Authorization: Bearer` when supplied — the identity-propagation path.

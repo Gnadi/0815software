@@ -46,7 +46,11 @@ const VAR_RE = /\{\{\s*(\w+)\s*\}\}/g;
 function interpolate(text: string, vars: Record<string, unknown>, escape: boolean): string {
   const missing = new Set<string>();
   const out = text.replace(VAR_RE, (_m, name: string) => {
-    if (!(name in vars)) {
+    // OWN properties only. `in` also finds everything on Object.prototype, so
+    // `{{constructor}}` counted as "supplied" and rendered
+    // "function Object() { [native code] }" into the outgoing message instead
+    // of raising the 422 this function promises.
+    if (!Object.prototype.hasOwnProperty.call(vars, name)) {
       missing.add(name);
       return '';
     }

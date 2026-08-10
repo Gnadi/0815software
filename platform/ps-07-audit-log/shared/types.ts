@@ -38,4 +38,11 @@ export interface ChainVerdict {
   count: number;
   /** The id of the first row whose hash does not match, if any. */
   broken_at?: number;
+  /**
+   * How the chain broke, when it did. `link` is a rewritten or removed event
+   * caught by a hash mismatch; `truncated` is a chain that is internally
+   * consistent but stops short of the recorded head — events were removed from
+   * the END of the log, which no per-row hash can reveal.
+   */
+  broken_kind?: 'link' | 'truncated';
 }

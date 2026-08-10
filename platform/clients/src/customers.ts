@@ -88,7 +88,7 @@ export class CustomersClient extends BaseClient {
    * response then carries `requested_id` to say so.
    */
   get(id: number): Promise<{ party: Party; refs: PartyRef[]; requested_id?: number }> {
-    return this.apiGet(`/api/parties/${id}`);
+    return this.apiGet(`/api/parties/${encodeURIComponent(String(id))}`);
   }
 
   list(filter?: { q?: string; kind?: PartyKind; include_archived?: boolean; limit?: number }): Promise<{
@@ -107,16 +107,16 @@ export class CustomersClient extends BaseClient {
   }
 
   update(id: number, patch: Partial<PartyInput>): Promise<{ party: Party }> {
-    return this.apiPatch(`/api/parties/${id}`, patch);
+    return this.apiPatch(`/api/parties/${encodeURIComponent(String(id))}`, patch);
   }
 
   archive(id: number): Promise<{ party: Party }> {
-    return this.apiPost(`/api/parties/${id}/archive`);
+    return this.apiPost(`/api/parties/${encodeURIComponent(String(id))}/archive`);
   }
 
   /** GDPR erasure: anonymize in place, keeping the id so references hold. */
   erase(id: number): Promise<{ party: Party }> {
-    return this.apiPost(`/api/parties/${id}/erase`);
+    return this.apiPost(`/api/parties/${encodeURIComponent(String(id))}/erase`);
   }
 
   /**
@@ -124,16 +124,16 @@ export class CustomersClient extends BaseClient {
    * loser's row is kept as a redirect, so no consumer's reference breaks.
    */
   merge(id: number, into: number): Promise<MergeResult> {
-    return this.apiPost(`/api/parties/${id}/merge`, { into });
+    return this.apiPost(`/api/parties/${encodeURIComponent(String(id))}/merge`, { into });
   }
 
   /** Register the caller's own id for a party. */
   link(id: number, source: string, externalId: string): Promise<{ ref: PartyRef }> {
-    return this.apiPost(`/api/parties/${id}/refs`, { source, external_id: externalId });
+    return this.apiPost(`/api/parties/${encodeURIComponent(String(id))}/refs`, { source, external_id: externalId });
   }
 
   refs(id: number): Promise<{ refs: PartyRef[] }> {
-    return this.apiGet(`/api/parties/${id}/refs`);
+    return this.apiGet(`/api/parties/${encodeURIComponent(String(id))}/refs`);
   }
 
   /**

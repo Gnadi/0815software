@@ -23,6 +23,7 @@ import { renderMetrics, requestTelemetry, type Gauge } from './telemetry.js';
 import {
   createBucket,
   deleteObject,
+  downloadHeaders,
   getObject,
   listBuckets,
   listObjects,
@@ -127,8 +128,7 @@ export function createApp(opts: AppOptions): express.Express {
   app.get('/api/download', (req, res) => {
     if (!verifyDownload(signingSecret, req.query, now())) fail(403, 'Invalid or expired signature');
     const { info, content } = getObject(db, String(req.query.bucket), String(req.query.key));
-    res.setHeader('Content-Type', info.content_type);
-    res.setHeader('Content-Length', String(info.size));
+    for (const [name, value] of Object.entries(downloadHeaders(info))) res.setHeader(name, value);
     res.send(content);
   });
 

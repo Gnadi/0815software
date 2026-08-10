@@ -3,6 +3,8 @@
 // Platform Services are shared backend capabilities consumed by the
 // Business Modules over APIs — see src/data/modules.ts for the modules.
 
+import { registryServices } from '../../modules/registry.ts';
+
 const REPO = 'https://github.com/Gnadi/0815software/tree/main/platform';
 
 export type ServiceStatus = 'Available' | 'Planned';
@@ -158,8 +160,201 @@ export const platform: PlatformService[] = [
     ],
     consumers: 'Any module that talks to a third-party SaaS or external API.',
   },
+  {
+    n: 'PS-06',
+    slug: 'file-storage',
+    folder: 'ps-06-file-storage',
+    title: 'File Storage',
+    purpose: 'Shared blob store — buckets, content-addressed objects, and short-lived signed download links.',
+    status: 'Available',
+    port: 4006,
+    source: `${REPO}/ps-06-file-storage`,
+    overview:
+      'One place for the files modules produce — invoice PDFs, product images, report exports, uploaded documents — instead of each writing to its own disk and reinventing checksums, metadata and links. Objects are addressed by bucket and key, and every one carries its size and SHA-256 alongside a content type and free-form metadata. A module can mint a short-lived HMAC-signed URL and hand it straight to a browser: it serves the bytes without a session, always as an attachment under a sandbox CSP, and a tampered or expired link is refused. Bytes live in SQLite as BLOBs by default, so there is nothing else to run.',
+    responsibilities: [
+      'Buckets and objects addressed by bucket + key, with free-form metadata',
+      'Content addressing — SHA-256 and size recorded for every object',
+      'Short-lived HMAC-signed download URLs that need no session',
+      'Downloads always served as attachments, so stored bytes cannot execute',
+      'Object bytes in SQLite by default; an S3-compatible backend behind the same API',
+    ],
+    api: [
+      'PUT /api/objects/:bucket/:key · GET /api/objects/:bucket/:key',
+      'GET /api/objects/:bucket/:key/meta',
+      'POST /api/objects/:bucket/:key/sign',
+      'GET /api/download?bucket=&key=&expires=&sig=',
+      'GET/POST /api/buckets · DELETE /api/objects/:bucket/:key',
+    ],
+    consumers: 'Any module that produces or stores a file.',
+  },
+  {
+    n: 'PS-07',
+    slug: 'audit-log',
+    folder: 'ps-07-audit-log',
+    title: 'Audit Log',
+    purpose: 'Tamper-evident, append-only activity trail — who did what to which resource, verifiable end to end.',
+    status: 'Available',
+    port: 4007,
+    source: `${REPO}/ps-07-audit-log`,
+    overview:
+      'Every module records its activity here instead of scattering audit rows through its own database. Events are append-only, and each one’s SHA-256 hash covers both its own content and the previous event’s hash, so the log is a chain: rewriting, removing or reordering any past event breaks every hash after it. The chain head is recorded with each append, which also catches events deleted from the end — the edit a hash chain alone cannot see. GET /api/verify recomputes the whole chain and reports how it broke. Retention pruning re-anchors the chain rather than severing it.',
+    responsibilities: [
+      'Append-only events: actor, org, action, resource, before/after, metadata',
+      'SHA-256 hash chain over content and predecessor',
+      'Integrity verification that detects rewrites, deletions, reordering and truncation',
+      'Idempotent recording, so a retried emit is not a second entry',
+      'Retention pruning that re-anchors the chain instead of breaking it',
+    ],
+    api: [
+      'POST /api/events · GET /api/events',
+      'GET /api/verify',
+      'GET /api/export',
+      'GET /api/health · GET /api/ready · GET /api/metrics',
+    ],
+    consumers: 'Every module that needs a defensible record of what happened.',
+  },
+  {
+    n: 'PS-08',
+    slug: 'payments',
+    folder: 'ps-08-payments',
+    title: 'Payments',
+    purpose: 'Take and reconcile money — payment intents, refunds, an append-only ledger and verified PSP webhooks.',
+    status: 'Available',
+    port: 4008,
+    source: `${REPO}/ps-08-payments`,
+    overview:
+      'Modules create payment intents, capture and refund them, and read a reconciled ledger through one API, never touching card data or a PSP SDK. Amounts are integer minor units throughout — money is never a float. Status is folded from an append-only event stream at read time, so it cannot drift. The default provider is a deterministic offline mock that settles on a tick; an optional Stripe adapter (one fetch, no SDK) activates when a key is configured. A refund claims the refundable balance before the PSP is called, so two concurrent refunds can never exceed it, and idempotency keys make a retried request a no-op rather than a second payment.',
+    responsibilities: [
+      'Payment intents in integer minor units, idempotent on creation',
+      'Status folded from an append-only event stream, never stored',
+      'Full and partial refunds validated against a pre-claimed balance',
+      'Append-only ledger of credits and debits for reconciliation',
+      'HMAC-verified inbound webhooks with a replay window; mock PSP by default, Stripe optional',
+    ],
+    api: [
+      'POST /api/intents · GET /api/intents',
+      'POST /api/intents/:id/confirm · POST /api/intents/:id/refund',
+      'GET /api/ledger',
+      'POST /api/webhooks/:provider',
+      'POST /api/tick',
+    ],
+    consumers: 'Any module that charges or refunds a customer.',
+  },
+  {
+    n: 'PS-09',
+    slug: 'search',
+    folder: 'ps-09-search',
+    title: 'Search',
+    purpose: 'Cross-entity keyword and faceted search over every module’s records, on SQLite FTS5.',
+    status: 'Available',
+    port: 4009,
+    source: `${REPO}/ps-09-search`,
+    overview:
+      'Modules index their records — products, documents, contacts, tickets — and query them with filters through one API instead of each hand-rolling LIKE queries. Full-text search is backed by SQLite FTS5, bundled with the database driver, so there is no external search engine to operate. Collections namespace documents by type and a tenant scopes them. Arbitrary key/value facets filter the result set and come back as counts over the matches. Re-indexing a document replaces the previous one. This is lexical search; it complements PS-04’s semantic RAG rather than duplicating it.',
+    responsibilities: [
+      'Full-text search on SQLite FTS5, BM25-ranked, with prefix matching',
+      'Collections and tenant scoping for indexed documents',
+      'Facet filtering and facet counts over the matching set',
+      'Upsert semantics — re-indexing replaces, deletion de-indexes',
+      'Deterministic and offline; no external search engine',
+    ],
+    api: [
+      'POST /api/index',
+      'DELETE /api/index/:collection/:id',
+      'GET /api/search?q=&collection=&facet.<key>=',
+      'GET /api/health · GET /api/ready · GET /api/metrics',
+    ],
+    consumers: 'Any module whose users need to find records across the stack.',
+  },
+  {
+    n: 'PS-10',
+    slug: 'number',
+    folder: 'ps-10-number',
+    title: 'Number',
+    purpose: 'One authority for gapless sequence numbers — invoice numbers, order refs, offer numbers, PO refs.',
+    status: 'Available',
+    port: 4010,
+    source: `${REPO}/ps-10-number`,
+    overview:
+      'Gapless, per-period invoice numbering is a legal requirement in the DACH market, and it is a race condition waiting to happen. Modules ask this service for the next number in a scope instead of each re-implementing a careful counter. Allocation is a single atomic transaction, so concurrent callers never receive a duplicate and never skip a value. A scope’s format renders the number from tokens — {seq}, zero-padded {seq:0000}, {YYYY}, {YY}, {MM}, {DD} — and its period restarts the counter each year, month or day, or never.',
+    responsibilities: [
+      'Independent counters per scope (invoice, order, offer, purchase order…)',
+      'Atomic allocation — no duplicates and no gaps under concurrency',
+      'Token-based formatting, e.g. INV-{YYYY}-{seq:0000} → INV-2026-0001',
+      'Period reset by year, month or day; gapless within the period',
+      'A sensible default format auto-created for an unknown scope',
+    ],
+    api: [
+      'POST /api/next',
+      'GET/POST /api/sequences · GET /api/sequences/:scope',
+      'GET /api/health · GET /api/ready · GET /api/metrics',
+    ],
+    consumers: 'MOD-04 Invoice & Billing, MOD-13 Offers, MOD-06 Procurement, MOD-07 Storefront.',
+  },
+  {
+    n: 'PS-11',
+    slug: 'customers',
+    folder: 'ps-11-customers',
+    title: 'Customers',
+    purpose: 'The party master record — one answer to “who is this customer?” across every module in a stack.',
+    status: 'Available',
+    port: 4011,
+    source: `${REPO}/ps-11-customers`,
+    overview:
+      'A customer who licensed three modules used to get three counterparty lists and expected one: Invoice & Billing and Offers each owned a customers table, CRM Lite its own companies, Procurement its own suppliers, and nothing reconciled them. PS-11 holds the party master record and, deliberately, nothing else — no pipeline, no activities, no notes. Parties are kinds: a customer is someone you sell to, a supplier someone you buy from, and matching never crosses the two. Modules resolve a party by external reference or by matching attributes, and merges keep the losing record resolvable so old links never break.',
+    responsibilities: [
+      'Party master records by kind, with customers and suppliers kept apart',
+      'Resolve-or-create by external reference or matching attributes',
+      'External references per source module, so each keeps its own ids',
+      'Merge with the losing record left resolvable; archive and GDPR erase',
+      'The one counterparty list a multi-module stack agrees on',
+    ],
+    api: [
+      'POST /api/parties/resolve',
+      'GET/POST /api/parties · GET/PATCH /api/parties/:id',
+      'POST /api/parties/:id/merge · /archive · /erase',
+      'GET/POST /api/parties/:id/refs',
+    ],
+    consumers: 'MOD-04 Invoice & Billing, MOD-13 Offers, MOD-10 CRM Lite, MOD-06 Procurement.',
+  },
 ];
 
 export function getService(slug: string): PlatformService | undefined {
   return platform.find((s) => s.slug === slug);
 }
+
+/**
+ * Drift guard, at build time.
+ *
+ * This catalogue is hand-written copy, so nothing structurally tied it to the
+ * services that actually exist — and it silently fell six behind: the site
+ * advertised five Platform Services while the repository shipped eleven. The
+ * registry is the machine-readable source of truth (`modules/registry.json`,
+ * which `deploy/provision.mjs` and the demo hubs also read), so a service that
+ * exists without a catalogue entry now fails `npm run build` rather than
+ * quietly going unlisted. Ports and folders are checked against it too, so a
+ * renamed directory or a moved port cannot leave a dead link behind.
+ */
+(function checkAgainstRegistry(): void {
+  const bySlug = new Map(platform.map((s) => [s.folder, s]));
+  const missing: string[] = [];
+  for (const entry of registryServices) {
+    const service = bySlug.get(entry.id);
+    if (!service) {
+      missing.push(`${entry.n} (${entry.id}) has no entry in src/data/platform.ts`);
+      continue;
+    }
+    if (service.n !== entry.n) missing.push(`${entry.id}: catalogue says ${service.n}, registry says ${entry.n}`);
+    if (service.port !== entry.defaultPort) {
+      missing.push(`${entry.id}: catalogue port ${service.port}, registry port ${entry.defaultPort}`);
+    }
+  }
+  for (const service of platform) {
+    if (!registryServices.some((e) => e.id === service.folder)) {
+      missing.push(`${service.n}: catalogue lists ${service.folder}, which is not in the registry`);
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(`Platform Services catalogue is out of sync with modules/registry.json:\n  ${missing.join('\n  ')}`);
+  }
+})();

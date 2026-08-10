@@ -62,7 +62,10 @@ export function renderMessages(template: ChatMessage[], vars: Record<string, unk
   const rendered = template.map((m) => ({
     role: m.role,
     content: m.content.replace(VAR_RE, (_x, name: string) => {
-      if (!(name in vars)) {
+      // OWN properties only — `in` also finds Object.prototype members, so
+      // `{{constructor}}` passed the check and rendered a native function's
+      // source straight into the prompt sent to the provider.
+      if (!Object.prototype.hasOwnProperty.call(vars, name)) {
         missing.add(name);
         return '';
       }

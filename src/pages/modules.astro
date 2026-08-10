@@ -13,6 +13,12 @@ export const prerender = true;
   eyebrow="DIN 0815/M · MODULE CATALOGUE"
   heading="What we build."
   lead="Fourteen standard modules, each one a solved problem. Fixed scope, fixed price, handed off in weeks."
+  i18n={{
+    sectionName: 'page.rail.modules',
+    eyebrow: 'page.modules.eyebrow',
+    heading: 'page.modules.heading',
+    lead: 'page.modules.lead',
+  }}
 >
 
   <!-- Module grid -->
@@ -20,9 +26,9 @@ export const prerender = true;
     <div class="modules-grid__head">
       <div class="section-rail" aria-hidden="true">
         <div class="section-rail__num">§ P1.01</div>
-        <div class="section-rail__name">Catalogue</div>
+        <div class="section-rail__name" data-i18n="page.rail.catalogue">Catalogue</div>
       </div>
-      <p class="modules-grid__intro">
+      <p class="modules-grid__intro" data-i18n="page.modules.intro">
         Every module ships MIT-licensed with full source code. Pick one, combine several, or commission a custom scope built on top of an existing module.
       </p>
     </div>
@@ -33,12 +39,14 @@ export const prerender = true;
         <article class="mod-card">
           <a class="mod-card__link" href={`/modules/${mod.slug}`} aria-label={`${mod.title} — details`}>
             <div class="mod-card__num">{mod.n}</div>
-            <h2 class="mod-card__title">{mod.title}</h2>
-            <p class="mod-card__body">{mod.body}</p>
+            <h2 class="mod-card__title" data-i18n={`mod.${mod.slug}.title`}>{mod.title}</h2>
+            <p class="mod-card__body" data-i18n={`mod.${mod.slug}.body`}>{mod.body}</p>
           </a>
           <div class="mod-card__meta">
-            <span>TYPICAL SCOPE · {mod.scope}</span>
-            <a class="mod-card__source" href={`/modules/${mod.slug}`}>DETAILS →</a>
+            <span>
+              <span data-i18n="card.scope">TYPICAL SCOPE</span> · <span data-i18n={`mod.${mod.slug}.scope`}>{mod.scope}</span>
+            </span>
+            <a class="mod-card__source" href={`/modules/${mod.slug}`} data-i18n="card.details">DETAILS →</a>
           </div>
         </article>
       ))}
@@ -50,14 +58,14 @@ export const prerender = true;
     <div class="modules-cta__inner">
       <div class="section-rail" aria-hidden="true">
         <div class="section-rail__num">§ P1.02</div>
-        <div class="section-rail__name">Commission</div>
+        <div class="section-rail__name" data-i18n="page.rail.commission">Commission</div>
       </div>
       <div class="modules-cta__content">
-        <h2 class="modules-cta__h2">Need something not on this list?</h2>
-        <p class="modules-cta__body">
+        <h2 class="modules-cta__h2" data-i18n="page.modules.cta.h2">Need something not on this list?</h2>
+        <p class="modules-cta__body" data-i18n="page.modules.cta.body">
           If it's a standard business problem, we've likely seen it. Describe what you need in a paragraph — we'll tell you if it maps to an existing module, a combination, or a new scope. New modules get published to this catalogue once built.
         </p>
-        <a href="/#contact" class="btn btn--primary">Start a project →</a>
+        <a href="/#contact" class="btn btn--primary" data-i18n="detail.startProject">Start a project →</a>
       </div>
     </div>
   </section>

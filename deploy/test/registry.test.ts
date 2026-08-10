@@ -247,3 +247,151 @@ describe('marketing catalogue stays in sync', () => {
     }
   });
 });
+
+/**
+ * The Platform Services catalogue drifted where the module one could not: it is
+ * hand-written copy with no structural tie to the registry, and it fell six
+ * services behind — the public site advertised five while eleven shipped.
+ * `src/data/platform.ts` now self-checks at build time; this is the same check
+ * in the suite, so the failure arrives from `npm test` too and names the
+ * service that was forgotten.
+ */
+describe('public Platform Services catalogue stays in sync', () => {
+  const source = readFileSync(`${root}/src/data/platform.ts`, 'utf8');
+  const listed = [...source.matchAll(/^ {4}folder: '(ps-[a-z0-9-]+)',$/gm)].map((m) => m[1]);
+
+  it('lists every Platform Service in the registry, exactly once, in order', () => {
+    expect(listed).toEqual(services.map((s: any) => s.id));
+  });
+
+  it('gives each one the port the registry declares', () => {
+    const ports = [...source.matchAll(/^ {4}port: (\d+),$/gm)].map((m) => Number(m[1]));
+    expect(ports).toEqual(services.map((s: any) => s.defaultPort));
+  });
+});
+
+/**
+ * The site translates itself by swapping `[data-i18n]` text against a
+ * dictionary, and `applyLang` silently skips a key it cannot find. That makes a
+ * missing translation invisible — it renders as English text, not as an error,
+ * which is exactly how the catalogues stayed untranslated unnoticed. Every key
+ * the catalogue pages render must therefore exist in BOTH languages.
+ *
+ * `api` is deliberately absent: the endpoint lists are code, identical in every
+ * language, and carry no key.
+ */
+describe('catalogue copy is translated in every language', () => {
+  const dict = readFileSync(`${root}/src/i18n/translations.ts`, 'utf8');
+  const deAt = dict.indexOf('\n  de: {');
+  expect(deAt).toBeGreaterThan(0);
+  const blocks = { en: dict.slice(dict.indexOf('\n  en: {'), deAt), de: dict.slice(deAt) };
+
+  const platformSource = readFileSync(`${root}/src/data/platform.ts`, 'utf8');
+  const serviceSlugs = [...platformSource.matchAll(/^ {4}slug: '([a-z0-9-]+)',$/gm)].map((m) => m[1]);
+  // Both lists are uniform in length; derive the counts rather than assume them.
+  const respCounts = [...platformSource.matchAll(/responsibilities: \[([\s\S]*?)\n {4}\]/g)].map(
+    (m) => m[1].split('\n').filter((l) => l.trim().startsWith("'")).length,
+  );
+  const modulesSource = readFileSync(`${root}/src/data/modules.ts`, 'utf8');
+  const featCounts = [...modulesSource.matchAll(/features: \[([\s\S]*?)\n {4}\]/g)].map(
+    (m) => m[1].split('\n').filter((l) => l.trim().startsWith("'")).length,
+  );
+
+  const required = [
+    // Rendered by Platform.astro (landing), platform.astro and platform/[slug].
+    ...serviceSlugs.flatMap((slug, i) => [
+      `svc.${slug}.title`,
+      `svc.${slug}.purpose`,
+      `svc.${slug}.overview`,
+      `svc.${slug}.consumers`,
+      ...Array.from({ length: respCounts[i] ?? 0 }, (_, r) => `svc.${slug}.resp.${r}`),
+    ]),
+    // Rendered by Platform.astro (landing), modules.astro and modules/[slug].
+    ...modules.flatMap((m: any, i: number) => [
+      `mod.${m.slug}.title`,
+      `mod.${m.slug}.body`,
+      `mod.${m.slug}.overview`,
+      `mod.${m.slug}.scope`,
+      ...Array.from({ length: featCounts[i] ?? 0 }, (_, f) => `mod.${m.slug}.feat.${f}`),
+    ]),
+  ];
+
+  it.each(['en', 'de'] as const)('%s has copy for every catalogue string', (lang) => {
+    const missing = required.filter((key) => !blocks[lang].includes(`'${key}':`));
+    expect(missing, `missing ${lang} translations`).toEqual([]);
+  });
+
+  it('derived a key set that covers all 11 services and all 14 modules', () => {
+    expect(serviceSlugs).toHaveLength(services.length);
+    expect(respCounts).toHaveLength(services.length);
+    expect(featCounts).toHaveLength(modules.length);
+    expect(respCounts.every((n) => n > 0) && featCounts.every((n) => n > 0)).toBe(true);
+  });
+});
+
+/**
+ * The page chrome around those catalogues — headers, card labels, detail-page
+ * section titles and buttons — is translated the same way and fails the same
+ * silent way. Every literal `data-i18n="…"` in the catalogue templates must
+ * resolve, in both languages.
+ */
+describe('catalogue page chrome is translated in every language', () => {
+  const dict = readFileSync(`${root}/src/i18n/translations.ts`, 'utf8');
+  const deAt = dict.indexOf('\n  de: {');
+  const blocks = { en: dict.slice(dict.indexOf('\n  en: {'), deAt), de: dict.slice(deAt) };
+
+  const templates = [
+    'src/components/Platform.astro',
+    'src/layouts/SubPage.astro',
+    'src/pages/platform.astro',
+    'src/pages/modules.astro',
+    'src/pages/platform/[slug].astro',
+    'src/pages/modules/[slug].astro',
+  ];
+  // Literal keys only — the templated ones (`svc.${slug}.title`) are covered
+  // by the suite above, which derives them from the data.
+  const keys = new Set<string>();
+  for (const file of templates) {
+    const src = readFileSync(`${root}/${file}`, 'utf8');
+    for (const m of src.matchAll(/data-i18n(?:-html)?="([a-zA-Z0-9._-]+)"/g)) keys.add(m[1]);
+    // The i18n={{ … }} prop passed to SubPage.
+    for (const m of src.matchAll(/(?:sectionName|eyebrow|heading|lead): '([a-zA-Z0-9._-]+)'/g)) keys.add(m[1]);
+  }
+
+  it('found the chrome keys at all', () => {
+    expect(keys.size).toBeGreaterThan(20);
+  });
+
+  it.each(['en', 'de'] as const)('%s resolves every literal data-i18n key', (lang) => {
+    const missing = [...keys].filter((key) => !blocks[lang].includes(`'${key}':`)).sort();
+    expect(missing, `missing ${lang} translations`).toEqual([]);
+  });
+});
+
+/**
+ * The shared client package is the documented way a module reaches a service.
+ * A service without a client is a service modules must hand-roll `fetch` for —
+ * exactly the duplication the package exists to remove — so a new PS-xx that
+ * arrives without one fails here.
+ */
+describe('platform clients cover the catalogue', () => {
+  const index = readFileSync(`${root}/platform/clients/src/index.ts`, 'utf8');
+  const exported = new Set([...index.matchAll(/export \{ (\w+Client) \}/g)].map((m) => m[1]));
+
+  // Every client lives in platform/clients/src/<name>.ts and is re-exported
+  // from index.ts. The file name is the service's subject: ps-02-workflow-engine
+  // → workflow.ts, ps-06-file-storage → files.ts.
+  const clientModules = [...index.matchAll(/from '\.\/(\w+)\.js'/g)].map((m) => m[1]);
+
+  it.each(services.map((s: any) => [s.id] as const))('%s has a client module', (id) => {
+    const subject = id.replace(/^ps-\d+-/, '').split('-')[0];
+    expect(
+      clientModules.filter((m) => m.startsWith(subject)),
+      `no client module in platform/clients/src for ${id} (expected one named after "${subject}")`,
+    ).not.toHaveLength(0);
+  });
+
+  it('exports exactly as many service clients as the registry has services', () => {
+    expect(exported.size).toBe(services.length);
+  });
+});

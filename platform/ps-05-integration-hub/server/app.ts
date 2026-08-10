@@ -189,8 +189,15 @@ export function createApp(opts: AppOptions): express.Express {
       return;
     }
 
-    const id = storeWebhookEvent(db, { provider: entry.key, eventType, signatureValid: true, payload: rawBodyOf(req), now: now() });
-    res.status(202).json({ id, signature_valid: true });
+    // A provider with no signature scheme (google, microsoft) posts to an
+    // endpoint that is by nature unauthenticated — a real provider cannot hold
+    // this stack's service token. The delivery is still accepted, but nothing
+    // about it was verified, so it must not be RECORDED as verified: an
+    // operator reviewing the log would otherwise see the same
+    // `signature_valid: true` on a payload anyone could have sent as on one
+    // whose HMAC checked out.
+    const id = storeWebhookEvent(db, { provider: entry.key, eventType, signatureValid: false, payload: rawBodyOf(req), now: now() });
+    res.status(202).json({ id, signature_valid: false, signature_scheme: 'none' });
   });
 
   // ── Admin gate ─────────────────────────────────────────────────────

@@ -26,6 +26,7 @@ import {
   mapOrg,
   mapUser,
   roleForOrg,
+  rolePermissions,
   userPermissions,
   userRoles,
   type OrgRow,
@@ -166,6 +167,25 @@ export function createApp({
   const require = (res: Response, perm: Permission): void => {
     if (!principalOf(res).permissions.has(perm)) {
       fail(403, `Missing required permission: ${perm}`);
+    }
+  };
+
+  /**
+   * No principal may hand out authority it does not itself hold.
+   *
+   * `role:write` and `apikey:write` are permissions to ADMINISTER grants, not
+   * to invent them. Without this cap an Administrator — who deliberately lacks
+   * `org:write` — could reach it three ways: mint an unscoped API key (which
+   * carried the whole catalogue), define a custom role granting it, or simply
+   * assign themselves the Owner role. Each turned "may manage roles and keys"
+   * into "may become the Owner", which is the escalation the role split exists
+   * to prevent.
+   */
+  const requireGrantable = (res: Response, granted: readonly Permission[]): void => {
+    const held = principalOf(res).permissions;
+    const excess = [...new Set(granted)].filter((p) => !held.has(p)).sort();
+    if (excess.length > 0) {
+      fail(403, `Cannot grant a permission you do not hold: ${excess.join(', ')}`);
     }
   };
 
@@ -686,6 +706,7 @@ export function createApp({
       }
       clean.push(perm as Permission);
     }
+    requireGrantable(res, clean);
     if (db.prepare('SELECT 1 FROM roles WHERE org_id = ? AND key = ?').get(orgId, key)) {
       fail(409, 'A role with that key already exists');
     }
@@ -711,6 +732,9 @@ export function createApp({
       fail(422, 'Validation failed', [{ field: 'role_id', message: 'is required' }]);
     }
     if (!roleForOrg(db, roleId, principalOf(res).orgId)) fail(404, 'Role not found');
+    // Assigning a role hands its permissions to the target — including, when
+    // the target is the caller, to the caller.
+    requireGrantable(res, rolePermissions(db, roleId));
     db.prepare('INSERT OR IGNORE INTO user_roles (user_id, role_id, created_at) VALUES (?, ?, ?)').run(
       user.id,
       roleId,
@@ -753,6 +777,13 @@ export function createApp({
         }
         scopes.push(s as Permission);
       }
+      requireGrantable(res, scopes);
+    } else if (![...PERMISSIONS].every((perm) => p.permissions.has(perm))) {
+      // "Unscoped" means "everything the creator can do", not "everything there
+      // is". A principal holding every permission still mints the historical
+      // unscoped key (stored as ''); anyone else gets their own set pinned onto
+      // the key, so it can never outrank them.
+      scopes = [...p.permissions].sort();
     }
     const minted = await mintApiKey(db, p.orgId, name, p.userId, now(), scopes);
     logEvent('apikey_created', p.orgId, p.userId, req, { prefix: minted.summary.prefix });

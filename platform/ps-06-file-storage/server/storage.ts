@@ -127,6 +127,42 @@ export function signDownloadUrl(secret: string, bucket: string, key: string, ttl
   return { url: `/api/download?${q.toString()}`, expires_at: nowIso(expires) };
 }
 
+/**
+ * Response headers for the public download route.
+ *
+ * `content_type` is caller-supplied and stored verbatim, so serving it back
+ * inline turns any bucket into a stored-XSS vector: a signed URL for an object
+ * uploaded as `text/html` would execute script on PS-06's own origin, where the
+ * `ps06_session` cookie lives. `nosniff` does not help — the type is not being
+ * guessed, it is being declared.
+ *
+ * So the download is always an attachment (browsers never render an attachment
+ * inline, whatever the type), with a sandbox CSP as a second line of defence.
+ * The declared type is still reported so a legitimate client can act on it, and
+ * `GET /api/objects/:bucket/:key` returns the bytes as base64 JSON for callers
+ * that want to render the content themselves under their own trust rules.
+ */
+export function downloadHeaders(info: Pick<ObjectInfo, 'content_type' | 'key' | 'size'>): Record<string, string> {
+  return {
+    'Content-Type': info.content_type,
+    'Content-Length': String(info.size),
+    'Content-Disposition': `attachment; filename="${attachmentFilename(info.key)}"`,
+    'Content-Security-Policy': "default-src 'none'; sandbox",
+    'X-Content-Type-Options': 'nosniff',
+  };
+}
+
+/**
+ * A quoted-string-safe filename from an object key: last path segment, with
+ * quotes, backslashes and control characters (header-injection and
+ * quoted-string-escape characters) dropped.
+ */
+export function attachmentFilename(key: string): string {
+  const base = key.split('/').filter(Boolean).pop() ?? '';
+  const safe = base.replace(/[\u0000-\u001f\u007f"\\]/g, '').trim();
+  return safe === '' ? 'download' : safe;
+}
+
 /** Verify a signed download request. Returns true only if fresh and valid. */
 export function verifyDownload(
   secret: string,

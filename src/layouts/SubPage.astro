@@ -13,9 +13,16 @@ interface Props {
   eyebrow: string;
   heading: string;
   lead: string;
+  /**
+   * Translation keys for the header strings. The English text still comes in
+   * through the props above and is what gets rendered and indexed; these only
+   * tell the client-side language toggle which dictionary entry replaces it.
+   * Omit them and the header simply stays in English, as it did before.
+   */
+  i18n?: { sectionName?: string; eyebrow?: string; heading?: string; lead?: string };
 }
 
-const { title, description, section, sectionName, eyebrow, heading, lead } = Astro.props;
+const { title, description, section, sectionName, eyebrow, heading, lead, i18n } = Astro.props;
 ---
 
 <Base title={title} description={description}>
@@ -26,15 +33,15 @@ const { title, description, section, sectionName, eyebrow, heading, lead } = Ast
       <div class="page-header__inner">
         <div class="section-rail" aria-hidden="true">
           <div class="section-rail__num">{section}</div>
-          <div class="section-rail__name">{sectionName}</div>
+          <div class="section-rail__name" data-i18n={i18n?.sectionName}>{sectionName}</div>
         </div>
         <div class="page-header__content">
           <div class="section-label-inline" aria-hidden="true">
-            <span class="section-label-inline__num">{section}</span> · {sectionName}
+            <span class="section-label-inline__num">{section}</span> · <span data-i18n={i18n?.sectionName}>{sectionName}</span>
           </div>
-          <p class="page-header__eyebrow">{eyebrow}</p>
-          <h1 class="page-header__h1" set:html={heading} />
-          <p class="page-header__lead">{lead}</p>
+          <p class="page-header__eyebrow" data-i18n={i18n?.eyebrow}>{eyebrow}</p>
+          <h1 class="page-header__h1" data-i18n-html={i18n?.heading} set:html={heading} />
+          <p class="page-header__lead" data-i18n={i18n?.lead}>{lead}</p>
         </div>
       </div>
     </header>

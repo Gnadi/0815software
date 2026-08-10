@@ -20,11 +20,12 @@ import { modules } from '../data/modules';
       </div>
       <h2 class="platform__h2" data-i18n="platform.h2">One platform. Standard problems, solved fast.</h2>
       <p class="platform__intro" data-i18n="platform.intro">
-        0815software is a platform: five shared backend services — identity,
-        workflow, notifications, AI and integrations — that let us assemble
-        standard business software at high speed, with stable, high-quality
-        results. The modules are what we ship on top; the platform is what makes
-        them quick to build and boring to run.
+        0815software is a platform: eleven shared backend services — identity,
+        workflow, notifications, AI, integrations, file storage, audit,
+        payments, search, numbering and customer master data — that let us
+        assemble standard business software at high speed, with stable,
+        high-quality results. The modules are what we ship on top; the platform
+        is what makes them quick to build and boring to run.
       </p>
     </div>
   </div>
@@ -39,8 +40,8 @@ import { modules } from '../data/modules';
       {platform.map((svc) => (
         <a class="svc-row" href={`/platform/${svc.slug}`}>
           <span class="svc-row__num">{svc.n}</span>
-          <span class="svc-row__title">{svc.title}</span>
-          <span class="svc-row__purpose">{svc.purpose}</span>
+          <span class="svc-row__title" data-i18n={`svc.${svc.slug}.title`}>{svc.title}</span>
+          <span class="svc-row__purpose" data-i18n={`svc.${svc.slug}.purpose`}>{svc.purpose}</span>
           <span class="svc-row__arrow" aria-hidden="true">→</span>
         </a>
       ))}
@@ -57,7 +58,7 @@ import { modules } from '../data/modules';
       {modules.map((mod) => (
         <a class="mod-row" href={`/modules/${mod.slug}`}>
           <span class="mod-row__num">{mod.n}</span>
-          <span class="mod-row__title">{mod.title}</span>
+          <span class="mod-row__title" data-i18n={`mod.${mod.slug}.title`}>{mod.title}</span>
           <span class="mod-row__arrow" aria-hidden="true">→</span>
         </a>
       ))}
