@@ -287,7 +287,7 @@ function renderDocument(doc: SeedDocument, customer: SeedCustomer, order?: SeedO
  * against an empty database (no customers); existing data is never
  * touched. The documents directory is created either way.
  */
-export function seed(db: Database.Database, documentsDir: string): void {
+export async function seed(db: Database.Database, documentsDir: string): Promise<void> {
   mkdirSync(documentsDir, { recursive: true });
 
   const { count } = db.prepare('SELECT COUNT(*) AS count FROM customers').get() as { count: number };
@@ -315,13 +315,22 @@ export function seed(db: Database.Database, documentsDir: string): void {
 
   const files: { path: string; content: string }[] = [];
 
+  // Password hashing is async now (it runs off the event loop — see
+  // server/auth.ts) and a better-sqlite3 transaction is synchronous, so the
+  // hashes are computed before the transaction opens.
+  const passwordHashes = new Map<string, string>(
+    await Promise.all(
+      customers.map(async (c): Promise<[string, string]> => [c.email, await hashPassword(c.password)]),
+    ),
+  );
+
   db.transaction(() => {
     for (const customer of customers) {
       const customerId = insertCustomer.run(
         customer.email,
         customer.name,
         customer.company,
-        hashPassword(customer.password),
+        passwordHashes.get(customer.email),
         customer.createdAt,
       ).lastInsertRowid as number;
 
@@ -384,7 +393,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const { configFromEnv } = await import('./config.js');
   const config = configFromEnv();
   const db = openDb(config.databasePath);
-  seed(db, config.documentsDir);
+  await seed(db, config.documentsDir);
   db.close();
   console.log(`[seed] done — database at ${config.databasePath}`);
 }

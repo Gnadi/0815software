@@ -27,9 +27,9 @@ function census(db: import('better-sqlite3').Database): Record<string, number> {
 }
 
 describe('upgrading an existing installation', () => {
-  it('replays every migration over seeded data without losing any of it', () => {
+  it('replays every migration over seeded data without losing any of it', async () => {
     const db = openDb(':memory:');
-    seed(db);
+    await seed(db);
 
     const before = census(db);
     expect(Object.keys(before).length, 'the seed produced no tables').toBeGreaterThan(0);

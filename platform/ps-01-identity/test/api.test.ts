@@ -12,9 +12,9 @@ const session: SessionConfig = { secret: 'test-secret', ttlHours: 12, secureCook
 let app: Express;
 let db: Database.Database;
 
-beforeAll(() => {
+beforeAll(async () => {
   db = openDb(':memory:');
-  seed(db);
+  await seed(db);
   app = createApp({ db, session });
 });
 
@@ -290,7 +290,7 @@ describe('OAuth authorization-code flow', () => {
       };
     };
     const oauthDb = openDb(':memory:');
-    seed(oauthDb);
+    await seed(oauthDb);
     const oauthApp = createApp({
       db: oauthDb,
       session,

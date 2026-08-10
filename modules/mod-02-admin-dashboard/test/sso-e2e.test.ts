@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import type { Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
+import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import type { Express } from 'express';
 import Database from 'better-sqlite3';
@@ -22,9 +23,9 @@ let identityServer: Server;
 let identityUrl: string;
 let app: Express;
 
-beforeAll(() => {
+beforeAll(async () => {
   const idDb = openIdentityDb(':memory:');
-  seedIdentity(idDb);
+  await seedIdentity(idDb);
   identityServer = createIdentityApp({ db: idDb, session: { secret: 'id-secret', ttlHours: 12, secureCookie: false } }).listen(0);
   identityUrl = `http://127.0.0.1:${(identityServer.address() as AddressInfo).port}`;
 
@@ -59,5 +60,35 @@ describe('mod-02 login via real PS-01 identity', () => {
 
   it('rejects the local admin creds now that SSO is in force', async () => {
     await login('admin', 'local-only').expect(401);
+  });
+
+  it('answers 503, not 401, when PS-01 cannot be reached', async () => {
+    // A verifier pointed at a port nothing is listening on: the module must
+    // still fail closed (no session), but it must not tell the user their
+    // password was wrong — nothing ever checked it. 401 here would send
+    // someone to reset a working password and would disguise an identity
+    // outage as a run of bad logins in the operator's dashboards.
+    // A port that really was bound and then released, so the URL is
+    // well-formed and the connection is genuinely refused — the shape of a
+    // PS-01 that is down, rather than a URL the HTTP client rejects outright.
+    const probe = createServer().listen(0);
+    await once(probe, 'listening');
+    const deadPort = (probe.address() as AddressInfo).port;
+    await new Promise<void>((resolve) => probe.close(() => resolve()));
+
+    const offlineDb: Database.Database = openDb(':memory:');
+    await seed(offlineDb);
+    const offline = createApp({
+      db: offlineDb,
+      auth,
+      verifyLogin: buildLoginVerifier({
+        identityUrl: `http://127.0.0.1:${deadPort}`,
+        identityOrg: 'acme',
+        identityPermission: 'platform:admin',
+      }),
+    });
+    const res = await request(offline).post('/api/login').send({ username: 'owner@acme.test', password: 'demo-owner' });
+    expect(res.status).toBe(503);
+    expect(res.headers['set-cookie']).toBeUndefined();
   });
 });

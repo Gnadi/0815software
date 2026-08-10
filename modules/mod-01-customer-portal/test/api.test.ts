@@ -40,10 +40,10 @@ async function listDocuments(cookie: string): Promise<DocumentMeta[]> {
   return res.body.documents as DocumentMeta[];
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   documentsDir = mkdtempSync(join(tmpdir(), 'mod01-test-'));
   const db = openDb(':memory:');
-  seed(db, documentsDir);
+  await seed(db, documentsDir);
   app = createApp({ db, session, documentsDir });
 });
 

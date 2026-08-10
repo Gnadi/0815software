@@ -6,7 +6,7 @@ import {
   clearedCookie,
   COOKIE_NAME,
   createToken,
-  DUMMY_PASSWORD_HASH,
+  dummyPasswordHash,
   hashPassword,
   nowIso,
   parseBearer,
@@ -123,6 +123,12 @@ export function createApp({
   hardening,
   logRequests,
 }: AppOptions): express.Express {
+  // Compute the equal-work dummy hash now, at startup and off the event loop,
+  // so no request ever pays for generating it. Otherwise the first login
+  // against an unknown account would be measurably slower than every later
+  // one — a timing difference this hash exists to remove.
+  void dummyPasswordHash();
+
   const app = express();
   if (hardening) {
     // Behind the stack's reverse proxy every socket peer is the proxy, so the
@@ -222,13 +228,17 @@ export function createApp({
         org && org.status === 'active'
           ? (userByOrgEmail.get(org.id, email) as UserRow | undefined)
           : undefined;
-      // Always run scrypt (real or dummy) so timing never reveals whether the
-      // organization or email exists.
-      const ok = user
-        ? user.status === 'active' && verifyPassword(password, user.password_hash)
-        : (verifyPassword(password, DUMMY_PASSWORD_HASH), false);
+      // Always run scrypt exactly once — against the real hash when there is a
+      // usable account, against the dummy otherwise — so response timing never
+      // reveals whether the organization, the email, or an ACTIVE account
+      // exists. (The previous form short-circuited on `status !== 'active'`,
+      // which skipped the hash and made a suspended account answer measurably
+      // faster than a live one.) The await puts that work on the threadpool
+      // instead of the event loop; see server/auth.ts.
+      const account = user && user.status === 'active' ? user : undefined;
+      const ok = await verifyPassword(password, account ? account.password_hash : await dummyPasswordHash());
 
-      if (!user || !ok) {
+      if (!account || !ok) {
         recordFailure(db, orgSlug, email, throttle, now());
         logEvent('login_fail', org?.id ?? null, user?.id ?? null, req, { email, delayed_ms: waited });
         fail(401, 'Invalid organization, email or password');
@@ -238,10 +248,10 @@ export function createApp({
       // wait once, not for as long as someone else keeps guessing.
       clearFailures(db, orgSlug, email);
       pruneThrottle(db, throttle, now());
-      const token = issueSession(res, user);
-      logEvent('login_ok', user.org_id, user.id, req);
-      logEvent('token_issued', user.org_id, user.id, req);
-      res.json({ token, user: mapUser(user) });
+      const token = issueSession(res, account);
+      logEvent('login_ok', account.org_id, account.id, req);
+      logEvent('token_issued', account.org_id, account.id, req);
+      res.json({ token, user: mapUser(account) });
     })().catch(next);
   });
 
@@ -254,8 +264,10 @@ export function createApp({
   // psk_ API key) and return its claims + permissions. PUBLIC — the presented
   // token IS the credential; downstream services call this unauthenticated,
   // and an invalid token yields only { valid: false }.
-  app.post('/api/tokens/verify', (req, res) => {
-    res.json(verifyProvidedToken(db, session, body(req).token, now()));
+  app.post('/api/tokens/verify', (req, res, next) => {
+    void (async () => {
+      res.json(await verifyProvidedToken(db, session, body(req).token, now()));
+    })().catch(next);
   });
 
   app.get('/api/oauth/:provider/authorize', (req, res) => {
@@ -305,7 +317,7 @@ export function createApp({
         ? await fetchIdentity(cfg, code, `${selfBaseUrl}/api/oauth/${provider}/callback`, doFetch)
         : mockIdentity(provider, org.slug);
 
-      const user = linkUser(db, org.id, identity, now());
+      const user = await linkUser(db, org.id, identity, now());
       const token = issueSession(res, user);
       logEvent('login_ok', user.org_id, user.id, req, { via: `oauth:${provider}` });
       logEvent('token_issued', user.org_id, user.id, req);
@@ -321,49 +333,53 @@ export function createApp({
 
   // ── Authentication gate (session cookie or Bearer) ─────────────────
   app.use('/api', (req, res, next) => {
-    const bearer = parseBearer(req.headers.authorization);
+    void (async () => {
+      const bearer = parseBearer(req.headers.authorization);
 
-    // Bearer API key → machine principal carrying the key's scopes
-    // (an unscoped key keeps the historical full-permission behaviour).
-    if (bearer && bearer.startsWith('psk_')) {
-      const key = verifyApiKey(db, bearer, now());
-      if (key !== null) {
-        res.locals.principal = {
-          kind: 'api_key',
-          orgId: key.orgId,
-          userId: null,
-          permissions: new Set<Permission>(key.scopes ?? PERMISSIONS),
-        } satisfies Principal;
-        next();
+      // Bearer API key → machine principal carrying the key's scopes
+      // (an unscoped key keeps the historical full-permission behaviour).
+      // Verifying one costs a scrypt, hence the await: on the threadpool it
+      // does not stall every other request in flight.
+      if (bearer && bearer.startsWith('psk_')) {
+        const key = await verifyApiKey(db, bearer, now());
+        if (key !== null) {
+          res.locals.principal = {
+            kind: 'api_key',
+            orgId: key.orgId,
+            userId: null,
+            permissions: new Set<Permission>(key.scopes ?? PERMISSIONS),
+          } satisfies Principal;
+          next();
+          return;
+        }
+        res.status(401).json({ error: 'Invalid API key' });
         return;
       }
-      res.status(401).json({ error: 'Invalid API key' });
-      return;
-    }
 
-    // Otherwise a session token from the cookie or a Bearer header.
-    const token = bearer ?? parseCookies(req.headers.cookie)[COOKIE_NAME];
-    const claims = token ? verifyToken(session, token, now()) : null;
-    if (claims) {
-      const user = userById.get(claims.userId) as UserRow | undefined;
-      if (
-        user &&
-        user.status === 'active' &&
-        user.token_version === claims.tokenVersion &&
-        user.org_id === claims.orgId
-      ) {
-        res.locals.userRow = user;
-        res.locals.principal = {
-          kind: 'user',
-          orgId: user.org_id,
-          userId: user.id,
-          permissions: new Set<Permission>(userPermissions(db, user.id)),
-        } satisfies Principal;
-        next();
-        return;
+      // Otherwise a session token from the cookie or a Bearer header.
+      const token = bearer ?? parseCookies(req.headers.cookie)[COOKIE_NAME];
+      const claims = token ? verifyToken(session, token, now()) : null;
+      if (claims) {
+        const user = userById.get(claims.userId) as UserRow | undefined;
+        if (
+          user &&
+          user.status === 'active' &&
+          user.token_version === claims.tokenVersion &&
+          user.org_id === claims.orgId
+        ) {
+          res.locals.userRow = user;
+          res.locals.principal = {
+            kind: 'user',
+            orgId: user.org_id,
+            userId: user.id,
+            permissions: new Set<Permission>(userPermissions(db, user.id)),
+          } satisfies Principal;
+          next();
+          return;
+        }
       }
-    }
-    res.status(401).json({ error: 'Authentication required' });
+      res.status(401).json({ error: 'Authentication required' });
+    })().catch(next);
   });
 
   // ── Identity ───────────────────────────────────────────────────────
@@ -440,7 +456,8 @@ export function createApp({
     res.json({ organizations: [mapOrg(org)] });
   });
 
-  app.post('/api/orgs', (req, res) => {
+  app.post('/api/orgs', (req, res, next) => {
+    void (async () => {
     require(res, 'org:write');
     const b = body(req);
     const slug = reqText(b, 'slug', 64).toLowerCase();
@@ -473,17 +490,21 @@ export function createApp({
       owner = { email: reqEmail(o, 'email'), name: reqText(o, 'name', 200), password };
     }
 
+    // Hashed up front: the insert below runs inside a better-sqlite3
+    // transaction, which is synchronous and cannot contain an await.
+    const ownerHash = owner ? await hashPassword(owner.password) : null;
+
     const created = db.transaction((): { org: OrgRow; user: UserRow | null } => {
       const at = nowIso(now());
       const info = db
         .prepare(`INSERT INTO organizations (slug, name, status, created_at) VALUES (?, ?, 'active', ?)`)
         .run(slug, name, at);
       const org = orgById.get(info.lastInsertRowid) as OrgRow;
-      if (!owner) return { org, user: null };
+      if (!owner || ownerHash === null) return { org, user: null };
 
       const userInfo = db
         .prepare(`INSERT INTO users (org_id, email, name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)`)
-        .run(org.id, owner.email, owner.name, hashPassword(owner.password), at);
+        .run(org.id, owner.email, owner.name, ownerHash, at);
       const role = db.prepare('SELECT id FROM roles WHERE key = ? AND org_id IS NULL').get('owner') as
         | { id: number }
         | undefined;
@@ -503,6 +524,7 @@ export function createApp({
         ? {}
         : { warning: 'Created with no user: nobody can log into this organization until one exists.' }),
     });
+    })().catch(next);
   });
 
   // ── Users (always scoped to the caller's org) ──────────────────────
@@ -520,7 +542,8 @@ export function createApp({
     res.json({ users: rows.map(mapUser) });
   });
 
-  app.post('/api/users', (req, res) => {
+  app.post('/api/users', (req, res, next) => {
+    void (async () => {
     require(res, 'user:write');
     const orgId = principalOf(res).orgId;
     const b = body(req);
@@ -537,13 +560,16 @@ export function createApp({
     }
     const roleKeys = Array.isArray(b.role_keys) ? (b.role_keys as unknown[]) : ['member'];
 
+    // Hashed before the (synchronous) transaction opens — see POST /api/orgs.
+    const passwordHash = await hashPassword(password);
+
     const created = db.transaction((): UserRow => {
       const info = db
         .prepare(
           `INSERT INTO users (org_id, email, name, password_hash, created_at)
            VALUES (?, ?, ?, ?, ?)`,
         )
-        .run(orgId, email, name, hashPassword(password), nowIso(now()));
+        .run(orgId, email, name, passwordHash, nowIso(now()));
       const userId = Number(info.lastInsertRowid);
       for (const key of roleKeys) {
         if (typeof key !== 'string') continue;
@@ -561,6 +587,7 @@ export function createApp({
     })();
 
     res.status(201).json({ user: mapUser(created), roles: userRoles(db, created.id) });
+    })().catch(next);
   });
 
   app.get('/api/users/:id', (req, res) => {
@@ -585,7 +612,8 @@ export function createApp({
     res.json({ user: mapUser(userById.get(user.id) as UserRow) });
   });
 
-  app.post('/api/users/:id/password', (req, res) => {
+  app.post('/api/users/:id/password', (req, res, next) => {
+    void (async () => {
     const p = principalOf(res);
     const id = idParam(req);
     const isSelf = p.userId !== null && p.userId === id;
@@ -598,7 +626,7 @@ export function createApp({
     // is authorized by `user:write` instead — that is the reset path.
     if (isSelf) {
       const current = typeof b.current_password === 'string' ? b.current_password : '';
-      if (!verifyPassword(current, user.password_hash)) {
+      if (!(await verifyPassword(current, user.password_hash))) {
         logEvent('password_change_denied', user.org_id, user.id, req);
         fail(422, 'Validation failed', [{ field: 'current_password', message: 'is incorrect' }]);
       }
@@ -610,18 +638,20 @@ export function createApp({
       ]);
     }
     db.prepare('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?').run(
-      hashPassword(newPassword),
+      await hashPassword(newPassword),
       user.id,
     );
     logEvent('password_changed', user.org_id, user.id, req);
     res.json({ ok: true });
+    })().catch(next);
   });
 
   // GDPR erasure hook: anonymize the user's PII in place while keeping the row
   // and id (so downstream audit trails and records stay referentially intact),
   // scramble the password, bump token_version to kill any live sessions, and
   // disable the account so it can never log in again.
-  app.post('/api/users/:id/erase', (req, res) => {
+  app.post('/api/users/:id/erase', (req, res, next) => {
+    void (async () => {
     require(res, 'user:write');
     const id = idParam(req);
     const user = requireUserInOrg(res, id);
@@ -630,9 +660,10 @@ export function createApp({
          SET email = ?, name = 'Erased User', password_hash = ?,
              token_version = token_version + 1, status = 'disabled'
        WHERE id = ?`,
-    ).run(`erased+${user.id}@invalid.example`, hashPassword(randomBytes(24).toString('hex')), user.id);
+    ).run(`erased+${user.id}@invalid.example`, await hashPassword(randomBytes(24).toString('hex')), user.id);
     logEvent('user_erased', user.org_id, user.id, req);
     res.json({ erased: true, user: mapUser(userById.get(user.id) as UserRow) });
+    })().catch(next);
   });
 
   // ── Roles & permissions ────────────────────────────────────────────
@@ -706,7 +737,8 @@ export function createApp({
     res.json({ api_keys: rows.map(keySummary) });
   });
 
-  app.post('/api/api-keys', (req, res) => {
+  app.post('/api/api-keys', (req, res, next) => {
+    void (async () => {
     require(res, 'apikey:write');
     const p = principalOf(res);
     const b = body(req);
@@ -722,9 +754,10 @@ export function createApp({
         scopes.push(s as Permission);
       }
     }
-    const minted = mintApiKey(db, p.orgId, name, p.userId, now(), scopes);
+    const minted = await mintApiKey(db, p.orgId, name, p.userId, now(), scopes);
     logEvent('apikey_created', p.orgId, p.userId, req, { prefix: minted.summary.prefix });
     res.status(201).json({ api_key: minted.summary, secret: minted.secret });
+    })().catch(next);
   });
 
   app.delete('/api/api-keys/:id', (req, res) => {

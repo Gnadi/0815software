@@ -24,10 +24,10 @@ async function cookie(app: Express): Promise<string> {
   return res.headers['set-cookie']![0]!.split(';')[0]!;
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   documentsDir = mkdtempSync(join(tmpdir(), 'mod01-plat-'));
   db = openDb(':memory:');
-  seed(db, documentsDir);
+  await seed(db, documentsDir);
 });
 afterEach(() => rmSync(documentsDir, { recursive: true, force: true }));
 

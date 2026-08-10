@@ -191,7 +191,7 @@ function renderVersion(
  * against an empty database (no users); existing data is never touched.
  * The storage directory is created either way.
  */
-export function seed(db: Database.Database, storageDir: string): void {
+export async function seed(db: Database.Database, storageDir: string): Promise<void> {
   const { count } = db.prepare('SELECT COUNT(*) AS count FROM users').get() as { count: number };
   if (count > 0) {
     console.log(`[seed] ${count} users already present, skipping`);
@@ -219,6 +219,15 @@ export function seed(db: Database.Database, storageDir: string): void {
 
   let versionCount = 0;
 
+  // Password hashing is async now (it runs off the event loop — see
+  // server/auth.ts) and a better-sqlite3 transaction is synchronous, so the
+  // hashes are computed before the transaction opens.
+  const passwordHashes = new Map<string, string>(
+    await Promise.all(
+      users.map(async (u): Promise<[string, string]> => [u.username, await hashPassword(u.password)]),
+    ),
+  );
+
   db.transaction(() => {
     const userIds = new Map<string, number>();
     for (const user of users) {
@@ -226,7 +235,7 @@ export function seed(db: Database.Database, storageDir: string): void {
         user.username,
         user.name,
         user.role,
-        hashPassword(user.password),
+        passwordHashes.get(user.username),
         matters[0]!.createdAt,
       ).lastInsertRowid as number;
       userIds.set(user.username, id);
@@ -301,7 +310,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const { configFromEnv } = await import('./config.js');
   const config = configFromEnv();
   const db = openDb(config.databasePath);
-  seed(db, config.storageDir);
+  await seed(db, config.storageDir);
   db.close();
   console.log(`[seed] done — database at ${config.databasePath}`);
 }

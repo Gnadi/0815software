@@ -44,13 +44,13 @@ function runBackup(): { snapshot: string; storage: string } {
   return { snapshot: join(backupDir, snapshot!), storage: join(backupDir, storage!) };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   work = mkdtempSync(join(tmpdir(), 'mod09-backup-'));
   dbPath = join(work, 'data.db');
   storageDir = join(work, 'storage');
   backupDir = join(work, 'backups');
   db = openDb(dbPath);
-  seed(db, storageDir);
+  await seed(db, storageDir);
 });
 
 afterEach(() => {

@@ -15,7 +15,7 @@ const db = openDb(config.databasePath);
 
 // First start on an empty database: load the demo data set so the portal
 // is usable immediately. A database with existing customers is never touched.
-seed(db, config.documentsDir);
+await seed(db, config.documentsDir);
 
 // When running the compiled server (dist/server/server/index.js), the built
 // client lives at dist/client. In dev (tsx) it usually doesn't exist yet —

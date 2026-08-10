@@ -55,6 +55,24 @@ const KNOWN_DEFAULTS = new Set([
 ]);
 
 /**
+ * What "the module refused this login" is allowed to look like: a rejected
+ * credential (401), or a module that has no login endpoint at all (404 — the
+ * storefront is a public shop and never had one).
+ *
+ * Deliberately NOT "anything that isn't 200". A module whose PS-01 call times
+ * out also fails to sign anyone in, and the looser form reported green on a
+ * stack whose identity service was unreachable — the failure hid inside a
+ * passing check. 503 now means exactly that outage, and it is not a refusal:
+ * nothing ever judged the credential.
+ */
+const REFUSED = new Set([401, 404]);
+
+const refusalDetail = (status) =>
+  status === 503
+    ? 'login returned 503 — PS-01 was unreachable, so nothing rejected the credential'
+    : `login returned ${status}, expected 401 (rejected) or 404 (no login endpoint)`;
+
+/**
  * The smoke test drives every module's login from ONE IP, and each SSO module
  * login is forwarded to PS-01 as another login. A real stack spreads those over
  * one container IP per module, but here they all land in the same per-IP bucket
@@ -685,14 +703,24 @@ async function main(argv) {
     } else {
       check(
         `${mod.n} has no SSO seam and rejects PS-01 credentials (by design)`,
-        status !== 200,
-        `login unexpectedly returned ${status}`,
+        REFUSED.has(status),
+        refusalDetail(status),
       );
     }
   }
   for (const { mod, url } of booted.modules) {
-    const status = await login(url, { username: 'admin', email: 'admin', password: 'definitely-wrong' });
-    check(`${mod.n} rejects wrong credentials`, status !== 200, `login returned ${status}`);
+    // A DIFFERENT bogus account per module. An SSO module forwards this to
+    // PS-01 as a login, and PS-01 deliberately makes repeated guesses at one
+    // account slow (throttle.ts: 1s doubling to 30s). Reusing one name here
+    // meant the 14 modules sprayed a single account: by the last few the
+    // backoff exceeded the client's 10s timeout, so the module reported its
+    // identity service as unreachable and the check went green anyway on the
+    // old `status !== 200`. What this asserts is that a wrong credential is
+    // refused; that guessing at one account gets expensive is PS-01's own
+    // throttle test.
+    const bogus = `wrong-${mod.n.toLowerCase()}@invalid.test`;
+    const status = await login(url, { username: bogus, email: bogus, password: 'definitely-wrong' });
+    check(`${mod.n} rejects wrong credentials`, REFUSED.has(status), refusalDetail(status));
   }
   // The service-to-service seam: a PS-01 principal holding platform:admin is
   // accepted by the other services in the stack, so one identity spans it.

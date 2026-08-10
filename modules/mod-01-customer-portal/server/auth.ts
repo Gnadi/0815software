@@ -1,4 +1,5 @@
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
 
 export interface SessionConfig {
   secret: string;
@@ -15,27 +16,44 @@ function safeEqual(a: Buffer, b: Buffer): boolean {
 }
 
 // ── Password hashing (node built-in scrypt, no extra dependencies) ─────
+//
+// ASYNCHRONOUS ON PURPOSE. scrypt is deliberately expensive (~90ms a call) and
+// `scryptSync` spends all of it on the event loop, so while one customer's
+// password is being checked this single-threaded server answers nobody — not
+// the other logins, not the pages everyone already signed in is loading. The
+// callback form runs the same work on libuv's threadpool instead, which is why
+// everything that hashes a password here is async up to the request handler.
+
+const scryptAsync = promisify(scrypt) as (
+  password: string,
+  salt: Buffer,
+  keylen: number,
+) => Promise<Buffer>;
 
 /** Hash a password as "scrypt:<salt hex>:<derived key hex>". */
-export function hashPassword(password: string): string {
+export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
-  const key = scryptSync(password, salt, SCRYPT_KEYLEN);
+  const key = await scryptAsync(password, salt, SCRYPT_KEYLEN);
   return `scrypt:${salt.toString('hex')}:${key.toString('hex')}`;
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [scheme, saltHex, keyHex] = stored.split(':');
   if (scheme !== 'scrypt' || !saltHex || !keyHex) return false;
-  const key = scryptSync(password, Buffer.from(saltHex, 'hex'), SCRYPT_KEYLEN);
+  const key = await scryptAsync(password, Buffer.from(saltHex, 'hex'), SCRYPT_KEYLEN);
   return safeEqual(key, Buffer.from(keyHex, 'hex'));
 }
 
 /**
  * A hash of a random password, used to burn the same scrypt work when a
  * login hits an unknown email — so response timing does not reveal
- * whether an account exists.
+ * whether an account exists. Memoized, so the cost is paid once.
  */
-export const DUMMY_PASSWORD_HASH = hashPassword(randomBytes(16).toString('hex'));
+let dummyHash: Promise<string> | null = null;
+export function dummyPasswordHash(): Promise<string> {
+  dummyHash ??= hashPassword(randomBytes(16).toString('hex'));
+  return dummyHash;
+}
 
 // ── Stateless HMAC-signed session token ────────────────────────────────
 // Token: "<customerId>.<tokenVersion>.<expiryMillis>.<hmac(payload)>".

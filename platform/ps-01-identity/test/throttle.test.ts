@@ -23,9 +23,9 @@ let app: Express;
 let slept: number[];
 let clock: number;
 
-beforeEach(() => {
+beforeEach(async () => {
   db = openDb(':memory:');
-  seed(db);
+  await seed(db);
   slept = [];
   clock = Date.parse('2026-06-01T00:00:00Z');
   app = createApp({
