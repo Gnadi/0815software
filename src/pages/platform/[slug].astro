@@ -26,6 +26,11 @@ const { svc, prev, next } = Astro.props;
   eyebrow={`DIN 0815/S · ${svc.n}`}
   heading={svc.title}
   lead={svc.purpose}
+  i18n={{
+    sectionName: 'page.rail.platform',
+    heading: `svc.${svc.slug}.title`,
+    lead: `svc.${svc.slug}.purpose`,
+  }}
 >
 
   <!-- Overview + responsibilities -->
@@ -33,49 +38,55 @@ const { svc, prev, next } = Astro.props;
     <div class="detail-body__inner">
       <div class="section-rail" aria-hidden="true">
         <div class="section-rail__num">§ P4.01</div>
-        <div class="section-rail__name">Overview</div>
+        <div class="section-rail__name" data-i18n="page.rail.overview">Overview</div>
       </div>
       <div class="detail-body__content">
-        <p class="detail-body__overview">{svc.overview}</p>
+        <p class="detail-body__overview" data-i18n={`svc.${svc.slug}.overview`}>{svc.overview}</p>
 
         <div class="detail-meta">
           <div class="detail-meta__item">
-            <span class="detail-meta__label">STATUS</span>
-            <span class="detail-meta__value">{svc.status}</span>
+            <span class="detail-meta__label" data-i18n="detail.status">STATUS</span>
+            <span class="detail-meta__value" data-i18n={`svc.status.${svc.status.toLowerCase()}`}>{svc.status}</span>
           </div>
           <div class="detail-meta__item">
-            <span class="detail-meta__label">DEFAULT PORT</span>
+            <span class="detail-meta__label" data-i18n="detail.port">DEFAULT PORT</span>
             <span class="detail-meta__value">{svc.port}</span>
           </div>
           <div class="detail-meta__item">
-            <span class="detail-meta__label">LICENSE</span>
-            <span class="detail-meta__value">MIT · always free</span>
+            <span class="detail-meta__label" data-i18n="detail.license">LICENSE</span>
+            <span class="detail-meta__value" data-i18n="detail.licenseValue">MIT · always free</span>
           </div>
           <div class="detail-meta__item detail-meta__item--source">
-            <span class="detail-meta__label">REPOSITORY</span>
-            <a class="detail-meta__source" href={svc.source} target="_blank" rel="noopener">VIEW SOURCE ↗</a>
+            <span class="detail-meta__label" data-i18n="detail.repository">REPOSITORY</span>
+            <a class="detail-meta__source" href={svc.source} target="_blank" rel="noopener" data-i18n="detail.viewSource">VIEW SOURCE ↗</a>
           </div>
         </div>
 
-        <h2 class="detail-body__sub">Responsibilities</h2>
+        <h2 class="detail-body__sub" data-i18n="detail.responsibilities">Responsibilities</h2>
         <ul class="detail-features">
-          {svc.responsibilities.map((r) => (
-            <li class="detail-features__item">{r}</li>
+          {svc.responsibilities.map((r, i) => (
+            <li class="detail-features__item" data-i18n={`svc.${svc.slug}.resp.${i}`}>{r}</li>
           ))}
         </ul>
 
-        <h2 class="detail-body__sub">API surface</h2>
+        <!-- The endpoint list is code, not prose: it stays identical in every
+             language, so it carries no translation key. -->
+        <h2 class="detail-body__sub" data-i18n="detail.api">API surface</h2>
         <ul class="detail-api">
           {svc.api.map((endpoint) => (
             <li class="detail-api__item">{endpoint}</li>
           ))}
         </ul>
 
-        <p class="detail-consumers"><span class="detail-consumers__label">CONSUMED BY</span> {svc.consumers} A Platform Service never depends on a Business Module.</p>
+        <p class="detail-consumers">
+          <span class="detail-consumers__label" data-i18n="detail.consumedBy">CONSUMED BY</span>
+          <span data-i18n={`svc.${svc.slug}.consumers`}>{svc.consumers}</span>
+          <span data-i18n="detail.neverDepends">A Platform Service never depends on a Business Module.</span>
+        </p>
 
         <div class="detail-actions">
-          <a href="/modules" class="btn btn--primary">Browse modules →</a>
-          <a href="/platform" class="btn btn--ghost">All services</a>
+          <a href="/modules" class="btn btn--primary" data-i18n="detail.browseModules">Browse modules →</a>
+          <a href="/platform" class="btn btn--ghost" data-i18n="detail.allServices">All services</a>
         </div>
       </div>
     </div>
@@ -84,12 +95,12 @@ const { svc, prev, next } = Astro.props;
   <!-- Prev / Next -->
   <nav class="detail-nav" aria-label="Service navigation">
     <a href={`/platform/${prev.slug}`} class="detail-nav__link detail-nav__link--prev">
-      <span class="detail-nav__dir">← PREVIOUS</span>
-      <span class="detail-nav__title">{prev.n} · {prev.title}</span>
+      <span class="detail-nav__dir" data-i18n="detail.prev">← PREVIOUS</span>
+      <span class="detail-nav__title">{prev.n} · <span data-i18n={`svc.${prev.slug}.title`}>{prev.title}</span></span>
     </a>
     <a href={`/platform/${next.slug}`} class="detail-nav__link detail-nav__link--next">
-      <span class="detail-nav__dir">NEXT →</span>
-      <span class="detail-nav__title">{next.n} · {next.title}</span>
+      <span class="detail-nav__dir" data-i18n="detail.next">NEXT →</span>
+      <span class="detail-nav__title">{next.n} · <span data-i18n={`svc.${next.slug}.title`}>{next.title}</span></span>
     </a>
   </nav>
 

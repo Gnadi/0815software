@@ -271,36 +271,100 @@ describe('public Platform Services catalogue stays in sync', () => {
 });
 
 /**
- * The landing page translates itself by swapping `[data-i18n]` text against a
+ * The site translates itself by swapping `[data-i18n]` text against a
  * dictionary, and `applyLang` silently skips a key it cannot find. That makes a
- * missing translation invisible: the catalogue rows simply stayed English in
- * German, which is how they went unnoticed. A new service or module must
- * therefore arrive with its copy in BOTH languages, or this fails.
+ * missing translation invisible — it renders as English text, not as an error,
+ * which is exactly how the catalogues stayed untranslated unnoticed. Every key
+ * the catalogue pages render must therefore exist in BOTH languages.
+ *
+ * `api` is deliberately absent: the endpoint lists are code, identical in every
+ * language, and carry no key.
  */
-describe('catalogue rows are translated in every language', () => {
+describe('catalogue copy is translated in every language', () => {
   const dict = readFileSync(`${root}/src/i18n/translations.ts`, 'utf8');
   const deAt = dict.indexOf('\n  de: {');
   expect(deAt).toBeGreaterThan(0);
   const blocks = { en: dict.slice(dict.indexOf('\n  en: {'), deAt), de: dict.slice(deAt) };
 
-  const serviceSlugs = [...readFileSync(`${root}/src/data/platform.ts`, 'utf8').matchAll(/^ {4}slug: '([a-z0-9-]+)',$/gm)]
-    .map((m) => m[1]);
+  const platformSource = readFileSync(`${root}/src/data/platform.ts`, 'utf8');
+  const serviceSlugs = [...platformSource.matchAll(/^ {4}slug: '([a-z0-9-]+)',$/gm)].map((m) => m[1]);
+  // Both lists are uniform in length; derive the counts rather than assume them.
+  const respCounts = [...platformSource.matchAll(/responsibilities: \[([\s\S]*?)\n {4}\]/g)].map(
+    (m) => m[1].split('\n').filter((l) => l.trim().startsWith("'")).length,
+  );
+  const modulesSource = readFileSync(`${root}/src/data/modules.ts`, 'utf8');
+  const featCounts = [...modulesSource.matchAll(/features: \[([\s\S]*?)\n {4}\]/g)].map(
+    (m) => m[1].split('\n').filter((l) => l.trim().startsWith("'")).length,
+  );
 
-  // The keys Platform.astro renders: services show a title and a purpose,
-  // modules show a title.
   const required = [
-    ...serviceSlugs.flatMap((slug) => [`svc.${slug}.title`, `svc.${slug}.purpose`]),
-    ...modules.map((m: any) => `mod.${m.slug}.title`),
+    // Rendered by Platform.astro (landing), platform.astro and platform/[slug].
+    ...serviceSlugs.flatMap((slug, i) => [
+      `svc.${slug}.title`,
+      `svc.${slug}.purpose`,
+      `svc.${slug}.overview`,
+      `svc.${slug}.consumers`,
+      ...Array.from({ length: respCounts[i] ?? 0 }, (_, r) => `svc.${slug}.resp.${r}`),
+    ]),
+    // Rendered by Platform.astro (landing), modules.astro and modules/[slug].
+    ...modules.flatMap((m: any, i: number) => [
+      `mod.${m.slug}.title`,
+      `mod.${m.slug}.body`,
+      `mod.${m.slug}.overview`,
+      `mod.${m.slug}.scope`,
+      ...Array.from({ length: featCounts[i] ?? 0 }, (_, f) => `mod.${m.slug}.feat.${f}`),
+    ]),
   ];
 
-  it.each(['en', 'de'] as const)('%s has copy for every catalogue row', (lang) => {
+  it.each(['en', 'de'] as const)('%s has copy for every catalogue string', (lang) => {
     const missing = required.filter((key) => !blocks[lang].includes(`'${key}':`));
     expect(missing, `missing ${lang} translations`).toEqual([]);
   });
 
-  it('covers all 11 services and all 14 modules', () => {
+  it('derived a key set that covers all 11 services and all 14 modules', () => {
     expect(serviceSlugs).toHaveLength(services.length);
-    expect(required).toHaveLength(services.length * 2 + modules.length);
+    expect(respCounts).toHaveLength(services.length);
+    expect(featCounts).toHaveLength(modules.length);
+    expect(respCounts.every((n) => n > 0) && featCounts.every((n) => n > 0)).toBe(true);
+  });
+});
+
+/**
+ * The page chrome around those catalogues — headers, card labels, detail-page
+ * section titles and buttons — is translated the same way and fails the same
+ * silent way. Every literal `data-i18n="…"` in the catalogue templates must
+ * resolve, in both languages.
+ */
+describe('catalogue page chrome is translated in every language', () => {
+  const dict = readFileSync(`${root}/src/i18n/translations.ts`, 'utf8');
+  const deAt = dict.indexOf('\n  de: {');
+  const blocks = { en: dict.slice(dict.indexOf('\n  en: {'), deAt), de: dict.slice(deAt) };
+
+  const templates = [
+    'src/components/Platform.astro',
+    'src/layouts/SubPage.astro',
+    'src/pages/platform.astro',
+    'src/pages/modules.astro',
+    'src/pages/platform/[slug].astro',
+    'src/pages/modules/[slug].astro',
+  ];
+  // Literal keys only — the templated ones (`svc.${slug}.title`) are covered
+  // by the suite above, which derives them from the data.
+  const keys = new Set<string>();
+  for (const file of templates) {
+    const src = readFileSync(`${root}/${file}`, 'utf8');
+    for (const m of src.matchAll(/data-i18n(?:-html)?="([a-zA-Z0-9._-]+)"/g)) keys.add(m[1]);
+    // The i18n={{ … }} prop passed to SubPage.
+    for (const m of src.matchAll(/(?:sectionName|eyebrow|heading|lead): '([a-zA-Z0-9._-]+)'/g)) keys.add(m[1]);
+  }
+
+  it('found the chrome keys at all', () => {
+    expect(keys.size).toBeGreaterThan(20);
+  });
+
+  it.each(['en', 'de'] as const)('%s resolves every literal data-i18n key', (lang) => {
+    const missing = [...keys].filter((key) => !blocks[lang].includes(`'${key}':`)).sort();
+    expect(missing, `missing ${lang} translations`).toEqual([]);
   });
 });
 

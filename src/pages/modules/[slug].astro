@@ -27,6 +27,11 @@ const { mod, prev, next } = Astro.props;
   eyebrow={`DIN 0815/M · ${mod.n}`}
   heading={mod.title}
   lead={mod.body}
+  i18n={{
+    sectionName: 'page.rail.modules',
+    heading: `mod.${mod.slug}.title`,
+    lead: `mod.${mod.slug}.body`,
+  }}
 >
 
   <!-- Screenshot -->
@@ -34,12 +39,13 @@ const { mod, prev, next } = Astro.props;
     <div class="detail-shot__inner">
       <div class="section-rail" aria-hidden="true">
         <div class="section-rail__num">§ P1.01</div>
-        <div class="section-rail__name">Preview</div>
+        <div class="section-rail__name" data-i18n="page.rail.preview">Preview</div>
       </div>
       <figure class="detail-shot">
         <ModuleScreenshot module={mod} />
         <figcaption class="detail-shot__cap">
-          {mod.n} · {mod.title} — representative interface. Every module ships MIT-licensed with full source.
+          {mod.n} · <span data-i18n={`mod.${mod.slug}.title`}>{mod.title}</span> —
+          <span data-i18n="detail.previewNote">representative interface. Every module ships MIT-licensed with full source.</span>
         </figcaption>
       </figure>
     </div>
@@ -50,36 +56,36 @@ const { mod, prev, next } = Astro.props;
     <div class="detail-body__inner">
       <div class="section-rail" aria-hidden="true">
         <div class="section-rail__num">§ P1.02</div>
-        <div class="section-rail__name">Overview</div>
+        <div class="section-rail__name" data-i18n="page.rail.overview">Overview</div>
       </div>
       <div class="detail-body__content">
-        <p class="detail-body__overview">{mod.overview}</p>
+        <p class="detail-body__overview" data-i18n={`mod.${mod.slug}.overview`}>{mod.overview}</p>
 
         <div class="detail-meta">
           <div class="detail-meta__item">
-            <span class="detail-meta__label">TYPICAL SCOPE</span>
-            <span class="detail-meta__value">{mod.scope}</span>
+            <span class="detail-meta__label" data-i18n="detail.scope">TYPICAL SCOPE</span>
+            <span class="detail-meta__value" data-i18n={`mod.${mod.slug}.scope`}>{mod.scope}</span>
           </div>
           <div class="detail-meta__item">
-            <span class="detail-meta__label">LICENSE</span>
-            <span class="detail-meta__value">MIT · always free</span>
+            <span class="detail-meta__label" data-i18n="detail.license">LICENSE</span>
+            <span class="detail-meta__value" data-i18n="detail.licenseValue">MIT · always free</span>
           </div>
           <div class="detail-meta__item detail-meta__item--source">
-            <span class="detail-meta__label">REPOSITORY</span>
-            <a class="detail-meta__source" href={mod.source} target="_blank" rel="noopener">VIEW SOURCE ↗</a>
+            <span class="detail-meta__label" data-i18n="detail.repository">REPOSITORY</span>
+            <a class="detail-meta__source" href={mod.source} target="_blank" rel="noopener" data-i18n="detail.viewSource">VIEW SOURCE ↗</a>
           </div>
         </div>
 
-        <h2 class="detail-body__sub">What it does</h2>
+        <h2 class="detail-body__sub" data-i18n="detail.whatItDoes">What it does</h2>
         <ul class="detail-features">
-          {mod.features.map((f) => (
-            <li class="detail-features__item">{f}</li>
+          {mod.features.map((f, i) => (
+            <li class="detail-features__item" data-i18n={`mod.${mod.slug}.feat.${i}`}>{f}</li>
           ))}
         </ul>
 
         <div class="detail-actions">
-          <a href="/#contact" class="btn btn--primary">Start a project →</a>
-          <a href="/modules" class="btn btn--ghost">All modules</a>
+          <a href="/#contact" class="btn btn--primary" data-i18n="detail.startProject">Start a project →</a>
+          <a href="/modules" class="btn btn--ghost" data-i18n="detail.allModules">All modules</a>
         </div>
       </div>
     </div>
@@ -88,12 +94,12 @@ const { mod, prev, next } = Astro.props;
   <!-- Prev / Next -->
   <nav class="detail-nav" aria-label="Module navigation">
     <a href={`/modules/${prev.slug}`} class="detail-nav__link detail-nav__link--prev">
-      <span class="detail-nav__dir">← PREVIOUS</span>
-      <span class="detail-nav__title">{prev.n} · {prev.title}</span>
+      <span class="detail-nav__dir" data-i18n="detail.prev">← PREVIOUS</span>
+      <span class="detail-nav__title">{prev.n} · <span data-i18n={`mod.${prev.slug}.title`}>{prev.title}</span></span>
     </a>
     <a href={`/modules/${next.slug}`} class="detail-nav__link detail-nav__link--next">
-      <span class="detail-nav__dir">NEXT →</span>
-      <span class="detail-nav__title">{next.n} · {next.title}</span>
+      <span class="detail-nav__dir" data-i18n="detail.next">NEXT →</span>
+      <span class="detail-nav__title">{next.n} · <span data-i18n={`mod.${next.slug}.title`}>{next.title}</span></span>
     </a>
   </nav>
 
