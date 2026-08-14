@@ -23,6 +23,12 @@ const {
 
 const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : Astro.url.href;
 
+// Social preview. Regenerate with `node scripts/generate-og-image.mjs`.
+// Absolute — Slack, X and LinkedIn all reject a relative og:image.
+const ogImage = new URL('/og-image.png', Astro.site ?? Astro.url).href;
+const ogImageAlt =
+  '0815software — Standard software, built to a higher standard. Specification card: licence MIT, licence fee €0.00, source public on GitHub, no lock-in.';
+
 const orgSchema = {
   '@context': 'https://schema.org',
   '@type': 'Organization',
@@ -32,6 +38,15 @@ const orgSchema = {
   description,
   address: { '@type': 'PostalAddress', addressLocality: 'Linz', addressCountry: 'AT' },
   sameAs: ['https://github.com/Gnadi/0815software'],
+};
+
+const siteSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: '0815software',
+  url: Astro.site?.href ?? 'https://0815software.vercel.app/',
+  inLanguage: ['en', 'de'],
+  publisher: { '@type': 'Organization', name: '0815software' },
 };
 ---
 
@@ -46,19 +61,33 @@ const orgSchema = {
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="canonical" href={canonical} />
 
+    <meta name="robots" content="index,follow" />
+
     <!-- Open Graph / Twitter -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="0815software" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
-    <meta name="twitter:card" content="summary" />
+    <meta property="og:locale" content="en" />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={ogImageAlt} />
+    <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image:alt" content={ogImageAlt} />
 
     <script type="application/ld+json" set:html={JSON.stringify(orgSchema)} />
+    <script type="application/ld+json" set:html={JSON.stringify(siteSchema)} />
   </head>
   <body>
+    <!-- The nav is sticky and carries eight in-page links; this lets keyboard
+         users reach the content without tabbing through all of them. -->
+    <a href="#main" class="skip-link">Skip to content</a>
     <slot />
   </body>
   <script>
