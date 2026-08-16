@@ -43,16 +43,39 @@ export function trustProxyHops(raw: string | undefined): number {
   return Number.isInteger(hops) && hops > 0 ? hops : 0;
 }
 
+/**
+ * Read a non-negative numeric setting, falling back to the shipped default
+ * when the value is not one.
+ *
+ * `Number()` used to be trusted here, and it answers two ways that both cost
+ * you the control the setting exists to provide. `Number('off')` is NaN, and
+ * NaN is the dangerous one: it is not `<= 0`, so the limiter below looked
+ * enabled, but every comparison inside a token bucket is false against NaN, so
+ * it never refused a request — `RATE_LIMIT_RPM=off` silently shipped a service
+ * with NO rate limiting at all, and nothing in the logs said so. `Number('')`
+ * is 0, which disables the limiter outright, and an empty string is exactly
+ * what an unset variable interpolated into a compose file yields — the same
+ * accident `guard.ts` refuses to boot on for secrets.
+ *
+ * A typo must not quietly remove a defence, so both fall back to the default.
+ * An explicit, deliberate `0` still disables the limiter, as documented.
+ */
+function nonNegativeNumber(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 export function hardeningFromEnv(env: NodeJS.ProcessEnv = process.env): HardeningConfig {
   return {
-    rateLimitRpm: env.RATE_LIMIT_RPM !== undefined ? Number(env.RATE_LIMIT_RPM) : 600,
-    loginRateLimitRpm: env.LOGIN_RATE_LIMIT_RPM !== undefined ? Number(env.LOGIN_RATE_LIMIT_RPM) : 20,
+    rateLimitRpm: nonNegativeNumber(env.RATE_LIMIT_RPM, 600),
+    loginRateLimitRpm: nonNegativeNumber(env.LOGIN_RATE_LIMIT_RPM, 20),
     corsOrigins: (env.CORS_ORIGINS ?? '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
     hsts: env.HSTS === 'true' || env.NODE_ENV === 'production',
-    requestTimeoutMs: env.REQUEST_TIMEOUT_MS !== undefined ? Number(env.REQUEST_TIMEOUT_MS) : 30_000,
+    requestTimeoutMs: nonNegativeNumber(env.REQUEST_TIMEOUT_MS, 30_000),
     trustProxy: trustProxyHops(env.TRUST_PROXY),
   };
 }
@@ -62,15 +85,31 @@ interface Bucket {
   updatedAt: number;
 }
 
+/** How long a bucket may sit untouched before a prune may drop it. */
+const BUCKET_TTL_MS = 120_000;
+/** Minimum gap between prunes, so a full scan cannot run per request. */
+const PRUNE_INTERVAL_MS = 60_000;
+
 /** Continuous-refill token bucket keyed by IP. Burst capacity = one minute's quota. */
 function makeLimiter(rpm: number, now: () => number) {
   const buckets = new Map<string, Bucket>();
+  let prunedAt = -Infinity;
   return (ip: string): boolean => {
-    if (rpm <= 0) return true;
+    // Written as `!(rpm > 0)` rather than `rpm <= 0` so a non-finite rpm
+    // disables the limiter visibly instead of slipping past this line and
+    // then permitting everything anyway through NaN bucket arithmetic.
+    // `hardeningFromEnv` already rejects such values; this is the backstop
+    // for a config assembled in code.
+    if (!(rpm > 0)) return true;
     const at = now();
-    // Opportunistic prune so the map cannot grow without bound.
-    if (buckets.size > 10_000) {
-      for (const [key, b] of buckets) if (at - b.updatedAt > 120_000) buckets.delete(key);
+    // Prune so the map cannot grow without bound — but at most once a minute.
+    // The scan is O(size), and the old unconditional `size > 10_000` check ran
+    // it on EVERY request once that many distinct IPs were live, which is the
+    // load a flood produces: the limiter's own bookkeeping became the more
+    // expensive half of the request.
+    if (buckets.size > 10_000 && at - prunedAt > PRUNE_INTERVAL_MS) {
+      prunedAt = at;
+      for (const [key, b] of buckets) if (at - b.updatedAt > BUCKET_TTL_MS) buckets.delete(key);
     }
     const bucket = buckets.get(ip) ?? { tokens: rpm, updatedAt: at };
     bucket.tokens = Math.min(rpm, bucket.tokens + ((at - bucket.updatedAt) / 60_000) * rpm);

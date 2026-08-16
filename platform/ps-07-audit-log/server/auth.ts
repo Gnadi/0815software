@@ -124,12 +124,34 @@ export function parseBearer(header: string | undefined): string | null {
   return match ? match[1]!.trim() : null;
 }
 
+/**
+ * Percent-decode a cookie value, keeping the raw text when the encoding is
+ * malformed.
+ *
+ * `decodeURIComponent` THROWS a URIError on a stray percent sign, and a cookie
+ * is attacker-controlled text that a browser then replays on every single
+ * request for the whole TTL. Unguarded, that throw escapes the session
+ * middleware, so a client holding one corrupt byte gets a 500 on every
+ * request instead of the 401 that would send it back to the login page — a
+ * session that can neither authenticate nor recover, and an error page where
+ * the deployment's monitoring expects an auth failure. Undecodable bytes are
+ * not a valid signed token either, so handing them on verbatim fails
+ * verification and lands on the same 401 as any other bad cookie.
+ */
+function decodeCookieValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 export function parseCookies(header: string | undefined): Record<string, string> {
   const cookies: Record<string, string> = {};
   if (!header) return cookies;
   for (const part of header.split(';')) {
     const eq = part.indexOf('=');
-    if (eq > 0) cookies[part.slice(0, eq).trim()] = decodeURIComponent(part.slice(eq + 1).trim());
+    if (eq > 0) cookies[part.slice(0, eq).trim()] = decodeCookieValue(part.slice(eq + 1).trim());
   }
   return cookies;
 }

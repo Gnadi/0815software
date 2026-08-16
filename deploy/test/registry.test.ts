@@ -63,10 +63,19 @@ function envVarsRead(source: string): Set<string> {
   return new Set([...source.matchAll(/\benv\.([A-Z][A-Z0-9_]*)\b/g)].map((m) => m[1]));
 }
 
-/** The `Number(env.PORT) || 1234` default a config.ts declares. */
+/**
+ * The `numberFromEnv('PORT', env.PORT, 1234, …)` default a config.ts declares.
+ *
+ * Deliberately does NOT also accept the older `Number(env.PORT) || 1234`. That
+ * shape reads a mistyped port as the default and boots a service nothing can
+ * reach, so a config.ts that goes back to it should fail this guard rather
+ * than be quietly understood by it.
+ */
 function portDefault(source: string): number {
-  const match = /Number\(env\.PORT\)\s*\|\|\s*(\d+)/.exec(source);
-  if (!match) throw new Error('no PORT default found in config.ts');
+  const match = /numberFromEnv\('PORT',\s*env\.PORT,\s*(\d+)/.exec(source);
+  if (!match) {
+    throw new Error("no numberFromEnv('PORT', …) default found in config.ts");
+  }
   return Number(match[1]);
 }
 
