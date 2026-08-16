@@ -254,12 +254,22 @@ describe('migration 002', () => {
       .run(id, 'mod-04-invoice-billing', '42', 'T');
     fresh.prepare('INSERT INTO idempotency (key, party_id, created_at) VALUES (?, ?, ?)').run('k1', id, 'T');
 
-    expect(runMigrations(fresh, MIGRATIONS)).toBe(1);
+    // Every migration after the baseline runs. Expressed as a count derived
+    // from MIGRATIONS rather than a literal, so appending 004 does not fail a
+    // test that is about data survival, not about how many migrations exist.
+    expect(runMigrations(fresh, MIGRATIONS)).toBe(MIGRATIONS.length - 1);
 
     const party = fresh.prepare('SELECT * FROM parties WHERE id = ?').get(id) as Record<string, unknown>;
     expect(party.name).toBe('Legacy GmbH');
     expect(party.address_lines).toBe('Line 1\nLine 2');
     expect(party.merged_into).toBeNull();
+    // 003 is additive: a party that predates the structured address adopts the
+    // columns as NULL and keeps every other field. Nothing is back-filled by
+    // guessing at the free-text lines above.
+    expect(party.street).toBeNull();
+    expect(party.postcode).toBeNull();
+    expect(party.city).toBeNull();
+    expect(party.country_code).toBeNull();
     expect((fresh.prepare('SELECT COUNT(*) AS n FROM party_refs').get() as { n: number }).n).toBe(1);
     expect((fresh.prepare('SELECT COUNT(*) AS n FROM idempotency').get() as { n: number }).n).toBe(1);
 

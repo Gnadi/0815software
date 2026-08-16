@@ -24,6 +24,10 @@ export function seed(db: Database.Database): void {
       email: 'buchhaltung@blaustern.example',
       vat_id: 'ATU12345678',
       address_lines: ['Hauptstraße 12', '5020 Salzburg', 'Austria'],
+      street: 'Hauptstraße 12',
+      postcode: '5020',
+      city: 'Salzburg',
+      country_code: 'AT',
     }),
   );
   createParty(
@@ -34,6 +38,10 @@ export function seed(db: Database.Database): void {
       email: 'rechnungen@nordwind.example',
       vat_id: 'DE811234567',
       address_lines: ['Hafenstraße 4', '20359 Hamburg', 'Germany'],
+      street: 'Hafenstraße 4',
+      postcode: '20359',
+      city: 'Hamburg',
+      country_code: 'DE',
     }),
   );
   createParty(
@@ -45,6 +53,10 @@ export function seed(db: Database.Database): void {
       email: 'verkauf@auer-soehne.example.at',
       vat_id: 'ATU87654321',
       address_lines: ['Industriestraße 22', '4020 Linz', 'Austria'],
+      street: 'Industriestraße 22',
+      postcode: '4020',
+      city: 'Linz',
+      country_code: 'AT',
     }),
   );
   console.log('[seed] created 2 customer parties and 1 supplier party');

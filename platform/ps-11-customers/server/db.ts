@@ -113,6 +113,33 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 3,
+    name: 'structured-postal-address',
+    up(db) {
+      // The same address a second time, in fields instead of lines.
+      //
+      // `address_lines` stays exactly as it is and stays the authority for
+      // letterheads — a printed address is a layout decision that structured
+      // fields cannot reproduce. These four are for machines: EN 16931 requires
+      // the country as an ISO 3166-1 alpha-2 code (BT-40 seller, BT-55 buyer)
+      // and recipients match on post code and city, so PS-12 e-Invoicing needs
+      // them as data rather than as text to be guessed at.
+      //
+      // Purely additive: no CHECK, no rebuild, no backfill. Every existing party
+      // keeps working for every purpose except structured invoicing, and the
+      // e-invoice validator names the missing field rather than inventing one.
+      // The country code is validated in application code against the real ISO
+      // list (shared/countries.ts), the same place `email` and `vat_id` are
+      // validated — a CHECK could only test the shape, and "XX" has the shape.
+      db.exec(`
+      ALTER TABLE parties ADD COLUMN street TEXT;
+      ALTER TABLE parties ADD COLUMN postcode TEXT;
+      ALTER TABLE parties ADD COLUMN city TEXT;
+      ALTER TABLE parties ADD COLUMN country_code TEXT;
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

@@ -32,6 +32,20 @@ MIT-licensed, self-contained (Express 5 + SQLite, Node built-ins only).
   and IBAN/BIC. VAT ids are stored normalized (upper-cased, whitespace
   stripped), emails lower-cased, so matching never depends on how someone typed
   it.
+- **The postal address is held twice, on purpose.** `address_lines` is the
+  **letterhead** — free text, one entry per printed line — and stays the
+  authority for anything a human reads, because where the company suffix sits
+  and whether the country is spelled out are layout decisions no set of fields
+  reproduces. `street` / `postcode` / `city` / `country_code` are the same
+  address as **data**, because EN 16931 will not accept an address as lines of
+  text: a compliant e-invoice carries the country as an ISO 3166-1 alpha-2 code
+  (BT-40 seller, BT-55 buyer), and recipients match on post code and city.
+  Nothing is parsed out of the lines to fill them — a guessed address produces
+  an e-invoice that the recipient's system rejects silently weeks later, which
+  is worse than not sending one. All four are nullable, so a party created
+  before this contract keeps working for every purpose except structured
+  invoicing, and a country code that is not a real country is a 422 rather than
+  a quietly dropped field.
 - **`resolve` — find-or-create, and the only call most modules make.** It
   matches in a fixed order and tells you which rule fired:
   1. the caller's own reference (`source` + `external_id`),

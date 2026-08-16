@@ -11,6 +11,7 @@ import type {
   ResolveResult,
 } from '../shared/types.js';
 import { PARTY_KINDS } from '../shared/types.js';
+import { normalizeCountryCode } from '../shared/countries.js';
 
 /** Escape LIKE wildcards so a term matches literally — needs an ESCAPE clause. */
 export function escapeLike(term: string): string {
@@ -98,9 +99,20 @@ interface CleanInput {
   email: string | null;
   vat_id: string | null;
   address_lines: string[] | undefined;
+  street: string | null;
+  postcode: string | null;
+  city: string | null;
+  country_code: string | null;
   iban: string | null;
   bic: string | null;
 }
+
+/**
+ * The structured-address fields, named once so every path that has to enumerate
+ * them — enrich, update, erase, the merge overlay — cannot drift apart by
+ * forgetting one.
+ */
+export const ADDRESS_FIELDS = ['street', 'postcode', 'city', 'country_code'] as const;
 
 /** Validate and normalize a party payload. Throws 422 with field details. */
 export function cleanInput(body: Record<string, unknown>, { requireName = true } = {}): CleanInput {
@@ -129,6 +141,17 @@ export function cleanInput(body: Record<string, unknown>, { requireName = true }
   const email = normalizeEmail(body.email);
   if (email !== null && !EMAIL_RE.test(email)) errors.push({ field: 'email', message: 'must be a valid email' });
 
+  // A country code that was given but is not a country is an ERROR, not a
+  // silent null. Storing null there would turn "I typed DA for Denmark" into "I
+  // never said", and the mistake would only surface as a rejected e-invoice.
+  let country_code: string | null = null;
+  if (body.country_code !== undefined && body.country_code !== null && body.country_code !== '') {
+    country_code = normalizeCountryCode(body.country_code);
+    if (country_code === null) {
+      errors.push({ field: 'country_code', message: 'must be an ISO 3166-1 alpha-2 country code, e.g. "AT"' });
+    }
+  }
+
   const result: CleanInput = {
     name,
     kind,
@@ -136,6 +159,10 @@ export function cleanInput(body: Record<string, unknown>, { requireName = true }
     email,
     vat_id: normalizeVatId(body.vat_id),
     address_lines: addressLines(body.address_lines, errors),
+    street: optionalText(body.street, 'street', 200, errors),
+    postcode: optionalText(body.postcode, 'postcode', 20, errors),
+    city: optionalText(body.city, 'city', 100, errors),
+    country_code,
     iban: optionalText(body.iban, 'iban', 40, errors),
     bic: optionalText(body.bic, 'bic', 20, errors),
   };
@@ -154,6 +181,10 @@ interface PartyRow {
   email: string | null;
   vat_id: string | null;
   address_lines: string;
+  street: string | null;
+  postcode: string | null;
+  city: string | null;
+  country_code: string | null;
   iban: string | null;
   bic: string | null;
   merged_into: number | null;
@@ -233,8 +264,9 @@ export function createParty(db: Database.Database, input: CleanInput, at = nowIs
   }
   const info = db
     .prepare(
-      `INSERT INTO parties (kind, name, contact_person, email, vat_id, address_lines, iban, bic, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO parties (kind, name, contact_person, email, vat_id, address_lines,
+                            street, postcode, city, country_code, iban, bic, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.kind,
@@ -243,6 +275,10 @@ export function createParty(db: Database.Database, input: CleanInput, at = nowIs
       input.email,
       input.vat_id,
       (input.address_lines ?? []).join('\n'),
+      input.street,
+      input.postcode,
+      input.city,
+      input.country_code,
       input.iban,
       input.bic,
       at,
@@ -261,11 +297,16 @@ export function updateParty(db: Database.Database, id: number, patch: Record<str
     email: patch.email !== undefined ? clean.email : existing.email,
     vat_id: patch.vat_id !== undefined ? clean.vat_id : existing.vat_id,
     address_lines: patch.address_lines !== undefined ? (clean.address_lines ?? []) : existing.address_lines,
+    street: patch.street !== undefined ? clean.street : existing.street,
+    postcode: patch.postcode !== undefined ? clean.postcode : existing.postcode,
+    city: patch.city !== undefined ? clean.city : existing.city,
+    country_code: patch.country_code !== undefined ? clean.country_code : existing.country_code,
     iban: patch.iban !== undefined ? clean.iban : existing.iban,
     bic: patch.bic !== undefined ? clean.bic : existing.bic,
   };
   db.prepare(
     `UPDATE parties SET name = ?, contact_person = ?, email = ?, vat_id = ?, address_lines = ?,
+            street = ?, postcode = ?, city = ?, country_code = ?,
             iban = ?, bic = ?, updated_at = ? WHERE id = ?`,
   ).run(
     next.name,
@@ -273,6 +314,10 @@ export function updateParty(db: Database.Database, id: number, patch: Record<str
     next.email,
     next.vat_id,
     next.address_lines.join('\n'),
+    next.street,
+    next.postcode,
+    next.city,
+    next.country_code,
     next.iban,
     next.bic,
     at,
@@ -299,9 +344,13 @@ export function archiveParty(db: Database.Database, id: number, at = nowIso()): 
 export function eraseParty(db: Database.Database, id: number, at = nowIso()): Party {
   const party = requireParty(db, id);
   if (party.kind === 'self') fail(409, 'The self party cannot be erased');
+  // The structured address is erased with the rest: a post code and street are
+  // personal data for a sole trader in exactly the way the printed lines are,
+  // and leaving them behind would defeat the erasure through the back door.
   db.prepare(
     `UPDATE parties SET name = ?, contact_person = NULL, email = NULL, vat_id = NULL,
-            address_lines = '', iban = NULL, bic = NULL, archived_at = ?, updated_at = ? WHERE id = ?`,
+            address_lines = '', street = NULL, postcode = NULL, city = NULL, country_code = NULL,
+            iban = NULL, bic = NULL, archived_at = ?, updated_at = ? WHERE id = ?`,
   ).run(`[erased party ${id}]`, party.archived_at ?? at, at, id);
   return getParty(db, id)!;
 }
@@ -379,6 +428,14 @@ function enrich(db: Database.Database, party: Party, input: CleanInput, at: stri
   if (!party.bic && input.bic) patch.bic = input.bic;
   if (party.address_lines.length === 0 && input.address_lines && input.address_lines.length > 0) {
     patch.address_lines = input.address_lines;
+  }
+  // Structured address fields enrich INDEPENDENTLY of each other, and
+  // independently of address_lines. A party imported with a letterhead but no
+  // country code is precisely the party a later import can complete, and
+  // treating the address as one all-or-nothing unit would leave it incomplete
+  // forever — which for an e-invoice means permanently unsendable.
+  for (const field of ADDRESS_FIELDS) {
+    if (!party[field] && input[field]) patch[field] = input[field];
   }
   if (Object.keys(patch).length === 0) return party;
   return updateParty(db, party.id, patch, at);
@@ -499,6 +556,10 @@ export function mergeParties(
         email: loser.email,
         vat_id: loser.vat_id,
         address_lines: loser.address_lines,
+        street: loser.street,
+        postcode: loser.postcode,
+        city: loser.city,
+        country_code: loser.country_code,
         iban: loser.iban,
         bic: loser.bic,
       },

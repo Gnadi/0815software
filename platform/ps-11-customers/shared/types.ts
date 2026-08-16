@@ -39,8 +39,35 @@ export interface Party {
   email: string | null;
   /** Normalized: upper-cased, whitespace removed. */
   vat_id: string | null;
-  /** Postal address, one entry per line. */
+  /**
+   * Postal address as free text, one entry per line. This is the LETTERHEAD
+   * form — what a module prints at the top of a PDF — and it stays the
+   * authority for that, because a letterhead is a layout decision (which line
+   * carries the company suffix, whether the country is spelled out) that
+   * structured fields cannot reproduce.
+   */
   address_lines: string[];
+  /**
+   * The same address in STRUCTURED form, for machines rather than readers.
+   *
+   * EN 16931 — the European e-invoice standard — does not accept an address as
+   * lines of text: a compliant invoice carries the country as an ISO 3166-1
+   * alpha-2 code (BT-40 for the seller, BT-55 for the buyer) and, in practice,
+   * a post code and city the recipient's system can match on. Guessing those
+   * back out of free text works until it doesn't, and an e-invoice that a
+   * recipient's software silently rejects is worse than no e-invoice at all.
+   * So the fields exist here, in the service that owns party master data,
+   * rather than being re-derived by every module that needs to emit one.
+   *
+   * All four are nullable: a party that predates this contract keeps working
+   * for every purpose except structured invoicing, and PS-12 e-Invoicing says
+   * precisely which field is missing instead of emitting an invalid document.
+   */
+  street: string | null;
+  postcode: string | null;
+  city: string | null;
+  /** ISO 3166-1 alpha-2, upper case — e.g. "AT", "DE". */
+  country_code: string | null;
   iban: string | null;
   bic: string | null;
   /**
@@ -70,6 +97,11 @@ export interface PartyInput {
   email?: string | null;
   vat_id?: string | null;
   address_lines?: string[];
+  street?: string | null;
+  postcode?: string | null;
+  city?: string | null;
+  /** ISO 3166-1 alpha-2. A value that is not a country is rejected, not dropped. */
+  country_code?: string | null;
   iban?: string | null;
   bic?: string | null;
 }

@@ -15,7 +15,19 @@ export interface Party {
   email: string | null;
   /** Normalized: upper-cased, whitespace removed. */
   vat_id: string | null;
+  /** The address as a LETTERHEAD — free text, one entry per printed line. */
   address_lines: string[];
+  /**
+   * The same address in structured form, for machines. EN 16931 will not accept
+   * an address as lines of text, so PS-12 e-Invoicing reads these. All four are
+   * nullable: a party that predates the contract keeps working for everything
+   * except structured invoicing.
+   */
+  street: string | null;
+  postcode: string | null;
+  city: string | null;
+  /** ISO 3166-1 alpha-2, upper case. */
+  country_code: string | null;
   iban: string | null;
   bic: string | null;
   /** The survivor's id when this party was merged away; null otherwise. */
@@ -40,6 +52,11 @@ export interface PartyInput {
   email?: string | null;
   vat_id?: string | null;
   address_lines?: string[];
+  street?: string | null;
+  postcode?: string | null;
+  city?: string | null;
+  /** ISO 3166-1 alpha-2. A value that is not a country is rejected, not dropped. */
+  country_code?: string | null;
   iban?: string | null;
   bic?: string | null;
 }
