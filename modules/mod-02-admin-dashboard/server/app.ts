@@ -86,11 +86,43 @@ function buildListQuery(resource: ResourceDef, query: Request['query']): ListQue
   };
 }
 
-function parseIds(raw: unknown): number[] | null {
+/**
+ * The most ids one request may address. Every id becomes a bound parameter in
+ * an `IN (...)`, and SQLite refuses a statement carrying more than 32766 of
+ * them by THROWING — which reached the client as a 500 on a request whose only
+ * fault was being too large. The cap is well under that and well over the
+ * 200-row maximum page, so no selection the UI can make ever hits it.
+ */
+const MAX_IDS = 1000;
+
+/**
+ * An `ids` batch: the query parameter of the CSV export, or the body of
+ * bulk-delete.
+ *
+ * Three outcomes, not two. `absent` and `invalid` used to collapse into the
+ * same `null`, and the export read that as "no filter" — so `?ids=1,abc`
+ * quietly exported the WHOLE table instead of refusing a malformed filter. A
+ * request that asks for something impossible is told so; a request that asks
+ * for nothing gets the unfiltered list it asked for.
+ */
+type IdBatch =
+  | { kind: 'absent' }
+  | { kind: 'ids'; ids: number[] }
+  | { kind: 'invalid'; message: string };
+
+function parseIds(raw: unknown): IdBatch {
+  if (raw === undefined || raw === null || raw === '') return { kind: 'absent' };
   const values = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : null;
-  if (!values || values.length === 0) return null;
+  if (values === null) return { kind: 'invalid', message: 'ids must be a list of positive integers' };
+  if (values.length === 0) return { kind: 'absent' };
+  if (values.length > MAX_IDS) {
+    return { kind: 'invalid', message: `ids must hold at most ${MAX_IDS} entries (got ${values.length})` };
+  }
   const ids = values.map(Number);
-  return ids.every((n) => Number.isInteger(n) && n > 0) ? ids : null;
+  if (!ids.every((n) => Number.isInteger(n) && n > 0)) {
+    return { kind: 'invalid', message: 'ids must be a list of positive integers' };
+  }
+  return { kind: 'ids', ids };
 }
 
 export interface AppOptions {
@@ -190,9 +222,14 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const resource = findResource(req, res);
     if (!resource) return;
 
-    const ids = parseIds(req.query.ids);
+    const batch = parseIds(req.query.ids);
+    if (batch.kind === 'invalid') {
+      res.status(422).json({ error: batch.message });
+      return;
+    }
     let rows: Record<string, unknown>[];
-    if (ids) {
+    if (batch.kind === 'ids') {
+      const { ids } = batch;
       rows = db
         .prepare(`SELECT * FROM "${resource.name}" WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY id`)
         .all(...ids) as Record<string, unknown>[];
@@ -291,11 +328,14 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   app.post('/api/:resource/bulk-delete', (req, res) => {
     const resource = findResource(req, res);
     if (!resource) return;
-    const ids = parseIds((req.body as Record<string, unknown> | undefined)?.ids);
-    if (!ids) {
-      res.status(422).json({ error: 'Body must be {"ids": [1, 2, ...]}' });
+    const batch = parseIds((req.body as Record<string, unknown> | undefined)?.ids);
+    if (batch.kind !== 'ids') {
+      res.status(422).json({
+        error: batch.kind === 'invalid' ? batch.message : 'Body must be {"ids": [1, 2, ...]}',
+      });
       return;
     }
+    const { ids } = batch;
     const info = db
       .prepare(`DELETE FROM "${resource.name}" WHERE id IN (${ids.map(() => '?').join(',')})`)
       .run(...ids);
