@@ -59,6 +59,17 @@ describe('auth', () => {
     }
   });
 
+  // A cookie is text a browser replays on every request for the whole TTL, so
+  // a corrupted one must fail CLOSED — 401, back to the login page. It used to
+  // fail open into a 500: `decodeURIComponent` throws on a stray percent sign,
+  // and the throw escaped the session middleware.
+  it('rejects a malformed session cookie with 401, not a 500', async () => {
+    for (const value of ['%', '%ZZ', 'abc%', '%E0%A4%A']) {
+      const res = await request(app).get('/api/me').set('Cookie', `mod01_session=${value}`);
+      expect(res.status, value).toBe(401);
+    }
+  });
+
   it('rejects a wrong password and an unknown email', async () => {
     const wrong = await request(app)
       .post('/api/login')
