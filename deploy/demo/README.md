@@ -68,9 +68,11 @@ Schedule it nightly from the host's cron:
 
 ## Show it on the marketing site
 
-Once it's live, set `PUBLIC_DEMO_URL=https://<DEMO_DOMAIN>` in the marketing
-site's environment (Vercel). The `/demo` page then shows a **"Launch the live
-demo"** button straight to the hosted hub — the customer just clicks.
+The `/demo` page links to `https://demo.0815software.com` — the official hosted
+demo — with a **"Launch the live demo"** button and one link per app subdomain.
+For any other deployment, set `PUBLIC_DEMO_URL=https://<DEMO_DOMAIN>` in the
+marketing site's environment (Vercel); the page derives the app subdomains from
+it, so nothing else has to change.
 
 ## How it's wired
 
