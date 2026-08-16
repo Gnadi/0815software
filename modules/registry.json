@@ -10,7 +10,9 @@
       "routePrefix": "/identity",
       "urlEnv": "IDENTITY_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET"]
+      "secrets": [
+        "SESSION_SECRET"
+      ]
     },
     {
       "id": "ps-02-workflow-engine",
@@ -20,7 +22,11 @@
       "routePrefix": "/workflow",
       "urlEnv": "WORKFLOW_URL",
       "tickDriven": true,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     },
     {
       "id": "ps-03-notification-hub",
@@ -30,7 +36,11 @@
       "routePrefix": "/notify",
       "urlEnv": "NOTIFICATION_URL",
       "tickDriven": true,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     },
     {
       "id": "ps-04-ai-platform",
@@ -40,7 +50,11 @@
       "routePrefix": "/ai",
       "urlEnv": "AI_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     },
     {
       "id": "ps-05-integration-hub",
@@ -66,7 +80,12 @@
       "routePrefix": "/files",
       "urlEnv": "FILES_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN", "SIGNING_SECRET"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN",
+        "SIGNING_SECRET"
+      ]
     },
     {
       "id": "ps-07-audit-log",
@@ -76,7 +95,11 @@
       "routePrefix": "/audit",
       "urlEnv": "AUDIT_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     },
     {
       "id": "ps-08-payments",
@@ -86,7 +109,12 @@
       "routePrefix": "/payments",
       "urlEnv": "PAYMENTS_URL",
       "tickDriven": true,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN", "WEBHOOK_SECRET"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN",
+        "WEBHOOK_SECRET"
+      ]
     },
     {
       "id": "ps-09-search",
@@ -96,7 +124,11 @@
       "routePrefix": "/search",
       "urlEnv": "SEARCH_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     },
     {
       "id": "ps-10-number",
@@ -106,7 +138,11 @@
       "routePrefix": "/number",
       "urlEnv": "NUMBER_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     },
     {
       "id": "ps-11-customers",
@@ -116,7 +152,25 @@
       "routePrefix": "/customers",
       "urlEnv": "CUSTOMERS_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
+    },
+    {
+      "id": "ps-12-einvoice",
+      "n": "PS-12",
+      "label": "e-Invoicing",
+      "defaultPort": 4012,
+      "routePrefix": "/einvoice",
+      "urlEnv": "EINVOICE_URL",
+      "tickDriven": false,
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     }
   ],
   "modules": [
@@ -130,12 +184,18 @@
       "scope": "3–4 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-07-audit-log"]
+        "optional": [
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
-        "optional": ["DOCUMENTS_DIR"],
-        "secrets": ["SESSION_SECRET"]
+        "optional": [
+          "DOCUMENTS_DIR"
+        ],
+        "secrets": [
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": false,
@@ -154,12 +214,18 @@
       "scope": "2–3 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
         "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
@@ -178,12 +244,18 @@
       "scope": "4–5 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
         "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
@@ -213,12 +285,29 @@
         ]
       },
       "peers": {
-        "optional": [{ "id": "mod-13-offers", "urlEnv": "OFFERS_URL" }]
+        "optional": [
+          {
+            "id": "mod-13-offers",
+            "urlEnv": "OFFERS_URL"
+          }
+        ]
       },
       "env": {
-        "required": ["SELLER_NAME", "SELLER_ADDRESS", "SELLER_VAT_ID"],
-        "optional": ["SELLER_IBAN", "SELLER_BIC", "NOTIFICATION_INVOICE_CHANNEL", "SELLER_REFRESH_MS"],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "required": [
+          "SELLER_NAME",
+          "SELLER_ADDRESS",
+          "SELLER_VAT_ID"
+        ],
+        "optional": [
+          "SELLER_IBAN",
+          "SELLER_BIC",
+          "NOTIFICATION_INVOICE_CHANNEL",
+          "SELLER_REFRESH_MS"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
@@ -237,12 +326,18 @@
       "scope": "2–3 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
         "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
@@ -271,7 +366,10 @@
       "env": {
         "required": [],
         "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
@@ -290,12 +388,17 @@
       "scope": "5–6 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-08-payments"]
+        "optional": [
+          "ps-08-payments"
+        ]
       },
       "env": {
         "required": [],
         "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": false,
@@ -314,12 +417,22 @@
       "scope": "3–4 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
-        "optional": ["EXPORTS_DIR", "SCHEDULER_TICK_SECONDS", "SOURCE_VIEWS_ONLY"],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "optional": [
+          "EXPORTS_DIR",
+          "SCHEDULER_TICK_SECONDS",
+          "SOURCE_VIEWS_ONLY"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
@@ -338,12 +451,21 @@
       "scope": "3–4 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-06-file-storage", "ps-07-audit-log", "ps-09-search"]
+        "optional": [
+          "ps-06-file-storage",
+          "ps-07-audit-log",
+          "ps-09-search"
+        ]
       },
       "env": {
         "required": [],
-        "optional": ["STORAGE_DIR", "MAX_UPLOAD_BYTES"],
-        "secrets": ["SESSION_SECRET"]
+        "optional": [
+          "STORAGE_DIR",
+          "MAX_UPLOAD_BYTES"
+        ],
+        "secrets": [
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": false,
@@ -362,12 +484,19 @@
       "scope": "3–5 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log", "ps-11-customers"]
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log",
+          "ps-11-customers"
+        ]
       },
       "env": {
         "required": [],
         "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
@@ -386,12 +515,18 @@
       "scope": "2–3 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
         "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
@@ -419,8 +554,14 @@
       },
       "env": {
         "required": [],
-        "optional": ["NOTIFICATION_ACK_CHANNEL"],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET", "INTAKE_SECRET"]
+        "optional": [
+          "NOTIFICATION_ACK_CHANNEL"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET",
+          "INTAKE_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
@@ -447,9 +588,19 @@
         ]
       },
       "env": {
-        "required": ["SELLER_NAME", "SELLER_ADDRESS", "SELLER_VAT_ID", "SELLER_EMAIL"],
-        "optional": ["SELLER_REFRESH_MS"],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "required": [
+          "SELLER_NAME",
+          "SELLER_ADDRESS",
+          "SELLER_VAT_ID",
+          "SELLER_EMAIL"
+        ],
+        "optional": [
+          "SELLER_REFRESH_MS"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
@@ -468,12 +619,19 @@
       "scope": "3–4 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-03-notification-hub", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-03-notification-hub",
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
         "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,

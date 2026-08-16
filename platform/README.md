@@ -43,6 +43,7 @@ through the shared [`clients`](./clients) package.
 | PS-09 | Search           | Cross-entity keyword & faceted search     | 4009     | Available |
 | PS-10 | Number           | Gapless sequence numbers per scope        | 4010     | Available |
 | PS-11 | Customers        | Party master data: customers and suppliers | 4011     | Available |
+| PS-12 | e-Invoicing      | EN 16931 structured invoices + validator   | 4012     | Available |
 
 - [PS-01 · Identity](./ps-01-identity) — authentication, users, roles,
   permissions, OAuth (real OIDC flow + offline mock IdP), API keys,
@@ -72,6 +73,14 @@ through the shared [`clients`](./clients) package.
   VAT id, email), per-module references as the migration path for module-local
   tables, merge-with-redirect for duplicates, and the stack owner's own `self`
   party as the single home for the seller identity.
+- [PS-12 · e-Invoicing](./ps-12-einvoice) — EN 16931 structured invoices in
+  UN/CEFACT CII syntax (European profile and the German XRechnung CIUS), the
+  business-rule validator that **refuses to issue** a document breaking one, and
+  inbound parsing of invoices received from third parties. Germany has required
+  receiving structured invoices since 2025-01-01 and requires issuing them from
+  2027/2028; a PDF satisfies neither. Modules keep their own PDF writers and
+  stay standalone — the service adds the structured format, it never replaces
+  the document.
 
 Modules consume these through the shared
 [`@0815software/platform-clients`](./clients) package — one typed client per
@@ -82,7 +91,7 @@ service over the built-in `fetch`, with a `fetch` seam for offline tests.
 Each service runs on its own. From any service folder:
 
 ```sh
-cd platform/ps-01-identity   # …or ps-02 … ps-07
+cd platform/ps-01-identity   # …or ps-02 … ps-12
 npm install
 npm run seed        # optional — the server also seeds an empty DB on boot
 npm run dev:api     # API on its port (see the table above)

@@ -33,3 +33,22 @@ export type {
   ResolveInput,
   ResolveResult,
 } from './customers.js';
+
+export { EInvoiceClient } from './einvoice.js';
+export type {
+  DocumentType,
+  EInvoiceAddress,
+  EInvoiceInput,
+  EInvoiceParty,
+  InboundInvoice,
+  InvoiceLine,
+  IssuedDocument,
+  IssueResult,
+  PaymentDetails,
+  Profile,
+  RuleViolation,
+  Syntax,
+  ValidationResult,
+  VatBreakdownRow,
+  VatCategory,
+} from './einvoice.js';

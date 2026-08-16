@@ -33,9 +33,12 @@ function fileDirsOf(pkg: string): string[] {
 
 describe('backup coverage', () => {
   it('has a package to check', () => {
-    // 11 services + 14 modules; if the registry shrinks, so does this suite,
-    // and a silently empty test would defeat the whole point.
-    expect(packagePaths.length).toBe(25);
+    // Every service plus every module. Derived from the registry rather than
+    // hard-coded, so adding a service does not fail a test about backups —
+    // but still asserted, because a silently empty suite would defeat the
+    // whole point of checking that every package can be backed up.
+    expect(packagePaths.length).toBe(services.length + modules.length);
+    expect(packagePaths.length).toBeGreaterThan(20);
   });
 
   for (const pkg of packagePaths) {

@@ -317,6 +317,32 @@ export const platform: PlatformService[] = [
     ],
     consumers: 'MOD-04 Invoice & Billing, MOD-13 Offers, MOD-10 CRM Lite, MOD-06 Procurement.',
   },
+  {
+    n: 'PS-12',
+    slug: 'einvoice',
+    folder: 'ps-12-einvoice',
+    title: 'e-Invoicing',
+    purpose: 'EN 16931 structured invoices — generated, validated against the business rules, and read back when a supplier sends one.',
+    status: 'Available',
+    port: 4012,
+    source: `${REPO}/ps-12-einvoice`,
+    overview:
+      'A PDF is not an e-invoice. Germany has required every business to be able to RECEIVE a structured invoice since January 2025, and requires them to be ISSUED from January 2027 above \u20ac800,000 turnover and from January 2028 by everyone; Austria has demanded ebInterface or Peppol for public-sector invoices since 2014. PS-12 is where that is handled once instead of in every module that prints a document. It generates EN 16931 invoices in UN/CEFACT CII syntax, in the European profile and the German XRechnung CIUS, and it REFUSES to issue one that breaks a business rule \u2014 because an invalid e-invoice does not fail at the sender, it is accepted, transmitted, and rejected days later by the recipient, with an error the sender never sees. Modules keep their own PDF writers and stay standalone; with the service unset they behave exactly as before.',
+    responsibilities: [
+      'EN 16931 invoices in CII syntax, European profile and German XRechnung CIUS',
+      'The business-rule validator, as a gate: an invalid document is never issued',
+      'Exact integer arithmetic \u2014 the totals in the XML are the totals the customer saw',
+      'Idempotent issuing per invoice number, so a retry cannot mint a second document',
+      'Inbound parsing and content-addressed storage of invoices received from third parties',
+    ],
+    api: [
+      'POST /api/validate \u00b7 POST /api/documents',
+      'GET /api/documents \u00b7 GET /api/documents/:source/:number(/xml)',
+      'POST /api/inbound \u00b7 GET /api/inbound',
+      'GET /api/health \u00b7 GET /api/ready \u00b7 GET /api/metrics',
+    ],
+    consumers: 'MOD-04 Invoice & Billing, MOD-13 Offers, MOD-06 Procurement (inbound supplier invoices).',
+  },
 ];
 
 export function getService(slug: string): PlatformService | undefined {

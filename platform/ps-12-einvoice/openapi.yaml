@@ -1,0 +1,151 @@
+openapi: 3.1.0
+info:
+  title: PS-12 e-Invoicing API
+  version: '0.1.0'
+  description: >-
+    EN 16931 structured invoices (UN/CEFACT CII), in the European profile and
+    the German XRechnung CIUS, with the business-rule validator that refuses an
+    invalid document — plus inbound parsing of invoices received from third
+    parties. Request and response bodies are typed in
+    @0815software/platform-clients and frozen by this service’s contract test;
+    this document is the endpoint + auth surface.
+servers:
+  - url: http://localhost:4012
+    description: Local / per-customer deployment (behind Caddy in production)
+tags:
+  - name: ps-12-einvoice
+paths:
+  /api/health:
+    get:
+      summary: Get health
+      tags: [ps-12-einvoice]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/ready:
+    get:
+      summary: Readiness — database reachable and schema fully migrated
+      tags: [ps-12-einvoice]
+      security: []
+      responses:
+        '200': { description: Ready }
+        '503': { description: Not ready (pending migrations or unreachable database) }
+  /api/metrics:
+    get:
+      summary: Prometheus text exposition
+      tags: [ps-12-einvoice]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/login:
+    post:
+      summary: Exchange admin credentials for a session token
+      tags: [ps-12-einvoice]
+      security: []
+      responses:
+        '200': { description: Success }
+        '401': { description: Invalid username or password }
+  /api/logout:
+    post:
+      summary: Clear the session cookie
+      tags: [ps-12-einvoice]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/validate:
+    post:
+      summary: Validate an invoice without issuing it
+      description: >-
+        Reports every violated rule at once, with its EN 16931 identifier.
+        Stores nothing. Worth calling while the invoice is still a draft — that
+        is the last moment a missing field is cheap to fix.
+      tags: [ps-12-einvoice]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Result, valid or not }
+        '401': { description: Authentication required }
+        '422': { description: Unknown profile }
+  /api/documents:
+    post:
+      summary: Issue a structured invoice
+      description: >-
+        Idempotent per (source, invoice number): a retry returns the document
+        already issued, byte for byte. Validation is a gate — an invoice that
+        breaks a rule is not written, not stored and not returned.
+      tags: [ps-12-einvoice]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Issued }
+        '200': { description: Replayed — this document had already been issued }
+        '401': { description: Authentication required }
+        '409': { description: That number was already issued under a different profile }
+        '422': { description: The invoice does not satisfy the profile; details carry the rule ids }
+    get:
+      summary: List issued documents
+      tags: [ps-12-einvoice]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - { name: source, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500 } }
+      responses:
+        '200': { description: Success — metadata only, never the stored XML }
+        '401': { description: Authentication required }
+  /api/documents/{source}/{number}:
+    get:
+      summary: One issued document, with its XML
+      tags: [ps-12-einvoice]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - { name: source, in: path, required: true, schema: { type: string } }
+        - { name: number, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '404': { description: No such document }
+  /api/documents/{source}/{number}/xml:
+    get:
+      summary: The bare XML, as a downloadable attachment
+      tags: [ps-12-einvoice]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - { name: source, in: path, required: true, schema: { type: string } }
+        - { name: number, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: application/xml }
+        '401': { description: Authentication required }
+        '404': { description: No such document }
+  /api/inbound:
+    post:
+      summary: Record a structured invoice received from a third party
+      description: >-
+        Accepts raw application/xml or JSON {xml}. Deduplicated by content, so
+        the same document arriving twice is one document. A document that can
+        only be partly parsed is still stored — it may be the only copy. A
+        DOCTYPE is refused outright rather than processed.
+      tags: [ps-12-einvoice]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '201': { description: Recorded }
+        '200': { description: Already had this exact document }
+        '401': { description: Authentication required }
+        '422': { description: Not a parseable XML document, or a DOCTYPE was present }
+    get:
+      summary: List received invoices
+      tags: [ps-12-einvoice]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500 } }
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+components:
+  securitySchemes:
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared machine secret, or a scoped PS-01 API key when IDENTITY_URL is set.
+    adminSession:
+      type: http
+      scheme: bearer
+      description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.
