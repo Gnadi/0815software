@@ -207,6 +207,7 @@ Admin routes require the session cookie (`mod13_session`) from
 | Method & path        | Purpose                              |
 | -------------------- | ------------------------------------ |
 | `POST /api/login`    | `{ username, password }` → session   |
+| `GET /api/auth-mode` | Local or SSO — which credentials the form names |
 | `POST /api/logout`   | Clear the session                    |
 | `GET /api/me`        | Current admin username               |
 | `GET /api/health`    | Liveness (public)                    |

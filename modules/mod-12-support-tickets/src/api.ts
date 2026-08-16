@@ -52,6 +52,12 @@ export interface WebIntakeResult {
   status: Status;
 }
 
+/**
+ * What the server says about signing in: with single sign-on the credentials
+ * belong to PS-01 Identity, without it to this module's own admin account.
+ */
+export type AuthMode = { sso: false } | { sso: true; org: string };
+
 export const api = {
   // ── Public (no login) ──────────────────────────────────────────────
   submitWeb: (values: Record<string, unknown>) =>
@@ -68,6 +74,8 @@ export const api = {
   login: (username: string, password: string) =>
     request<{ ok: true; agent: string }>('/api/login', post({ username, password })),
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
+  /** Which credentials this deployment accepts — readable before signing in. */
+  authMode: () => request<AuthMode>('/api/auth-mode'),
   config: () => request<AppConfig>('/api/config'),
   agents: () => request<{ agents: Agent[] }>('/api/agents'),
   dashboard: () => request<Dashboard>('/api/dashboard'),

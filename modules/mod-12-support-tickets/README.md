@@ -275,6 +275,7 @@ Agent session:
 | Method | Path | Notes |
 | ------ | ---- | ----- |
 | `POST` | `/api/login` · `/api/logout` · `GET /api/me` | single agent login |
+| `GET`  | `/api/auth-mode` | local or SSO — which credentials the form names |
 
 Agent (require `mod12_session` cookie — else **401**):
 

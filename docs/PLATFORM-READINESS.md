@@ -327,7 +327,10 @@ CARRIES the PS-01 identity, so the module's audit entries and its own history
 rows (a ticket's status changes, a submitted timesheet) name the person who
 acted instead of the shared admin account everyone signs in as. When unset,
 each module falls back to its local admin credentials and the actor is that
-account, so standalone operation is intact.
+account, so standalone operation is intact. The sign-in form names whichever
+credentials the deployment actually accepts: it reads `GET /api/auth-mode`
+(public, since it is read before anyone is signed in) and, under SSO, points at
+PS-01 and its org instead of the local admin login that would be rejected.
 
 Authorization is deliberately NOT split up by this: whoever may sign in may
 still do everything the module offers. Per-user capabilities inside a module

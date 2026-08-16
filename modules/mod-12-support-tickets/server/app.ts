@@ -40,7 +40,7 @@ import {
   ticketDetail,
 } from './tickets.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
-import { nullVerifier, type LoginVerifier } from './sso.js';
+import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 function body(req: Request): Record<string, unknown> {
@@ -109,9 +109,14 @@ export interface AppOptions {
   /** Optional Platform Services integration; defaults to a no-op (standalone). */
   platform?: PlatformHooks;
   verifyLogin?: LoginVerifier;
+  /**
+   * Which credentials the login form should name, served as-is from
+   * GET /api/auth-mode. Defaults to this module's own — the standalone case.
+   */
+  loginMode?: LoginMode;
 }
 
-export function createApp({ db, hardening, auth, now = Date.now, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, now = Date.now, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN }: AppOptions): express.Express {
   const app = express();
 
   // Transport hardening: security headers, a default-deny CORS policy and
@@ -266,6 +271,15 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
       at: stamp(),
     });
     res.json(publicView(db, ref));
+  });
+
+  // Which credentials this deployment accepts, read by the login form before
+  // anyone is signed in — hence public. With SSO configured, PS-01 validates
+  // logins and this module's own admin credentials are rejected, so a form
+  // advertising them would send people at a password that cannot work. The org
+  // slug is deployment configuration, not a secret.
+  app.get('/api/auth-mode', (_req, res) => {
+    res.json(loginMode);
   });
 
   // ══ AGENT LOGIN ═══════════════════════════════════════════════════════
