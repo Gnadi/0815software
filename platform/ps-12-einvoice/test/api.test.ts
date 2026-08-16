@@ -343,3 +343,92 @@ describe('metrics', () => {
     expect(res.text).toContain('einvoice_inbound_unparsed_total{service="ps-12"} 1');
   });
 });
+
+describe('the ZUGFeRD hybrid route', () => {
+  /** The smallest structurally real PDF a caller could hand over. */
+  function tinyPdf(): Buffer {
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] >>',
+    ];
+    let out = '%PDF-1.4\n';
+    const offsets: number[] = [];
+    objects.forEach((b, i) => {
+      offsets.push(out.length);
+      out += `${i + 1} 0 obj\n${b}\nendobj\n`;
+    });
+    const xref = out.length;
+    out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    for (const o of offsets) out += `${String(o).padStart(10, '0')} 00000 n \n`;
+    out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(out, 'latin1');
+  }
+
+  it('embeds the issued XML into the caller-supplied PDF', async () => {
+    await issue({ source: SOURCE, invoice: invoice() });
+    const pdf = tinyPdf();
+    const res = await request(app)
+      .post(`/api/documents/${SOURCE}/INV-2026-0001/hybrid`)
+      .set(svc())
+      .type('application/pdf')
+      .send(pdf);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('application/pdf');
+    expect(res.headers['content-disposition']).toContain('INV-2026-0001.pdf');
+
+    const hybrid = Buffer.from(res.body as Buffer);
+    // The caller's bytes are the prefix — PS-12 appends, it never rewrites.
+    expect(hybrid.subarray(0, pdf.length).equals(pdf)).toBe(true);
+    expect(hybrid.toString('latin1')).toContain('/AFRelationship /Alternative');
+    expect(hybrid.toString('latin1')).toContain('CrossIndustryInvoice');
+  });
+
+  // The hybrid route embeds what was ALREADY validated. It is not a second way
+  // in past the gate.
+  it('404s an invoice that was never issued', async () => {
+    const res = await request(app)
+      .post(`/api/documents/${SOURCE}/NEVER-ISSUED/hybrid`)
+      .set(svc())
+      .type('application/pdf')
+      .send(tinyPdf());
+    expect(res.status).toBe(404);
+  });
+
+  it('422s something that is not a PDF, rather than 500', async () => {
+    await issue({ source: SOURCE, invoice: invoice() });
+    const res = await request(app)
+      .post(`/api/documents/${SOURCE}/INV-2026-0001/hybrid`)
+      .set(svc())
+      .type('application/pdf')
+      .send(Buffer.from('I am a spreadsheet'));
+    expect(res.status).toBe(422);
+    expect(res.body.error).toContain('could not embed');
+  });
+
+  it('requires a body', async () => {
+    await issue({ source: SOURCE, invoice: invoice() });
+    const res = await request(app).post(`/api/documents/${SOURCE}/INV-2026-0001/hybrid`).set(svc()).send();
+    expect(res.status).toBe(422);
+  });
+
+  it('marks an XRechnung document as XRECHNUNG in the XMP', async () => {
+    await issue({ source: SOURCE, invoice: invoice(), profile: 'xrechnung' });
+    const res = await request(app)
+      .post(`/api/documents/${SOURCE}/INV-2026-0001/hybrid`)
+      .set(svc())
+      .type('application/pdf')
+      .send(tinyPdf());
+    expect(Buffer.from(res.body as Buffer).toString('latin1')).toContain(
+      '<fx:ConformanceLevel>XRECHNUNG</fx:ConformanceLevel>',
+    );
+  });
+
+  it('needs a caller', async () => {
+    const res = await request(app)
+      .post(`/api/documents/${SOURCE}/INV-2026-0001/hybrid`)
+      .type('application/pdf')
+      .send(tinyPdf());
+    expect(res.status).toBe(401);
+  });
+});

@@ -404,7 +404,8 @@ what it was.
 | ------ | ---- | ------- |
 | `GET` | `/api/invoices/:id/einvoice` | Can this be issued? If not, which field is missing. |
 | `POST` | `/api/invoices/:id/einvoice` | Issue it. Idempotent on the invoice number. |
-| `GET` | `/api/invoices/:id/einvoice.xml` | The file. |
+| `GET` | `/api/invoices/:id/einvoice.xml` | The structured XML on its own. |
+| `GET` | `/api/invoices/:id/einvoice.pdf` | The ZUGFeRD hybrid: this module's PDF with the XML embedded. |
 
 **Two things this module refuses to guess**, because a guessed e-invoice is
 accepted by the sender and rejected weeks later by the recipient's system,
@@ -430,6 +431,14 @@ sent the number is assigned and the document is immutable.
 
 Rates above 0 % need nothing: a positive rate is standard-rated and the
 category derives itself.
+
+The hybrid (`einvoice.pdf`) is the **same PDF** `/pdf` serves, byte for byte,
+with the XML appended as an attachment — PS-12 never redraws the page, so the
+two documents cannot drift apart. Note that it is a ZUGFeRD-structured hybrid
+and not a PDF/A-3 file: this module's PDF writer uses the base-14 fonts without
+embedding, which PDF/A forbids. See
+[PS-12's README](../../platform/ps-12-einvoice#the-zugferd--factur-x-hybrid--and-exactly-what-it-is-not)
+for what that does and does not get you.
 
 ## License
 

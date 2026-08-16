@@ -353,3 +353,50 @@ describe('the mapping itself', () => {
     ]);
   });
 });
+
+describe('the ZUGFeRD hybrid: one file, both readings', () => {
+  beforeEach(async () => {
+    await harness({ platformOn: true });
+  });
+
+  it('serves the real PDF with the real XML inside it', async () => {
+    const id = await sentInvoice([STANDARD_LINE]);
+
+    const plain = await request(app).get(`/api/invoices/${id}/pdf`).set('Cookie', cookie);
+    expect(plain.status).toBe(200);
+
+    const hybrid = await request(app).get(`/api/invoices/${id}/einvoice.pdf`).set('Cookie', cookie);
+    expect(hybrid.status).toBe(200);
+    expect(hybrid.headers['content-type']).toContain('application/pdf');
+
+    const plainBytes = Buffer.from(plain.body as Buffer);
+    const hybridBytes = Buffer.from(hybrid.body as Buffer);
+
+    // The VISIBLE invoice is byte-for-byte the one this module has always
+    // rendered — PS-12 appends, it never redraws. That is the property that
+    // lets the two routes exist without the documents drifting apart.
+    expect(hybridBytes.subarray(0, plainBytes.length).equals(plainBytes)).toBe(true);
+    expect(hybridBytes.length).toBeGreaterThan(plainBytes.length);
+
+    // And a reader finds the invoice data where ZUGFeRD says it will be.
+    const text = hybridBytes.toString('latin1');
+    expect(text).toContain('factur-x.xml');
+    expect(text).toContain('/AFRelationship /Alternative');
+    expect(text).toContain('<ram:GrandTotalAmount>29.62</ram:GrandTotalAmount>');
+  });
+
+  it('refuses the hybrid for the same reasons it refuses the XML', async () => {
+    await harness({ platformOn: true, buyerCountry: null });
+    const id = await sentInvoice([STANDARD_LINE]);
+    const res = await request(app).get(`/api/invoices/${id}/einvoice.pdf`).set('Cookie', cookie);
+    expect(res.status).toBe(422);
+    expect(res.body.details.map((d: { field: string }) => d.field)).toContain('buyer.country_code');
+  });
+
+  it('503s when PS-12 is not configured, like the other e-invoice routes', async () => {
+    await harness({ platformOn: false });
+    const id = await sentInvoice([STANDARD_LINE]);
+    const res = await request(app).get(`/api/invoices/${id}/einvoice.pdf`).set('Cookie', cookie);
+    expect(res.status).toBe(503);
+  });
+});

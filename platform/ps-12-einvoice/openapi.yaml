@@ -114,6 +114,27 @@ paths:
         '200': { description: application/xml }
         '401': { description: Authentication required }
         '404': { description: No such document }
+  /api/documents/{source}/{number}/hybrid:
+    post:
+      summary: Embed the issued XML into a rendered PDF (ZUGFeRD / Factur-X)
+      description: >-
+        Accepts the rendered invoice PDF as application/pdf, or as JSON
+        { pdf_base64 }, and returns it with the already-issued XML embedded as
+        factur-x.xml. An incremental update: the caller's bytes are the prefix
+        of the result. NOTE this is a ZUGFeRD-STRUCTURED hybrid and not a
+        PDF/A-3 file — the modules' PDF writers use non-embedded base-14 fonts,
+        which PDF/A forbids, so the XMP deliberately omits pdfaid rather than
+        claiming a conformance a validator would fail.
+      tags: [ps-12-einvoice]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - { name: source, in: path, required: true, schema: { type: string } }
+        - { name: number, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: application/pdf — the hybrid document }
+        '401': { description: Authentication required }
+        '404': { description: No such issued document — embed only what was validated }
+        '422': { description: The body is not a PDF }
   /api/inbound:
     post:
       summary: Record a structured invoice received from a third party

@@ -32,9 +32,10 @@ document.
   a document that breaks one — with the rule identifiers attached.
 - **Receives** a structured invoice a third party sent, parses what it can,
   and keeps the bytes.
-- It does **not** render PDFs. MOD-04 and MOD-13 keep their own PDF writers
-  and stay independent of this service; ZUGFeRD/Factur-X (the CII XML embedded
-  in a PDF/A-3) is a planned addition **here**, not in the modules.
+- **Embeds** that XML into a PDF the caller renders — the ZUGFeRD / Factur-X
+  hybrid — as an incremental update that leaves the original bytes untouched.
+- It does **not** render PDFs. MOD-04 and MOD-13 keep their own PDF writers and
+  stay independent of this service; PS-12 only appends to what they produce.
 
 ## The three properties that matter
 
@@ -88,6 +89,48 @@ legally requires a stated exemption reason**, and emitting them as an
 undifferentiated "0 %" is the most common way an e-invoice is technically
 valid XML and substantively wrong. PS-12 refuses rather than guessing which
 one you meant.
+
+## The ZUGFeRD / Factur-X hybrid — and exactly what it is not
+
+`POST /api/documents/:source/:number/hybrid` takes the rendered invoice PDF and
+returns it with the already-issued XML embedded as `factur-x.xml`. One file: a
+human opens a page, a machine reads the data.
+
+It is an **incremental update** — new objects plus a cross-reference section
+chained to the original with `/Prev`. The caller's bytes are the prefix of the
+result, byte-identical, which the tests assert. That is what lets PS-12 do this
+without owning a renderer, and it means a change to a module's layout can never
+break the attachment. What gets written is what readers actually look for: the
+embedded file stream, a file specification carrying `/AFRelationship
+/Alternative` (the declaration that this attachment **is** the invoice, not a
+supplementary file), the `/EmbeddedFiles` name tree, `/AF` on the catalog, and
+XMP naming the profile.
+
+**This produces a ZUGFeRD-structured hybrid. It is not a PDF/A-3 file, and it
+does not claim to be.**
+
+PDF/A-3 (ISO 19005-3) additionally requires every font used for rendering to be
+**embedded**, plus an ICC output intent and an XMP `pdfaid` declaration. The
+modules' PDF writers deliberately use the base-14 fonts without embedding —
+that is what makes each of them ~270 dependency-free lines — so a document
+produced from one cannot be PDF/A-3 conformant no matter what is appended.
+Closing that gap means committing a licensed font binary to the repository and
+substantially rewriting those writers (font programs, `/Widths` from the font's
+own metrics, an ICC profile); it is a real piece of work with a real cost to the
+catalogue's "no dependencies, tiny surface" character, and it is not pretended
+away here.
+
+So the XMP carries the Factur-X profile and **deliberately omits `pdfaid`**. A
+document that claims a conformance it does not have is worse than one that
+claims nothing, because a validator downstream will test the claim — and a
+compliance feature that fails silently at the recipient is the exact failure
+this service exists to prevent. A test asserts `pdfaid` is absent.
+
+In practice: every ZUGFeRD reader extracts the XML by name or by
+`/AFRelationship`, and finds it here. A recipient running a strict PDF/A-3
+validator over the container will not be satisfied. If you need the latter,
+`GET …/einvoice.xml` — the pure XRechnung XML — is fully conformant on its own
+and is what German B2G actually asks for.
 
 ## Quickstart
 
@@ -149,6 +192,7 @@ curl -sX POST localhost:4012/api/inbound \
 | `GET` | `/api/documents` | List issued documents (`?source=`, `?limit=`). |
 | `GET` | `/api/documents/:source/:number` | One document with its XML. |
 | `GET` | `/api/documents/:source/:number/xml` | The bare XML, as an attachment. |
+| `POST` | `/api/documents/:source/:number/hybrid` | Embed the issued XML into a rendered PDF (`application/pdf` or `{pdf_base64}`). |
 | `POST` | `/api/inbound` | Record a received invoice (raw XML or `{xml}`). |
 | `GET` | `/api/inbound` | List received invoices. |
 | `GET` | `/api/health` · `/api/ready` · `/api/metrics` | Liveness, readiness, Prometheus text. |

@@ -577,6 +577,36 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
     })().catch(next);
   });
 
+  /**
+   * The hybrid: the same PDF this module always rendered, carrying the EN
+   * 16931 XML inside it. One file a human reads as a page and a machine reads
+   * as data.
+   *
+   * The PDF is rendered here, exactly as `/pdf` renders it, and PS-12 appends
+   * the attachment — so the visible invoice cannot drift from the plain one.
+   */
+  app.get('/api/invoices/:id/einvoice.pdf', (req, res, next) => {
+    void (async () => {
+      if (!requireEInvoice(res)) return;
+      const mapped = await einvoiceFor(Number(req.params.id));
+      if (!mapped.ok) {
+        res.status(422).json({ error: 'This invoice cannot be issued as an e-invoice yet', details: mapped.gaps });
+        return;
+      }
+      const issued = await platform.issueEInvoice(mapped.input);
+      if (!issued) {
+        res.status(503).json({ error: 'e-invoicing is not configured for this deployment' });
+        return;
+      }
+      const invoice = invoiceDetail(db, Number(req.params.id));
+      const customer = getCustomer(db, invoice.customer_id);
+      const hybrid = await platform.hybridPdf(issued.document.number, renderInvoicePdf(invoice, customer, seller));
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="${issued.document.number}.pdf"`);
+      res.send(hybrid);
+    })().catch(next);
+  });
+
   app.get('/api/invoices/:id/pdf', (req, res) => {
     const invoice = invoiceDetail(db, Number(req.params.id));
     const customer = getCustomer(db, invoice.customer_id);

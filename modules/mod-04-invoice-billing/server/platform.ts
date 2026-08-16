@@ -162,6 +162,13 @@ export interface PlatformHooks {
   issueEInvoice(invoice: EInvoiceInput): Promise<IssueResult | null>;
   /** Check an invoice against the profile without issuing it. */
   checkEInvoice(invoice: EInvoiceInput): Promise<ValidationResult | null>;
+  /**
+   * The ZUGFeRD hybrid: this module's own rendered PDF, returned with the
+   * issued XML embedded. The PDF is rendered HERE and always was — PS-12 only
+   * appends to it, so the visible invoice is byte-for-byte the one this module
+   * has produced since before e-invoicing existed.
+   */
+  hybridPdf(number: string, pdf: Buffer): Promise<Buffer | null>;
   /** The profile this deployment issues, for the operator to see. */
   einvoiceProfile(): Profile | null;
 }
@@ -199,6 +206,9 @@ export const noopPlatform: PlatformHooks = {
     return null;
   },
   async checkEInvoice() {
+    return null;
+  },
+  async hybridPdf() {
     return null;
   },
   einvoiceProfile() {
@@ -373,6 +383,12 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
     async checkEInvoice(invoice: EInvoiceInput): Promise<ValidationResult | null> {
       if (!einvoice) return null;
       return einvoice.validate(invoice, profile);
+    },
+
+    async hybridPdf(number: string, pdf: Buffer): Promise<Buffer | null> {
+      if (!einvoice) return null;
+      const bytes = await einvoice.hybridPdf('mod-04-invoice-billing', number, pdf);
+      return Buffer.from(bytes);
     },
 
     einvoiceProfile(): Profile | null {

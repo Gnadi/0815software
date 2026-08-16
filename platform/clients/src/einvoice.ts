@@ -178,6 +178,30 @@ export class EInvoiceClient extends BaseClient {
   }
 
   /**
+   * The ZUGFeRD / Factur-X hybrid: send the rendered PDF, get it back with the
+   * already-issued XML embedded as `factur-x.xml`.
+   *
+   * The PDF comes from the CALLER because PS-12 has no renderer — modules own
+   * theirs and stay independent. The original bytes come back untouched with
+   * objects appended.
+   *
+   * NOTE ON CONFORMANCE: this produces a ZUGFeRD-STRUCTURED hybrid, not a
+   * PDF/A-3 file. Every reader that extracts the XML by name or by
+   * `/AFRelationship` finds it, which is the half carrying the invoice data.
+   * Full PDF/A-3 additionally requires embedded fonts and an ICC output
+   * intent, which the modules' deliberately tiny base-14 PDF writers do not
+   * produce — so the XMP does not claim `pdfaid`, because a claim a validator
+   * would fail is worse than no claim.
+   */
+  async hybridPdf(source: string, number: string, pdf: Uint8Array): Promise<Uint8Array> {
+    return this.requestBinary(
+      'POST',
+      `/api/documents/${encodeURIComponent(source)}/${encodeURIComponent(number)}/hybrid`,
+      { pdf_base64: Buffer.from(pdf).toString('base64') },
+    );
+  }
+
+  /**
    * Record a structured invoice a third party sent us — the obligation German
    * businesses have had since 2025-01-01. Deduplicated by content, so the same
    * document arriving twice is one document.

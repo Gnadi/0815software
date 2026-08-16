@@ -21,6 +21,12 @@ export type FetchLike = (
   status: number;
   text: () => Promise<string>;
   json?: () => Promise<unknown>;
+  /**
+   * Only needed by `requestBinary`. Optional so an existing test double stays
+   * valid — a double that wants to serve bytes has to provide it, and one that
+   * does not gets a clear error rather than a PDF mangled through `text()`.
+   */
+  arrayBuffer?: () => Promise<ArrayBuffer>;
 }>;
 
 /** Default request timeout: a hung service must not hang the caller's request. */
@@ -171,6 +177,48 @@ export abstract class BaseClient {
     }
 
     return parsed as T;
+  }
+
+  /**
+   * A request whose RESPONSE is bytes rather than JSON.
+   *
+   * The request body still goes as JSON, so retries, timeouts and the
+   * `ServiceError` mapping behave exactly as everywhere else — only the
+   * success path differs. Needed where a service returns a file the caller
+   * hands straight to a browser or a mail attachment, and where base64 in a
+   * JSON envelope (PS-06's idiom for stored blobs) would be a pointless
+   * round trip.
+   *
+   * An error response is still read as JSON, because a failure carries a
+   * message, not a file.
+   */
+  protected async requestBinary(method: string, path: string, body?: unknown): Promise<Uint8Array> {
+    const res = await this.doFetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: this.headers(),
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: this.timeoutSignal(),
+    });
+    if (!res.ok) {
+      const raw = await res.text();
+      let parsed: unknown = raw;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        /* a non-JSON error body is the message itself */
+      }
+      const message =
+        parsed && typeof parsed === 'object' && 'error' in parsed
+          ? String((parsed as { error: unknown }).error)
+          : `${method} ${path} failed with ${res.status}`;
+      throw new ServiceError(res.status, message, parsed);
+    }
+    if (typeof res.arrayBuffer !== 'function') {
+      throw new Error(
+        `${method} ${path} returned bytes, but the injected fetch has no arrayBuffer() — reading them through text() would corrupt them`,
+      );
+    }
+    return new Uint8Array(await res.arrayBuffer());
   }
 
   protected apiGet<T>(path: string): Promise<T> {
