@@ -1,12 +1,15 @@
 import {
   AuditClient,
   CustomersClient,
+  EInvoiceClient,
   FilesClient,
   NotificationClient,
   NumberClient,
   PaymentsClient,
 } from '@0815software/platform-clients';
+import type { EInvoiceInput, IssueResult, Profile, ValidationResult } from '@0815software/platform-clients';
 import type { SelfParty } from './seller.js';
+import type { StructuredAddress } from './einvoice.js';
 
 /**
  * Optional integration with the Platform Services. Every hook is best-effort
@@ -22,6 +25,11 @@ import type { SelfParty } from './seller.js';
  *   - PS-11 Customers         — resolve an imported customer against the
  *                               stack's party master data, so billing an offer
  *                               bills the same party the quote was for
+ *   - PS-12 e-Invoicing       — issue the same invoice as an EN 16931
+ *                               structured document. Unset, this module is
+ *                               exactly what it always was: a PDF. Set, the
+ *                               PDF is unchanged and a structured document is
+ *                               available alongside it.
  *   - MOD-13 Offers           — fetch an accepted offer as a neutral document
  *                               transfer (shared/transfer.ts). The one call
  *                               here that is not a Platform Service; it is
@@ -52,6 +60,7 @@ export interface PlatformConfig {
   paymentsUrl?: string;
   numberUrl?: string;
   customersUrl?: string;
+  einvoiceUrl?: string;
   /** Base URL of MOD-13 Offers, for billing an accepted offer. */
   offersUrl?: string;
   serviceToken?: string;
@@ -59,6 +68,8 @@ export interface PlatformConfig {
   invoiceChannel?: string;
   /** PS-10 scope for invoice numbers (default "invoice"). */
   numberScope?: string;
+  /** Which EN 16931 profile to issue: "en16931" or "xrechnung". */
+  einvoiceProfile?: string;
 }
 
 export interface InvoiceIssuedInfo {
@@ -131,6 +142,28 @@ export interface PlatformHooks {
    * keeps its SELLER_* environment values. See server/seller.ts.
    */
   fetchSelf(): Promise<SelfParty | null>;
+  /**
+   * A party's structured postal address from PS-11 — what EN 16931 needs and
+   * this module's free-text `address` column cannot supply. Null when PS-11 is
+   * unset, unreachable, or has no such party; the e-invoice route then names
+   * the missing field instead of inventing a country.
+   */
+  fetchPartyAddress(partyId: number): Promise<StructuredAddress | null>;
+  /**
+   * Issue the invoice as an EN 16931 structured document. Null when PS-12 is
+   * not configured — the standalone posture, in which this module has no
+   * notion of e-invoicing at all.
+   *
+   * NOT best-effort, deliberately. Every other hook here degrades silently
+   * because losing it costs a side effect; losing this one costs the document
+   * the operator asked for, and a legally mandated one at that. A failure
+   * surfaces so they can act on it rather than believing an e-invoice went out.
+   */
+  issueEInvoice(invoice: EInvoiceInput): Promise<IssueResult | null>;
+  /** Check an invoice against the profile without issuing it. */
+  checkEInvoice(invoice: EInvoiceInput): Promise<ValidationResult | null>;
+  /** The profile this deployment issues, for the operator to see. */
+  einvoiceProfile(): Profile | null;
 }
 
 /** The no-op hooks used when nothing is configured. */
@@ -159,6 +192,18 @@ export const noopPlatform: PlatformHooks = {
   async fetchSelf() {
     return null;
   },
+  async fetchPartyAddress() {
+    return null;
+  },
+  async issueEInvoice() {
+    return null;
+  },
+  async checkEInvoice() {
+    return null;
+  },
+  einvoiceProfile() {
+    return null;
+  },
 };
 
 export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
@@ -172,11 +217,17 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const customers = cfg.customersUrl
     ? new CustomersClient({ baseUrl: cfg.customersUrl, serviceToken: cfg.serviceToken })
     : null;
+  const einvoice = cfg.einvoiceUrl
+    ? new EInvoiceClient({ baseUrl: cfg.einvoiceUrl, serviceToken: cfg.serviceToken })
+    : null;
   const offersUrl = cfg.offersUrl ? cfg.offersUrl.replace(/\/+$/, '') : null;
-  if (!notify && !files && !audit && !payments && !numbers && !customers && !offersUrl) return noopPlatform;
+  if (!notify && !files && !audit && !payments && !numbers && !customers && !einvoice && !offersUrl) {
+    return noopPlatform;
+  }
 
   const channel = cfg.invoiceChannel ?? 'transactional-email';
   const numberScope = cfg.numberScope ?? 'invoice';
+  const profile: Profile = cfg.einvoiceProfile === 'xrechnung' ? 'xrechnung' : 'en16931';
 
   return {
     async invoiceIssued(info: InvoiceIssuedInfo): Promise<void> {
@@ -296,6 +347,36 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
         console.warn('[mod-04] seller lookup failed:', err);
         return null;
       }
+    },
+
+    async fetchPartyAddress(partyId: number): Promise<StructuredAddress | null> {
+      if (!customers) return null;
+      try {
+        const { party } = await customers.get(partyId);
+        return {
+          street: party.street,
+          postcode: party.postcode,
+          city: party.city,
+          country_code: party.country_code,
+        };
+      } catch (err) {
+        console.warn('[mod-04] party address lookup failed:', err);
+        return null;
+      }
+    },
+
+    async issueEInvoice(invoice: EInvoiceInput): Promise<IssueResult | null> {
+      if (!einvoice) return null;
+      return einvoice.issue('mod-04-invoice-billing', invoice, profile);
+    },
+
+    async checkEInvoice(invoice: EInvoiceInput): Promise<ValidationResult | null> {
+      if (!einvoice) return null;
+      return einvoice.validate(invoice, profile);
+    },
+
+    einvoiceProfile(): Profile | null {
+      return einvoice ? profile : null;
     },
 
     async offerBilled(info: OfferBilledInfo): Promise<void> {

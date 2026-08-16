@@ -2,7 +2,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
 import { VAT_RATES } from '../shared/money.js';
-import { STATUSES, type FieldError, type InvoiceStatus } from '../shared/types.js';
+import { STATUSES, VAT_CATEGORIES, type FieldError, type InvoiceStatus } from '../shared/types.js';
 import {
   actorOf,
   checkCredentials,
@@ -37,6 +37,7 @@ import { importTransfer, MODULE_ID } from './transfer-import.js';
 import type { DocumentTransfer } from '../shared/transfer.js';
 import { nullVerifier, type LoginVerifier } from './sso.js';
 import { likeTerm } from './invoices.js';
+import { toEInvoice } from './einvoice.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -131,7 +132,30 @@ function validateDraft(input: Record<string, unknown>): DraftInput {
     if (!(VAT_RATES as readonly number[]).includes(vatRate)) {
       errors.push({ field: `lines[${i}].vat_rate`, message: `VAT rate must be one of: ${VAT_RATES.join(', ')}` });
     }
-    return { description, quantity, unitPriceCents, vatRate };
+
+    // What a 0 % line MEANS — optional, and only meaningful at 0 %. A rate
+    // above 0 is standard-rated with nothing to decide, so a category sent
+    // alongside one is rejected rather than silently ignored: accepting it
+    // would create a second place for the category and the rate to disagree.
+    let vatCategory: string | null = null;
+    if (line.vat_category !== undefined && line.vat_category !== null && line.vat_category !== '') {
+      if (typeof line.vat_category !== 'string' || !(VAT_CATEGORIES as readonly string[]).includes(line.vat_category)) {
+        errors.push({
+          field: `lines[${i}].vat_category`,
+          message: `VAT category must be one of: ${VAT_CATEGORIES.join(', ')}`,
+        });
+      } else if (vatRate > 0) {
+        errors.push({
+          field: `lines[${i}].vat_category`,
+          message: 'A VAT category only applies at a 0 % rate — a rate above zero is always standard-rated',
+        });
+      } else {
+        vatCategory = line.vat_category;
+      }
+    }
+    const vatExemptionReason = optText(line.vat_exemption_reason, `lines[${i}].vat_exemption_reason`, errors, 200);
+
+    return { description, quantity, unitPriceCents, vatRate, vatCategory, vatExemptionReason };
   });
   if (errors.length > 0) fail(errors);
   return { customerId, paymentTermsDays, note, lines };
@@ -451,6 +475,106 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
       recordPayment(db, id, { date: todayIso(), amountCents: detail.open_cents, note: `PS-08 ${result.public_id}` });
     }
     res.json({ payment: result, invoice: invoiceDetail(db, id) });
+  });
+
+  /**
+   * The structured e-invoice, alongside the PDF — never instead of it.
+   *
+   * Three routes, because the operator has three different questions:
+   *   GET  …/einvoice        can this invoice be issued, and if not, why not?
+   *   POST …/einvoice        issue it (idempotent on the invoice number)
+   *   GET  …/einvoice.xml    give me the file
+   *
+   * The first exists because the answer is usually "not yet, and here is the
+   * field that is missing" — a country code that lives in PS-11, or a 0 % line
+   * that has not said whether it is exempt or reverse-charged. Finding that out
+   * while the invoice is still a draft is the whole point; once it is sent the
+   * number is assigned and the document is immutable.
+   */
+  const einvoiceFor = async (id: number): Promise<
+    | { ok: true; input: import('@0815software/platform-clients').EInvoiceInput }
+    | { ok: false; gaps: { field: string; message: string }[] }
+  > => {
+    const invoice = invoiceDetail(db, id);
+    const customer = getCustomer(db, invoice.customer_id);
+    const partyId = (
+      db.prepare('SELECT party_id FROM customers WHERE id = ?').get(customer.id) as
+        | { party_id: number | null }
+        | undefined
+    )?.party_id;
+    const buyerAddress = partyId ? await platform.fetchPartyAddress(partyId) : null;
+    const mapped = toEInvoice({
+      invoice,
+      customer,
+      seller,
+      sellerAddress: {
+        street: seller.street ?? null,
+        postcode: seller.postcode ?? null,
+        city: seller.city ?? null,
+        country_code: seller.countryCode ?? null,
+      },
+      buyerAddress,
+    });
+    return mapped.ok ? { ok: true, input: mapped.invoice } : { ok: false, gaps: mapped.gaps };
+  };
+
+  /** 503 rather than 404: the route exists, this deployment has not wired it. */
+  const requireEInvoice = (res: Response): boolean => {
+    if (platform.einvoiceProfile() !== null) return true;
+    res.status(503).json({
+      error: 'e-invoicing is not configured for this deployment — set EINVOICE_URL to a PS-12 instance',
+    });
+    return false;
+  };
+
+  app.get('/api/invoices/:id/einvoice', (req, res, next) => {
+    void (async () => {
+      if (!requireEInvoice(res)) return;
+      const mapped = await einvoiceFor(Number(req.params.id));
+      if (!mapped.ok) {
+        res.json({ profile: platform.einvoiceProfile(), ready: false, gaps: mapped.gaps, violations: [] });
+        return;
+      }
+      const check = await platform.checkEInvoice(mapped.input);
+      res.json({
+        profile: platform.einvoiceProfile(),
+        ready: check?.valid ?? false,
+        gaps: [],
+        violations: check?.violations ?? [],
+      });
+    })().catch(next);
+  });
+
+  app.post('/api/invoices/:id/einvoice', (req, res, next) => {
+    void (async () => {
+      if (!requireEInvoice(res)) return;
+      const mapped = await einvoiceFor(Number(req.params.id));
+      if (!mapped.ok) {
+        res.status(422).json({ error: 'This invoice cannot be issued as an e-invoice yet', details: mapped.gaps });
+        return;
+      }
+      const issued = await platform.issueEInvoice(mapped.input);
+      res.status(issued?.replayed ? 200 : 201).json(issued);
+    })().catch(next);
+  });
+
+  app.get('/api/invoices/:id/einvoice.xml', (req, res, next) => {
+    void (async () => {
+      if (!requireEInvoice(res)) return;
+      const mapped = await einvoiceFor(Number(req.params.id));
+      if (!mapped.ok) {
+        res.status(422).json({ error: 'This invoice cannot be issued as an e-invoice yet', details: mapped.gaps });
+        return;
+      }
+      const issued = await platform.issueEInvoice(mapped.input);
+      if (!issued) {
+        res.status(503).json({ error: 'e-invoicing is not configured for this deployment' });
+        return;
+      }
+      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${issued.document.number}.xml"`);
+      res.send(issued.xml);
+    })().catch(next);
   });
 
   app.get('/api/invoices/:id/pdf', (req, res) => {

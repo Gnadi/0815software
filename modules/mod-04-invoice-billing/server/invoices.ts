@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { computeTotals, lineNetCents } from '../shared/money.js';
+import { VAT_CATEGORIES } from '../shared/types.js';
 import type {
   Customer,
   InvoiceDetail,
@@ -11,6 +12,7 @@ import type {
   Payment,
   PaymentStatus,
   StoredStatus,
+  VatCategory,
 } from '../shared/types.js';
 
 /** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
@@ -79,11 +81,35 @@ function getInvoice(db: Database.Database, id: number): InvoiceStoredRow {
   );
 }
 
+/**
+ * The VAT category of a line, derived where it can be and left undecided
+ * where it cannot.
+ *
+ * A rate above 0 is standard-rated and nothing else — there is no ambiguity to
+ * store. A 0 % rate is genuinely ambiguous: zero-rated, exempt, reverse
+ * charge, intra-community, export and out-of-scope all show 0 %, all mean
+ * different things, and all but zero-rated require a stated reason. So a 0 %
+ * line keeps whatever the operator set, and `null` honestly means "nobody has
+ * said yet" rather than a guess that a recipient's e-invoice validator would
+ * accept and a tax authority would not.
+ */
+export function vatCategoryOf(line: { vat_rate: number; vat_category?: string | null }): VatCategory | null {
+  if (line.vat_rate > 0) return 'S';
+  const stored = line.vat_category;
+  return stored !== null && stored !== undefined && (VAT_CATEGORIES as readonly string[]).includes(stored)
+    ? (stored as VatCategory)
+    : null;
+}
+
 function invoiceLines(db: Database.Database, invoiceId: number): InvoiceLine[] {
   const rows = db
     .prepare('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY position, id')
     .all(invoiceId) as Omit<InvoiceLine, 'net_cents'>[];
-  return rows.map((row) => ({ ...row, net_cents: lineNetCents(row) }));
+  return rows.map((row) => ({
+    ...row,
+    vat_category: vatCategoryOf(row),
+    net_cents: lineNetCents(row),
+  }));
 }
 
 function paidCents(db: Database.Database, invoiceId: number): number {
@@ -197,6 +223,14 @@ export interface LineInput {
   quantity: number;
   unitPriceCents: number;
   vatRate: number;
+  /**
+   * What a 0 % line means (UNTDID 5305). Ignored for a rate above 0, which is
+   * always standard-rated. Only needed for structured e-invoicing; a PDF-only
+   * deployment can leave it unset forever.
+   */
+  vatCategory?: string | null;
+  /** Why no VAT is charged. Required by EN 16931 for E / AE / K / G / O. */
+  vatExemptionReason?: string | null;
 }
 
 export interface DraftInput {
@@ -209,11 +243,24 @@ export interface DraftInput {
 
 function writeLines(db: Database.Database, invoiceId: number, lines: LineInput[]): void {
   const insert = db.prepare(
-    `INSERT INTO invoice_lines (invoice_id, position, description, quantity, unit_price_cents, vat_rate)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO invoice_lines
+       (invoice_id, position, description, quantity, unit_price_cents, vat_rate,
+        vat_category, vat_exemption_reason)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   lines.forEach((line, i) => {
-    insert.run(invoiceId, i + 1, line.description, line.quantity, line.unitPriceCents, line.vatRate);
+    insert.run(
+      invoiceId,
+      i + 1,
+      line.description,
+      line.quantity,
+      line.unitPriceCents,
+      line.vatRate,
+      // A rate above 0 derives its category, so storing one would only create
+      // a second place for it to disagree with the rate.
+      line.vatRate > 0 ? null : (line.vatCategory ?? null),
+      line.vatRate > 0 ? null : (line.vatExemptionReason ?? null),
+    );
   });
 }
 

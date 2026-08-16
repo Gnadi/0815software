@@ -32,6 +32,22 @@ export interface Customer {
   created_at: string;
 }
 
+/**
+ * VAT category (UNTDID 5305), for structured e-invoicing.
+ *
+ * `S` standard · `Z` zero rated · `E` exempt · `AE` reverse charge ·
+ * `K` intra-community · `G` export · `O` outside the scope of VAT.
+ *
+ * Only meaningful at a 0 % rate: every category here except `S` carries 0 %,
+ * and all but `Z` legally require a stated reason. A rate above 0 is always
+ * `S` and derives it, so the field is only ever set on a 0 % line.
+ */
+export const VAT_CATEGORIES = ['S', 'Z', 'E', 'AE', 'K', 'G', 'O'] as const;
+export type VatCategory = (typeof VAT_CATEGORIES)[number];
+
+/** Categories EN 16931 requires an exemption reason for. */
+export const REASON_REQUIRED_CATEGORIES: readonly VatCategory[] = ['E', 'AE', 'K', 'G', 'O'];
+
 export interface InvoiceLine {
   id: number;
   invoice_id: number;
@@ -40,6 +56,13 @@ export interface InvoiceLine {
   quantity: number;
   unit_price_cents: number;
   vat_rate: number;
+  /**
+   * Derived for a rate above 0 (always `S`), stored for a 0 % line, and `null`
+   * when nobody has said yet — which is an honest answer, not a default.
+   */
+  vat_category: VatCategory | null;
+  /** Why no VAT is charged. Only ever set on a 0 % line. */
+  vat_exemption_reason?: string | null;
   /** Derived: round(quantity × unit_price_cents). Never stored. */
   net_cents: number;
 }

@@ -16,9 +16,43 @@ interface EditableLine {
   quantity: string;
   unitPrice: string; // EUR text, e.g. "12,50"
   vatRate: string;
+  /** Only meaningful at 0 % — see the VAT_CATEGORY_LABELS note below. */
+  vatCategory: string;
+  vatExemptionReason: string;
 }
 
-const EMPTY_LINE: EditableLine = { description: '', quantity: '1', unitPrice: '', vatRate: '20' };
+const EMPTY_LINE: EditableLine = {
+  description: '',
+  quantity: '1',
+  unitPrice: '',
+  vatRate: '20',
+  vatCategory: '',
+  vatExemptionReason: '',
+};
+
+/**
+ * What a 0 % line means, in words an operator recognises.
+ *
+ * The field appears ONLY at 0 %, because that is the only rate where there is
+ * anything to decide — and it exists because "0 %" alone is not an answer a
+ * structured e-invoice accepts. Zero-rated, exempt, reverse charge,
+ * intra-community, export and out-of-scope all show 0 % and mean different
+ * things to a tax authority, and every one but zero-rated legally requires a
+ * stated reason. Leaving it blank is allowed: the invoice and its PDF work
+ * exactly as before, and only the e-invoice export asks for it.
+ */
+const VAT_CATEGORY_LABELS: [string, string][] = [
+  ['', '— not specified —'],
+  ['Z', 'Zero rated'],
+  ['E', 'Exempt'],
+  ['AE', 'Reverse charge'],
+  ['K', 'Intra-community supply'],
+  ['G', 'Export outside the EU'],
+  ['O', 'Outside the scope of VAT'],
+];
+
+/** Categories EN 16931 requires a written reason for. */
+const REASON_REQUIRED = new Set(['E', 'AE', 'K', 'G', 'O']);
 
 function parsedLines(lines: EditableLine[]): LineAmounts[] {
   return lines.map((l) => ({
@@ -55,6 +89,8 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
             quantity: String(l.quantity),
             unitPrice: centsToInput(l.unit_price_cents),
             vatRate: String(l.vat_rate),
+            vatCategory: l.vat_rate > 0 ? '' : (l.vat_category ?? ''),
+            vatExemptionReason: l.vat_exemption_reason ?? '',
           })),
         );
         setLoaded(true);
@@ -90,6 +126,11 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
           quantity: Number(l.quantity.replace(',', '.')),
           unit_price_cents: parseEurToCents(l.unitPrice) ?? -1,
           vat_rate: Number(l.vatRate),
+          // Only ever sent at 0 %: a rate above zero is standard-rated, and the
+          // API rejects a category alongside one rather than storing a second
+          // place for it to disagree with the rate.
+          vat_category: Number(l.vatRate) > 0 ? null : l.vatCategory || null,
+          vat_exemption_reason: Number(l.vatRate) > 0 ? null : l.vatExemptionReason.trim() || null,
         })),
       };
       const saved = id === null ? await api.createDraft(payload) : await api.updateDraft(id, payload);
@@ -214,6 +255,40 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
             >
               ✕
             </button>
+            {/*
+              Shown only at 0 %, because that is the only rate with anything to
+              decide. Optional: leave it blank and the invoice and its PDF are
+              exactly what they always were — only the e-invoice export needs it.
+            */}
+            {Number(line.vatRate) === 0 && (
+              <div className="inv-line__vatcat">
+                <label className="field">
+                  <span className="field__label mono">0 % BECAUSE</span>
+                  <select
+                    className="field__input"
+                    value={line.vatCategory}
+                    onChange={(e) => setLine(i, { vatCategory: e.target.value })}
+                  >
+                    {VAT_CATEGORY_LABELS.map(([value, label]) => (
+                      <option key={value || 'none'} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {REASON_REQUIRED.has(line.vatCategory) && (
+                  <label className="field">
+                    <span className="field__label mono">REASON (REQUIRED)</span>
+                    <input
+                      className="field__input"
+                      placeholder="e.g. Intra-community supply, Art. 138 VAT Directive"
+                      value={line.vatExemptionReason}
+                      onChange={(e) => setLine(i, { vatExemptionReason: e.target.value })}
+                    />
+                  </label>
+                )}
+              </div>
+            )}
           </div>
         ))}
         <button

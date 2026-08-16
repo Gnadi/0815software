@@ -103,6 +103,25 @@ export function openDb(path: string): Database.Database {
     );
   }
 
+  // What a 0 % line actually MEANS, for structured e-invoicing.
+  //
+  // This module has always treated VAT as a rate (0/10/20) and documented
+  // reverse charge as "a 0 % line with a note". That is fine on a PDF, where a
+  // human reads the note. It is not fine in an EN 16931 document: zero-rated,
+  // exempt, reverse charge, intra-community, export and out-of-scope all show
+  // 0 % and mean different things to a tax authority, and all but zero-rated
+  // legally require a stated reason. Emitting them as an undifferentiated 0 %
+  // is the commonest way an e-invoice is valid XML and substantively wrong.
+  //
+  // So the category is stored, nullable:
+  //   - a rate above 0 is unambiguous and derives 'S' at read time;
+  //   - a 0 % line with no category is UNDECIDED, and PS-12 refuses to guess.
+  // Nothing is back-filled, and nothing about the PDF or the totals changes.
+  if (!columns('invoice_lines').includes('vat_category')) {
+    db.exec('ALTER TABLE invoice_lines ADD COLUMN vat_category TEXT');
+    db.exec('ALTER TABLE invoice_lines ADD COLUMN vat_exemption_reason TEXT');
+  }
+
   ensureReportViews(db);
 
   return db;

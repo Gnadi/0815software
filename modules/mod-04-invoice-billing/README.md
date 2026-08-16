@@ -380,8 +380,56 @@ these, that's commissioned work — exactly the kind 0815software does:
   A credit-note document type (negative invoice) is an extension.
 - **Bank reconciliation / payment import** — payments are recorded
   manually or via the API; no CAMT/MT940 parsing, no PSP integration.
-- **e-Invoicing formats** (ebInterface, XRechnung, ZUGFeRD/Factur-X) —
-  the PDF is a plain human-readable document.
+- **e-Invoicing formats, standalone** — the PDF this module renders is a
+  plain human-readable document and always will be. Structured EN 16931
+  output (CII / XRechnung) is available **opt-in** through
+  [PS-12 e-Invoicing](../../platform/ps-12-einvoice): set `EINVOICE_URL` and
+  a sent invoice can additionally be issued as a structured document. Unset,
+  nothing changes. See "Structured e-invoicing" below.
+
+## Structured e-invoicing (optional, via PS-12)
+
+Germany has required every business to be able to **receive** an EN 16931
+invoice since 2025-01-01, and requires them to be **issued** from 2027-01-01
+above €800,000 turnover and from 2028-01-01 by everyone. Austria has demanded
+ebInterface or Peppol for public-sector invoices since 2014. A PDF satisfies
+none of that.
+
+With `EINVOICE_URL` pointing at a [PS-12](../../platform/ps-12-einvoice)
+instance, a **sent** invoice gains three routes. The PDF is untouched, and
+with the variable unset the routes answer `503` and this module is exactly
+what it was.
+
+| Method | Path | Purpose |
+| ------ | ---- | ------- |
+| `GET` | `/api/invoices/:id/einvoice` | Can this be issued? If not, which field is missing. |
+| `POST` | `/api/invoices/:id/einvoice` | Issue it. Idempotent on the invoice number. |
+| `GET` | `/api/invoices/:id/einvoice.xml` | The file. |
+
+**Two things this module refuses to guess**, because a guessed e-invoice is
+accepted by the sender and rejected weeks later by the recipient's system,
+with an error the sender never sees:
+
+1. **The country code** (BT-40 seller, BT-55 buyer) is mandatory in EN 16931,
+   and this module stores addresses as free text. It comes from
+   [PS-11 Customers](../../platform/ps-11-customers), which holds the
+   structured address — never from a regex over an address line. Set
+   `CUSTOMERS_URL` too, and fill in the `self` party and each customer.
+2. **What a 0 % line means.** This module has always documented reverse charge
+   as "a 0 % line with a note", which is fine on a page a human reads. It is
+   not fine in a document a tax authority parses: zero-rated, exempt, reverse
+   charge, intra-community, export and out-of-scope all show 0 % and mean
+   different things, and every one but zero-rated legally requires a stated
+   reason. A 0 % line therefore carries an optional **VAT category** and
+   **reason**, set per line in the invoice editor. Leave them blank and
+   everything works exactly as before — only the e-invoice export asks.
+
+Both come back from `GET …/einvoice` as a list of exactly what is missing, so
+an operator can fix it **while the invoice is still a draft** — once it is
+sent the number is assigned and the document is immutable.
+
+Rates above 0 % need nothing: a positive rate is standard-rated and the
+category derives itself.
 
 ## License
 

@@ -636,6 +636,27 @@ textarea.field__input {
   height: 38px;
 }
 
+/*
+ * The 0 % explanation, on its own row under the line it belongs to. Spanning
+ * the full grid rather than squeezing into a column: the reason field holds a
+ * legal citation, and a 90px box would make it unreadable.
+ */
+.inv-line__vatcat {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 10px;
+  align-items: end;
+  padding-left: 12px;
+  border-left: 2px solid var(--rule, rgba(232, 228, 220, 0.18));
+}
+
+@media (max-width: 640px) {
+  .inv-line__vatcat {
+    grid-template-columns: 1fr;
+  }
+}
+
 .editor .toolbar__clear {
   justify-self: start;
 }

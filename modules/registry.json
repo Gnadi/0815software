@@ -281,7 +281,8 @@
           "ps-07-audit-log",
           "ps-08-payments",
           "ps-10-number",
-          "ps-11-customers"
+          "ps-11-customers",
+          "ps-12-einvoice"
         ]
       },
       "peers": {
@@ -302,7 +303,8 @@
           "SELLER_IBAN",
           "SELLER_BIC",
           "NOTIFICATION_INVOICE_CHANNEL",
-          "SELLER_REFRESH_MS"
+          "SELLER_REFRESH_MS",
+          "EINVOICE_PROFILE"
         ],
         "secrets": [
           "ADMIN_PASSWORD",

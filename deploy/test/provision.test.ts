@@ -111,6 +111,10 @@ describe('service resolution', () => {
       'ps-08-payments',
       'ps-10-number',
       'ps-11-customers',
+      // MOD-04 references PS-12 for EN 16931 e-invoicing. Listed explicitly
+      // rather than derived, because the point of this test is that a stack
+      // brings up the services its modules ACTUALLY name and no others.
+      'ps-12-einvoice',
     ]);
   });
 
@@ -483,7 +487,10 @@ describe('rendered artifacts', () => {
       supportsSso: true,
       sourceDb: null,
     });
-    expect(manifest.services).toHaveLength(7);
+    // The eight services MOD-04 and MOD-13 between them reference. Derived
+    // from the plan rather than repeated as a literal — this assertion is
+    // about the manifest RECORDING the resolution, not about the count.
+    expect(manifest.services.map((s: any) => s.id)).toEqual(plan.services.map((s: any) => s.service.id));
     expect(manifest.services[0]).toMatchObject({ id: 'ps-01-identity', internalUrl: 'http://ps01:4001' });
     expect(manifest.placeholders).toEqual(plan.placeholders);
     expect(Date.parse(manifest.generatedAt)).not.toBeNaN();

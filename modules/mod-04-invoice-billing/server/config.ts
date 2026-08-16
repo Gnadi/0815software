@@ -9,6 +9,18 @@ export interface SellerConfig {
   vatId: string;
   iban: string;
   bic: string;
+  /**
+   * The structured form, for e-invoicing only. Sourced from PS-11's `self`
+   * party (server/seller.ts) and deliberately WITHOUT an environment fallback:
+   * a country code has one right answer and no sensible default, and inventing
+   * one produces an e-invoice a recipient rejects. Null here is what makes the
+   * e-invoice route name the missing field.
+   */
+  email?: string | null;
+  street?: string | null;
+  postcode?: string | null;
+  city?: string | null;
+  countryCode?: string | null;
 }
 
 export interface ServerConfig {
@@ -92,6 +104,12 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       // PS-11 Customers — when set, an imported customer is resolved against
       // the stack's party master data instead of being copied blind.
       customersUrl: env.CUSTOMERS_URL || undefined,
+      // PS-12 e-Invoicing — when set, a sent invoice can additionally be
+      // issued as an EN 16931 structured document (Germany: receiving
+      // mandatory since 2025, issuing from 2027/2028). Unset, this module is
+      // exactly what it always was and the PDF is unchanged either way.
+      einvoiceUrl: env.EINVOICE_URL || undefined,
+      einvoiceProfile: env.EINVOICE_PROFILE || undefined,
       // MOD-13 Offers — when set, an accepted offer can be billed with one
       // action. Unset means this module behaves exactly as it did before.
       offersUrl: env.OFFERS_URL || undefined,

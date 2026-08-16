@@ -30,6 +30,19 @@ export interface SelfParty {
   address_lines: string[];
   iban: string | null;
   bic: string | null;
+  /**
+   * The letterhead needs none of these; a structured e-invoice needs all of
+   * them. EN 16931 makes the country code mandatory (BT-40) and the XRechnung
+   * CIUS additionally requires the city, post code and a contact email
+   * (BR-DE-3/4/6). PS-11 is the authority: nothing is parsed back out of
+   * `address_lines`, because a guessed address produces a document the
+   * recipient's system rejects weeks later.
+   */
+  email?: string | null;
+  street?: string | null;
+  postcode?: string | null;
+  city?: string | null;
+  country_code?: string | null;
 }
 
 /** Fetch the `self` party, or null when PS-11 is unset, empty or unreachable. */
@@ -56,6 +69,16 @@ export async function applySeller(seller: SellerConfig, fetchSelf: FetchSelf): P
   if (self.vat_id) seller.vatId = self.vat_id;
   if (self.iban) seller.iban = self.iban;
   if (self.bic) seller.bic = self.bic;
+  // The structured fields, assigned only when PS-11 actually has them — the
+  // same "fill, never blank" rule the fields above follow. They have no env
+  // fallback at all: they exist only in PS-11, and an ABSENT one is what makes
+  // the e-invoice route name the missing field instead of emitting a document
+  // with an invented country.
+  if (self.email) seller.email = self.email;
+  if (self.street) seller.street = self.street;
+  if (self.postcode) seller.postcode = self.postcode;
+  if (self.city) seller.city = self.city;
+  if (self.country_code) seller.countryCode = self.country_code;
   return true;
 }
 
