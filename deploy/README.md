@@ -72,7 +72,7 @@ Docker — in production mode with freshly generated secrets, and asserts:
 - the generated `.env` has no `FILL-ME-IN` left, no value a boot guard would
   reject, and defines every variable `docker-compose.yml` references.
 
-A seven-service customer stack runs in ~11s; all 15 modules against every
+A seven-service customer stack runs in ~11s; all 16 modules against every
 service in ~21s. `cd deploy && npm run predeploy -- --manifest <path>` is the
 same thing through npm, and the generated customer README points the operator
 at it.

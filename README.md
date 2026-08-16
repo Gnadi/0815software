@@ -84,7 +84,7 @@ graph TD
 └── README.md
 ```
 
-- [`modules/`](./modules/README.md) — the fifteen available Business
+- [`modules/`](./modules/README.md) — the sixteen available Business
   Modules, each a self-contained application with its own `package.json`,
   `LICENSE` and README, plus
   [`registry.json`](./modules/registry.json): the machine-readable description
@@ -96,7 +96,7 @@ graph TD
   PS-09 Search, PS-10 Number, PS-11 Customers, PS-12 e-Invoicing) and the shared
   [`clients`](./platform/clients) package. Implemented as backend-only APIs
   (Express 5 + SQLite + tests), each self-contained on its own port. All
-  fifteen modules are wired in, opt-in and best-effort: a module with no
+  sixteen modules are wired in, opt-in and best-effort: a module with no
   service URLs configured still runs standalone.
 - [`deploy/`](./deploy/README.md) — `provision.mjs` turns a customer's module
   selection into a ready-to-run stack (compose file, generated secrets, Caddy

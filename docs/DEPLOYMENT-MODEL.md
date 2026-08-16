@@ -27,7 +27,7 @@ to the one customer whose stack it is.
 ## Why this model
 
 - It matches the business: 0815software delivers standard software
-  **per customer** (agency model), and the fifteen modules are themselves
+  **per customer** (agency model), and the sixteen modules are themselves
   single-tenant applications (one admin realm, one organization).
 - It is the strongest isolation available — a bug can never leak another
   customer's data, because another customer's data is not on the machine.

@@ -37,6 +37,31 @@ erases a person, it should also: call PS-01 erase if that person is a platform
 user, delete their PS-09 index documents, and rely on PS-03/PS-07 retention to
 age out message bodies and audit snapshots.
 
+### MOD-16 Whistleblowing — the one module that runs its own erasure clock
+
+Two things make it different from every other module in the catalogue, and
+both are worth knowing before a DPA is drafted around this map.
+
+**It holds the least it can, on purpose.** The `cases` table has no IP column,
+no user agent, no session and no `created_by` — the only reporter-linked value
+in the schema is the SHA-256 of their access code. Whatever contact details a
+reporter volunteers are stored verbatim and nothing else is inferred. The
+retention lever is not a `RETENTION_DAYS` window but an explicit act:
+`POST /api/cases/:id/erase` nulls the report body, the subject, the contact
+details and every message body in place, keeping the case skeleton and its
+event trail so a compliant procedure can still be proven. § 11 Abs. 5 HinSchG
+puts that three years after the procedure concludes, and the module refuses to
+erase earlier without an explicit `force`.
+
+**An Art. 15 request can itself be the breach.** Someone named in a report has
+the ordinary right to know what is held about them — and answering it in full
+would identify the person who reported them, which § 8 HinSchG forbids and
+Art. 15(4) GDPR carves out. This module deliberately publishes **no**
+`/api/export?subject=` route for that reason: an automated subject export over
+whistleblowing cases is the one place where the convenient answer is the
+unlawful one. Requests touching this database go to a human who can weigh the
+two duties.
+
 ## Subject access & portability (Art. 15 / 20)
 
 "Send me everything you hold about me" arrives with a one-month deadline, and
@@ -89,6 +114,6 @@ deployment's ticker/cron.
   an erasure that half-succeeds across four services is worse than one an
   operator performs deliberately.
 - **Module-side subject export.** The platform services answer for themselves;
-  the fifteen modules do not, so a subject access request still needs a manual
+  the sixteen modules do not, so a subject access request still needs a manual
   pass over the module holding that person's domain records. The fan-out names
   each one rather than hiding the gap.

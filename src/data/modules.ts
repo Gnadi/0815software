@@ -419,6 +419,30 @@ const presentation: Record<string, ModulePresentation> = {
       statuses: ['Approved', 'Pending', 'Rejected'],
     },
   },
+  'mod-16-whistleblowing': {
+    body: 'An internal reporting channel that meets the Hinweisgeberschutzgesetz — anonymous intake, a two-way follow-up channel, and both statutory deadlines on a clock.',
+    overview:
+      'Since December 2023 every employer in Germany and Austria with 50 or more workers must run an internal reporting channel. The obligation is not “have an inbox”: confirm receipt within seven days, give the reporter substantive feedback within three months, keep their identity confidential, and delete the documentation three years after the procedure ends. This module is those four obligations made mechanical. A reporter needs no account, no name and no email — they get a random access code, and only its hash is stored, so nobody in the organisation can open their channel or reset it. Both deadlines are derived from the clock on every read, never stored as a flag a missed job could leave false.',
+    features: [
+      'Anonymous intake — no account, no IP, nothing stored that identifies the reporter',
+      'Two-way channel on an access code only the reporter holds',
+      'Derived § 17 HinSchG deadlines — 7 days to acknowledge, 3 months to answer',
+      'Append-only case trail and a § 11 Abs. 5 erasure that actually erases',
+    ],
+    screen: {
+      variant: 'table',
+      accent: '#C7A76B',
+      nav: ['Cases', 'Deadlines', 'Public channel'],
+      columns: ['Ref', 'Category', 'Filed', 'Status', 'Deadline'],
+      rows: [
+        ['WB-2026-0004', 'Fraud', '12 Jan', 'Closed', 'Met'],
+        ['WB-2026-0003', 'Data protection', '07 Aug', 'Received', 'Missed'],
+        ['WB-2026-0002', 'Workplace safety', '10 Aug', 'Received', 'At risk'],
+        ['WB-2026-0001', 'Corruption', '15 Aug', 'Acknowledged', 'Upcoming'],
+      ],
+      statuses: ['Closed', 'Received', 'Acknowledged'],
+    },
+  },
 };
 
 function entryFor(mod: ModuleRegistryEntry): ModuleEntry {
@@ -435,7 +459,7 @@ function entryFor(mod: ModuleRegistryEntry): ModuleEntry {
   };
 }
 
-/** Catalogue order is the registry's order (MOD-01 … MOD-15). */
+/** Catalogue order is the registry's order (MOD-01 … MOD-16). */
 export const modules: ModuleEntry[] = registryModules.map(entryFor);
 
 export function getModule(slug: string): ModuleEntry | undefined {

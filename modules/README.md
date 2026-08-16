@@ -7,15 +7,15 @@ own. It holds no shared backend services; those live in the
 them over APIs. The two catalogs are independent (see the
 [architecture overview](../README.md#architecture)).
 
-The 0815software module catalogue: fifteen standard modules for standard
+The 0815software module catalogue: sixteen standard modules for standard
 business problems, each shipped MIT-licensed with full source code. This
-directory holds the implementations. **All fifteen modules are now
+directory holds the implementations. **All sixteen modules are now
 available**: MOD-01 Customer Portal, MOD-02 Admin Dashboard, MOD-03 Inventory
 Management, MOD-04 Invoice & Billing, MOD-05 Employee Directory, MOD-06
 Procurement Tracker, MOD-07 Storefront, MOD-08 Reporting Suite, MOD-09
 Document Management, MOD-10 CRM Lite, MOD-11 Time Tracking, MOD-12 Support
-Ticket System, MOD-13 Offers, MOD-14 Subsidies & Funds and MOD-15 Absence &
-Leave Management. See the
+Ticket System, MOD-13 Offers, MOD-14 Subsidies & Funds, MOD-15 Absence &
+Leave Management and MOD-16 Whistleblowing. See the
 [catalogue page](https://0815software.com/modules) for scopes and
 descriptions.
 
@@ -36,6 +36,7 @@ descriptions.
 | MOD-13 | Offers                | **Available** | [mod-13-offers](./mod-13-offers) |
 | MOD-14 | Subsidies & Funds     | **Available** | [mod-14-subsidies-funds](./mod-14-subsidies-funds) |
 | MOD-15 | Absence & Leave Management | **Available** | [mod-15-absence-management](./mod-15-absence-management) |
+| MOD-16 | Whistleblowing        | **Available** | [mod-16-whistleblowing](./mod-16-whistleblowing) |
 
 Each module is a self-contained application with its own `package.json`,
 `LICENSE` and README — install and run it independently of this repository.
@@ -76,7 +77,7 @@ notifications, workflow, AI, integrations, files, audit) to the service;
 unset, the module keeps its standalone behavior with no outbound calls, and a
 downstream outage never fails the local operation.
 
-**All fifteen modules ship this wiring** (each has a `server/platform.ts` and
+**All sixteen modules ship this wiring** (each has a `server/platform.ts` and
 a README "Platform integration" section). The richest consumers: MOD-04
 Invoice & Billing → PS-03/06/07/08, MOD-07 Storefront → PS-08 checkout, MOD-12
 Support Tickets → PS-03/04/07, MOD-09 Document Management → PS-06 (+ PS-07),

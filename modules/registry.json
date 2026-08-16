@@ -674,6 +674,40 @@
         "acceptsSourceDb": false,
         "publishesReportViews": false
       }
+    },
+    {
+      "id": "mod-16-whistleblowing",
+      "n": "MOD-16",
+      "slug": "whistleblowing",
+      "title": "Whistleblowing",
+      "label": "Whistleblowing",
+      "defaultPort": 3016,
+      "scope": "3–4 WKS",
+      "services": {
+        "required": [],
+        "optional": [
+          "ps-01-identity",
+          "ps-03-notification-hub",
+          "ps-07-audit-log"
+        ]
+      },
+      "env": {
+        "required": [],
+        "optional": [
+          "ORGANISATION_NAME",
+          "LOOKUP_RATE_LIMIT_RPM"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": false,
+        "acceptsSourceDb": false,
+        "publishesReportViews": false
+      }
     }
   ]
 }

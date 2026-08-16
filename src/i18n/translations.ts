@@ -113,6 +113,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.offers.title':                'Offers',
     'mod.subsidies-funds.title':       'Subsidies & Funds',
     'mod.absence-management.title':    'Absence & Leave Management',
+    'mod.whistleblowing.title':        'Whistleblowing',
 
     // ─── /platform and /modules pages (headers, card chrome, prose) ─────
     'page.rail.platform':      'Platform',
@@ -353,6 +354,13 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.absence-management.feat.2':                 'Append-only approval trail, half days at either edge',
     'mod.absence-management.feat.3':                 'Sick leave that never deducts (§ 9 BUrlG / § 5 UrlG)',
     'mod.absence-management.scope':                  '3–4 WKS',
+    'mod.whistleblowing.body':                       'An internal reporting channel that meets the Hinweisgeberschutzgesetz — anonymous intake, a two-way follow-up channel, and both statutory deadlines on a clock.',
+    'mod.whistleblowing.overview':                   'Since December 2023 every employer in Germany and Austria with 50 or more workers must run an internal reporting channel. The obligation is not “have an inbox”: confirm receipt within seven days, give the reporter substantive feedback within three months, keep their identity confidential, and delete the documentation three years after the procedure ends. This module is those four obligations made mechanical. A reporter needs no account, no name and no email — they get a random access code, and only its hash is stored, so nobody in the organisation can open their channel or reset it. Both deadlines are derived from the clock on every read, never stored as a flag a missed job could leave false.',
+    'mod.whistleblowing.feat.0':                     'Anonymous intake — no account, no IP, nothing stored that identifies the reporter',
+    'mod.whistleblowing.feat.1':                     'Two-way channel on an access code only the reporter holds',
+    'mod.whistleblowing.feat.2':                     'Derived § 17 HinSchG deadlines — 7 days to acknowledge, 3 months to answer',
+    'mod.whistleblowing.feat.3':                     'Append-only case trail and a § 11 Abs. 5 erasure that actually erases',
+    'mod.whistleblowing.scope':                      '3–4 WKS',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'How a 0815 project runs.',
@@ -500,6 +508,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.offers.title':                'Angebote',
     'mod.subsidies-funds.title':       'Förderungen & Fonds',
     'mod.absence-management.title':    'Urlaubs- & Abwesenheitsverwaltung',
+    'mod.whistleblowing.title':        'Hinweisgebersystem',
 
     // ─── /platform and /modules pages (headers, card chrome, prose) ─────
     'page.rail.platform':      'Plattform',
@@ -740,6 +749,13 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.absence-management.feat.2':                 'Lückenlose Antragshistorie, halbe Tage an beiden Rändern',
     'mod.absence-management.feat.3':                 'Krankheit ohne Abzug vom Urlaub (§ 9 BUrlG / § 5 UrlG)',
     'mod.absence-management.scope':                  '3–4 WO',
+    'mod.whistleblowing.body':                       'Ein internes Meldesystem nach dem Hinweisgeberschutzgesetz — anonyme Abgabe, ein Rückkanal in beide Richtungen und beide gesetzlichen Fristen auf der Uhr.',
+    'mod.whistleblowing.overview':                   'Seit Dezember 2023 muss jeder Arbeitgeber in Deutschland und Österreich ab 50 Beschäftigten eine interne Meldestelle betreiben. Die Pflicht heißt nicht „ein Postfach haben“: Eingang binnen sieben Tagen bestätigen, binnen drei Monaten inhaltlich Rückmeldung geben, die Identität vertraulich halten und die Dokumentation drei Jahre nach Abschluss löschen. Dieses Modul ist genau das, maschinell. Wer meldet, braucht kein Konto, keinen Namen und keine E-Mail-Adresse — nur einen zufälligen Zugangscode, von dem ausschließlich der Hash gespeichert wird: niemand im Unternehmen kann den Kanal öffnen oder den Code zurücksetzen. Beide Fristen werden bei jedem Lesen neu berechnet, nie als Kennzeichen gespeichert, das ein ausgefallener Job auf „false“ stehen lässt.',
+    'mod.whistleblowing.feat.0':                     'Anonyme Abgabe — kein Konto, keine IP, nichts Gespeichertes, das die meldende Person identifiziert',
+    'mod.whistleblowing.feat.1':                     'Rückkanal über einen Zugangscode, den nur die meldende Person besitzt',
+    'mod.whistleblowing.feat.2':                     'Abgeleitete Fristen nach § 17 HinSchG — 7 Tage Eingangsbestätigung, 3 Monate Rückmeldung',
+    'mod.whistleblowing.feat.3':                     'Lückenlose Fallhistorie und eine Löschung nach § 11 Abs. 5, die wirklich löscht',
+    'mod.whistleblowing.scope':                      '3–4 WO',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'So läuft ein 0815-Projekt ab.',
