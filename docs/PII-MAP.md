@@ -89,6 +89,6 @@ deployment's ticker/cron.
   an erasure that half-succeeds across four services is worse than one an
   operator performs deliberately.
 - **Module-side subject export.** The platform services answer for themselves;
-  the fourteen modules do not, so a subject access request still needs a manual
+  the fifteen modules do not, so a subject access request still needs a manual
   pass over the module holding that person's domain records. The fan-out names
   each one rather than hiding the gap.

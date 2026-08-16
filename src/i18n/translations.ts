@@ -112,6 +112,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.support-tickets.title':       'Support Ticket System',
     'mod.offers.title':                'Offers',
     'mod.subsidies-funds.title':       'Subsidies & Funds',
+    'mod.absence-management.title':    'Absence & Leave Management',
 
     // ─── /platform and /modules pages (headers, card chrome, prose) ─────
     'page.rail.platform':      'Platform',
@@ -345,6 +346,13 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.subsidies-funds.feat.2':                    'Post-award reporting deadlines',
     'mod.subsidies-funds.feat.3':                    'Applicant-side — never miss a grant deadline',
     'mod.subsidies-funds.scope':                     '3–4 WKS',
+    'mod.absence-management.body':                   'Leave entitlements, absence requests and approvals — counted in real working days against each employee’s own public-holiday calendar.',
+    'mod.absence-management.overview':               'A week off costs a different number of days in Bayern, in Berlin and in Österreich, and a leave tool that does not know that is quietly wrong for somebody on every request. Every employee carries their own calendar — all sixteen German Bundesländer plus Austria — and the holidays are computed from the law rather than kept in a table that goes stale. Balances are derived on every read; every approval, rejection and withdrawal is append-only. Sick leave never touches the entitlement, because in Germany and Austria it may not.',
+    'mod.absence-management.feat.0':                 'Working-day counting per Bundesland and Austria',
+    'mod.absence-management.feat.1':                 'Derived balances — entitlement, carry-over, taken, pending',
+    'mod.absence-management.feat.2':                 'Append-only approval trail, half days at either edge',
+    'mod.absence-management.feat.3':                 'Sick leave that never deducts (§ 9 BUrlG / § 5 UrlG)',
+    'mod.absence-management.scope':                  '3–4 WKS',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'How a 0815 project runs.',
@@ -491,6 +499,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.support-tickets.title':       'Support-Ticketsystem',
     'mod.offers.title':                'Angebote',
     'mod.subsidies-funds.title':       'Förderungen & Fonds',
+    'mod.absence-management.title':    'Urlaubs- & Abwesenheitsverwaltung',
 
     // ─── /platform and /modules pages (headers, card chrome, prose) ─────
     'page.rail.platform':      'Plattform',
@@ -724,6 +733,13 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.subsidies-funds.feat.2':                    'Meldefristen nach der Bewilligung',
     'mod.subsidies-funds.feat.3':                    'Aus Sicht der Antragsteller — nie wieder eine Förderfrist verpassen',
     'mod.subsidies-funds.scope':                     '3–4 WO',
+    'mod.absence-management.body':                   'Urlaubsansprüche, Abwesenheitsanträge und Genehmigungen — gezählt in echten Arbeitstagen nach dem Feiertagskalender der jeweiligen Person.',
+    'mod.absence-management.overview':               'Eine Woche frei kostet in Bayern, in Berlin und in Österreich unterschiedlich viele Tage — ein Urlaubstool, das das nicht weiß, rechnet bei jedem Antrag für irgendjemanden still falsch. Jede Person trägt ihren eigenen Kalender: alle sechzehn Bundesländer plus Österreich, wobei die Feiertage aus dem Gesetz berechnet und nicht in einer Tabelle gepflegt werden, die irgendwann veraltet. Salden werden bei jedem Lesen neu abgeleitet, jede Genehmigung, Ablehnung und Rücknahme wird nur angehängt. Krankheit geht nie auf den Urlaubsanspruch — in Deutschland und Österreich darf sie das nicht.',
+    'mod.absence-management.feat.0':                 'Arbeitstage nach Bundesland und Österreich gezählt',
+    'mod.absence-management.feat.1':                 'Abgeleitete Salden — Anspruch, Übertrag, genommen, offen',
+    'mod.absence-management.feat.2':                 'Lückenlose Antragshistorie, halbe Tage an beiden Rändern',
+    'mod.absence-management.feat.3':                 'Krankheit ohne Abzug vom Urlaub (§ 9 BUrlG / § 5 UrlG)',
+    'mod.absence-management.scope':                  '3–4 WO',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'So läuft ein 0815-Projekt ab.',

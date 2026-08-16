@@ -394,6 +394,31 @@ const presentation: Record<string, ModulePresentation> = {
       statuses: ['Approved', 'Submitted', 'Draft'],
     },
   },
+  'mod-15-absence-management': {
+    body: 'Leave entitlements, absence requests and approvals — counted in real working days against each employee’s own public-holiday calendar.',
+    overview:
+      'A week off costs a different number of days in Bayern, in Berlin and in Österreich, and a leave tool that does not know that is quietly wrong for somebody on every request. Every employee carries their own calendar — all sixteen German Bundesländer plus Austria — and the holidays are computed from the law rather than kept in a table that goes stale. Balances are derived on every read; every approval, rejection and withdrawal is append-only. Sick leave never touches the entitlement, because in Germany and Austria it may not.',
+    features: [
+      'Working-day counting per Bundesland and Austria',
+      'Derived balances — entitlement, carry-over, taken, pending',
+      'Append-only approval trail, half days at either edge',
+      'Sick leave that never deducts (§ 9 BUrlG / § 5 UrlG)',
+    ],
+    screen: {
+      variant: 'table',
+      accent: '#8AB89A',
+      nav: ['Requests', 'Balances', 'Team', 'Calendar'],
+      columns: ['Employee', 'Type', 'Dates', 'Days', 'Status'],
+      rows: [
+        ['Anna Berger', 'Urlaub', '3–14 Aug', '10', 'Approved'],
+        ['Klara Meyer', 'Urlaub', '7–11 Sep', '4.5', 'Pending'],
+        ['Lukas Steiner', 'Krankheit', '4–6 May', '0', 'Approved'],
+        ['Sofia Ranner', 'Urlaub', '18–20 Nov', '2', 'Pending'],
+        ['Anna Berger', 'Sonderurlaub', '02 Jun', '1', 'Rejected'],
+      ],
+      statuses: ['Approved', 'Pending', 'Rejected'],
+    },
+  },
 };
 
 function entryFor(mod: ModuleRegistryEntry): ModuleEntry {
@@ -410,7 +435,7 @@ function entryFor(mod: ModuleRegistryEntry): ModuleEntry {
   };
 }
 
-/** Catalogue order is the registry's order (MOD-01 … MOD-14). */
+/** Catalogue order is the registry's order (MOD-01 … MOD-15). */
 export const modules: ModuleEntry[] = registryModules.map(entryFor);
 
 export function getModule(slug: string): ModuleEntry | undefined {

@@ -9,7 +9,7 @@
  *
  * Offline by construction: it reads source files, it does not boot anything.
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { keywordsUsed, SUPPORTED_KEYWORDS, validate } from '../lib/json-schema.mjs';
@@ -93,8 +93,16 @@ describe('registry document', () => {
 
   it('covers every module directory, exactly once, in catalogue order', () => {
     const ids = modules.map((m: any) => m.id);
-    expect(ids).toHaveLength(14);
-    expect(new Set(ids).size).toBe(14);
+    // Read the directories rather than assert a count. A hard-coded number
+    // fails the day a module is ADDED, which is not drift — what this guard
+    // is for is a module that exists on disk and is missing from the registry
+    // (or the reverse), which a count can never catch.
+    const onDisk = readdirSync(`${root}/modules`, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^mod-\d\d-/.test(entry.name))
+      .map((entry) => entry.name)
+      .sort();
+    expect(ids).toEqual(onDisk);
+    expect(new Set(ids).size).toBe(ids.length);
     expect([...ids].sort()).toEqual(ids);
     for (const mod of modules) expect(mod.n).toBe(`MOD-${mod.id.slice(4, 6)}`);
   });
@@ -335,7 +343,7 @@ describe('catalogue copy is translated in every language', () => {
     expect(missing, `missing ${lang} translations`).toEqual([]);
   });
 
-  it('derived a key set that covers all 11 services and all 14 modules', () => {
+  it('derived a key set that covers every service and every module', () => {
     expect(serviceSlugs).toHaveLength(services.length);
     expect(respCounts).toHaveLength(services.length);
     expect(featCounts).toHaveLength(modules.length);

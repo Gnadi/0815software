@@ -641,6 +641,39 @@
         "acceptsSourceDb": false,
         "publishesReportViews": false
       }
+    },
+    {
+      "id": "mod-15-absence-management",
+      "n": "MOD-15",
+      "slug": "absence-management",
+      "title": "Absence & Leave Management",
+      "label": "Absence",
+      "defaultPort": 3015,
+      "scope": "3–4 WKS",
+      "services": {
+        "required": [],
+        "optional": [
+          "ps-01-identity",
+          "ps-03-notification-hub",
+          "ps-07-audit-log"
+        ]
+      },
+      "env": {
+        "required": [],
+        "optional": [
+          "DEFAULT_REGION"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "needsPublicBaseUrl": false,
+        "acceptsSourceDb": false,
+        "publishesReportViews": false
+      }
     }
   ]
 }
