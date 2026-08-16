@@ -129,11 +129,11 @@ keeps its own user model).
 
 ## 4. Show it on the marketing site
 
-Set `PUBLIC_DEMO_URL=https://demo.yourdomain.com` in the Vercel project's
-environment and redeploy. The `/demo` page's **"Launch the live demo"** button
-then points straight at the hosted hub — the visitor just clicks. Without the
-variable the page still works; it simply describes the apps instead of linking
-to them.
+The `/demo` page points at `https://demo.0815software.com` by default — the
+**"Launch the live demo"** button opens the hub, and each app card links to its
+own subdomain. If you host the demo somewhere else, set
+`PUBLIC_DEMO_URL=https://demo.yourdomain.com` in the Vercel project's
+environment and redeploy; the page derives the app subdomains from that value.
 
 ## Operating it
 

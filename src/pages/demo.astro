@@ -3,35 +3,38 @@ import SubPage from '../layouts/SubPage.astro';
 
 export const prerender = true;
 
-// Set PUBLIC_DEMO_URL in the site environment once the hosted demo is live
-// (see deploy/demo/). When present, the page leads with a one-click launch.
-const demoUrl = import.meta.env.PUBLIC_DEMO_URL;
+// The hosted demo (see deploy/demo/): the hub lives on DEMO_DOMAIN and each
+// app on a subdomain of it — offers.<domain>, invoicing.<domain>, … — which is
+// how `subdomainFor()` in modules/registry.ts names them. Point the page at a
+// different deployment by setting PUBLIC_DEMO_URL in the site environment.
+const demoUrl = import.meta.env.PUBLIC_DEMO_URL || 'https://demo.0815software.com';
+const demoHost = new URL(demoUrl).host;
 
 const apps = [
   {
     label: 'Offers',
-    port: '4413',
+    host: `offers.${demoHost}`,
     login: 'SSO',
     blurb: 'Draft a quote, send it, and let the customer accept it online through a public link.',
     services: 'Notifications · Audit',
   },
   {
     label: 'Invoicing',
-    port: '4404',
+    host: `invoicing.${demoHost}`,
     login: 'SSO',
     blurb: 'Bill the accepted quote. One "finalize" click fans out to five services at once.',
     services: 'Numbering · Files · Notifications · Payments · Audit',
   },
   {
     label: 'Support',
-    port: '4412',
+    host: `support.${demoHost}`,
     login: 'SSO',
     blurb: 'Open a ticket and ask the AI for a drafted reply the agent can review and send.',
     services: 'AI · Notifications · Audit',
   },
   {
     label: 'Documents',
-    port: '4409',
+    host: `documents.${demoHost}`,
     login: 'Local',
     blurb: 'File a signed contract, then find it again with full-text search across the archive.',
     services: 'Files · Search · Audit',
@@ -72,7 +75,7 @@ const proves = [
             </div>
             <p class="demo-app__blurb">{a.blurb}</p>
             <div class="demo-app__svc">{a.services}</div>
-            <div class="demo-app__port">localhost:{a.port}</div>
+            <a class="demo-app__link" href={`https://${a.host}`} target="_blank" rel="noopener noreferrer">{a.host} ↗</a>
           </article>
         ))}
       </div>
@@ -87,38 +90,23 @@ const proves = [
         <div class="section-rail__name">Run it</div>
       </div>
       <div class="demo-run__content">
-        {demoUrl ? (
-          <>
-            <h2 class="demo-run__h2">Open it in your browser.</h2>
-            <p class="demo-run__body">
-              The full suite is live — four apps on one platform, nothing to install. Sign in with
-              <code>owner@acme.test</code> / <code>demo-owner</code> (single sign-on), or
-              <code>admin</code> / <code>demo-admin</code> for the Documents app.
-            </p>
-            <a href={demoUrl} target="_blank" rel="noopener noreferrer" class="btn btn--primary demo-launch">Launch the live demo →</a>
-            <p class="demo-run__note">
-              Prefer to run it yourself? <code>git clone</code> the repo, then <code>cd demo &amp;&amp; npm run demo</code> and open <code>http://localhost:4400</code>.
-            </p>
-          </>
-        ) : (
-          <>
-            <h2 class="demo-run__h2">One command. Runs offline.</h2>
-            <p class="demo-run__body">
-              Clone the repo, then start the whole stack — eight services and four app UIs, wired together — with one command. No vendor keys. The first run builds each app's UI; later runs boot straight up.
-            </p>
-            <pre class="demo-code"><code>git clone https://github.com/Gnadi/0815software
+        <h2 class="demo-run__h2">Open it in your browser.</h2>
+        <p class="demo-run__body">
+          The full suite is live at <code>{demoHost}</code> — four apps on one platform, nothing to
+          install. Sign in with <code>owner@acme.test</code> / <code>demo-owner</code> (single
+          sign-on), or <code>admin</code> / <code>demo-admin</code> for the Documents app. The data
+          resets every night.
+        </p>
+        <a href={demoUrl} target="_blank" rel="noopener noreferrer" class="btn btn--primary demo-launch">Launch the live demo →</a>
+        <p class="demo-run__note">
+          Prefer to run it yourself? Clone the repo and start the whole stack — eight services and
+          four app UIs, wired together — with one command. No vendor keys.
+        </p>
+        <pre class="demo-code"><code>git clone https://github.com/Gnadi/0815software
 cd 0815software/demo
 npm run demo
 
 # → open http://localhost:4400</code></pre>
-            <p class="demo-run__note">
-              That opens a <strong>hub page</strong> linking into every running app. Sign in with
-              <code>owner@acme.test</code> / <code>demo-owner</code> (single sign-on), or
-              <code>admin</code> / <code>demo-admin</code> for the Documents app. To host it as a
-              public, clickable demo, see <code>deploy/demo/</code>.
-            </p>
-          </>
-        )}
       </div>
     </div>
   </section>
@@ -211,11 +199,15 @@ npm run demo
   color: var(--accent);
   margin-bottom: 8px;
 }
-.demo-app__port {
+.demo-app__link {
+  display: inline-block;
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   color: var(--fg-mute);
+  text-decoration: none;
+  overflow-wrap: anywhere;
 }
+.demo-app__link:hover { color: var(--accent); }
 
 .demo-run__h2 {
   font-family: 'Inter Tight', sans-serif;
@@ -260,6 +252,7 @@ npm run demo
   line-height: 1.65;
   color: var(--fg-dim);
   max-width: 620px;
+  margin-bottom: 18px;
 }
 .demo-run__note code {
   font-family: 'JetBrains Mono', monospace;
