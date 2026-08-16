@@ -7,8 +7,26 @@ export const prerender = true;
 // app on a subdomain of it — offers.<domain>, invoicing.<domain>, … — which is
 // how `subdomainFor()` in modules/registry.ts names them. Point the page at a
 // different deployment by setting PUBLIC_DEMO_URL in the site environment.
-const demoUrl = import.meta.env.PUBLIC_DEMO_URL || 'https://demo.0815software.com';
-const demoHost = new URL(demoUrl).host;
+const DEFAULT_DEMO_URL = 'https://demo.0815software.com';
+
+// The environment variable is hand-typed, so tolerate a bare host
+// ("demo.example.com") and a trailing slash, and never fail the build over it:
+// an unparseable value falls back to the default rather than throwing.
+function resolveDemoUrl(raw: string | undefined): URL {
+  const value = raw?.trim();
+  if (!value) return new URL(DEFAULT_DEMO_URL);
+  const withScheme = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  try {
+    return new URL(withScheme);
+  } catch {
+    console.warn(`[demo] PUBLIC_DEMO_URL is not a valid URL (${value}) — using ${DEFAULT_DEMO_URL}`);
+    return new URL(DEFAULT_DEMO_URL);
+  }
+}
+
+const demo = resolveDemoUrl(import.meta.env.PUBLIC_DEMO_URL);
+const demoHost = demo.host;
+const demoUrl = demo.origin;
 
 const apps = [
   {
