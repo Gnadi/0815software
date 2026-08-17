@@ -66,6 +66,13 @@ export const T: Record<Lang, Record<string, string>> = {
     'modules.cta':       'Explore the modules →',
     'platform.h2':       'One platform. Standard problems, solved fast.',
     'platform.intro':    '0815software is a platform: eleven shared backend services — identity, workflow, notifications, AI, integrations, file storage, audit, payments, search, numbering and customer master data — that let us assemble standard business software at high speed, with stable, high-quality results. The modules are what we ship on top; the platform is what makes them quick to build and boring to run.',
+    'shell.h3':                        'Run several modules? Run them on one screen.',
+    'shell.lead':                      'Workspace is a board over the modules you licensed. Live widgets from each, one customer filter that every one of them honours, the modules themselves embedded and already signed in, and actions that reach across them — an accepted quote becomes a draft invoice without either app being opened. Every module still runs perfectly well on its own.',
+    'shell.cta':                       'See how it composes →',
+    'shell.point.0':                   'Live figures, computed by the module that owns them',
+    'shell.point.1':                   'One customer, filtered across every module at once',
+    'shell.point.2':                   'Modules embedded, no second login',
+    'shell.point.3':                   'Cross-module actions, recorded against you',
     'platform.cta':      'Explore the platform →',
 
     // ─── Catalogue rows (§ 05.01 services, § 05.02 modules) ─────────────
@@ -448,6 +455,13 @@ export const T: Record<Lang, Record<string, string>> = {
     'modules.cta':       'Module entdecken →',
     'platform.h2':       'Eine Plattform. Standardprobleme, schnell gelöst.',
     'platform.intro':    '0815software ist eine Plattform: elf gemeinsame Backend-Dienste — Identität, Workflow, Benachrichtigungen, KI, Integrationen, Dateispeicher, Audit, Zahlungen, Suche, Nummernvergabe und Kundenstammdaten — mit denen wir Standard-Business-Software mit hoher Geschwindigkeit und stabiler, hoher Qualität zusammensetzen. Die Module sind das, was wir darauf ausliefern; die Plattform macht sie schnell baubar und langweilig im Betrieb.',
+    'shell.h3':                        'Mehrere Module im Einsatz? Alle auf einem Bildschirm.',
+    'shell.lead':                      'Workspace ist ein Board über den Modulen, die du lizenziert hast. Live-Widgets aus jedem davon, ein Kundenfilter, den jedes einzelne beachtet, die Module selbst eingebettet und bereits angemeldet, und Aktionen, die über sie hinweg greifen — aus einem angenommenen Angebot wird eine Rechnung im Entwurf, ohne dass eine der beiden Anwendungen geöffnet wird. Jedes Modul läuft weiterhin einwandfrei für sich allein.',
+    'shell.cta':                       'Ansehen, wie es zusammenspielt →',
+    'shell.point.0':                   'Live-Kennzahlen, berechnet vom Modul, dem sie gehören',
+    'shell.point.1':                   'Eine Kundin, gefiltert über alle Module gleichzeitig',
+    'shell.point.2':                   'Module eingebettet, ohne zweiten Login',
+    'shell.point.3':                   'Modulübergreifende Aktionen, dir zugeschrieben',
     'platform.cta':      'Plattform entdecken →',
 
     // ─── Catalogue rows (§ 05.01 services, § 05.02 modules) ─────────────

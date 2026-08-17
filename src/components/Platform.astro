@@ -48,6 +48,34 @@ import { modules } from '../data/modules';
     </div>
   </div>
 
+  <!-- Workspace — the module that composes the others -->
+  <div class="platform__block platform__block--shell">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 05.02</div>
+      <div class="section-rail__name">Workspace</div>
+    </div>
+    <a class="shell" href="/modules/dashboard">
+      <div class="shell__body">
+        <div class="shell__eyebrow" aria-hidden="true">MOD-15</div>
+        <h3 class="shell__h3" data-i18n="shell.h3">Run several modules? Run them on one screen.</h3>
+        <p class="shell__lead" data-i18n="shell.lead">
+          Workspace is a board over the modules you licensed. Live widgets from
+          each, one customer filter that every one of them honours, the modules
+          themselves embedded and already signed in, and actions that reach
+          across them — an accepted quote becomes a draft invoice without either
+          app being opened. Every module still runs perfectly well on its own.
+        </p>
+        <span class="shell__cta" data-i18n="shell.cta">See how it composes →</span>
+      </div>
+      <ul class="shell__points">
+        <li data-i18n="shell.point.0">Live figures, computed by the module that owns them</li>
+        <li data-i18n="shell.point.1">One customer, filtered across every module at once</li>
+        <li data-i18n="shell.point.2">Modules embedded, no second login</li>
+        <li data-i18n="shell.point.3">Cross-module actions, recorded against you</li>
+      </ul>
+    </a>
+  </div>
+
   <!-- Business Modules -->
   <div class="platform__block">
     <div class="section-rail" aria-hidden="true">
@@ -103,6 +131,81 @@ import { modules } from '../data/modules';
   line-height: 1.55;
   color: var(--fg-dim);
   max-width: 640px;
+}
+
+.platform__block--shell { margin-bottom: 56px; }
+
+.shell {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 40px;
+  padding: 32px;
+  border: 1px solid var(--line);
+  background: var(--bg-2, rgba(255, 255, 255, 0.02));
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.14s ease;
+}
+
+.shell:hover { border-color: var(--fg-dim); }
+
+.shell__eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--fg-mute, var(--fg-dim));
+  margin-bottom: 14px;
+}
+
+.shell__h3 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.6px;
+  margin-bottom: 16px;
+}
+
+.shell__lead {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  margin-bottom: 20px;
+}
+
+.shell__cta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.shell__points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  align-self: center;
+  display: grid;
+  gap: 10px;
+}
+
+.shell__points li {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--fg-dim);
+  padding-left: 18px;
+  position: relative;
+}
+
+.shell__points li::before {
+  content: '\u2192';
+  position: absolute;
+  left: 0;
+  color: var(--fg-mute, var(--fg-dim));
+}
+
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 1fr; gap: 24px; padding: 24px; }
+  .shell__h3 { font-size: 22px; }
 }
 
 .platform__block {
