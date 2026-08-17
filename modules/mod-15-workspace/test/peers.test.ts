@@ -138,6 +138,22 @@ describe('the catalogue', () => {
   });
 });
 
+describe('the peer map', () => {
+  it('does not mistake an inherited property for an installed module', async () => {
+    // `peers[id]` answers truthily for `__proto__`, `constructor` and
+    // `toString` on a stack that contains none of them. Module ids arrive from
+    // a URL, so a lookup that can hand back a function where a config was
+    // expected is a trap worth closing before some later caller checks things
+    // in a different order.
+    const app = build(stubFetch({ 'POST *': { body: { redeem_path: '/session/handoff?ticket=abc' } } }));
+    const cookie = await signIn(app);
+    for (const id of ['__proto__', 'constructor', 'toString']) {
+      const res = await request(app).get(`/api/embed/${encodeURIComponent(id)}`).set('Cookie', cookie);
+      expect(res.status, `${id} was treated as a module`).toBe(409);
+    }
+  });
+});
+
 describe('collecting summaries', () => {
   it('asks every configured peer, with the machine token', async () => {
     const seen: { url: string; token?: string }[] = [];
@@ -401,6 +417,19 @@ describe('running a cross-module action', () => {
     await request(app).post('/api/actions/nope').set('Cookie', cookie).send({ item_id: 'AN-1' }).expect(404);
     await request(app).post('/api/actions/bill-offer').set('Cookie', cookie).send({}).expect(422);
     await request(app).post('/api/actions/bill-offer').set('Cookie', cookie).send({ item_id: '  ' }).expect(422);
+  });
+
+  it('refuses an item reference too long to be one', async () => {
+    // Forwarded verbatim into a request to another module. An item id is a
+    // reference the peer itself put in a summary — an offer number, a ticket
+    // key — so length is a reliable sign it is not one.
+    const app = billingStack(() => new Response('{}', { status: 201 }));
+    const cookie = await signIn(app);
+    await request(app)
+      .post('/api/actions/bill-offer')
+      .set('Cookie', cookie)
+      .send({ item_id: 'A'.repeat(201) })
+      .expect(422);
   });
 
   it('requires a session of its own — the board is not a public API', async () => {

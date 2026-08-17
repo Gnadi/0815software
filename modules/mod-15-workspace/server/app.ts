@@ -41,6 +41,8 @@ function body(req: Request): Record<string, unknown> {
 const ACTIVITY_LIMIT = 50;
 /** How many parties the context picker offers at once. */
 const PARTY_LIMIT = 20;
+/** Longest reference an action will forward to another module. */
+const MAX_ITEM_ID_LENGTH = 200;
 
 export interface AppOptions {
   /** Optional transport hardening; omit it (as the tests do) to run unthrottled. */
@@ -271,6 +273,14 @@ export function createApp({
     const itemId = body(req).item_id;
     if (typeof itemId !== 'string' || itemId.trim() === '') {
       throw new DomainError(422, 'Validation failed', [{ field: 'item_id', message: 'item_id is required' }]);
+    }
+    // Bounded because this is forwarded verbatim into a request to another
+    // module. An item id is a reference the peer itself put in a summary — an
+    // offer number, a ticket key — so anything long enough to matter is not one.
+    if (itemId.length > MAX_ITEM_ID_LENGTH) {
+      throw new DomainError(422, 'Validation failed', [
+        { field: 'item_id', message: `item_id must be at most ${MAX_ITEM_ID_LENGTH} characters` },
+      ]);
     }
     if (!peers.has(action.targetModule)) {
       throw new DomainError(409, `${action.targetModule} is not in this stack`);

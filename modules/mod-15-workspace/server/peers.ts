@@ -1,6 +1,6 @@
 import { CATALOGUE, catalogueEntry } from '../shared/catalogue.js';
 import { validateSummary, type ModuleSummary, type SummaryContext } from '../shared/summary.js';
-import type { PeerMap } from './config.js';
+import type { PeerConfig, PeerMap } from './config.js';
 import type { PeerStatus, PeerSummary } from '../shared/types.js';
 
 /**
@@ -17,6 +17,22 @@ import type { PeerStatus, PeerSummary } from '../shared/types.js';
  * `{ ok: false, problem }` the board renders in place, with the reason on the
  * widget, so an operator can see WHICH module is unwell without reading logs.
  */
+
+/**
+ * A peer by id, or undefined — never something inherited from Object.prototype.
+ *
+ * `peers[id]` is a plain-object lookup, so `peers['__proto__']`,
+ * `peers['constructor']` and `peers['toString']` all answer with something
+ * truthy for a stack that contains none of them. Module ids reach these
+ * functions from a URL (`/api/embed/:moduleId`), and while the catalogue check
+ * happens to refuse those three today, a lookup that can return a function
+ * where a config was expected is the kind of trap that stays quiet until some
+ * later caller checks it in a different order. This repo has paid for that once
+ * already (`f96129b`, templates reaching Object.prototype).
+ */
+function peerOf(peers: PeerMap, moduleId: string): PeerConfig | undefined {
+  return Object.hasOwn(peers, moduleId) ? peers[moduleId] : undefined;
+}
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -129,7 +145,7 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
     path: string,
     init: RequestInit = {},
   ): Promise<{ ok: true; status: number; body: unknown } | { ok: false; problem: string }> {
-    const peer = peers[moduleId];
+    const peer = peerOf(peers, moduleId);
     if (!peer) return { ok: false, problem: 'not in this stack' };
 
     const controller = new AbortController();
@@ -192,7 +208,7 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
   return {
     statuses(): PeerStatus[] {
       return CATALOGUE.map((entry) => {
-        const peer = peers[entry.id];
+        const peer = peerOf(peers, entry.id);
         return {
           id: entry.id,
           n: entry.n,
@@ -210,11 +226,11 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
     },
 
     has(moduleId: string): boolean {
-      return peers[moduleId] !== undefined;
+      return peerOf(peers, moduleId) !== undefined;
     },
 
     publicUrl(moduleId: string): string | null {
-      return peers[moduleId]?.publicUrl ?? null;
+      return peerOf(peers, moduleId)?.publicUrl ?? null;
     },
 
     async summary(moduleId: string, context: SummaryContext): Promise<PeerSummary> {
@@ -255,7 +271,7 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
       // sum of fourteen. `allSettled` is belt and braces — `summary` already
       // resolves rather than rejects — so one unforeseen throw cannot take the
       // whole board down.
-      const configured = CATALOGUE.filter((entry) => peers[entry.id] !== undefined);
+      const configured = CATALOGUE.filter((entry) => peerOf(peers, entry.id) !== undefined);
       const results = await Promise.allSettled(configured.map((entry) => this.summary(entry.id, context)));
       return results.map((result, i) =>
         result.status === 'fulfilled'
@@ -266,7 +282,7 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
 
     async handoff(moduleId: string, actor: string, path: string) {
       const entry = catalogueEntry(moduleId);
-      const publicUrl = peers[moduleId]?.publicUrl ?? null;
+      const publicUrl = peerOf(peers, moduleId)?.publicUrl ?? null;
       if (!entry?.embeddable) return { ok: false as const, problem: 'this module cannot be embedded' };
       if (!publicUrl) return { ok: false as const, problem: 'no public URL is configured for this module' };
       if (!serviceToken) return { ok: false as const, problem: 'no PLATFORM_SERVICE_TOKEN is configured for this stack' };
