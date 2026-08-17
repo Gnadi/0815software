@@ -33,6 +33,7 @@ const ORG = 'acme';
 // which Platform Services to boot, whether the app does SSO — is derived from
 // modules/registry.json, so the demo cannot drift from the modules.
 const SELECTION = [
+  'mod-15-workspace',
   'mod-13-offers',
   'mod-04-invoice-billing',
   'mod-12-support-tickets',
@@ -41,6 +42,7 @@ const SELECTION = [
 
 /** Demo-only narrative copy, keyed by registry id. */
 const BLURBS = {
+  'mod-15-workspace': 'One board over the other four — start here.',
   'mod-13-offers': 'Quotes a customer accepts online.',
   'mod-04-invoice-billing': 'Bills the accepted quote — one click, five services.',
   'mod-12-support-tickets': 'Tickets with AI-drafted replies.',
@@ -59,6 +61,9 @@ const APPS = stack.modules.map((mod) => ({
   label: mod.label,
   port: demoModulePort(mod),
 }));
+
+/** The app that frames the others, if this selection has one. */
+const shellApp = APPS.find((app) => peersOf(app.mod).some((peer) => peer.publicUrlEnv));
 
 function ensureBuilt() {
   for (const app of APPS) {
@@ -87,13 +92,25 @@ let P, M;
 
 function bootStack() {
   P = {};
+  // PS-01's address is needed before the loop: every other service is pointed
+  // at it, so a request carrying a PS-01 token can be authorised by the person
+  // it names rather than only by a shared admin password. That is what makes
+  // "one login" true for the SERVICES too, not just the apps — PS-07 gates its
+  // audit READS behind a principal, and the Workspace's activity feed reads it
+  // as whoever is looking at the board.
+  const identity = stack.services.find((svc) => svc.id === 'ps-01-identity');
+  const identityUrl = identity ? `http://127.0.0.1:${demoServicePort(identity)}` : undefined;
+
   for (const service of stack.services) {
     P[service.id] = boot({
       group: 'platform',
       name: service.id,
       port: demoServicePort(service),
       tag: service.n,
-      env: platformEnv,
+      env: {
+        ...platformEnv,
+        ...(identityUrl && service.id !== 'ps-01-identity' ? { IDENTITY_URL: identityUrl } : {}),
+      },
     });
   }
 
@@ -116,9 +133,27 @@ function bootStack() {
     if (mod.constraints.needsPublicBaseUrl) env.PUBLIC_BASE_URL = `http://localhost:${port}`;
     // Module-to-module bridges from the registry, wired only when the peer is
     // also in this demo (mod-04 → mod-13, so an accepted quote can be billed).
+    //
+    // Two addresses where the consumer declares both. Here they differ only in
+    // host — everything is on this machine — but the distinction is the same one
+    // a real stack makes: `urlEnv` is what this process calls, `publicUrlEnv` is
+    // what a BROWSER must use for an iframe or a link. localhost rather than
+    // 127.0.0.1 for the public one, so the shell and the app it frames are the
+    // same site and the app's SameSite=Lax session cookie is actually sent.
     for (const peer of peersOf(mod)) {
       const target = APPS.find((other) => other.mod.id === peer.id);
-      if (target) env[peer.urlEnv] = `http://127.0.0.1:${target.port}`;
+      if (!target) continue;
+      env[peer.urlEnv] = `http://127.0.0.1:${target.port}`;
+      if (peer.publicUrlEnv) env[peer.publicUrlEnv] = `http://localhost:${target.port}`;
+    }
+    // The other half of the embed seam: every embeddable app names the shell
+    // back, which is what swaps its X-Frame-Options: DENY for a frame-ancestors
+    // naming only the Workspace, and opens its session-handoff routes. Derived
+    // from what a module DECLARES — one that asks for a peer's public origin is
+    // one that will put that peer in a browser — never from an id, exactly as
+    // deploy/provision.mjs does it.
+    if (mod.constraints.embeddable && shellApp && mod.id !== shellApp.mod.id) {
+      env.SHELL_ORIGIN = `http://localhost:${shellApp.port}`;
     }
 
     M[mod.label] = boot({ group: 'modules', name: mod.id, port, tag: mod.label, compiled: true, env });
@@ -132,6 +167,7 @@ function bootStack() {
 const CARDS = APPS.map(({ mod, label, port }) => ({
   label,
   port,
+  shell: shellApp?.mod.id === mod.id,
   blurb: BLURBS[mod.id] ?? '',
   services: servicesOf(mod)
     .filter((s) => s.urlEnv !== 'IDENTITY_URL')
@@ -142,7 +178,7 @@ const CARDS = APPS.map(({ mod, label, port }) => ({
 
 function hubHtml() {
   const card = (a) => `
-    <a class="card" href="http://localhost:${a.port}" target="_blank" rel="noopener">
+    <a class="card${a.shell ? ' card--shell' : ''}" href="http://localhost:${a.port}" target="_blank" rel="noopener">
       <div class="card__top">
         <span class="card__name">${a.label}</span>
         <span class="card__badge card__badge--${a.login === 'SSO' ? 'sso' : 'local'}">${a.login}</span>
@@ -168,6 +204,7 @@ function hubHtml() {
   .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
   .card { display:block; background:var(--bg2); border:1px solid var(--line); border-radius:10px; padding:22px; text-decoration:none; color:inherit; transition:border-color .12s, transform .12s; }
   .card:hover { border-color:var(--accent); transform:translateY(-2px); }
+  .card--shell { grid-column:1 / -1; border-color:rgba(200,255,61,.4); background:linear-gradient(180deg,rgba(200,255,61,.05),var(--bg2)); }
   .card__top { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
   .card__name { font-size:20px; font-weight:600; letter-spacing:-.3px; }
   .card__badge { font-family:'JetBrains Mono',ui-monospace,monospace; font-size:10px; letter-spacing:.5px; padding:3px 8px; border-radius:20px; text-transform:uppercase; }
@@ -184,12 +221,12 @@ function hubHtml() {
 </style></head>
 <body><div class="wrap">
   <div class="eyebrow">Live demo · ${stack.services.length} services · ${APPS.length} apps · one platform</div>
-  <h1>Four separate apps.<br><span>One platform underneath.</span></h1>
-  <p class="lead">Every app below is a real, independent product — and every one is running against the same identity provider, audit log, notifications, payments, storage, search and numbering service. Log into one and you're logged into all of them.</p>
+  <h1>Separate apps. One board.<br><span>One platform underneath.</span></h1>
+  <p class="lead">Every app below is a real, independent product — each with its own UI, its own database, and the ability to run entirely on its own. They share one identity provider, audit log, notifications, payments, storage, search and numbering service, so a login to one is a login to all. <b>Workspace</b> is the screen that puts them together: live widgets from each, one customer filter across all of them, and the others embedded inside it.</p>
   <div class="creds">Single sign-on: <b>owner@acme.test</b> / <b>demo-owner</b> &nbsp;·&nbsp; Documents (own login): <b>admin</b> / <b>demo-admin</b></div>
   <div class="grid">${CARDS.map(card).join('')}</div>
   <div class="story">
-    <b>Try this path:</b> in <b>Offers</b>, send a quote and accept it → in <b>Invoicing</b>, click <b>IMPORT OFFER</b> and type the quote number \u2014 the customer and every line item arrive from Offers, resolved to the same PS-11 party \u2014 then watch one "finalize" click assign a gapless number, archive the PDF, email the customer and record an audit event → collect payment → in <b>Support</b>, open a ticket and ask the AI for a reply → in <b>Documents</b>, file a contract and find it by search. Then check the audit trail — every action from every app is on one tamper-evident chain.
+    <b>Try this path:</b> open <b>Workspace</b> and add widgets from Offers and Invoicing to the board — every figure is fetched live from the app that owns it. Pick a customer in the top bar and watch both widgets narrow to them. Then: in <b>Offers</b>, send a quote and accept it → in <b>Invoicing</b>, click <b>IMPORT OFFER</b> and type the quote number \u2014 the customer and every line item arrive from Offers, resolved to the same PS-11 party \u2014 then watch one "finalize" click assign a gapless number, archive the PDF, email the customer and record an audit event → collect payment → back in <b>Workspace</b>, the accepted quote carries a <b>BILL THIS</b> button that does the same import without opening either app, and the invoice it creates is recorded against <i>you</i>, not a service account → in <b>Support</b>, open a ticket and ask the AI for a reply → in <b>Documents</b>, file a contract and find it by search. Then check the audit trail — every action from every app is on one tamper-evident chain.
   </div>
   <div class="foot">Runs offline with mock adapters. See <a href="https://github.com/Gnadi/0815software/tree/main/demo">demo/README.md</a> for how it's wired.</div>
 </div></body></html>`;
@@ -215,6 +252,9 @@ async function main() {
 
   console.log(`  ${c.green('✓')} Everything is up.\n`);
   console.log(`  ${c.bold('Open the hub:')}  ${c.cyan(`http://localhost:${HUB_PORT}`)}`);
+  if (shellApp) {
+    console.log(c.dim(`  Or go straight to the board: http://localhost:${shellApp.port}`));
+  }
   console.log(c.dim(`  Apps: ${CARDS.map((a) => `${a.label} :${a.port}`).join('  ·  ')}`));
   console.log(c.dim('  SSO login: owner@acme.test / demo-owner   ·   Documents: admin / demo-admin'));
   console.log(c.dim('\n  Press Ctrl-C to stop the whole stack.\n'));

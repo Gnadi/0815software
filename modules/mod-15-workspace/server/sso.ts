@@ -14,7 +14,24 @@ import { IdentityClient, ServiceError } from '@0815software/platform-clients';
  * stamps that on everything the resulting session goes on to do.
  */
 export type LoginOutcome =
-  | { ok: true; actor: string }
+  | {
+      ok: true;
+      actor: string;
+      /**
+       * The PS-01 session token that validated this login.
+       *
+       * Carried out of the exchange because some Platform Services gate their
+       * READS behind a principal rather than the machine token — PS-07 Audit
+       * Log is the one that matters here: any module may WRITE an event with
+       * the stack's service token, but reading the trail takes an identity,
+       * which is the right boundary for a log of everyone's actions. Forwarding
+       * this token as `Authorization: Bearer` is the sanctioned
+       * identity-propagation path (`ClientOptions.identityToken`), and it means
+       * the Workspace reads the audit log AS the person looking at the board,
+       * with exactly their authority — not with a borrowed admin account.
+       */
+      identityToken: string;
+    }
   | { ok: false; reason: 'rejected' | 'unavailable' }
   | null;
 export type LoginVerifier = (username: unknown, password: unknown) => Promise<LoginOutcome>;
@@ -47,7 +64,7 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
       if (permission && !perms.includes(permission)) return { ok: false, reason: 'rejected' };
       // The PS-01 email is the identity worth recording: stable, unique within
       // the organization, and readable by whoever reads the trail later.
-      return { ok: true, actor: user.email };
+      return { ok: true, actor: user.email, identityToken: token };
     } catch (err) {
       // Both fail closed — SSO, once configured, is never silently bypassed by
       // the local fallback. They are not the same answer to the caller though.

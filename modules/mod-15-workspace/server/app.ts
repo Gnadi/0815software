@@ -108,6 +108,11 @@ export function createApp({
       throw new DomainError(verdict.reason === 'unavailable' ? 503 : 401, 'Invalid credentials');
     }
     const actor = verdict?.ok ? verdict.actor : (username as string);
+    // Keep the PS-01 token this login was validated with: PS-07 gates its reads
+    // behind a principal, so the activity feed is read AS this person, with
+    // their authority rather than a borrowed admin account. Standalone there is
+    // no such token and the feed is simply empty.
+    if (verdict?.ok && verdict.identityToken) sessions.rememberIdentity(actor, verdict.identityToken);
     res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
     res.json({ ok: true, username: actor });
   });
@@ -219,7 +224,11 @@ export function createApp({
   });
 
   app.get('/api/activity', async (_req, res) => {
-    res.json({ events: await platform.activity(ACTIVITY_LIMIT), configured: platform.hasCustomers() });
+    const actor = actorOf(res, auth);
+    res.json({
+      events: await platform.activity(ACTIVITY_LIMIT, sessions.identityFor(actor)),
+      configured: platform.hasCustomers(),
+    });
   });
 
   // ── Embedding ────────────────────────────────────────────────────────

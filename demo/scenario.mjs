@@ -45,19 +45,35 @@ const HUMAN = { email: 'owner@acme.test', password: 'demo-owner' };
 // A real (demo) session secret so the services don't print production warnings.
 const SESSION_SECRET = 'demo0815demo0815demo0815demo0815demo0815demo0815demo0815demo0815';
 const platformEnv = { SERVICE_TOKEN: SVC_TOKEN, ADMIN_PASSWORD: ADMIN_PW, SESSION_SECRET };
+// Every service except PS-01 is pointed AT PS-01, so a request carrying a PS-01
+// token can be authorised by the person it names rather than only by the shared
+// admin password. That is what makes "one login" true of the services too:
+// PS-07 gates its audit READS behind a principal — any module may write an
+// event with the machine token, but reading everyone's trail takes an identity
+// — and it is how the Workspace's activity feed reads it as whoever is looking.
+const svcEnv = { ...platformEnv, IDENTITY_URL: 'http://127.0.0.1:4301' };
 const P = {
   identity: boot({ group: 'platform', name: 'ps-01-identity', port: 4301, tag: 'PS-01', env: platformEnv }),
-  notify: boot({ group: 'platform', name: 'ps-03-notification-hub', port: 4303, tag: 'PS-03', env: platformEnv }),
-  ai: boot({ group: 'platform', name: 'ps-04-ai-platform', port: 4304, tag: 'PS-04', env: platformEnv }),
-  files: boot({ group: 'platform', name: 'ps-06-file-storage', port: 4306, tag: 'PS-06', env: platformEnv }),
-  audit: boot({ group: 'platform', name: 'ps-07-audit-log', port: 4307, tag: 'PS-07', env: platformEnv }),
-  payments: boot({ group: 'platform', name: 'ps-08-payments', port: 4308, tag: 'PS-08', env: platformEnv }),
-  search: boot({ group: 'platform', name: 'ps-09-search', port: 4309, tag: 'PS-09', env: platformEnv }),
-  number: boot({ group: 'platform', name: 'ps-10-number', port: 4310, tag: 'PS-10', env: platformEnv }),
-  customers: boot({ group: 'platform', name: 'ps-11-customers', port: 4311, tag: 'PS-11', env: platformEnv }),
+  notify: boot({ group: 'platform', name: 'ps-03-notification-hub', port: 4303, tag: 'PS-03', env: svcEnv }),
+  ai: boot({ group: 'platform', name: 'ps-04-ai-platform', port: 4304, tag: 'PS-04', env: svcEnv }),
+  files: boot({ group: 'platform', name: 'ps-06-file-storage', port: 4306, tag: 'PS-06', env: svcEnv }),
+  audit: boot({ group: 'platform', name: 'ps-07-audit-log', port: 4307, tag: 'PS-07', env: svcEnv }),
+  payments: boot({ group: 'platform', name: 'ps-08-payments', port: 4308, tag: 'PS-08', env: svcEnv }),
+  search: boot({ group: 'platform', name: 'ps-09-search', port: 4309, tag: 'PS-09', env: svcEnv }),
+  number: boot({ group: 'platform', name: 'ps-10-number', port: 4310, tag: 'PS-10', env: svcEnv }),
+  customers: boot({ group: 'platform', name: 'ps-11-customers', port: 4311, tag: 'PS-11', env: svcEnv }),
 };
 
+// Invoicing is constructed before Offers in the literal below, so its
+// OFFERS_URL is the known port rather than a reference to M.offers. Same for
+// the Workspace's own origin, which every embeddable app is given as
+// SHELL_ORIGIN — that is what swaps its X-Frame-Options: DENY for a
+// frame-ancestors naming only this shell, and opens its handoff routes.
+const M_OFFERS_URL = 'http://127.0.0.1:4413';
+const M_SHELL_ORIGIN = 'http://localhost:4415';
+
 const ssoEnv = {
+  SHELL_ORIGIN: M_SHELL_ORIGIN,
   IDENTITY_URL: P.identity,
   IDENTITY_ORG: ORG,
   PLATFORM_SERVICE_TOKEN: SVC_TOKEN,
@@ -65,11 +81,26 @@ const ssoEnv = {
   SESSION_SECRET,
   INTAKE_SECRET: 'demo-intake-secret',
 };
-// Invoicing is constructed before Offers in this literal, so its OFFERS_URL is
-// the known port rather than a reference to M.offers.
-const M_OFFERS_URL = 'http://127.0.0.1:4413';
 
 const M = {
+  workspace: boot({
+    group: 'modules',
+    name: 'mod-15-workspace',
+    port: 4415,
+    tag: 'Workspace',
+    env: {
+      ...ssoEnv,
+      AUDIT_URL: P.audit,
+      CUSTOMERS_URL: P.customers,
+      // Two addresses per peer, and they are not interchangeable: the first is
+      // what this process calls, the second what a BROWSER must use for a frame
+      // or a link.
+      OFFERS_URL: M_OFFERS_URL,
+      OFFERS_PUBLIC_URL: 'http://localhost:4413',
+      INVOICING_URL: 'http://127.0.0.1:4404',
+      INVOICING_PUBLIC_URL: 'http://localhost:4404',
+    },
+  }),
   invoicing: boot({
     group: 'modules',
     name: 'mod-04-invoice-billing',
@@ -410,6 +441,64 @@ async function run() {
   ok(`PS-09 found it: "${c.bold(search.body.hits[0].title)}" (score ${search.body.hits[0].score.toFixed(2)}).`);
 
   // ══════════════════════════════════════════════════════════════════════════
+  act('One board over all of it');
+  step('The owner opens the Workspace and signs in — the same SSO identity again…');
+  const workspace = client(M.workspace);
+  const wsLogin = await workspace.post('/api/login', { username: HUMAN.email, password: HUMAN.password });
+  expect(wsLogin.status === 200, `Workspace login failed (${wsLogin.status})`);
+  ok(`Signed in as ${c.bold(wsLogin.body.username)} — no fifth password.`);
+
+  step('The board asks every app in the stack what it has…');
+  const summaries = (await workspace.get('/api/summaries')).body.summaries;
+  const unreachable = summaries.filter((x) => !x.ok);
+  expect(unreachable.length === 0, `a peer refused: ${unreachable.map((x) => `${x.module}: ${x.problem}`).join('; ')}`);
+  for (const peer of summaries) {
+    const tiles = peer.summary.tiles.slice(0, 3).map((t) => `${t.label} ${c.bold(t.value)}`).join(' · ');
+    ok(`${c.bold(peer.module.replace(/^mod-\d+-/, ''))}: ${tiles}`);
+  }
+  note('Every figure was computed just now by the app that owns it — the board caches nothing.');
+
+  step('Picking one customer narrows every widget at once…');
+  const party = (await workspace.get('/api/parties?q=Blaustern')).body.parties[0];
+  expect(party !== undefined, 'PS-11 returned no party for the context bar');
+  await workspace.req('PUT', '/api/context', { body: { party: party.id, party_name: party.name } });
+  const narrowed = (await workspace.get('/api/summaries')).body.summaries;
+  const applied = narrowed.filter((x) => x.ok && x.summary.context.applied.includes('party'));
+  expect(applied.length >= 2, 'no app narrowed to the selected customer');
+  ok(`${c.bold(applied.length)} apps narrowed to ${c.bold(party.name)} — one PS-11 party id, never a name match.`);
+  note('An app that cannot honour the filter says so, instead of showing everyone and calling it filtered.');
+  await workspace.req('PUT', '/api/context', { body: {} });
+
+  step('Opening Offers inside the board — already signed in…');
+  const embed = await workspace.get('/api/embed/mod-13-offers?path=%2Foffers');
+  expect(embed.status === 200, `embed refused (${embed.status})`);
+  expect(embed.body.url.startsWith('http://localhost:4413/session/handoff?ticket='), 'embed url is not a handoff');
+  const redeemed = await fetch(embed.body.url, { redirect: 'manual' });
+  expect(redeemed.status === 302, `handoff did not redeem (${redeemed.status})`);
+  expect((redeemed.headers.get('set-cookie') ?? '').includes('mod13_session='), 'no Offers session was issued');
+  ok('Offers issued its OWN session from a single-use ticket, and redirected into the app.');
+  const ticketReplay = await fetch(embed.body.url, { redirect: 'manual' });
+  expect(ticketReplay.status === 401, `a replayed ticket was accepted (${ticketReplay.status})`);
+  ok('Replaying that ticket is refused — it is a baton, not a credential.');
+
+  step('The board can bill an accepted quote without opening either app…');
+  const accepted = summaries
+    .find((x) => x.module === 'mod-13-offers')
+    .summary.lists.find((l) => l.key === 'accepted_offers').items;
+  expect(accepted.length >= 1, 'Offers listed no accepted quote to bill');
+  const billAction = (await workspace.get('/api/catalogue')).body.actions.find((a) => a.id === 'bill-offer');
+  expect(billAction?.available === true, 'the offer → invoice action is not available');
+  const billed = await workspace.post('/api/actions/bill-offer', { item_id: accepted[0].id });
+  expect(billed.status === 200, `billing from the board failed (${billed.status}): ${JSON.stringify(billed.body)}`);
+  ok(`${c.bold(billed.body.message)} — through MOD-04's own import route, as ${c.bold(HUMAN.email)}.`);
+  note('The shell holds no privilege of its own: the machine token opens summaries and mints sessions, never writes.');
+
+  step('And the trail of everything, in one feed…');
+  const feed = (await workspace.get('/api/activity')).body.events;
+  expect(feed.length >= 3, `activity feed was empty (${feed.length} events)`);
+  ok(`${c.bold(feed.length)} events from every app, read from PS-07 as ${c.bold(HUMAN.email)} — not a borrowed admin account.`);
+
+  // ══════════════════════════════════════════════════════════════════════════
   act('The platform proves itself');
   step('Verifying the audit trail across everything that just happened…');
   const verify = (await client(P.audit).get('/api/verify', { token: auditAdmin })).body;
@@ -432,6 +521,7 @@ async function run() {
     ),
   );
   console.log(c.dim('  SSO · quotes · gapless numbering · file archive · notifications · payments · AI · search · audit'));
+  console.log(c.dim('  …and one board over all of it: live widgets, one customer filter, embeds, cross-module actions'));
   hr();
   console.log('');
 }

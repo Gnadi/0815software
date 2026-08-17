@@ -37,8 +37,16 @@ export interface AuditInfo {
 export interface PlatformHooks {
   /** Record something the shell itself did. Never throws. */
   audit(info: AuditInfo): Promise<void>;
-  /** The stack's recent activity, newest first. Empty when unconfigured. */
-  activity(limit: number): Promise<ActivityEvent[]>;
+  /**
+   * The stack's recent activity, newest first. Empty when unconfigured.
+   *
+   * Takes the reader's PS-01 token because PS-07 gates READS behind a
+   * principal: any module may write an event with the stack's machine token,
+   * but the trail of everyone's actions takes an identity — the right boundary,
+   * and the reason this is not a machine-to-machine call. Without a token the
+   * feed is empty rather than borrowed from an admin account.
+   */
+  activity(limit: number, identityToken?: string): Promise<ActivityEvent[]>;
   /** Parties matching a search, for the context picker. Empty when unconfigured. */
   parties(search: string, limit: number): Promise<Party[]>;
   /** Is PS-11 wired? The picker says so rather than looking broken. */
@@ -62,13 +70,18 @@ export const noopPlatform: PlatformHooks = {
 };
 
 /**
- * Which module an audit event came from.
+ * Which module an audit event came from, when the event says so.
  *
- * PS-07 events carry a `resource` like `mod-04-invoice-billing:invoice/12`, and
- * the prefix is the only place the producing module is named. A resource that
- * does not follow the convention yields null and the feed shows the event
- * without a module chip — dropping it would hide real activity because of a
- * formatting detail.
+ * Usually it does not. The catalogue's convention for a PS-07 `resource` is
+ * `<entity>:<id>` — `invoice:RE-2026-0004`, `ticket:SUP-118` — which names
+ * WHAT was touched and not by which module, and a shell cannot recover the
+ * producer from an entity noun without a mapping table that would drift the
+ * first time two modules shared a noun.
+ *
+ * So the feed shows the module only when a resource is explicitly prefixed with
+ * one (the Workspace's own events are), and otherwise shows actor, action and
+ * time — all of which are true. Guessing would put a confident, wrong label on
+ * a line in an audit trail, which is the one place that is least acceptable.
  */
 export function moduleOfResource(resource: string): string | null {
   const match = /^(mod-\d{2}-[a-z0-9-]+)[:/]/.exec(resource);
@@ -93,10 +106,13 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
       }
     },
 
-    async activity(limit: number): Promise<ActivityEvent[]> {
-      if (!audit) return [];
+    async activity(limit: number, identityToken?: string): Promise<ActivityEvent[]> {
+      if (!cfg.auditUrl) return [];
+      // A fresh client per call: the token belongs to whoever is looking at the
+      // board, not to this process, so it cannot be baked in at construction.
+      const reader = new AuditClient({ baseUrl: cfg.auditUrl, serviceToken: cfg.serviceToken, identityToken });
       try {
-        const { events } = await audit.list({ limit });
+        const { events } = await reader.list({ limit });
         return events
           .map((event) => ({
             id: event.id,
