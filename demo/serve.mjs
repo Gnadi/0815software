@@ -2,9 +2,10 @@
 /**
  * 0815software Platform — live, clickable demo.
  *
- * Boots four real business apps — Offers, Invoicing, Support, Documents — plus
- * exactly the Platform Services they need (nine today), each app serving its
- * actual web UI, all wired to one shared identity provider and platform. Then
+ * Boots seven real business apps — Workspace, CRM, Offers, Invoicing, Time,
+ * Support, Documents — plus exactly the Platform Services they need (nine
+ * today), each app serving its actual web UI, all wired to one shared identity
+ * provider and platform. Then
  * it serves a hub page that links you into every running app with the demo
  * logins. The selection below is a list of modules/registry.json ids; the
  * topology is derived from it.
@@ -16,7 +17,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { peersOf, resolveSelection, servicesOf } from '../modules/registry.mjs';
 import { boot, c, client, shutdown, waitForHealth } from './lib/harness.mjs';
@@ -34,17 +35,21 @@ const ORG = 'acme';
 // modules/registry.json, so the demo cannot drift from the modules.
 const SELECTION = [
   'mod-15-workspace',
+  'mod-10-crm-lite',
   'mod-13-offers',
   'mod-04-invoice-billing',
+  'mod-11-time-tracking',
   'mod-12-support-tickets',
   'mod-09-document-management',
 ];
 
 /** Demo-only narrative copy, keyed by registry id. */
 const BLURBS = {
-  'mod-15-workspace': 'One board over the other four — start here.',
+  'mod-15-workspace': 'One board over the other six — start here.',
+  'mod-10-crm-lite': 'Deals in a pipeline; each one can become a quote.',
   'mod-13-offers': 'Quotes a customer accepts online.',
   'mod-04-invoice-billing': 'Bills the accepted quote — one click, five services.',
+  'mod-11-time-tracking': 'Hours against projects, planned from accepted quotes.',
   'mod-12-support-tickets': 'Tickets with AI-drafted replies.',
   'mod-09-document-management': 'Files a contract, finds it by full-text search.',
 };
@@ -65,15 +70,45 @@ const APPS = stack.modules.map((mod) => ({
 /** The app that frames the others, if this selection has one. */
 const shellApp = APPS.find((app) => peersOf(app.mod).some((peer) => peer.publicUrlEnv));
 
+/** Newest mtime under a directory, or 0 when it does not exist. */
+function newestUnder(dir) {
+  if (!existsSync(dir)) return 0;
+  let newest = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    newest = Math.max(newest, entry.isDirectory() ? newestUnder(path) : statSync(path).mtimeMs);
+  }
+  return newest;
+}
+
+/**
+ * Build each app's client and server if the build is missing OR STALE.
+ *
+ * The staleness half matters more than it looks. These apps run their compiled
+ * server, so a `dist` left over from an earlier checkout boots happily and
+ * serves code the repository no longer contains — a demo that contradicts the
+ * source it is meant to demonstrate, with nothing on screen to say so. Anyone
+ * pulling a branch and re-running the demo hits exactly that.
+ *
+ * The check is a timestamp comparison rather than a hash: cheap, good enough to
+ * catch an edit, and wrong only in the direction of rebuilding something that
+ * did not need it.
+ */
 function ensureBuilt() {
   for (const app of APPS) {
     const dir = join(ROOT, 'modules', app.name);
-    const hasUi = existsSync(join(dir, 'dist/client/index.html'));
-    const hasServer = existsSync(join(dir, 'dist/server/server/index.js'));
-    if (hasUi && hasServer) continue;
+    const ui = join(dir, 'dist/client/index.html');
+    const server = join(dir, 'dist/server/server/index.js');
+    const sources = Math.max(
+      ...['server', 'shared', 'src'].map((sub) => newestUnder(join(dir, sub))),
+      existsSync(join(dir, 'package.json')) ? statSync(join(dir, 'package.json')).mtimeMs : 0,
+    );
+    const freshUi = existsSync(ui) && statSync(ui).mtimeMs >= sources;
+    const freshServer = existsSync(server) && statSync(server).mtimeMs >= sources;
+    if (freshUi && freshServer) continue;
     console.log(`  ${c.cyan('▸')} Building ${c.bold(app.label)} (web UI + server)…`);
-    if (!hasUi) execFileSync('npx', ['vite', 'build'], { cwd: dir, stdio: 'ignore' });
-    if (!hasServer) execFileSync('npx', ['tsc', '-p', 'tsconfig.server.json'], { cwd: dir, stdio: 'ignore' });
+    if (!freshUi) execFileSync('npx', ['vite', 'build'], { cwd: dir, stdio: 'ignore' });
+    if (!freshServer) execFileSync('npx', ['tsc', '-p', 'tsconfig.server.json'], { cwd: dir, stdio: 'ignore' });
   }
 }
 
@@ -132,7 +167,8 @@ function bootStack() {
     if (mod.constraints.supportsSso) env.IDENTITY_ORG = ORG;
     if (mod.constraints.needsPublicBaseUrl) env.PUBLIC_BASE_URL = `http://localhost:${port}`;
     // Module-to-module bridges from the registry, wired only when the peer is
-    // also in this demo (mod-04 → mod-13, so an accepted quote can be billed).
+    // also in this demo (mod-13 → mod-10, mod-04 → mod-13, mod-11 → mod-13 —
+    // the whole sales chain, deal to quote to invoice and quote to project).
     //
     // Two addresses where the consumer declares both. Here they differ only in
     // host — everything is on this machine — but the distinction is the same one

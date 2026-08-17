@@ -10,7 +10,7 @@ npm run demo         # from the demo/ directory  (node serve.mjs)
 # → open http://localhost:4400
 ```
 
-That boots **9 Platform Services** and **5 business-app UIs**, wires them
+That boots **9 Platform Services** and **7 business-app UIs**, wires them
 together, and serves a **hub page** that links you into each running app with
 the demo logins. Everything runs **offline** — mock/console adapters, no vendor
 keys, no Docker. The first run builds each app's UI (a few seconds each);
@@ -20,9 +20,11 @@ later runs skip straight to boot.
 
 | App | Open | Story | Platform services it uses |
 | --- | --- | --- | --- |
-| **Workspace** | `:4415` | One board over the other four — start here | Identity, Audit, Customers |
+| **Workspace** | `:4415` | One board over the other six — start here | Identity, Audit, Customers |
+| **CRM** | `:4410` | Deals in a pipeline; each one can become a quote | Audit, Customers |
 | **Offers** | `:4413` | Quote a customer; they accept online via a public link | Notifications, Audit |
 | **Invoicing** | `:4404` | Bill the accepted quote — one "finalize" click | **Numbering, Files, Notifications, Payments, Audit** |
+| **Time** | `:4411` | Hours against projects, planned from accepted quotes | Audit |
 | **Support** | `:4412` | Tickets with an AI-drafted reply | AI, Notifications, Audit |
 | **Documents** | `:4409` | File a contract, find it by full-text search | Files, Search, Audit |
 
@@ -34,7 +36,7 @@ fetched live from the app that owns it.
 
 ## The logins
 
-- **Single sign-on** (Offers, Invoicing, Support): `owner@acme.test` /
+- **Single sign-on** (Workspace, CRM, Offers, Invoicing, Time, Support): `owner@acme.test` /
   `demo-owner` — validated by **PS-01 Identity**. The apps have no password of
   their own; a wrong password is rejected by PS-01.
 - **Documents**: `admin` / `demo-admin` — it keeps its own matter-based user
@@ -70,10 +72,12 @@ fetched live from the app that owns it.
    payment through **PS-08**.
 3. **Support** — open a ticket and ask the AI (**PS-04**) for a draft reply.
 4. **Documents** — file a contract (**PS-06**) and find it by search (**PS-09**).
-5. Back in **Workspace** — the accepted quote now offers **BILL THIS**, which
-   does step 2 from the board itself.
+5. Back in **Workspace** — walk the whole sales chain without opening an app:
+   **QUOTE THIS** on a CRM deal makes a draft quote, **BILL THIS** on an
+   accepted one makes the draft invoice, and **PLAN WORK** makes the project to
+   book hours against. Each runs as you, in the target app's own history.
 
-Every one of those actions, across all four apps, lands on the **same audit
+Every one of those actions, across every app, lands on the **same audit
 chain** — one trail for the whole business.
 
 ## How it's wired

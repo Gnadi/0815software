@@ -6,7 +6,7 @@
  * wired stack driven headlessly and asserted end to end — the demo as a
  * pass/fail integration test (npm run e2e), handy for CI.
  *
- * Boots nine Platform Services and four business modules as real processes,
+ * Boots nine Platform Services and seven business modules as real processes,
  * all sharing one identity provider and one service credential, then drives a
  * complete quote-to-cash-to-care day for the fictional company "Acme Corporation":
  *
@@ -26,8 +26,12 @@
  *   6. A support ticket comes in; PS-04 AI drafts the reply.
  *   7. A contract is filed in the Documents app: stored in PS-06, indexed in
  *      PS-09, and found again by full-text search.
- *   8. The platform proves itself: PS-07 verifies the audit chain over every
- *      action taken above, across all four apps.
+ *   8. All of it on ONE BOARD: the Workspace shows live widgets from every app,
+ *      narrows them all to one customer, embeds an app already signed in, and
+ *      walks the whole sales chain in three clicks — CRM deal to draft quote,
+ *      quote to draft invoice, quote to project — without opening any of them.
+ *   9. The platform proves itself: PS-07 verifies the audit chain over every
+ *      action taken above, across every app.
  *
  * Everything runs offline with mock/console adapters — no vendor keys needed.
  *
@@ -99,6 +103,17 @@ const M = {
       OFFERS_PUBLIC_URL: 'http://localhost:4413',
       INVOICING_URL: 'http://127.0.0.1:4404',
       INVOICING_PUBLIC_URL: 'http://localhost:4404',
+      CRM_URL: 'http://127.0.0.1:4410',
+      CRM_PUBLIC_URL: 'http://localhost:4410',
+      TIME_URL: 'http://127.0.0.1:4411',
+      TIME_PUBLIC_URL: 'http://localhost:4411',
+      SUPPORT_URL: 'http://127.0.0.1:4412',
+      SUPPORT_PUBLIC_URL: 'http://localhost:4412',
+      // Documents contributes figures but no frame: it authenticates matter
+      // users rather than staff, so a staff shell has no identity to assert in
+      // it. The public URL is for a link in a new tab, not an iframe src.
+      DOCUMENTS_URL: 'http://127.0.0.1:4409',
+      DOCUMENTS_PUBLIC_URL: 'http://localhost:4409',
     },
   }),
   invoicing: boot({
@@ -121,6 +136,25 @@ const M = {
       SELLER_NAME: 'Acme Corporation',
     },
   }),
+  crm: boot({
+    group: 'modules',
+    name: 'mod-10-crm-lite',
+    port: 4410,
+    tag: 'CRM',
+    env: { ...ssoEnv, AUDIT_URL: P.audit, CUSTOMERS_URL: P.customers },
+  }),
+  time: boot({
+    group: 'modules',
+    name: 'mod-11-time-tracking',
+    port: 4411,
+    tag: 'Time',
+    env: {
+      ...ssoEnv,
+      AUDIT_URL: P.audit,
+      // An accepted offer can be planned as a project to book hours against.
+      OFFERS_URL: M_OFFERS_URL,
+    },
+  }),
   offers: boot({
     group: 'modules',
     name: 'mod-13-offers',
@@ -131,6 +165,9 @@ const M = {
       NOTIFICATION_URL: P.notify,
       AUDIT_URL: P.audit,
       CUSTOMERS_URL: P.customers,
+      // The other end of the sales chain: a deal still in play can be pulled
+      // in from CRM and turned into a draft quote.
+      CRM_URL: 'http://127.0.0.1:4410',
       SELLER_NAME: 'Acme Corporation',
       // Short refresh so the demo can show a letterhead change taking effect
       // without a restart; production defaults to five minutes.
@@ -186,7 +223,7 @@ async function run() {
   console.log(c.bold('\n  0815software Platform — live demo: "A day at Acme Corporation"\n'));
   step(`Booting ${Object.keys(P).length} Platform Services and ${Object.keys(M).length} business apps…`);
   await waitForHealth({ ...P, ...M });
-  ok('All services healthy. One identity provider, one platform, four apps.');
+  ok(`All services healthy. One identity provider, one platform, ${Object.keys(M).length} apps.`);
 
   // Pre-stage the two platform resources the apps expect to exist.
   await client(P.number).post(
@@ -481,6 +518,45 @@ async function run() {
   expect(ticketReplay.status === 401, `a replayed ticket was accepted (${ticketReplay.status})`);
   ok('Replaying that ticket is refused — it is a baton, not a credential.');
 
+  // ── The sales chain, walked from the board ──────────────────────────
+  //
+  //     CRM deal ──QUOTE──▶ Offers quote ──BILL──▶ Invoicing invoice
+  //                              │
+  //                              └───PLAN───▶ Time project
+  //
+  // Every arrow below is one button on one screen. None of them opens an app,
+  // and none of them is a new endpoint: each calls the route the target module
+  // already serves for its own UI, with a session belonging to the person who
+  // clicked — so the target authorizes and records the action exactly as it
+  // would from its own screens.
+  step('Meanwhile a salesperson has been working a deal in the CRM…');
+  const crm = client(M.crm);
+  const crmLogin = await crm.post('/api/login', { username: HUMAN.email, password: HUMAN.password });
+  expect(crmLogin.status === 200, `CRM login failed (${crmLogin.status})`);
+  const company = await crm.post('/api/companies', { name: 'Nordwind Handels GmbH', domain: 'nordwind.example' });
+  expect(company.status === 201, `company creation failed (${company.status})`);
+  const deal = await crm.post('/api/deals', {
+    title: 'Warehouse automation — phase 1',
+    company_id: company.body.id,
+    value_cents: 4_800_000,
+    stage: 'negotiation',
+    note: 'Budget approved, waiting on a written quote.',
+  });
+  expect(deal.status === 201, `deal creation failed (${deal.status}): ${JSON.stringify(deal.body)}`);
+  ok(`Deal ${c.bold(deal.body.title)} is in negotiation at ${c.bold('€ 48,000')}.`);
+
+  step('From the board, that deal becomes a draft quote — CRM never opened…');
+  const quoteAction = (await workspace.get('/api/catalogue')).body.actions.find((a) => a.id === 'quote-deal');
+  expect(quoteAction?.available === true, 'the deal → quote action is not available');
+  const quoted = await workspace.post('/api/actions/quote-deal', { item_id: String(deal.body.id) });
+  expect(quoted.status === 200, `quoting from the board failed (${quoted.status}): ${JSON.stringify(quoted.body)}`);
+  expect(quoted.body.result.status === 'draft', `expected a draft quote, got ${quoted.body.result.status}`);
+  ok(`${c.bold(quoted.body.message)} — a DRAFT, for a person to price properly.`);
+  // The CRM said `vat_rate: 0`, which means "a CRM did not decide" rather than
+  // "zero-rated". Offers applied the rate its own line editor starts with.
+  expect(quoted.body.result.lines[0].vat_rate === 20, 'the quote inherited the CRM’s empty VAT opinion');
+  note('A CRM has no VAT concept, so Offers applied its own rate — the estimate never became a promise.');
+
   step('The board can bill an accepted quote without opening either app…');
   const accepted = summaries
     .find((x) => x.module === 'mod-13-offers')
@@ -493,6 +569,25 @@ async function run() {
   ok(`${c.bold(billed.body.message)} — through MOD-04's own import route, as ${c.bold(HUMAN.email)}.`);
   note('The shell holds no privilege of its own: the machine token opens summaries and mints sessions, never writes.');
 
+  step('…and turn the same accepted quote into a project to book hours against…');
+  const planned = await workspace.post('/api/actions/plan-offer', { item_id: accepted[0].id });
+  expect(planned.status === 200, `planning from the board failed (${planned.status}): ${JSON.stringify(planned.body)}`);
+  ok(`${c.bold(planned.body.message)} — one task per quoted line, ready for timesheets.`);
+  // The rate is deliberately zero: an offer's total says what the JOB costs and
+  // not how many hours are in it, so a derived hourly rate would be invented —
+  // and every billable-hours total afterwards would inherit the invention.
+  expect(planned.body.result.rate_cents === 0, 'the project invented an hourly rate from the offer total');
+  expect(planned.body.result.tasks.length >= 1, 'the project has no tasks');
+  note('The money stayed behind on purpose: the hourly rate is a person’s decision, not an arithmetic one.');
+
+  step('The operator clicks both buttons again by accident…');
+  const billTwice = await workspace.post('/api/actions/bill-offer', { item_id: accepted[0].id });
+  const planTwice = await workspace.post('/api/actions/plan-offer', { item_id: accepted[0].id });
+  expect(billTwice.body.result.id === billed.body.result.id, 'a second click created a second invoice');
+  expect(planTwice.body.result.id === planned.body.result.id, 'a second click created a second project');
+  ok('Nothing happened twice — every import is idempotent on where it came from.');
+  note('A button is exactly the thing people double-click. Two quotes for one job is a mistake nobody notices until billing.');
+
   step('And the trail of everything, in one feed…');
   const feed = (await workspace.get('/api/activity')).body.events;
   expect(feed.length >= 3, `activity feed was empty (${feed.length} events)`);
@@ -504,7 +599,7 @@ async function run() {
   const verify = (await client(P.audit).get('/api/verify', { token: auditAdmin })).body;
   expect(verify.valid === true, 'audit chain failed verification');
   ok(`PS-07 hash-chain is intact and tamper-evident over ${c.bold(verify.count)} recorded actions.`);
-  note('Quotes, invoices, payments, tickets and documents — from four separate apps — one trail.');
+  note('Quotes, invoices, payments, tickets and documents — from separate apps — one trail.');
 
   const health = await Promise.all(
     Object.entries(P).map(async ([k, url]) => `${k}:${(await fetch(`${url}/api/ready`)).ok ? 'ready' : 'DOWN'}`),
