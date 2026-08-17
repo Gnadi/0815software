@@ -44,6 +44,10 @@ const app = createApp({
   staticDir,
   platform,
   verifyLogin: buildLoginVerifier(config.sso),
+  // Both are required before PS-01 actually validates a login (`sso.ts`), so
+  // half-configured counts as unconfigured — the board would otherwise promise
+  // separate identities it is not getting.
+  identityConfigured: Boolean(config.sso.identityUrl && config.sso.identityOrg),
 });
 
 app.listen(config.port, () => {

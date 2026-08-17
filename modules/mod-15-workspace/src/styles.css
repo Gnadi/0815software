@@ -1369,3 +1369,28 @@ textarea.field__input {
   border-color: var(--danger);
   color: var(--danger);
 }
+
+/* A standing note when the stack has no identity provider. Not an error —
+   nothing is broken — so it reads as information rather than alarm. */
+.ws__notice {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(217, 192, 122, 0.07);
+  color: var(--fg-dim);
+  font-size: 11px;
+  line-height: 1.6;
+  letter-spacing: 0.03em;
+}
+
+.ws__notice strong {
+  color: #d9c07a;
+  font-weight: 500;
+}
+
+.ws__notice code {
+  font-family: var(--font-mono);
+  color: var(--fg);
+  background: var(--bg-3);
+  padding: 1px 5px;
+  border-radius: var(--radius);
+}

@@ -41,6 +41,8 @@ export function App() {
   const [loggedOut, setLoggedOut] = useState(false);
 
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
+  /** Who this session belongs to — shown by the no-identity notice below. */
+  const [me, setMe] = useState('');
   const [boards, setBoards] = useState<BoardModel[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [context, setContext] = useState<ShellContext>({});
@@ -99,7 +101,8 @@ export function App() {
 
   const boot = useCallback(async () => {
     try {
-      await api.me();
+      const { username } = await api.me();
+      setMe(username);
       setLoggedOut(false);
       const [cat] = await Promise.all([api.catalogue(), loadBoards()]);
       setCatalogue(cat);
@@ -340,6 +343,27 @@ export function App() {
           LOG OUT ↗
         </button>
       </header>
+
+      {catalogue && !catalogue.identity_configured && (
+        /*
+         * Without PS-01 this module has exactly one account that can sign in,
+         * so everyone here IS the same person as far as the stack is concerned:
+         * one set of boards, one context, and every cross-module action
+         * recorded against that one account in the module it touched.
+         *
+         * Nothing is broken by it — but a shared board and someone else's name
+         * on your invoice are both surprises, and a dashboard should not let
+         * you discover them. Shown once, quietly, and not dismissible: it stops
+         * being true the moment IDENTITY_URL is set.
+         */
+        <div className="ws__notice mono">
+          <strong>NO IDENTITY PROVIDER.</strong> Everyone signs in as{' '}
+          <code>{me}</code>, so boards, the customer filter and cross-module
+          actions are shared — and modules record those actions under that one
+          account. Set <code>IDENTITY_URL</code> and <code>IDENTITY_ORG</code>{' '}
+          to give people separate boards and their own names.
+        </div>
+      )}
 
       {active && (
         <Board

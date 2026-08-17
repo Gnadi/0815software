@@ -63,6 +63,8 @@ export interface Catalogue {
   modules: CatalogueModule[];
   actions: CatalogueAction[];
   customers_configured: boolean;
+  /** Is PS-01 validating logins? False means one shared account — see App.tsx. */
+  identity_configured: boolean;
 }
 
 export interface PartyOption {

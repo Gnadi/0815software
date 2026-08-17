@@ -128,6 +128,12 @@ layouts; standalone, everyone shares the local admin account and therefore one
 set of boards. A board belonging to someone else answers `404`, the same as
 one that never existed.
 
+Without `IDENTITY_URL`, the board says so above the canvas rather than letting
+you discover it: one account means one set of boards, one context selection,
+and every cross-module action recorded under that account in the module it
+touched. Nothing is broken by it — the isolation is real code either way — but
+it is not what "per person" implies, so it is stated instead of assumed.
+
 Drag a widget by its header, resize it from the corner, add with **ADD
 WIDGET** — which lists what the peers actually offered on the last refresh, so
 a module that adds a tile in a new version appears here without this module

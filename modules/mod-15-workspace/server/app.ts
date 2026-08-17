@@ -58,6 +58,22 @@ export interface AppOptions {
   /** Optional Platform Services integration; defaults to a no-op (standalone). */
   platform?: PlatformHooks;
   verifyLogin?: LoginVerifier;
+  /**
+   * Is PS-01 validating logins?
+   *
+   * The board reports this to its own UI, because without an identity provider
+   * this module has exactly ONE account that can authenticate — `auth.ts`
+   * compares the submitted username against the single configured
+   * ADMIN_USERNAME — so every operator is literally the same actor. Boards key
+   * on that actor, and so does the identity the shell asserts when it hands off
+   * or runs an action.
+   *
+   * Nothing here is broken by it, and the isolation is real code either way
+   * (`getBoard` filters on owner). But "shared board" and "your colleague's
+   * name on your invoice" are surprises worth stating out loud rather than
+   * leaving to be discovered.
+   */
+  identityConfigured?: boolean;
 }
 
 export function createApp({
@@ -69,6 +85,7 @@ export function createApp({
   staticDir,
   platform = noopPlatform,
   verifyLogin = nullVerifier,
+  identityConfigured = false,
 }: AppOptions): express.Express {
   const app = express();
 
@@ -150,6 +167,7 @@ export function createApp({
         available: peers.has(sourceModule) && peers.has(targetModule),
       })),
       customers_configured: platform.hasCustomers(),
+      identity_configured: identityConfigured,
     });
   });
 

@@ -137,6 +137,33 @@ describe('the catalogue', () => {
     // only possible outcome is an error.
     expect(res.body.actions.find((a: { id: string }) => a.id === 'bill-offer').available).toBe(false);
   });
+
+  /**
+   * Without PS-01 every operator authenticates as the one configured admin, so
+   * they share an actor — and therefore share boards, the customer filter, and
+   * the name that lands in a target module's history when an action runs. That
+   * is not a fault, but it is a surprise, so the board says it out loud. The
+   * flag has to come from configuration rather than from the UI guessing,
+   * because a stack CAN be wired with PS-01 and still show one person.
+   */
+  it('says whether logins are validated by an identity provider', async () => {
+    const standalone = build(stubFetch({}));
+    let cookie = await signIn(standalone);
+    let res = await request(standalone).get('/api/catalogue').set('Cookie', cookie).expect(200);
+    expect(res.body.identity_configured).toBe(false);
+
+    const client = createPeerClient({ peers: PEERS, serviceToken: TOKEN, timeoutMs: 200, fetch: stubFetch({}) });
+    const withIdentity = createApp({
+      db,
+      auth,
+      peers: client,
+      sessions: createModuleSessions(client),
+      identityConfigured: true,
+    });
+    cookie = await signIn(withIdentity);
+    res = await request(withIdentity).get('/api/catalogue').set('Cookie', cookie).expect(200);
+    expect(res.body.identity_configured).toBe(true);
+  });
 });
 
 describe('the peer map', () => {
