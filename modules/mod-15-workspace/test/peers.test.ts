@@ -474,6 +474,59 @@ describe('the module-session vault', () => {
   });
 });
 
+describe('the credentials the board holds for a person', () => {
+  it('drops the PS-01 token on logout, not only the module sessions', async () => {
+    const client = createPeerClient({ peers: PEERS, serviceToken: TOKEN, timeoutMs: 200, fetch: stubFetch({}) });
+    const sessions = createModuleSessions(client);
+    sessions.rememberIdentity('ada@example', 'ps01-token');
+    expect(sessions.identityFor('ada@example')).toBe('ps01-token');
+
+    sessions.forget('ada@example');
+    // The interface promises this is dropped on logout; for a while it was not,
+    // and the token outlived the session that produced it.
+    expect(sessions.identityFor('ada@example')).toBeUndefined();
+  });
+
+  it('lets a held token expire rather than keeping it for the life of the process', () => {
+    let clock = 1_000_000;
+    const client = createPeerClient({ peers: PEERS, serviceToken: TOKEN, timeoutMs: 200, fetch: stubFetch({}) });
+    const sessions = createModuleSessions(client, () => clock);
+    sessions.rememberIdentity('ada@example', 'ps01-token');
+
+    clock += 14 * 60_000;
+    expect(sessions.identityFor('ada@example')).toBe('ps01-token');
+
+    clock += 2 * 60_000; // past the 15-minute hold
+    expect(sessions.identityFor('ada@example')).toBeUndefined();
+  });
+
+  it('forgets one person without forgetting another whose name is a prefix', async () => {
+    const issued: string[] = [];
+    const client = createPeerClient({
+      peers: PEERS,
+      serviceToken: TOKEN,
+      timeoutMs: 200,
+      fetch: async (input, init) => {
+        if (String(input).endsWith('/api/session/issue')) {
+          issued.push(JSON.parse(String(init?.body)).actor);
+          return new Response(JSON.stringify({ cookie_name: 'mod04_session', token: 'tok' }), { status: 200 });
+        }
+        return new Response('{}', { status: 404 });
+      },
+    });
+    const sessions = createModuleSessions(client);
+
+    await sessions.cookieFor('ada', 'mod-04-invoice-billing');
+    await sessions.cookieFor('ada smith', 'mod-04-invoice-billing');
+    expect(sessions.size()).toBe(2);
+
+    // Keys join on NUL for exactly this reason: on a space, "ada" would be a
+    // prefix of "ada smith" and this would drop both.
+    sessions.forget('ada');
+    expect(sessions.size()).toBe(1);
+  });
+});
+
 describe('the activity feed', () => {
   /**
    * "Nothing has happened yet" and "this stack has no audit service" are
