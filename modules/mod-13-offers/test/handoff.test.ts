@@ -200,12 +200,18 @@ describe('POST /api/session/issue', () => {
     expect(readToken(auth, res.body.token)).toEqual({ actor: 'ada@example' });
 
     // The point of the endpoint: the shell replays it as a Cookie header and
-    // the module's ordinary session-guarded API answers, as that person.
-    const me = await request(shell)
-      .get('/api/me')
+    // this module's ordinary session-guarded API answers.
+    //
+    // Asserted against /api/logout rather than /api/me, and as
+    // "authenticated / not authenticated" rather than by reading a field out
+    // of the body: this file is byte-identical across every module that
+    // supports the shell, and /api/logout is the one guarded route all of them
+    // have. WHO the session belongs to is pinned by `readToken` just above.
+    await request(shell).post('/api/logout').expect(401);
+    await request(shell)
+      .post('/api/logout')
       .set('Cookie', `${res.body.cookie_name}=${res.body.token}`)
       .expect(200);
-    expect(me.body.username).toBe('ada@example');
   });
 
   it('requires the machine token', async () => {

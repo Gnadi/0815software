@@ -42,7 +42,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
-const app = createApp({ db, hardening: hardeningFromEnv(), sourceDb, sourceViewsOnly: config.sourceViewsOnly, auth: config.auth, exportsDir: config.exportsDir, staticDir, platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso) });
+const app = createApp({ db, hardening: hardeningFromEnv(), sourceDb, sourceViewsOnly: config.sourceViewsOnly, auth: config.auth, exportsDir: config.exportsDir, staticDir, platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso), serviceToken: config.platform.serviceToken, shellOrigin: config.shellOrigin });
 
 startScheduler(
   { db, sourceDb, exportsDir: config.exportsDir, sourceViewsOnly: config.sourceViewsOnly },

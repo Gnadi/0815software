@@ -109,10 +109,18 @@ beforeEach(async () => {
 
 describe('GET /api/summary — auth', () => {
   it('requires the machine token, and a staff session is not one', async () => {
-    await request(app).get('/api/summary').expect(401);
+    // No machine token: this route does not answer at all — it falls through,
+    // so what is asserted is that no shell summary comes back, not a status.
+    const anonymous = await request(app).get('/api/summary');
+    expect(anonymous.body.summary_version).toBeUndefined();
+
     // Same stance as the transfer endpoint: the caller is another service in
     // this stack, not a human, so a logged-in session is deliberately not enough.
-    await request(app).get('/api/summary').set('Cookie', cookie).expect(401);
+    const staff = await request(app).get('/api/summary').set('Cookie', cookie);
+    expect(staff.body.summary_version).toBeUndefined();
+
+    // A token that is present but wrong IS refused, rather than falling
+    // through — a machine that got the credential wrong deserves to be told.
     await request(app).get('/api/summary').set('X-Service-Token', 'wrong').expect(401);
     await summary().expect(200);
   });

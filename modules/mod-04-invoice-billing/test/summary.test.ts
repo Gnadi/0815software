@@ -97,8 +97,20 @@ beforeEach(async () => {
 
 describe('GET /api/summary — auth', () => {
   it('requires the machine token, and a staff session is not one', async () => {
-    await request(app).get('/api/summary').expect(401);
-    await request(app).get('/api/summary').set('Cookie', cookie).expect(401);
+    // No machine token: this route does not answer at all. It falls through,
+    // which is a 404 in most modules and MOD-11's own unrelated /api/summary in
+    // that one — so the property asserted is that no shell summary comes back,
+    // not a particular status.
+    const anonymous = await request(app).get('/api/summary');
+    expect(anonymous.body.summary_version).toBeUndefined();
+
+    // A staff session is deliberately not a way in either: the caller this
+    // endpoint exists for is another service in the stack, not a person.
+    const staff = await request(app).get('/api/summary').set('Cookie', cookie);
+    expect(staff.body.summary_version).toBeUndefined();
+
+    // A token that is present but wrong IS refused, rather than falling
+    // through — a machine that got the credential wrong deserves to be told.
     await request(app).get('/api/summary').set('X-Service-Token', 'wrong').expect(401);
     await summary().expect(200);
   });

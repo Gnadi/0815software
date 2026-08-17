@@ -15,7 +15,6 @@ import {
   clearedCookie,
   createToken,
   requireAuth,
-  safeEqual,
   sessionCookie,
   type AuthConfig,
 } from './auth.js';
@@ -355,8 +354,20 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
   });
 
   // What this module looks like on a shell's board (shared/summary.ts).
-  app.get('/api/summary', (req, res) => {
-    requireServiceToken(req);
+  app.get('/api/summary', (req, res, next) => {
+  // Only ours when a machine token is actually presented.
+    //
+    // MOD-11 already serves a session-guarded /api/summary of its own, and this
+    // route is mounted above the session gate, so without the fallthrough it
+    // would shadow that endpoint and answer 401 to the module's own frontend.
+    // Rather than give one module a different path from the other fourteen —
+    // the contract is worth more than the collision is expensive — this route
+    // claims only the requests that are unambiguously the shell's.
+    if (req.headers['x-service-token'] === undefined) {
+      next();
+      return;
+    }
+        requireServiceToken(req);
     res.json(moduleSummary(db, parseSummaryContext(req.query as Record<string, unknown>), { today: today() }));
   });
 

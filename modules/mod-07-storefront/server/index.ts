@@ -27,7 +27,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
-const app = createApp({ db, hardening: hardeningFromEnv(), auth: config.auth, staticDir, platform: buildPlatform(config.platform) });
+const app = createApp({ db, hardening: hardeningFromEnv(), auth: config.auth, staticDir, platform: buildPlatform(config.platform), serviceToken: config.platform.serviceToken });
 
 app.listen(config.port, () => {
   console.log(`[mod-07] storefront API on http://localhost:${config.port}`);

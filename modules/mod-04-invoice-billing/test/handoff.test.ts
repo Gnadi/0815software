@@ -6,7 +6,6 @@ import { createApp } from '../server/app.js';
 import { openDb } from '../server/db.js';
 import { COOKIE_NAME, parseCookies, readToken, type AuthConfig } from '../server/auth.js';
 import { createHandoff, isRedeemPath, TICKET_TTL_MS } from '../server/handoff.js';
-import type { SellerConfig } from '../server/config.js';
 
 /**
  * The shell handoff: how MOD-15 Workspace gets a signed-in view of this module
@@ -28,13 +27,6 @@ const auth: AuthConfig = {
   secureCookie: false,
 };
 
-const seller: SellerConfig = {
-  name: '0815software GmbH',
-  addressLines: ['Beispielgasse 8/15', '1010 Wien', 'Austria'],
-  vatId: 'ATU00000000',
-  email: 'invoices@0815software.example.at',
-};
-
 const SERVICE_TOKEN = 'test-machine-token';
 const SHELL = 'https://workspace.example';
 
@@ -54,7 +46,6 @@ function build(overrides: { serviceToken?: string; shellOrigin?: string } = {}):
   return createApp({
     db,
     auth,
-    seller,
     serviceToken: SERVICE_TOKEN,
     shellOrigin: SHELL,
     ...overrides,
@@ -199,12 +190,18 @@ describe('POST /api/session/issue', () => {
     expect(readToken(auth, res.body.token)).toEqual({ actor: 'ada@example' });
 
     // The point of the endpoint: the shell replays it as a Cookie header and
-    // the module's ordinary session-guarded API answers, as that person.
-    const me = await request(shell)
-      .get('/api/me')
+    // this module's ordinary session-guarded API answers.
+    //
+    // Asserted against /api/logout rather than /api/me, and as
+    // "authenticated / not authenticated" rather than by reading a field out
+    // of the body: this file is byte-identical across every module that
+    // supports the shell, and /api/logout is the one guarded route all of them
+    // have. WHO the session belongs to is pinned by `readToken` just above.
+    await request(shell).post('/api/logout').expect(401);
+    await request(shell)
+      .post('/api/logout')
       .set('Cookie', `${res.body.cookie_name}=${res.body.token}`)
       .expect(200);
-    expect(me.body.username).toBe('ada@example');
   });
 
   it('requires the machine token', async () => {

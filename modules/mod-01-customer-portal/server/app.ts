@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import express, { type Request, type Response } from 'express';
@@ -17,6 +18,8 @@ import {
   type SessionConfig,
 } from './auth.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
+import { parseSummaryContext } from '../shared/summary.js';
+import { moduleSummary } from './summary.js';
 
 /** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
 function likeTerm(term: string): string {
@@ -70,9 +73,17 @@ export interface AppOptions {
   staticDir?: string;
   /** Optional PS-07 Audit integration; defaults to a no-op (standalone). */
   platform?: PlatformHooks;
+  /**
+   * The platform machine token (PLATFORM_SERVICE_TOKEN). When set, it is the
+   * only credential that opens GET /api/summary — the shell's read of this
+   * module. Unset means the endpoint is closed, which is the standalone
+   * default. There is no handoff route here: this module's users are not
+   * staff, so it is not embeddable.
+   */
+  serviceToken?: string;
 }
 
-export function createApp({ db, hardening, session, documentsDir, staticDir, platform = noopPlatform }: AppOptions): express.Express {
+export function createApp({ db, hardening, session, documentsDir, staticDir, platform = noopPlatform, serviceToken }: AppOptions): express.Express {
   // Compute the equal-work dummy hash now, at startup and off the event loop,
   // so no request ever pays for generating it. Otherwise the first login
   // against an unknown account would be measurably slower than every later
@@ -141,6 +152,48 @@ export function createApp({ db, hardening, session, documentsDir, staticDir, pla
       issueSession(res, customer);
       res.json({ customer: profileOf(customer) });
     })().catch(next);
+  });
+
+  // ── Machine-to-machine ───────────────────────────────────────────────
+  // The shell summary, authenticated with the platform machine token and NOT a
+  // user session: the caller is another service in the same stack. With no
+  // token configured the endpoint is closed, which is the standalone default.
+  //
+  // Mounted ABOVE the session gate below, because the caller has no session —
+  // that is the whole point of the machine token.
+  //
+  // There is no handoff here. This module's users are not staff, so a staff
+  // shell has no principal to sign in as, and it is not embeddable
+  // (docs/PLATFORM-READINESS.md, item C1).
+  //
+  // The constant-time compare is local rather than imported from `handoff.ts`:
+  // that file does not exist here, because this module cannot do a handoff at
+  // all — its sessions carry a shape a shell has no principal for.
+  const tokenMatches = (provided: string): boolean => {
+    const a = Buffer.from(provided);
+    const b = Buffer.from(serviceToken ?? '');
+    return a.length === b.length && timingSafeEqual(a, b);
+  };
+
+  app.get('/api/summary', (req, res, next) => {
+  // Only ours when a machine token is actually presented.
+    //
+    // MOD-11 already serves a session-guarded /api/summary of its own, and this
+    // route is mounted above the session gate, so without the fallthrough it
+    // would shadow that endpoint and answer 401 to the module's own frontend.
+    // Rather than give one module a different path from the other fourteen —
+    // the contract is worth more than the collision is expensive — this route
+    // claims only the requests that are unambiguously the shell's.
+    if (req.headers['x-service-token'] === undefined) {
+      next();
+      return;
+    }
+        const provided = req.headers['x-service-token'];
+    if (!serviceToken || typeof provided !== 'string' || !tokenMatches(provided)) {
+      res.status(401).json({ error: 'Service token required' });
+      return;
+    }
+    res.json(moduleSummary(db, parseSummaryContext(req.query as Record<string, unknown>)));
   });
 
   // ── Everything below requires a valid customer session ───────────────

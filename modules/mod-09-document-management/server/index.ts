@@ -32,6 +32,7 @@ const app = createApp({
   maxUploadBytes: config.maxUploadBytes,
   staticDir,
   platform: buildPlatform(config.platform),
+  serviceToken: config.platform.serviceToken,
 });
 
 app.listen(config.port, () => {
