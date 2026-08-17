@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { NextFunction, Request, Response } from 'express';
-import { hardeningFromEnv, hardeningMiddleware, trustProxyHops, type HardeningConfig } from '../server/hardening.js';
+import {
+  hardeningFromEnv,
+  hardeningMiddleware,
+  shellOriginFromEnv,
+  trustProxyHops,
+  type HardeningConfig,
+} from '../server/hardening.js';
 import { parseCookies } from '../server/auth.js';
 
 /**
@@ -182,6 +188,59 @@ describe('security headers and CORS', () => {
     expect(headers['x-frame-options']).toBe('DENY');
     expect(headers['referrer-policy']).toBe('no-referrer');
     expect(headers['strict-transport-security']).toBeUndefined();
+    expect(headers['content-security-policy']).toBeUndefined();
+  });
+
+  /**
+   * Framing is the one header a shell changes, so it gets its own block.
+   *
+   * The default matters more than the opt-in: an unconfigured package — which
+   * is every standalone install, and every package in a stack that runs no
+   * Workspace — must be exactly as unframeable as it was before this seam
+   * existed. That is the promise the whole embed design rests on.
+   */
+  it('denies framing outright when no shell origin is configured', () => {
+    const { headers } = call(hardeningMiddleware(config({ shellOrigin: undefined })));
+    expect(headers['x-frame-options']).toBe('DENY');
+    expect(headers['content-security-policy']).toBeUndefined();
+  });
+
+  it('names the one shell origin, and drops X-Frame-Options when it does', () => {
+    const { headers } = call(hardeningMiddleware(config({ shellOrigin: 'https://workspace.example' })));
+    expect(headers['content-security-policy']).toBe('frame-ancestors https://workspace.example');
+    // Both together would be a header that reads as a refusal and is ignored:
+    // browsers prefer the CSP, so DENY alongside it misleads whoever audits it.
+    expect(headers['x-frame-options']).toBeUndefined();
+  });
+});
+
+describe('shellOriginFromEnv', () => {
+  it('is unset by default, and treats blank as unset', () => {
+    expect(shellOriginFromEnv(undefined)).toBeUndefined();
+    expect(shellOriginFromEnv('')).toBeUndefined();
+    expect(shellOriginFromEnv('   ')).toBeUndefined();
+  });
+
+  it('normalizes a valid origin', () => {
+    expect(shellOriginFromEnv('https://workspace.example')).toBe('https://workspace.example');
+    expect(shellOriginFromEnv('  https://workspace.example/  ')).toBe('https://workspace.example');
+    expect(shellOriginFromEnv('http://localhost:3015')).toBe('http://localhost:3015');
+  });
+
+  /**
+   * Every rejection here would otherwise be SILENT: the package boots, keeps
+   * sending DENY, and the operator sees an empty frame in the Workspace with
+   * nothing in the logs to explain it. Same posture as guard.ts on secrets —
+   * fail while a human is still watching.
+   */
+  it('refuses a value that is not a bare origin, rather than dropping it', () => {
+    expect(() => shellOriginFromEnv('workspace.example')).toThrow(/absolute origin/);
+    expect(() => shellOriginFromEnv('not a url')).toThrow(/absolute origin/);
+    expect(() => shellOriginFromEnv('javascript:alert(1)')).toThrow(/http or https/);
+    // frame-ancestors matches ORIGINS. Silently widening a path to the whole
+    // origin is not this function's decision to make.
+    expect(() => shellOriginFromEnv('https://workspace.example/app')).toThrow(/no path/);
+    expect(() => shellOriginFromEnv('https://workspace.example/?x=1')).toThrow(/no path/);
   });
 
   it('emits HSTS only when configured', () => {

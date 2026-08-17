@@ -93,5 +93,26 @@ export function openDb(path: string): Database.Database {
     );
   `);
 
+  // ── Additive, idempotent schema evolution ──────────────────────────
+  // Guarded ALTERs so an existing database adopts them on the next boot,
+  // exactly like MOD-04's (server/db.ts).
+  const columns = (table: string): string[] =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+
+  // The PS-11 Customers party this customer is, when the master service is
+  // wired. Null in a standalone deployment, which is why it is nullable.
+  //
+  // This module already RESOLVED the party on every customer it created and
+  // then threw the id away, which cost two things. A shell asking "show me
+  // everything for this customer" had no column to filter on here, so the
+  // offers widget answered a question about all customers while sitting next
+  // to widgets that had narrowed to one. And an exported transfer carried
+  // `party_id: null`, leaving MOD-04 to re-match the party by name and VAT id
+  // when both modules had already agreed on an id for it.
+  if (!columns('customers').includes('party_id')) {
+    db.exec('ALTER TABLE customers ADD COLUMN party_id INTEGER');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_customers_party ON customers (party_id)');
+  }
+
   return db;
 }

@@ -5,6 +5,8 @@ import { fmtDate, fmtEur } from '../format';
 import { StatusBadge } from './StatusBadge';
 
 interface Props {
+  /** Status filter to open with, from a deep link (`/offers?status=sent`). */
+  initialStatus?: string;
   onOpen: (id: number) => void;
   onNew: () => void;
   onAuthLost: () => void;
@@ -21,10 +23,15 @@ const FILTERS = [
   { value: 'superseded', label: 'SUPERSEDED' },
 ];
 
-export function OffersView({ onOpen, onNew, onAuthLost }: Props) {
+export function OffersView({ initialStatus, onOpen, onNew, onAuthLost }: Props) {
   const [rows, setRows] = useState<OfferRow[] | null>(null);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('');
+  // A status this view does not offer is dropped rather than sent to the API:
+  // an unknown filter would return nothing and read as "no offers" instead of
+  // as the bad link it is.
+  const [filter, setFilter] = useState(() =>
+    FILTERS.some((f) => f.value !== '' && f.value === initialStatus) ? (initialStatus as string) : '',
+  );
   const [error, setError] = useState('');
 
   const params = useMemo(() => {

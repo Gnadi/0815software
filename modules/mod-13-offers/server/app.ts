@@ -21,7 +21,10 @@ import {
 } from './auth.js';
 import type { SellerConfig } from './config.js';
 import { offersCsv } from './csv.js';
+import { createHandoff, isRedeemPath } from './handoff.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
+import { parseSummaryContext } from '../shared/summary.js';
+import { moduleSummary } from './summary.js';
 import { offerTransfer } from './transfer-export.js';
 import { nullVerifier, type LoginVerifier } from './sso.js';
 import {
@@ -166,10 +169,17 @@ export interface AppOptions {
   /**
    * The platform machine token (PLATFORM_SERVICE_TOKEN). When set, it is the
    * only credential that opens GET /api/offers/:number/transfer — the
-   * machine-to-machine hand-off to whatever bills an accepted offer. Unset
-   * means the endpoint is closed, which is the standalone default.
+   * machine-to-machine hand-off to whatever bills an accepted offer, the
+   * shell summary, and the two handoff routes. Unset means all of them are
+   * closed, which is the standalone default.
    */
   serviceToken?: string;
+  /**
+   * The MOD-15 Workspace origin allowed to embed this module and to sign users
+   * into it (SHELL_ORIGIN). Unset — the default — leaves the handoff routes
+   * unmounted entirely and keeps `X-Frame-Options: DENY` in `hardening.ts`.
+   */
+  shellOrigin?: string;
 }
 
 /** The local address is one free-text field; PS-11 wants discrete lines. */
@@ -180,8 +190,9 @@ function addressToLines(address: string | null): string[] {
     .filter((line) => line !== '');
 }
 
-export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, serviceToken }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, serviceToken, shellOrigin }: AppOptions): express.Express {
   const app = express();
+  const handoff = shellOrigin ? createHandoff(auth) : null;
 
   // Transport hardening: security headers, a default-deny CORS policy and
   // per-IP rate limits. Mounted only when a config is passed — index.ts always
@@ -204,6 +215,24 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
     const row = db.prepare('SELECT id FROM offers WHERE number = ?').get(ref) as { id: number } | undefined;
     if (!row) throw new DomainError(404, 'Offer not found');
     return row.id;
+  }
+
+  /**
+   * The PS-11 party behind an offer's customer, when this stack has one.
+   *
+   * Null covers both "PS-11 is not wired" and "this customer predates the
+   * link", and an importer handles both the same way — it falls back to
+   * matching the party by the identity fields the transfer carries.
+   */
+  function partyIdForOffer(offerNumber: string): number | null {
+    const row = db
+      .prepare(
+        `SELECT c.party_id AS party_id FROM offers o
+         JOIN customers c ON c.id = o.customer_id
+         WHERE o.number = ?`,
+      )
+      .get(offerNumber) as { party_id: number | null } | undefined;
+    return row?.party_id ?? null;
   }
 
   // ── Public routes ────────────────────────────────────────────────────
@@ -306,18 +335,68 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
     res.json(publicOffer(ref, token));
   });
 
-  // ── Machine-to-machine: hand an accepted offer to whatever bills it ──
+  // ── Machine-to-machine ───────────────────────────────────────────────
   // Authenticated with the platform machine token, NOT a staff session: the
-  // caller is another service in the same stack. The response is the neutral
-  // shape in shared/transfer.ts — no MOD-13 ids, statuses or internals — so the
-  // transport can be re-pointed without changing what crosses the wire.
-  app.get('/api/offers/:number/transfer', (req, res) => {
+  // caller is another service in the same stack. With no token configured
+  // every route below is closed, which is the standalone default.
+  function requireServiceToken(req: Request): void {
     const provided = req.headers['x-service-token'];
     if (!serviceToken || typeof provided !== 'string' || !safeEqual(provided, serviceToken)) {
       throw new DomainError(401, 'Service token required');
     }
-    res.json(offerTransfer(db, req.params.number, { today: today() }));
+  }
+
+  // Hand an accepted offer to whatever bills it. The response is the neutral
+  // shape in shared/transfer.ts — no MOD-13 ids, statuses or internals — so the
+  // transport can be re-pointed without changing what crosses the wire.
+  app.get('/api/offers/:number/transfer', (req, res) => {
+    requireServiceToken(req);
+    res.json(offerTransfer(db, req.params.number, { today: today(), partyId: partyIdForOffer(req.params.number) }));
   });
+
+  // What this module looks like on a shell's board (shared/summary.ts).
+  app.get('/api/summary', (req, res) => {
+    requireServiceToken(req);
+    res.json(moduleSummary(db, parseSummaryContext(req.query as Record<string, unknown>), { today: today() }));
+  });
+
+  // ── Shell handoff ────────────────────────────────────────────────────
+  // Mounted only when the operator named a shell in SHELL_ORIGIN, so a
+  // standalone module has no such surface at all. See handoff.ts for why the
+  // destination is signed into the ticket rather than passed alongside it.
+  if (handoff) {
+    app.post('/api/session/handoff', (req, res) => {
+      requireServiceToken(req);
+      const { actor, path } = body(req);
+      if (typeof actor !== 'string' || actor.trim() === '') throw new DomainError(422, 'actor is required');
+      const target = path === undefined ? '/' : path;
+      if (!isRedeemPath(target)) throw new DomainError(422, 'path must be module-relative');
+      res.json(handoff.issue(actor.trim(), target));
+    });
+
+    app.post('/api/session/issue', (req, res) => {
+      requireServiceToken(req);
+      const { actor } = body(req);
+      if (typeof actor !== 'string' || actor.trim() === '') throw new DomainError(422, 'actor is required');
+      res.json(handoff.issueSession(actor.trim()));
+    });
+
+    // The browser lands here from an iframe `src`. Deliberately NOT under
+    // /api: it is a navigation, and it must stay outside the session gate
+    // below — it is how a session is obtained in the first place.
+    app.get('/session/handoff', (req, res) => {
+      const result = handoff.redeem(req.query.ticket);
+      if (!result.ok) {
+        // One status for all three verdicts. Which of "never issued",
+        // "already used" and "expired" a ticket hit is not something an
+        // unauthenticated caller gets to probe for.
+        res.status(401).type('text/plain').send('Handoff ticket is not valid');
+        return;
+      }
+      res.setHeader('Set-Cookie', result.cookie);
+      res.redirect(302, result.location);
+    });
+  }
 
   // ── Everything below requires a valid session ────────────────────────
   app.use('/api', requireAuth(auth));
@@ -385,15 +464,28 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
       .run(values.name, values.contact_person, values.email, values.vat_id, values.address, nowIso());
     const localId = Number(info.lastInsertRowid);
     // Register the customer with PS-11 so another module billing them resolves
-    // the same party. Best-effort: the local row above is already committed.
-    void platform.resolveParty({
-      name: values.name,
-      contactPerson: values.contact_person,
-      email: values.email,
-      vatId: values.vat_id,
-      addressLines: addressToLines(values.address),
-      localId,
-    });
+    // the same party, and KEEP the id this time. It is what lets a shell filter
+    // this module down to one customer, and what lets an exported transfer NAME
+    // the party instead of merely describing it well enough to be re-matched.
+    //
+    // Still best-effort and still off the request path: the local row above is
+    // already committed, null is the standalone answer, and a PS-11 outage
+    // costs the link, never the customer.
+    void platform
+      .resolveParty({
+        name: values.name,
+        contactPerson: values.contact_person,
+        email: values.email,
+        vatId: values.vat_id,
+        addressLines: addressToLines(values.address),
+        localId,
+      })
+      .then((partyId) => {
+        if (partyId !== null) db.prepare('UPDATE customers SET party_id = ? WHERE id = ?').run(partyId, localId);
+      })
+      .catch(() => {
+        /* resolveParty logs its own failures; an unlinked customer is valid */
+      });
     res.status(201).json(db.prepare('SELECT * FROM customers WHERE id = ?').get(localId));
   });
 
