@@ -44,6 +44,7 @@ const COMMON_MODULE_ENV = new Set([
  */
 const CONSTRAINT_ENV: Record<string, string> = {
   supportsSso: 'IDENTITY_URL',
+  embeddable: 'SHELL_ORIGIN',
   needsPublicBaseUrl: 'PUBLIC_BASE_URL',
   acceptsSourceDb: 'SOURCE_DB_PATH',
 };
@@ -93,8 +94,8 @@ describe('registry document', () => {
 
   it('covers every module directory, exactly once, in catalogue order', () => {
     const ids = modules.map((m: any) => m.id);
-    expect(ids).toHaveLength(14);
-    expect(new Set(ids).size).toBe(14);
+    expect(ids).toHaveLength(15);
+    expect(new Set(ids).size).toBe(15);
     expect([...ids].sort()).toEqual(ids);
     for (const mod of modules) expect(mod.n).toBe(`MOD-${mod.id.slice(4, 6)}`);
   });
@@ -119,6 +120,18 @@ describe('registry document', () => {
       const declared = [...mod.services.required, ...mod.services.optional];
       expect(new Set(declared).size, `${mod.id} lists a service twice`).toBe(declared.length);
       for (const id of declared) expect(known, `${mod.id} -> ${id}`).toContain(id);
+    }
+  });
+
+  it('lets a module be embedded only where a shell has an identity to assert', () => {
+    // `embeddable` implies `supportsSso`: what a shell hands a module is the
+    // identity PS-01 validated, so a module that does not delegate login has
+    // nothing to be handed. The reverse is allowed and deliberate — MOD-08
+    // could take an SSO login it will never be framed with.
+    for (const mod of modules) {
+      if (mod.constraints.embeddable) {
+        expect(mod.constraints.supportsSso, `${mod.id} is embeddable but not SSO-capable`).toBe(true);
+      }
     }
   });
 
@@ -191,7 +204,7 @@ describe.each(modules.map((m: any) => [m.id, m] as const))('module %s does not d
       ...COMMON_MODULE_ENV,
       ...Object.values(CONSTRAINT_ENV),
       ...[...read].filter((name) => serviceByUrlEnv.has(name)),
-      ...peersOf(mod).map((peer: any) => peer.urlEnv),
+      ...peersOf(mod).flatMap((peer: any) => [peer.urlEnv, peer.publicUrlEnv].filter(Boolean)),
     ]);
     const undeclared = [...read].filter((name) => !declared.has(name)).sort();
     expect(undeclared, `${mod.id} reads env vars the registry does not declare`).toEqual([]);
@@ -200,8 +213,13 @@ describe.each(modules.map((m: any) => [m.id, m] as const))('module %s does not d
   it('reads the URL of every peer module it declares', () => {
     // A declared peer is a real cross-module dependency, so the code must
     // actually read that URL — and a module with no peers declares none.
+    // Same for the public origin: declaring one a module never reads would put
+    // a variable in a generated .env that changes nothing.
     for (const peer of peersOf(mod)) {
       expect(read, `${mod.id} declares peer ${peer.id} but never reads ${peer.urlEnv}`).toContain(peer.urlEnv);
+      if (peer.publicUrlEnv) {
+        expect(read, `${mod.id} declares ${peer.publicUrlEnv} but never reads it`).toContain(peer.publicUrlEnv);
+      }
     }
   });
 

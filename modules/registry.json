@@ -10,7 +10,9 @@
       "routePrefix": "/identity",
       "urlEnv": "IDENTITY_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET"]
+      "secrets": [
+        "SESSION_SECRET"
+      ]
     },
     {
       "id": "ps-02-workflow-engine",
@@ -20,7 +22,11 @@
       "routePrefix": "/workflow",
       "urlEnv": "WORKFLOW_URL",
       "tickDriven": true,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     },
     {
       "id": "ps-03-notification-hub",
@@ -30,7 +36,11 @@
       "routePrefix": "/notify",
       "urlEnv": "NOTIFICATION_URL",
       "tickDriven": true,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     },
     {
       "id": "ps-04-ai-platform",
@@ -40,7 +50,11 @@
       "routePrefix": "/ai",
       "urlEnv": "AI_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     },
     {
       "id": "ps-05-integration-hub",
@@ -66,7 +80,12 @@
       "routePrefix": "/files",
       "urlEnv": "FILES_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN", "SIGNING_SECRET"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN",
+        "SIGNING_SECRET"
+      ]
     },
     {
       "id": "ps-07-audit-log",
@@ -76,7 +95,11 @@
       "routePrefix": "/audit",
       "urlEnv": "AUDIT_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     },
     {
       "id": "ps-08-payments",
@@ -86,7 +109,12 @@
       "routePrefix": "/payments",
       "urlEnv": "PAYMENTS_URL",
       "tickDriven": true,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN", "WEBHOOK_SECRET"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN",
+        "WEBHOOK_SECRET"
+      ]
     },
     {
       "id": "ps-09-search",
@@ -96,7 +124,11 @@
       "routePrefix": "/search",
       "urlEnv": "SEARCH_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     },
     {
       "id": "ps-10-number",
@@ -106,7 +138,11 @@
       "routePrefix": "/number",
       "urlEnv": "NUMBER_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     },
     {
       "id": "ps-11-customers",
@@ -116,7 +152,11 @@
       "routePrefix": "/customers",
       "urlEnv": "CUSTOMERS_URL",
       "tickDriven": false,
-      "secrets": ["SESSION_SECRET", "ADMIN_PASSWORD", "SERVICE_TOKEN"]
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN"
+      ]
     }
   ],
   "modules": [
@@ -130,15 +170,22 @@
       "scope": "3–4 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-07-audit-log"]
+        "optional": [
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
-        "optional": ["DOCUMENTS_DIR"],
-        "secrets": ["SESSION_SECRET"]
+        "optional": [
+          "DOCUMENTS_DIR"
+        ],
+        "secrets": [
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": false,
+        "embeddable": false,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
@@ -154,15 +201,24 @@
       "scope": "2–3 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
-        "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "optional": [
+          "SHELL_ORIGIN"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
+        "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
@@ -178,15 +234,24 @@
       "scope": "4–5 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
-        "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "optional": [
+          "SHELL_ORIGIN"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
+        "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
@@ -213,15 +278,34 @@
         ]
       },
       "peers": {
-        "optional": [{ "id": "mod-13-offers", "urlEnv": "OFFERS_URL" }]
+        "optional": [
+          {
+            "id": "mod-13-offers",
+            "urlEnv": "OFFERS_URL"
+          }
+        ]
       },
       "env": {
-        "required": ["SELLER_NAME", "SELLER_ADDRESS", "SELLER_VAT_ID"],
-        "optional": ["SELLER_IBAN", "SELLER_BIC", "NOTIFICATION_INVOICE_CHANNEL", "SELLER_REFRESH_MS"],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "required": [
+          "SELLER_NAME",
+          "SELLER_ADDRESS",
+          "SELLER_VAT_ID"
+        ],
+        "optional": [
+          "NOTIFICATION_INVOICE_CHANNEL",
+          "SELLER_BIC",
+          "SELLER_IBAN",
+          "SELLER_REFRESH_MS",
+          "SHELL_ORIGIN"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
+        "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": true
@@ -237,15 +321,24 @@
       "scope": "2–3 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
-        "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "optional": [
+          "SHELL_ORIGIN"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
+        "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
@@ -270,11 +363,17 @@
       },
       "env": {
         "required": [],
-        "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "optional": [
+          "SHELL_ORIGIN"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
+        "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
@@ -290,15 +389,21 @@
       "scope": "5–6 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-08-payments"]
+        "optional": [
+          "ps-08-payments"
+        ]
       },
       "env": {
         "required": [],
         "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": false,
+        "embeddable": false,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
@@ -314,15 +419,27 @@
       "scope": "3–4 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
-        "optional": ["EXPORTS_DIR", "SCHEDULER_TICK_SECONDS", "SOURCE_VIEWS_ONLY"],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "optional": [
+          "EXPORTS_DIR",
+          "SCHEDULER_TICK_SECONDS",
+          "SHELL_ORIGIN",
+          "SOURCE_VIEWS_ONLY"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
+        "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": true,
         "publishesReportViews": false
@@ -338,15 +455,25 @@
       "scope": "3–4 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-06-file-storage", "ps-07-audit-log", "ps-09-search"]
+        "optional": [
+          "ps-06-file-storage",
+          "ps-07-audit-log",
+          "ps-09-search"
+        ]
       },
       "env": {
         "required": [],
-        "optional": ["STORAGE_DIR", "MAX_UPLOAD_BYTES"],
-        "secrets": ["SESSION_SECRET"]
+        "optional": [
+          "STORAGE_DIR",
+          "MAX_UPLOAD_BYTES"
+        ],
+        "secrets": [
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": false,
+        "embeddable": false,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
@@ -362,15 +489,25 @@
       "scope": "3–5 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log", "ps-11-customers"]
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log",
+          "ps-11-customers"
+        ]
       },
       "env": {
         "required": [],
-        "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "optional": [
+          "SHELL_ORIGIN"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
+        "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
@@ -386,15 +523,24 @@
       "scope": "2–3 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
-        "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "optional": [
+          "SHELL_ORIGIN"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
+        "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
@@ -419,11 +565,19 @@
       },
       "env": {
         "required": [],
-        "optional": ["NOTIFICATION_ACK_CHANNEL"],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET", "INTAKE_SECRET"]
+        "optional": [
+          "NOTIFICATION_ACK_CHANNEL",
+          "SHELL_ORIGIN"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET",
+          "INTAKE_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
+        "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
@@ -447,12 +601,24 @@
         ]
       },
       "env": {
-        "required": ["SELLER_NAME", "SELLER_ADDRESS", "SELLER_VAT_ID", "SELLER_EMAIL"],
-        "optional": ["SELLER_REFRESH_MS"],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "required": [
+          "SELLER_NAME",
+          "SELLER_ADDRESS",
+          "SELLER_VAT_ID",
+          "SELLER_EMAIL"
+        ],
+        "optional": [
+          "SELLER_REFRESH_MS",
+          "SHELL_ORIGIN"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
+        "embeddable": true,
         "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
         "publishesReportViews": false
@@ -468,16 +634,135 @@
       "scope": "3–4 WKS",
       "services": {
         "required": [],
-        "optional": ["ps-01-identity", "ps-03-notification-hub", "ps-07-audit-log"]
+        "optional": [
+          "ps-01-identity",
+          "ps-03-notification-hub",
+          "ps-07-audit-log"
+        ]
       },
       "env": {
         "required": [],
-        "optional": [],
-        "secrets": ["ADMIN_PASSWORD", "SESSION_SECRET"]
+        "optional": [
+          "SHELL_ORIGIN"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
       },
       "constraints": {
         "supportsSso": true,
+        "embeddable": true,
         "needsPublicBaseUrl": false,
+        "acceptsSourceDb": false,
+        "publishesReportViews": false
+      }
+    },
+    {
+      "id": "mod-15-workspace",
+      "n": "MOD-15",
+      "slug": "dashboard",
+      "title": "Dashboard",
+      "label": "Workspace",
+      "defaultPort": 3015,
+      "scope": "4–5 WKS",
+      "services": {
+        "required": [],
+        "optional": [
+          "ps-01-identity",
+          "ps-03-notification-hub",
+          "ps-07-audit-log",
+          "ps-11-customers"
+        ]
+      },
+      "peers": {
+        "optional": [
+          {
+            "id": "mod-01-customer-portal",
+            "urlEnv": "PORTAL_URL",
+            "publicUrlEnv": "PORTAL_PUBLIC_URL"
+          },
+          {
+            "id": "mod-02-admin-dashboard",
+            "urlEnv": "ADMIN_URL",
+            "publicUrlEnv": "ADMIN_PUBLIC_URL"
+          },
+          {
+            "id": "mod-03-inventory-management",
+            "urlEnv": "INVENTORY_URL",
+            "publicUrlEnv": "INVENTORY_PUBLIC_URL"
+          },
+          {
+            "id": "mod-04-invoice-billing",
+            "urlEnv": "INVOICING_URL",
+            "publicUrlEnv": "INVOICING_PUBLIC_URL"
+          },
+          {
+            "id": "mod-05-employee-directory",
+            "urlEnv": "DIRECTORY_URL",
+            "publicUrlEnv": "DIRECTORY_PUBLIC_URL"
+          },
+          {
+            "id": "mod-06-procurement-tracker",
+            "urlEnv": "PROCUREMENT_URL",
+            "publicUrlEnv": "PROCUREMENT_PUBLIC_URL"
+          },
+          {
+            "id": "mod-07-storefront",
+            "urlEnv": "SHOP_URL",
+            "publicUrlEnv": "SHOP_PUBLIC_URL"
+          },
+          {
+            "id": "mod-08-reporting-suite",
+            "urlEnv": "REPORTING_URL",
+            "publicUrlEnv": "REPORTING_PUBLIC_URL"
+          },
+          {
+            "id": "mod-09-document-management",
+            "urlEnv": "DOCUMENTS_URL",
+            "publicUrlEnv": "DOCUMENTS_PUBLIC_URL"
+          },
+          {
+            "id": "mod-10-crm-lite",
+            "urlEnv": "CRM_URL",
+            "publicUrlEnv": "CRM_PUBLIC_URL"
+          },
+          {
+            "id": "mod-11-time-tracking",
+            "urlEnv": "TIME_URL",
+            "publicUrlEnv": "TIME_PUBLIC_URL"
+          },
+          {
+            "id": "mod-12-support-tickets",
+            "urlEnv": "SUPPORT_URL",
+            "publicUrlEnv": "SUPPORT_PUBLIC_URL"
+          },
+          {
+            "id": "mod-13-offers",
+            "urlEnv": "OFFERS_URL",
+            "publicUrlEnv": "OFFERS_PUBLIC_URL"
+          },
+          {
+            "id": "mod-14-subsidies-funds",
+            "urlEnv": "SUBSIDIES_URL",
+            "publicUrlEnv": "SUBSIDIES_PUBLIC_URL"
+          }
+        ]
+      },
+      "env": {
+        "required": [],
+        "optional": [
+          "PEER_TIMEOUT_MS"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "embeddable": true,
+        "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
         "publishesReportViews": false
       }

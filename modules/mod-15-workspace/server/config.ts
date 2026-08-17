@@ -95,8 +95,8 @@ function urlFromEnv(name: string, raw: string | undefined): string | undefined {
  *
  * Written out rather than looked up as `env[entry.urlEnv]`, for two reasons.
  * It is what the registry drift test reads — it derives a module's env surface
- * by matching `env.FOO` in this file, and a computed lookup is invisible to it,
- * so the registry would appear to declare fourteen peers that no code reads.
+ * by matching each env-var read in this file, and a computed lookup is invisible
+ * to that scan — the registry would appear to declare fourteen peers no code reads.
  * And it is greppable: "what sets CRM_URL" is answerable from this file alone.
  *
  * The obvious risk — adding a module to the catalogue and forgetting it here —

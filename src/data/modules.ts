@@ -394,6 +394,37 @@ const presentation: Record<string, ModulePresentation> = {
       statuses: ['Approved', 'Submitted', 'Draft'],
     },
   },
+  'mod-15-workspace': {
+    body: 'One screen for every module you run. Drag-and-drop widgets fed live by your modules, one shared customer filter, and cross-module actions.',
+    overview:
+      'A dashboard that hosts the other modules rather than replacing them. Each module you licensed contributes widgets — figures and short lists it computes itself — which you arrange on a board per person. Pick a customer once and every widget narrows to them. Open a module full-screen inside the Workspace, already signed in, or act across modules without opening either: an accepted offer becomes a draft invoice from a button on the board. Every module still installs and runs on its own; nothing here is a second copy of anything.',
+    features: [
+      'Per-person drag-and-drop board of live module widgets',
+      'One shared customer and date filter every module honours',
+      'Modules embedded full-screen, signed in, no second login',
+      'Cross-module actions that run as you, not as a service account',
+    ],
+    screen: {
+      variant: 'dashboard',
+      accent: '#8FA98C',
+      nav: ['Overview', 'Finance', 'Delivery'],
+      stats: [
+        { label: 'Offers out', value: '7' },
+        { label: 'Outstanding', value: '€ 42,180' },
+        { label: 'Overdue', value: '3' },
+        { label: 'Open tickets', value: '11' },
+      ],
+      columns: ['Module', 'Widget', 'Value'],
+      rows: [
+        ['Offers', 'Accepted, ready to bill', '4'],
+        ['Invoicing', 'Overdue, oldest first', '3'],
+        ['CRM', 'Follow-ups due', '6'],
+        ['Support', 'Waiting longest', '11'],
+        ['Time', 'Timesheets to approve', '2'],
+      ],
+      statuses: ['Live', 'Filtered'],
+    },
+  },
 };
 
 function entryFor(mod: ModuleRegistryEntry): ModuleEntry {
@@ -410,7 +441,7 @@ function entryFor(mod: ModuleRegistryEntry): ModuleEntry {
   };
 }
 
-/** Catalogue order is the registry's order (MOD-01 … MOD-14). */
+/** Catalogue order is the registry's order (MOD-01 … MOD-15). */
 export const modules: ModuleEntry[] = registryModules.map(entryFor);
 
 export function getModule(slug: string): ModuleEntry | undefined {
