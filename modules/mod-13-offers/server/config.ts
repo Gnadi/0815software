@@ -98,6 +98,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       // PS-11 Customers — when set, a customer created here is resolved
       // against the stack's party master data so MOD-04 bills the same party.
       customersUrl: env.CUSTOMERS_URL || undefined,
+      // MOD-10 CRM Lite — when set, a deal still in play can be pulled in as a
+      // draft quote. Unset, this module has no notion of a pipeline and the
+      // import route says so rather than failing obscurely.
+      crmUrl: env.CRM_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
   };

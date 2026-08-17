@@ -139,6 +139,56 @@ describe('the catalogue', () => {
   });
 
   /**
+   * The sales chain the catalogue actually has:
+   *
+   *     MOD-10 deal ──QUOTE──▶ MOD-13 offer ──BILL──▶ MOD-04 invoice
+   *                                  │
+   *                                  └────PLAN────▶ MOD-11 project
+   *
+   * Availability is per link, not per chain. This stack has CRM, Offers and
+   * Invoicing but no Time Tracking, so two of the three are live — which is
+   * the ordinary case, since customers license modules one at a time.
+   */
+  it('offers each link of the chain independently of the others', async () => {
+    const app = build(stubFetch({}));
+    const cookie = await signIn(app);
+    const res = await request(app).get('/api/catalogue').set('Cookie', cookie).expect(200);
+
+    const byId = new Map<string, { available: boolean; source_module: string; target_module: string }>(
+      res.body.actions.map((a: { id: string }) => [a.id, a]),
+    );
+    expect([...byId.keys()].sort()).toEqual(['bill-offer', 'plan-offer', 'quote-deal']);
+    expect(byId.get('quote-deal')).toMatchObject({
+      available: true,
+      source_module: 'mod-10-crm-lite',
+      target_module: 'mod-13-offers',
+    });
+    // MOD-11 is not in this stack, so PLAN WORK has nowhere to go.
+    expect(byId.get('plan-offer')).toMatchObject({
+      available: false,
+      source_module: 'mod-13-offers',
+      target_module: 'mod-11-time-tracking',
+    });
+  });
+
+  it('attaches both offer actions to the same list, without either shadowing the other', async () => {
+    const withTime = build(stubFetch({}), {
+      peers: { ...PEERS, 'mod-11-time-tracking': { url: 'http://time:3011', publicUrl: 'https://time.example' } },
+    });
+    const cookie = await signIn(withTime);
+    const res = await request(withTime).get('/api/catalogue').set('Cookie', cookie).expect(200);
+
+    // An accepted offer is usually two things at once — something to invoice
+    // and something to do — so both buttons sit on the same row. Neither is a
+    // step towards the other, and the UI renders one button per action.
+    const onAccepted = res.body.actions.filter(
+      (a: { source_module: string; source_list: string; available: boolean }) =>
+        a.source_module === 'mod-13-offers' && a.source_list === 'accepted_offers' && a.available,
+    );
+    expect(onAccepted.map((a: { id: string }) => a.id).sort()).toEqual(['bill-offer', 'plan-offer']);
+  });
+
+  /**
    * Without PS-01 every operator authenticates as the one configured admin, so
    * they share an actor — and therefore share boards, the customer filter, and
    * the name that lands in a target module's history when an action runs. That
@@ -531,6 +581,96 @@ describe('running a cross-module action', () => {
   it('requires a session of its own — the board is not a public API', async () => {
     const app = billingStack(() => new Response('{}', { status: 201 }));
     await request(app).post('/api/actions/bill-offer').send({ item_id: 'AN-1' }).expect(401);
+  });
+
+  /**
+   * The two links added alongside billing. They exercise the SAME runner —
+   * `/api/actions/:id` reads the descriptor and knows nothing about offers,
+   * deals or projects — so what these cases actually pin down is that each
+   * descriptor names the target, the path and the body field its target really
+   * expects. A typo in any of the three is a button that 404s in production and
+   * nowhere else, which is precisely the failure a declarative catalogue is
+   * supposed to make impossible to ship.
+   */
+  function chainStack(
+    calls: { url: string; cookie: string | null; body: unknown }[],
+    peerMap: PeerMap,
+  ): Express {
+    return build(
+      async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/api/session/issue') {
+          return new Response(JSON.stringify({ cookie_name: 'sess', token: `tok-${url.host}` }), { status: 200 });
+        }
+        calls.push({
+          url: `${url.host}${url.pathname}`,
+          cookie: new Headers(init?.headers).get('Cookie'),
+          body: JSON.parse(String(init?.body)),
+        });
+        return new Response(JSON.stringify({ id: 9, imported: true }), { status: 201 });
+      },
+      { peers: peerMap },
+    );
+  }
+
+  it('quotes a deal by calling MOD-13’s own import route', async () => {
+    const calls: { url: string; cookie: string | null; body: unknown }[] = [];
+    const app = chainStack(calls, PEERS);
+    const cookie = await signIn(app);
+
+    const res = await request(app)
+      .post('/api/actions/quote-deal')
+      .set('Cookie', cookie)
+      .send({ item_id: '3' })
+      .expect(200);
+
+    expect(res.body.message).toBe('Quoted deal 3 — draft offer created');
+    // The item id of a deal in MOD-10's summary is its primary key, and
+    // `deal_id` is the field MOD-13's route reads.
+    expect(calls).toEqual([
+      { url: 'offers:3013/api/offers/import-deal', cookie: 'sess=tok-offers:3013', body: { deal_id: '3' } },
+    ]);
+  });
+
+  it('plans an offer by calling MOD-11’s own import route', async () => {
+    const calls: { url: string; cookie: string | null; body: unknown }[] = [];
+    const app = chainStack(calls, {
+      ...PEERS,
+      'mod-11-time-tracking': { url: 'http://time:3011', publicUrl: 'https://time.example' },
+    });
+    const cookie = await signIn(app);
+
+    const res = await request(app)
+      .post('/api/actions/plan-offer')
+      .set('Cookie', cookie)
+      .send({ item_id: 'AN-2026-0007' })
+      .expect(200);
+
+    expect(res.body.message).toBe('Planned AN-2026-0007 — project created for time tracking');
+    expect(calls).toEqual([
+      {
+        url: 'time:3011/api/projects/import-offer',
+        cookie: 'sess=tok-time:3011',
+        body: { offer_number: 'AN-2026-0007' },
+      },
+    ]);
+  });
+
+  it('holds a separate session per module, so one action never acts inside another', async () => {
+    const calls: { url: string; cookie: string | null; body: unknown }[] = [];
+    const app = chainStack(calls, {
+      ...PEERS,
+      'mod-11-time-tracking': { url: 'http://time:3011', publicUrl: 'https://time.example' },
+    });
+    const cookie = await signIn(app);
+
+    await request(app).post('/api/actions/bill-offer').set('Cookie', cookie).send({ item_id: 'AN-1' }).expect(200);
+    await request(app).post('/api/actions/plan-offer').set('Cookie', cookie).send({ item_id: 'AN-1' }).expect(200);
+
+    // A module's session is minted by that module and bound to it — a MOD-04
+    // cookie is not a credential anywhere else, and the vault must not treat
+    // one person's sessions as interchangeable just because the actor matches.
+    expect(calls.map((c) => c.cookie)).toEqual(['sess=tok-invoicing:3004', 'sess=tok-time:3011']);
   });
 });
 

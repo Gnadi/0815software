@@ -291,3 +291,28 @@ who, and only because it holds the machine token and was named here.
 With both unset — the default, and what a standalone install runs — the summary
 endpoint is closed, the handoff routes are not mounted, and framing is denied
 outright. See [`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md).
+
+## Handing a deal to whatever quotes it
+
+`GET /api/deals/:id/transfer`, also behind `PLATFORM_SERVICE_TOKEN`, hands a
+deal **still in play** to another module as a neutral document transfer
+(`shared/transfer.ts`, byte-identical in every module that speaks it). MOD-13
+Offers consumes it at `POST /api/offers/import-deal` and produces a draft quote;
+the Workspace puts a **QUOTE THIS** button on the deals widget that does exactly
+that, as the person who clicked.
+
+Three things this module deliberately does *not* do on the way out:
+
+- **It exports no won or lost deal.** A won deal was generally won *by* a quote,
+  and re-quoting it produces a second offer for work already sold; a lost one is
+  something the customer said no to. Both are refused with the stage named.
+- **It expresses no VAT opinion.** The line carries `vat_rate: 0`, which means
+  "this module did not decide" — whether a figure attracts 20 %, 10 % or nothing
+  depends on what is being sold, and that judgement belongs to the module with a
+  rate on every line and an operator looking at it.
+- **It changes nothing.** Exporting is a read. Where a deal sits in the pipeline
+  is the salesperson's call, made in this module's own UI.
+
+With `PLATFORM_SERVICE_TOKEN` unset — the standalone default — the endpoint is
+closed and a deal never leaves. See
+[`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md).

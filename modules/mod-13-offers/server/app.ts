@@ -21,10 +21,12 @@ import {
 import type { SellerConfig } from './config.js';
 import { offersCsv } from './csv.js';
 import { createHandoff, isRedeemPath, safeServiceTokenEqual } from './handoff.js';
-import { noopPlatform, type PlatformHooks } from './platform.js';
+import { DealFetchError, noopPlatform, type PlatformHooks } from './platform.js';
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { offerTransfer } from './transfer-export.js';
+import { importTransfer } from './transfer-import.js';
+import type { DocumentTransfer } from '../shared/transfer.js';
 import { nullVerifier, type LoginVerifier } from './sso.js';
 import {
   createDraft,
@@ -576,6 +578,75 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
   app.post('/api/offers', (req, res) => {
     const offerId = createDraft(db, { ...validateOffer(body(req)), createdAt: stamp() });
     res.status(201).json(offerDetail(db, offerId, detailCtx()));
+  });
+
+  // ── Quote a deal from the pipeline ───────────────────────────────────
+  // The other half of the sales chain: MOD-10 knows what is being sold and to
+  // whom, this module knows how to put a price on paper. It fetches the deal
+  // as a neutral document transfer (shared/transfer.ts) and produces a DRAFT —
+  // with a title, a customer, one line at the deal's value and this module's
+  // own default VAT rate. Nothing is sent, nothing is numbered, and every
+  // figure is editable, because a deal is an estimate and a quote is a promise.
+  //
+  // Idempotent on the deal: a retry returns the draft the first call produced,
+  // with 200 instead of 201, so a double click cannot leave a customer holding
+  // two quotes for one job.
+  app.post('/api/offers/import-deal', async (req, res) => {
+    const raw = body(req).deal_id;
+    if ((typeof raw !== 'string' && typeof raw !== 'number') || String(raw).trim() === '') {
+      fail([{ field: 'deal_id', message: 'deal_id is required' }]);
+    }
+    const dealId = String(raw).trim();
+
+    let transfer: unknown;
+    try {
+      transfer = await platform.fetchDeal(dealId);
+    } catch (err) {
+      if (err instanceof DealFetchError) throw new DomainError(err.status === 404 ? 404 : 502, err.message);
+      throw err;
+    }
+    if (transfer === null) {
+      throw new DomainError(501, 'No deal source is configured — set CRM_URL to quote deals from MOD-10');
+    }
+
+    // The transfer already carries the PS-11 party id when MOD-10 resolved one,
+    // so the import matches on identity rather than on a name spelled the same
+    // way twice. Resolving here as well would need a local row that does not
+    // exist yet — so the link is completed below, off the request path, exactly
+    // as POST /api/customers does it.
+    const result = importTransfer(db, transfer, { today: today(), createdAt: stamp() });
+    const customer = getCustomer(db, result.customerId);
+    if (customer.party_id === null) {
+      void platform
+        .resolveParty({
+          name: customer.name,
+          contactPerson: customer.contact_person,
+          email: customer.email,
+          vatId: customer.vat_id,
+          addressLines: addressToLines(customer.address),
+          localId: customer.id,
+        })
+        .then((partyId) => {
+          if (partyId !== null) {
+            db.prepare('UPDATE customers SET party_id = ? WHERE id = ?').run(partyId, customer.id);
+          }
+        })
+        .catch(() => {
+          /* resolveParty logs its own failures; an unlinked customer is valid */
+        });
+    }
+
+    if (!result.replayed) {
+      void platform.audit({
+        actor: actorOf(res, auth),
+        action: 'offer.imported',
+        resource: `offer:${result.offerId}`,
+        metadata: { origin: (transfer as DocumentTransfer).origin.reference, source: 'mod-10-crm-lite' },
+      });
+    }
+    res
+      .status(result.replayed ? 200 : 201)
+      .json({ ...offerDetail(db, result.offerId, detailCtx()), imported: !result.replayed });
   });
 
   app.get('/api/offers/:id', (req, res) => {

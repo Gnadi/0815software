@@ -397,7 +397,7 @@ const presentation: Record<string, ModulePresentation> = {
   'mod-15-workspace': {
     body: 'One screen for every module you run. Drag-and-drop widgets fed live by your modules, one shared customer filter, and cross-module actions.',
     overview:
-      'A dashboard that hosts the other modules rather than replacing them. Each module you licensed contributes widgets — figures and short lists it computes itself — which you arrange on a board per person. Pick a customer once and every widget narrows to them. Open a module full-screen inside the Workspace, already signed in, or act across modules without opening either: an accepted offer becomes a draft invoice from a button on the board. Every module still installs and runs on its own; nothing here is a second copy of anything.',
+      'A dashboard that hosts the other modules rather than replacing them. Each module you licensed contributes widgets — figures and short lists it computes itself — which you arrange on a board per person. Pick a customer once and every widget narrows to them. Open a module full-screen inside the Workspace, already signed in, or act across modules without opening either: a deal becomes a draft quote, an accepted quote becomes a draft invoice, and the work becomes a project to book time against — three buttons on the board, each recorded against you in the module it touched. Every module still installs and runs on its own; nothing here is a second copy of anything.',
     features: [
       'Per-person drag-and-drop board of live module widgets',
       'One shared customer and date filter every module honours',

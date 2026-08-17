@@ -130,6 +130,23 @@ export function importTransfer(
   }
   const transfer = value as DocumentTransfer;
 
+  // This module bills DOCUMENTS. The transfer shape can also carry a pipeline
+  // deal — MOD-10 exports one so MOD-13 can quote it — and a deal is a guess
+  // about money that nobody has agreed to. Its value is one salesperson's
+  // estimate at a rate the CRM did not choose, and turning that into an
+  // invoice is the single most expensive mistake this endpoint could make.
+  //
+  // The refusal is explicit rather than implied by a validation failure,
+  // because the shape validates perfectly well: only the meaning is wrong, and
+  // the operator deserves to be told which.
+  if (transfer.origin.kind !== 'offer') {
+    throw new DomainError(
+      422,
+      `Only an accepted offer can be billed — ${transfer.origin.reference} is a ${transfer.origin.kind}.` +
+        ' Quote it in MOD-13 first, and bill the offer the customer accepts.',
+    );
+  }
+
   if (transfer.currency !== 'EUR') {
     throw new DomainError(422, `Only EUR can be invoiced today, got ${transfer.currency}`);
   }

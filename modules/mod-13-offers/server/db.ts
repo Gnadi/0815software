@@ -114,5 +114,19 @@ export function openDb(path: string): Database.Database {
     db.exec('CREATE INDEX IF NOT EXISTS idx_customers_party ON customers (party_id)');
   }
 
+  // Where a quote came from, when it was not typed here — the reference of the
+  // document transfer it was imported from, e.g. `DEAL-42` for a MOD-10 deal.
+  // Null for every offer someone wrote in this module, which is most of them.
+  //
+  // This is what makes an import IDEMPOTENT: a unique index means a second
+  // import of the same deal finds the draft the first one produced instead of
+  // creating a rival quote for the same piece of work. `NULLS DISTINCT` is
+  // SQLite's default for unique indexes, so the many offers with no origin do
+  // not collide with each other.
+  if (!columns('offers').includes('origin_reference')) {
+    db.exec('ALTER TABLE offers ADD COLUMN origin_reference TEXT');
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_offers_origin ON offers (origin_reference)');
+  }
+
   return db;
 }

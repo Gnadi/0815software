@@ -325,9 +325,33 @@ than silently produce a wrong invoice.
   this must not enable.
 
 [MOD-04 Invoice & Billing](../mod-04-invoice-billing) consumes it as its *IMPORT
-OFFER* action. See
+OFFER* action, and [MOD-11 Time Tracking](../mod-11-time-tracking) consumes the
+same export to plan the work as a project. See
 [`docs/CUSTOMER-MASTER-DATA.md`](../../docs/CUSTOMER-MASTER-DATA.md) for the
 decision behind it.
+
+## Quoting a deal from the pipeline
+
+The other end of the same chain. `POST /api/offers/import-deal` takes a deal id,
+fetches it from [MOD-10 CRM Lite](../mod-10-crm-lite) over `CRM_URL` as the same
+neutral transfer, and produces a **draft** quote: the deal's title, its customer,
+one line at its value, and a validity date 30 days out. Nothing is sent and
+nothing is numbered — a deal is an estimate, and turning it into a document is
+still the quoting person's job.
+
+- **This module chooses the VAT rate.** A CRM has none, so it exports
+  `vat_rate: 0` meaning "no opinion" and this module applies the 20 % its own
+  line editor starts with. Taking the zero literally would quote everything
+  zero-rated, and that number reaches a customer.
+- **It refuses an accepted offer.** The transfer shape carries those too, and
+  importing one here would make a rival copy of a document this module already
+  owns. The operation someone wants in that case is a **revision**, which
+  already exists and keeps the chain intact.
+- **It is idempotent on the deal**, recorded in `offers.origin_reference`, so
+  clicking twice cannot leave a customer holding two quotes for one job.
+
+With `CRM_URL` unset — the standalone default — the route answers `501` and says
+which variable is missing.
 
 ## The shell contract — appearing on a dashboard
 

@@ -8,7 +8,7 @@ import type { AuthConfig } from '../server/auth.js';
 import type { SellerConfig } from '../server/config.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from '../server/platform.js';
 import { importTransfer } from '../server/transfer-import.js';
-import { TRANSFER_VERSION, transferTotals, type DocumentTransfer } from '../shared/transfer.js';
+import { TRANSFER_VERSION, transferTotals, validateTransfer, type DocumentTransfer } from '../shared/transfer.js';
 import { computeTotals } from '../shared/money.js';
 import type { InvoiceDetail } from '../shared/types.js';
 
@@ -444,5 +444,35 @@ describe('importTransfer() directly', () => {
 
   it('rejects a malformed transfer with field-level detail', () => {
     expect(() => importTransfer(db, { transfer_version: 99 })).toThrow(/not billable/);
+  });
+
+  /**
+   * The transfer shape also carries PIPELINE DEALS — MOD-10 exports one so
+   * MOD-13 can quote it — and a deal validates perfectly well as a shape. Its
+   * money is the part that is different: one salesperson's estimate, at a rate
+   * the CRM did not choose, for something nobody has agreed to buy.
+   *
+   * Turning that into an invoice is the single most expensive mistake this
+   * module could make, and nothing in `validateTransfer` prevents it, because
+   * nothing about the shape is wrong. So the refusal lives here, is explicit,
+   * and is asserted rather than assumed.
+   */
+  it('refuses to bill a pipeline deal, however well-formed it is', () => {
+    const deal = transfer({
+      origin: {
+        kind: 'deal',
+        module: 'mod-10-crm-lite',
+        reference: 'DEAL-3',
+        issued_at: '2026-06-10T09:00:00Z',
+        accepted_at: null,
+      },
+    });
+    // The shape itself is fine — this is the assertion that makes the refusal
+    // below meaningful rather than a side effect of a validation failure.
+    expect(validateTransfer(deal)).toEqual([]);
+
+    expect(() => importTransfer(db, deal)).toThrow(/Only an accepted offer can be billed/);
+    expect(() => importTransfer(db, deal)).toThrow(/is a deal/);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM invoices').get()).toEqual({ n: 0 });
   });
 });

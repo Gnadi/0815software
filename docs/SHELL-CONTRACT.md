@@ -128,6 +128,47 @@ as the user, so the module authorizes and records the action exactly as it
 would from its own screens — and its audit trail names the person rather than a
 service account.
 
+### Cross-module actions: the sales chain
+
+`POST /api/session/issue` is what lets the board declare actions in data rather
+than code. `modules/mod-15-workspace/shared/actions.ts` names a source list, a
+target module and a route the target **already serves for its own UI**; the
+shell obtains a session for whoever clicked and calls it as them.
+
+```
+MOD-10 deal ──QUOTE THIS──▶ MOD-13 offer ──BILL THIS──▶ MOD-04 invoice
+                                  │
+                                  └──────PLAN WORK─────▶ MOD-11 project
+```
+
+Every arrow is a `GET …/transfer` on the source and a `POST …/import-…` on the
+target, both carrying the same neutral `shared/transfer.ts` shape and both with
+suites on each side. Three rules keep the chain honest:
+
+1. **An importer names the kinds it accepts.** `TransferOrigin.kind` is `offer`
+   or `deal`, and the difference is not decorative: a deal is a guess about
+   money and an offer is a promise about it. MOD-04 refuses to bill a deal;
+   MOD-13 refuses to re-quote an offer it already owns (that operation is a
+   *revision*); MOD-11 refuses to staff work nobody has agreed to buy. Each
+   refusal is explicit, because the shape validates either way — only the
+   meaning is wrong.
+2. **A module never adopts a number it did not choose.** MOD-10 exports
+   `vat_rate: 0` because a CRM has no VAT concept, and MOD-13 substitutes its
+   own default rather than quoting everything zero-rated. MOD-11 leaves an
+   imported project's hourly rate at zero, because an offer's total says what
+   the *job* costs and not how many hours are in it — a derived rate would look
+   authoritative and be invented, and every timesheet total after it would
+   inherit the invention.
+3. **Every import is idempotent on `origin.reference`.** A board button is
+   exactly the thing people click twice. The second click returns the first
+   one's draft with `200` instead of `201`, so nobody ends up with two quotes
+   for one job or one job's hours split across two projects.
+
+The diagonals are missing on purpose. There is no deal → invoice button and no
+deal → project button, because the modules that own invoices and projects
+refuse those transfers — so the board does not offer what the catalogue would
+reject.
+
 Four properties the suites pin down:
 
 1. **Domain separation.** Tickets are signed over `handoff.…`, sessions over
@@ -173,5 +214,8 @@ with no change to the generator.
   nothing and so is deduplication rather than caching.
 - **A privilege.** The machine token opens summaries and mints sessions. It
   performs no writes anywhere; writes are done as a person or not at all.
+- **A generic write API.** An action is added when the target already serves
+  the route, and the catalogue grows one arrow at a time. What the shell can do
+  across modules is always a subset of what a person could do by opening them.
 - **A second place to define a number.** Every figure comes from the function
   the module's own screens already call.

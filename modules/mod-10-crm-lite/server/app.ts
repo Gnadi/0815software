@@ -20,6 +20,7 @@ import {
 import { createHandoff, isRedeemPath, safeServiceTokenEqual } from './handoff.js';
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
+import { dealTransfer } from './transfer-export.js';
 import { DomainError } from './domain.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import { nullVerifier, type LoginVerifier } from './sso.js';
@@ -296,6 +297,21 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       throw new DomainError(401, 'Service token required');
     }
   }
+
+  // Hand a deal still in play to whatever quotes it. The response is the
+  // neutral shape in shared/transfer.ts — no MOD-10 ids, stages or internals —
+  // the same one MOD-13 uses to hand an accepted offer to whatever bills it.
+  //
+  // This is a READ. It changes nothing here: a deal that has been quoted is
+  // still exactly where it was in the pipeline, and moving it is the
+  // salesperson's call, made in this module's own UI.
+  app.get('/api/deals/:id/transfer', (req, res) => {
+    requireServiceToken(req);
+    // No party override: the company's own `party_id` is what PS-11 resolved
+    // when this module registered it, so the export already carries the id the
+    // rest of the stack knows this customer by.
+    res.json(dealTransfer(db, Number(req.params.id)));
+  });
 
   // What this module looks like on a shell's board (shared/summary.ts).
   app.get('/api/summary', (req, res, next) => {

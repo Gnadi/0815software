@@ -8,14 +8,37 @@ import type { SelfParty } from './seller.js';
  *   - PS-11 Customers        — resolve a customer against the stack's party
  *                              master data, so every module bills the same
  *                              party instead of keeping a private copy
+ *   - MOD-10 CRM Lite        — fetch a deal still in play as a neutral document
+ *                              transfer (shared/transfer.ts). The one call here
+ *                              that is not a Platform Service; it is isolated
+ *                              behind `fetchDeal` so re-pointing it at another
+ *                              source touches only this file.
  * With no URL configured the module runs standalone; a downstream outage never
  * fails the local operation.
  */
+
+/**
+ * Raised when a configured deal source refuses or fails. Carries the upstream
+ * status so the route can pass a useful code to the operator rather than 500.
+ */
+export class DealFetchError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'DealFetchError';
+    this.status = status;
+  }
+}
+
+/** How long the deal source gets to answer before the import gives up. */
+const DEAL_FETCH_TIMEOUT_MS = 10_000;
 
 export interface PlatformConfig {
   auditUrl?: string;
   notificationUrl?: string;
   customersUrl?: string;
+  /** Base URL of MOD-10 CRM Lite, for quoting a deal still in play. */
+  crmUrl?: string;
   serviceToken?: string;
   channel?: string;
 }
@@ -61,6 +84,13 @@ export interface PlatformHooks {
    * never depends on the outcome.
    */
   resolveParty(info: PartyInfo): Promise<number | null>;
+  /**
+   * Fetch a deal still in play from MOD-10 as a document transfer. Returns null
+   * when CRM_URL is unset — the standalone posture, in which this module has no
+   * notion of a pipeline. NOT best-effort: a configured source that fails must
+   * surface, because silently quoting an empty draft would be worse.
+   */
+  fetchDeal(dealId: string): Promise<unknown | null>;
 }
 
 export const noopPlatform: PlatformHooks = {
@@ -72,6 +102,10 @@ export const noopPlatform: PlatformHooks = {
   },
   async resolveParty() {
     /* standalone — the local customers table is the only record */
+    return null;
+  },
+  async fetchDeal() {
+    /* standalone — this module has no notion of a pipeline */
     return null;
   },
   async fetchSelf() {
@@ -87,9 +121,36 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const customers = cfg.customersUrl
     ? new CustomersClient({ baseUrl: cfg.customersUrl, serviceToken: cfg.serviceToken })
     : null;
-  if (!audit && !notify && !customers) return noopPlatform;
+  const crmUrl = cfg.crmUrl ? cfg.crmUrl.replace(/\/+$/, '') : null;
+  if (!audit && !notify && !customers && !crmUrl) return noopPlatform;
   const channel = cfg.channel ?? 'transactional-email';
   return {
+    async fetchDeal(dealId: string): Promise<unknown | null> {
+      if (!crmUrl) return null;
+      // Bounded like every platform-client call: a CRM instance that accepts
+      // the connection and then stalls must not hold the operator's import
+      // request open indefinitely.
+      const res = await fetch(`${crmUrl}/api/deals/${encodeURIComponent(dealId)}/transfer`, {
+        headers: cfg.serviceToken ? { 'X-Service-Token': cfg.serviceToken } : {},
+        signal: AbortSignal.timeout(DEAL_FETCH_TIMEOUT_MS),
+      });
+      const text = await res.text();
+      let parsed: unknown;
+      try {
+        parsed = text ? JSON.parse(text) : undefined;
+      } catch {
+        parsed = text;
+      }
+      if (!res.ok) {
+        const message =
+          parsed && typeof parsed === 'object' && 'error' in parsed
+            ? String((parsed as { error: unknown }).error)
+            : `deal ${dealId} could not be fetched (${res.status})`;
+        throw new DealFetchError(res.status, message);
+      }
+      return parsed;
+    },
+
     async audit(info: AuditInfo): Promise<void> {
       if (!audit) return;
       try {

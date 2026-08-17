@@ -92,5 +92,26 @@ export function openDb(path: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_events_week ON timesheet_events (employee_id, week_start);
   `);
 
+  // ── Additive, idempotent schema evolution ──────────────────────────
+  // Guarded ALTERs so an existing database adopts them on the next boot,
+  // exactly like MOD-04's and MOD-13's (their server/db.ts).
+  const columns = (table: string): string[] =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+
+  // Where a project came from, when it was not typed here — the reference of
+  // the document transfer it was planned from, e.g. an offer number. Null for
+  // every project someone created in this module, which is most of them.
+  //
+  // This is what makes an import IDEMPOTENT: a unique index means a second
+  // import of the same offer finds the project the first one produced instead
+  // of splitting one job's hours across two projects, which is the failure
+  // that only shows up weeks later when someone tries to bill them.
+  // `NULLS DISTINCT` is SQLite's default for unique indexes, so the many
+  // projects with no origin do not collide with each other.
+  if (!columns('projects').includes('origin_reference')) {
+    db.exec('ALTER TABLE projects ADD COLUMN origin_reference TEXT');
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_origin ON projects (origin_reference)');
+  }
+
   return db;
 }

@@ -16,7 +16,8 @@ import { createHandoff, isRedeemPath, safeServiceTokenEqual } from './handoff.js
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { exportRange } from './csv.js';
-import { noopPlatform, type PlatformHooks } from './platform.js';
+import { importTransfer } from './transfer-import.js';
+import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
 import { nullVerifier, type LoginVerifier } from './sso.js';
 import { EXPORT_PROFILES, getProfile } from './export-profiles.js';
 import {
@@ -335,6 +336,51 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   app.post('/api/projects', (req, res) => {
     const id = createProject(db, validateProject(body(req)));
     res.status(201).json(getProject(db, id));
+  });
+
+  // ── Plan an accepted offer as a project ──────────────────────────────
+  // The step between selling work and doing it. It fetches the offer as a
+  // neutral document transfer (shared/transfer.ts) — the same one MOD-04 bills
+  // — and creates a project with one task per line, so hours land against the
+  // thing that was sold instead of a single undifferentiated bucket.
+  //
+  // The offer's money deliberately does NOT come across: a project's rate is
+  // what an hour costs and an offer's total is what the job costs, and nothing
+  // in the offer says how many hours are in it. See transfer-import.ts.
+  //
+  // Idempotent on the offer number: a retry returns the project the first call
+  // produced, with 200 instead of 201, so one job's hours can never end up
+  // split across two projects.
+  app.post('/api/projects/import-offer', async (req, res) => {
+    const reference = body(req).offer_number;
+    if (typeof reference !== 'string' || reference.trim() === '') {
+      fail([{ field: 'offer_number', message: 'offer_number is required' }]);
+    }
+    const offerNumber = reference.trim();
+
+    let transfer: unknown;
+    try {
+      transfer = await platform.fetchOffer(offerNumber);
+    } catch (err) {
+      if (err instanceof OfferFetchError) throw new DomainError(err.status === 404 ? 404 : 502, err.message);
+      throw err;
+    }
+    if (transfer === null) {
+      throw new DomainError(501, 'No offer source is configured — set OFFERS_URL to plan offers from MOD-13');
+    }
+
+    const result = importTransfer(db, transfer);
+    if (!result.replayed) {
+      void platform.audit({
+        actor: actorOf(res, auth),
+        action: 'project.imported',
+        resource: `project:${result.projectId}`,
+        metadata: { origin: offerNumber, source: 'mod-13-offers' },
+      });
+    }
+    res
+      .status(result.replayed ? 200 : 201)
+      .json({ ...getProject(db, result.projectId), imported: !result.replayed });
   });
 
   app.get('/api/projects/:id', (req, res) => {

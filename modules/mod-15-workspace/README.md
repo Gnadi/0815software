@@ -107,11 +107,23 @@ default, and every standalone install — none of it exists.
 - **Open a module inside the board.** Its real UI, already signed in, in a
   frame — no second login and no second tab. The module mints its own session
   from a single-use ticket; this Workspace never sees its cookie.
-- **Act across modules.** An accepted offer in the MOD-13 widget carries a
-  **BILL THIS** button that creates the draft invoice in MOD-04 without either
-  UI being opened. It calls MOD-04's *existing* import route with a session
-  belonging to whoever clicked, so the invoice names that person in MOD-04's
-  own history — the shell has no privilege of its own.
+- **Act across modules.** The sales chain is three buttons on the board:
+
+  ```
+  MOD-10 deal ──QUOTE THIS──▶ MOD-13 offer ──BILL THIS──▶ MOD-04 invoice
+                                    │
+                                    └──────PLAN WORK─────▶ MOD-11 project
+  ```
+
+  Each one calls the target module's *existing* route with a session belonging
+  to whoever clicked, so the draft it creates names that person in the target's
+  own history — the shell has no privilege of its own, and no module grew an
+  endpoint for the board's benefit. Every import is idempotent, because a
+  button is exactly the thing people click twice.
+
+  What is missing is deliberate: there is no deal → invoice button, because
+  MOD-04 refuses to bill a pipeline guess, and no deal → project button,
+  because MOD-11 refuses to staff work nobody has agreed to buy.
 - **One activity feed.** Read from PS-07 Audit Log, which every module already
   writes to.
 

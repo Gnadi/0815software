@@ -355,6 +355,11 @@ dependency, and it is deliberately narrow:
   invoice with `200` instead of creating a second one.
 - **Only accepted offers.** MOD-13 refuses to export a draft, a merely sent, a
   rejected, a withdrawn or a superseded offer, and the reason is passed through.
+- **Never a pipeline deal.** The same transfer shape can carry one — MOD-10
+  exports deals so MOD-13 can quote them — and a deal validates perfectly well
+  as a shape. Its money is the part that differs: one salesperson's estimate, at
+  a rate the CRM did not choose, for something nobody has agreed to buy. This
+  module refuses it explicitly and says to quote it first.
 - **It is optional.** With `OFFERS_URL` unset the endpoint answers `501` and this
   module has no notion of offers at all. The full test suite passes either way.
 

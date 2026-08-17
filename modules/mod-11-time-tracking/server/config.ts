@@ -70,6 +70,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     },
     platform: {
       auditUrl: env.AUDIT_URL || undefined,
+      // MOD-13 Offers — when set, an accepted offer can be planned as a project
+      // to book time against. Unset, this module has no notion of offers and
+      // the import route says so rather than failing obscurely.
+      offersUrl: env.OFFERS_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
   };

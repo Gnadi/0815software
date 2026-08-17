@@ -544,6 +544,14 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
+      },
+      "peers": {
+        "optional": [
+          {
+            "id": "mod-13-offers",
+            "urlEnv": "OFFERS_URL"
+          }
+        ]
       }
     },
     {
@@ -622,6 +630,14 @@
         "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
         "publishesReportViews": false
+      },
+      "peers": {
+        "optional": [
+          {
+            "id": "mod-10-crm-lite",
+            "urlEnv": "CRM_URL"
+          }
+        ]
       }
     },
     {
