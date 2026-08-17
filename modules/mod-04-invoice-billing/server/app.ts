@@ -35,7 +35,7 @@ import { fmtEur } from '../shared/money.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
 import { importTransfer, MODULE_ID } from './transfer-import.js';
 import type { DocumentTransfer } from '../shared/transfer.js';
-import { nullVerifier, type LoginVerifier } from './sso.js';
+import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import { likeTerm } from './invoices.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
@@ -148,9 +148,14 @@ export interface AppOptions {
   /** Optional Platform Services integration; defaults to a no-op (standalone). */
   platform?: PlatformHooks;
   verifyLogin?: LoginVerifier;
+  /**
+   * Which credentials the login form should name, served as-is from
+   * GET /api/auth-mode. Defaults to this module's own — the standalone case.
+   */
+  loginMode?: LoginMode;
 }
 
-export function createApp({ db, hardening, auth, seller, staticDir, platform = noopPlatform, verifyLogin = nullVerifier }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, seller, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN }: AppOptions): express.Express {
   const app = express();
 
   // Transport hardening: security headers, a default-deny CORS policy and
@@ -178,6 +183,15 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
     } catch {
       res.status(503).json({ ready: false });
     }
+  });
+
+  // Which credentials this deployment accepts, read by the login form before
+  // anyone is signed in — hence public. With SSO configured, PS-01 validates
+  // logins and this module's own admin credentials are rejected, so a form
+  // advertising them would send people at a password that cannot work. The org
+  // slug is deployment configuration, not a secret.
+  app.get('/api/auth-mode', (_req, res) => {
+    res.json(loginMode);
   });
 
   app.post('/api/login', async (req, res) => {

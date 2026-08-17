@@ -240,6 +240,7 @@ Session:
 | Method | Path | Notes |
 | ------ | ---- | ----- |
 | `POST` | `/api/login` · `/api/logout` · `GET /api/me` | single admin login |
+| `GET`  | `/api/auth-mode` | local or SSO — which credentials the form names |
 
 Everything below requires the `mod14_session` cookie — else **401**.
 

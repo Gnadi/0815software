@@ -3,6 +3,7 @@ import request from 'supertest';
 import type { Express } from 'express';
 import type Database from 'better-sqlite3';
 import { createApp } from '../server/app.js';
+import { loginModeOf } from '../server/sso.js';
 import { openDb } from '../server/db.js';
 import { seed } from '../server/seed.js';
 import { buildPlatform, noopPlatform, type AuditInfo, type PlatformHooks } from '../server/platform.js';
@@ -52,6 +53,27 @@ describe('PS-07 audit integration', () => {
 
 
 describe('SSO login-exchange', () => {
+  it('tells the login form which credentials this deployment accepts', async () => {
+    // Public on purpose: the form reads it before anyone is signed in.
+    await request(createApp({ db, auth }))
+      .get('/api/auth-mode')
+      .expect(200)
+      .expect({ sso: false });
+    await request(createApp({ db, auth, loginMode: { sso: true, org: 'acme' } }))
+      .get('/api/auth-mode')
+      .expect(200)
+      .expect({ sso: true, org: 'acme' });
+  });
+
+  it('reads the login mode off the same config the verifier switches on', () => {
+    expect(loginModeOf({})).toEqual({ sso: false });
+    expect(loginModeOf({ identityUrl: 'http://ps01:4001' })).toEqual({ sso: false });
+    expect(loginModeOf({ identityUrl: 'http://ps01:4001', identityOrg: 'acme' })).toEqual({
+      sso: true,
+      org: 'acme',
+    });
+  });
+
   it('lets PS-01 decide the login, bypassing local credentials', async () => {
     // The injected verifier stands in for a configured PS-01: it approves
     // despite a wrong local password, so the module must still issue a session.

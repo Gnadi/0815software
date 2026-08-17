@@ -173,6 +173,7 @@ one the API returns **401**.
 | Method + path                     | Purpose                                             |
 | --------------------------------- | --------------------------------------------------- |
 | `POST /api/login`                 | Log in; sets the `mod10_session` cookie.            |
+| `GET /api/auth-mode`              | Local or SSO — which credentials the form names.    |
 | `POST /api/logout`                | Clear the session.                                  |
 | `GET /api/me`                     | Current admin username.                             |
 | `GET /api/config`                 | Pipeline stages + activity types (the UI's source). |

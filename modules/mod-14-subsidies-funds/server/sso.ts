@@ -31,11 +31,34 @@ export interface SsoConfig {
 /** Standalone default: defer to local credentials. */
 export const nullVerifier: LoginVerifier = async () => null;
 
+/**
+ * Which credentials a deployment actually accepts. The login form reads this
+ * (GET /api/auth-mode) to name the right ones: with SSO configured the local
+ * admin login is rejected, so a form still advertising it points people at a
+ * password that cannot work. Derived from the same two fields the verifier
+ * switches on, so hint and behaviour cannot drift apart.
+ */
+export type LoginMode = { sso: false } | { sso: true; org: string };
+
+/** The standalone default: this module's own credentials. */
+export const LOCAL_LOGIN: LoginMode = { sso: false };
+
+/** The configured PS-01 target, or null when SSO is off. Checked once, read twice. */
+function ssoTarget(cfg: SsoConfig): { url: string; org: string } | null {
+  return cfg.identityUrl && cfg.identityOrg ? { url: cfg.identityUrl, org: cfg.identityOrg } : null;
+}
+
+export function loginModeOf(cfg: SsoConfig): LoginMode {
+  const target = ssoTarget(cfg);
+  return target ? { sso: true, org: target.org } : LOCAL_LOGIN;
+}
+
 export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
-  if (!cfg.identityUrl || !cfg.identityOrg) return nullVerifier;
-  const org = cfg.identityOrg;
+  const target = ssoTarget(cfg);
+  if (!target) return nullVerifier;
+  const org = target.org;
   const permission = cfg.identityPermission ?? 'platform:admin';
-  const client = new IdentityClient({ baseUrl: cfg.identityUrl });
+  const client = new IdentityClient({ baseUrl: target.url });
   return async (username, password): Promise<LoginOutcome> => {
     if (typeof username !== 'string' || typeof password !== 'string') return { ok: false, reason: 'rejected' };
     try {
