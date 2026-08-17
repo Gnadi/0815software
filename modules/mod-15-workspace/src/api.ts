@@ -99,7 +99,7 @@ export const api = {
     request<{ parties: PartyOption[]; configured: boolean }>(`/api/parties?q=${encodeURIComponent(q)}`),
 
   summaries: () => request<{ summaries: PeerSummary[]; context: ShellContext }>('/api/summaries'),
-  activity: () => request<{ events: ActivityEvent[] }>('/api/activity'),
+  activity: () => request<{ events: ActivityEvent[]; configured: boolean }>('/api/activity'),
 
   embedUrl: (moduleId: string, path: string) =>
     request<{ url: string }>(`/api/embed/${encodeURIComponent(moduleId)}?path=${encodeURIComponent(path)}`),

@@ -49,6 +49,14 @@ export interface PlatformHooks {
   activity(limit: number, identityToken?: string): Promise<ActivityEvent[]>;
   /** Parties matching a search, for the context picker. Empty when unconfigured. */
   parties(search: string, limit: number): Promise<Party[]>;
+  /**
+   * Is PS-07 wired? The feed says so rather than looking merely quiet.
+   *
+   * "Nothing recorded yet" and "no audit service in this stack" are different
+   * facts with different fixes, and a feed that shows the first when the second
+   * is true is the misleading empty state this whole board is built to avoid.
+   */
+  hasAudit(): boolean;
   /** Is PS-11 wired? The picker says so rather than looking broken. */
   hasCustomers(): boolean;
 }
@@ -63,6 +71,9 @@ export const noopPlatform: PlatformHooks = {
   },
   async parties() {
     return [];
+  },
+  hasAudit() {
+    return false;
   },
   hasCustomers() {
     return false;
@@ -141,6 +152,10 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
         console.warn('[mod-15] party lookup failed:', err);
         return [];
       }
+    },
+
+    hasAudit(): boolean {
+      return cfg.auditUrl !== undefined;
     },
 
     hasCustomers(): boolean {

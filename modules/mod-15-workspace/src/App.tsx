@@ -36,6 +36,7 @@ export function App() {
   const [context, setContext] = useState<ShellContext>({});
   const [summaries, setSummaries] = useState<PeerSummary[]>([]);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const [activityConfigured, setActivityConfigured] = useState(false);
 
   const [picking, setPicking] = useState(false);
   const [embed, setEmbed] = useState<Embed | null>(null);
@@ -77,7 +78,13 @@ export function App() {
     // because one call failed is the failure mode this avoids.
     const [peerResult, activityResult] = await Promise.allSettled([api.summaries(), api.activity()]);
     if (peerResult.status === 'fulfilled') setSummaries(peerResult.value.summaries);
-    if (activityResult.status === 'fulfilled') setActivity(activityResult.value.events);
+    if (activityResult.status === 'fulfilled') {
+      setActivity(activityResult.value.events);
+      // Whether PS-07 is wired is the SERVER's answer. Deriving it on the
+      // client from "are there any modules" made it always true, so an unwired
+      // audit log rendered as an empty feed rather than an unconfigured one.
+      setActivityConfigured(activityResult.value.configured);
+    }
   }, []);
 
   const boot = useCallback(async () => {
@@ -314,7 +321,7 @@ export function App() {
               modules={moduleMap}
               actions={catalogue?.actions ?? []}
               activity={activity}
-              activityConfigured={activity.length > 0 || (catalogue?.modules.length ?? 0) > 0}
+              activityConfigured={activityConfigured}
               onOpen={(moduleId, path) => void open(moduleId, path)}
               onAction={runAction}
             />

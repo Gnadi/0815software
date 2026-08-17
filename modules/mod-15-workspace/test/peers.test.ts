@@ -6,6 +6,7 @@ import { createApp } from '../server/app.js';
 import { openDb } from '../server/db.js';
 import { createPeerClient, type FetchLike } from '../server/peers.js';
 import { createModuleSessions } from '../server/sessions.js';
+import { buildPlatform } from '../server/platform.js';
 import type { AuthConfig } from '../server/auth.js';
 import type { PeerMap } from '../server/config.js';
 import { SUMMARY_VERSION, type ModuleSummary } from '../shared/summary.js';
@@ -474,11 +475,53 @@ describe('the module-session vault', () => {
 });
 
 describe('the activity feed', () => {
-  it('is empty and honest when PS-07 is not configured', async () => {
+  /**
+   * "Nothing has happened yet" and "this stack has no audit service" are
+   * different facts with different fixes, and they produce the same empty
+   * array. The `configured` flag is the only thing that tells them apart, so
+   * it has to name the right service — it once reported PS-11 Customers by
+   * copy-paste, which made an unwired audit log look merely quiet.
+   */
+  it('says the audit service is absent, not that nothing has happened', async () => {
     const app = build(stubFetch({}));
     const cookie = await signIn(app);
     const res = await request(app).get('/api/activity').set('Cookie', cookie).expect(200);
     expect(res.body.events).toEqual([]);
+    expect(res.body.configured).toBe(false);
+  });
+
+  it('reports PS-07, not whichever other service happens to be wired', async () => {
+    // PS-11 present, PS-07 absent: the feed must still say it is unconfigured.
+    const client = createPeerClient({ peers: PEERS, serviceToken: TOKEN, timeoutMs: 200, fetch: stubFetch({}) });
+    const withCustomersOnly = createApp({
+      db,
+      auth,
+      peers: client,
+      sessions: createModuleSessions(client),
+      platform: buildPlatform({ customersUrl: 'http://customers:4011', serviceToken: TOKEN }),
+    });
+    const cookie = await signIn(withCustomersOnly);
+
+    const activity = await request(withCustomersOnly).get('/api/activity').set('Cookie', cookie).expect(200);
+    expect(activity.body.configured).toBe(false);
+
+    // …while the picker, which really is PS-11's, says it IS configured.
+    const catalogue = await request(withCustomersOnly).get('/api/catalogue').set('Cookie', cookie).expect(200);
+    expect(catalogue.body.customers_configured).toBe(true);
+  });
+
+  it('reports it as configured once PS-07 is wired', async () => {
+    const client = createPeerClient({ peers: PEERS, serviceToken: TOKEN, timeoutMs: 200, fetch: stubFetch({}) });
+    const withAudit = createApp({
+      db,
+      auth,
+      peers: client,
+      sessions: createModuleSessions(client),
+      platform: buildPlatform({ auditUrl: 'http://audit:4007', serviceToken: TOKEN }),
+    });
+    const cookie = await signIn(withAudit);
+    const res = await request(withAudit).get('/api/activity').set('Cookie', cookie).expect(200);
+    expect(res.body.configured).toBe(true);
   });
 });
 
