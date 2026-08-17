@@ -1,4 +1,5 @@
 import type { AuthConfig } from './auth.js';
+import { shellOriginFromEnv } from './hardening.js';
 import type { PlatformConfig } from './platform.js';
 import type { SsoConfig } from './sso.js';
 
@@ -19,6 +20,13 @@ export interface ServerConfig {
    * a change visible sooner; it only matters when CUSTOMERS_URL is set.
    */
   sellerRefreshMs: number;
+  /**
+   * The MOD-15 Workspace origin allowed to embed this module and to sign users
+   * into it. Unset — the default, and every standalone install — turns off
+   * framing and the handoff routes alike. Parsed by `shellOriginFromEnv`, which
+   * refuses a malformed value rather than dropping it.
+   */
+  shellOrigin?: string;
   auth: AuthConfig;
   seller: SellerConfig;
   platform: PlatformConfig;
@@ -63,6 +71,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     port: numberFromEnv('PORT', env.PORT, 3004, 1, 65535),
     databasePath: env.DATABASE_PATH ?? './data.db',
     sellerRefreshMs: numberFromEnv('SELLER_REFRESH_MS', env.SELLER_REFRESH_MS, 300_000, 0, 86400000),
+    shellOrigin: shellOriginFromEnv(env.SHELL_ORIGIN),
     auth: {
       username: env.ADMIN_USERNAME ?? 'admin',
       password: env.ADMIN_PASSWORD ?? 'admin',

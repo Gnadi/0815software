@@ -21,7 +21,7 @@ import {
 } from './auth.js';
 import type { SellerConfig } from './config.js';
 import { offersCsv } from './csv.js';
-import { createHandoff, isRedeemPath } from './handoff.js';
+import { createHandoff, isRedeemPath, safeServiceTokenEqual } from './handoff.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
@@ -341,7 +341,7 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
   // every route below is closed, which is the standalone default.
   function requireServiceToken(req: Request): void {
     const provided = req.headers['x-service-token'];
-    if (!serviceToken || typeof provided !== 'string' || !safeEqual(provided, serviceToken)) {
+    if (!serviceToken || typeof provided !== 'string' || !safeServiceTokenEqual(provided, serviceToken)) {
       throw new DomainError(401, 'Service token required');
     }
   }
