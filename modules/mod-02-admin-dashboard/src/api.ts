@@ -51,10 +51,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * What the server says about signing in: with single sign-on the credentials
+ * belong to PS-01 Identity, without it to this module's own admin account.
+ */
+export type AuthMode = { sso: false } | { sso: true; org: string };
+
 export const api = {
   login: (username: string, password: string) =>
     request<{ ok: true }>('/api/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
+  /** Which credentials this deployment accepts — readable before signing in. */
+  authMode: () => request<AuthMode>('/api/auth-mode'),
   config: () => request<ConfigResponse>('/api/config'),
   list: (resource: string, params: URLSearchParams) =>
     request<ListResponse>(`/api/${resource}?${params}`),

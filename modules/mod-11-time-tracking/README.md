@@ -232,6 +232,7 @@ money is integer cents.
 
 ```
 POST   /api/login                       {username, password} → session cookie
+GET    /api/auth-mode                   local or SSO — which credentials to name
 POST   /api/logout
 GET    /api/me
 

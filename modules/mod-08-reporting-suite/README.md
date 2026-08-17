@@ -351,6 +351,7 @@ All routes under `/api`, JSON in/out, session cookie required except for
 
 ```
 POST   /api/login                        {username, password} → session cookie
+GET    /api/auth-mode                    local or SSO — which credentials to name
 POST   /api/logout
 GET    /api/me
 GET    /api/source                       source schema (tables/columns) + query policy

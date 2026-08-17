@@ -44,10 +44,18 @@ function post(values?: Record<string, unknown>): RequestInit & { method: string 
   return { method: 'POST', body: JSON.stringify(values ?? {}) };
 }
 
+/**
+ * What the server says about signing in: with single sign-on the credentials
+ * belong to PS-01 Identity, without it to this module's own admin account.
+ */
+export type AuthMode = { sso: false } | { sso: true; org: string };
+
 export const api = {
   login: (username: string, password: string) =>
     request<{ ok: true }>('/api/login', post({ username, password })),
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
+  /** Which credentials this deployment accepts — readable before signing in. */
+  authMode: () => request<AuthMode>('/api/auth-mode'),
   me: () => request<{ username: string }>('/api/me'),
 
   departments: () => request<{ departments: DepartmentRow[] }>('/api/departments'),

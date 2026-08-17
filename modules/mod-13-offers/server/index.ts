@@ -6,7 +6,7 @@ import { hardeningFromEnv } from './hardening.js';
 import { applySeller, startSellerRefresh } from './seller.js';
 import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
-import { buildLoginVerifier } from './sso.js';
+import { buildLoginVerifier, loginModeOf } from './sso.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
@@ -48,6 +48,7 @@ const app = createApp({
   staticDir,
   platform,
   verifyLogin: buildLoginVerifier(config.sso),
+  loginMode: loginModeOf(config.sso),
   serviceToken: config.platform.serviceToken,
   shellOrigin: config.shellOrigin,
 });

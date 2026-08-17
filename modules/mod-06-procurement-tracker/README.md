@@ -269,6 +269,7 @@ cents.
 
 ```
 POST   /api/login                        {username, password} → session cookie
+GET    /api/auth-mode                    local or SSO — which credentials to name
 POST   /api/logout
 GET    /api/me
 GET    /api/config                       tier labels, threshold rules, export profiles
