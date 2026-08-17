@@ -227,6 +227,35 @@ describe('collecting summaries', () => {
     expect(res.body.summaries[0]).toMatchObject({ ok: false, problem: 'timed out' });
   });
 
+  it('stops reading a peer that answers enormously, instead of buying the whole body', async () => {
+    // The deadline bounds a SLOW peer; it does nothing about a fast, huge one.
+    // A mistyped URL pointing at a file server is the realistic version. The
+    // stream is cut at the cap, so the bytes already sent are the only ones
+    // this process ever holds.
+    let pushed = 0;
+    const app = build(
+      async () =>
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              pushed += 1;
+              // 64 KiB a go: the cap is 1 MiB, so a reader that never stops
+              // would run forever here.
+              controller.enqueue(new Uint8Array(64 * 1024));
+            },
+          }),
+          { status: 200 },
+        ),
+      { peers: { 'mod-13-offers': PEERS['mod-13-offers']! } },
+    );
+    const cookie = await signIn(app);
+    const res = await request(app).get('/api/summaries').set('Cookie', cookie).expect(200);
+
+    expect(res.body.summaries[0]).toMatchObject({ ok: false, problem: expect.stringContaining('KiB') });
+    // Bounded, and by a small multiple of the cap rather than by the timeout.
+    expect(pushed).toBeLessThan(64);
+  });
+
   it('says plainly when the stack has no machine token at all', async () => {
     const app = build(stubFetch({}), { serviceToken: undefined });
     const cookie = await signIn(app);

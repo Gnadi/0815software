@@ -175,6 +175,25 @@ export function isModulePath(href: unknown): href is string {
   return !href.startsWith('//');
 }
 
+/**
+ * How much a summary may contain.
+ *
+ * The prose already says a list is an EXCERPT and not a table; these make it
+ * true. A consumer renders every tile and row it is handed, so without a limit
+ * one peer answering with a hundred thousand rows — a bug, a bad query, a
+ * misconfigured URL pointing at something that is not a module — takes the
+ * whole board down in the reader's browser, and takes the shell's memory with
+ * it on the way through.
+ *
+ * The numbers are far above any real board: MOD-13 offers six tiles and two
+ * lists of eight. They exist to bound a mistake, not to shape a design.
+ */
+export const MAX_TILES = 64;
+export const MAX_LISTS = 32;
+export const MAX_ITEMS_PER_LIST = 100;
+/** Cap on any single display string — a label, a value, a title, an href. */
+export const MAX_FIELD_LENGTH = 2_000;
+
 export interface SummaryProblem {
   field: string;
   message: string;
@@ -222,32 +241,51 @@ export function validateSummary(value: unknown): SummaryProblem[] {
   };
   const checkHref = (field: string, href: unknown): void => {
     if (href !== null && !isModulePath(href)) push(field, 'must be null or a module-relative path starting with "/"');
+    else if (typeof href === 'string' && href.length > MAX_FIELD_LENGTH) push(field, `must be at most ${MAX_FIELD_LENGTH} characters`);
+  };
+  /** A display string a consumer will render: present, and not unbounded. */
+  const checkText = (field: string, text: unknown, required: boolean): void => {
+    if (typeof text !== 'string') {
+      if (required || text !== null) push(field, required ? 'is required' : 'must be a string or null');
+      return;
+    }
+    if (required && text.trim() === '') push(field, 'is required');
+    if (text.length > MAX_FIELD_LENGTH) push(field, `must be at most ${MAX_FIELD_LENGTH} characters`);
   };
 
   if (!Array.isArray(s.tiles)) push('tiles', 'must be an array');
+  else if (s.tiles.length > MAX_TILES) push('tiles', `must hold at most ${MAX_TILES} tiles`);
   else {
     s.tiles.forEach((tile, i) => {
       const at = (f: string): string => `tiles[${i}].${f}`;
       checkKey(at('key'), tile?.key);
-      if (typeof tile?.label !== 'string' || tile.label.trim() === '') push(at('label'), 'is required');
+      checkText(at('label'), tile?.label, true);
       if (typeof tile?.value !== 'string') push(at('value'), 'must be a preformatted string');
+      else checkText(at('value'), tile.value, false);
+      checkText(at('unit'), tile?.unit, false);
       checkHref(at('href'), tile?.href);
     });
   }
 
   if (!Array.isArray(s.lists)) push('lists', 'must be an array');
+  else if (s.lists.length > MAX_LISTS) push('lists', `must hold at most ${MAX_LISTS} lists`);
   else {
     s.lists.forEach((list, i) => {
       const at = (f: string): string => `lists[${i}].${f}`;
       checkKey(at('key'), list?.key);
-      if (typeof list?.label !== 'string' || list.label.trim() === '') push(at('label'), 'is required');
+      checkText(at('label'), list?.label, true);
       checkHref(at('href'), list?.href);
       if (!Array.isArray(list?.items)) push(at('items'), 'must be an array');
-      else {
+      else if (list.items.length > MAX_ITEMS_PER_LIST) {
+        push(at('items'), `must hold at most ${MAX_ITEMS_PER_LIST} rows — a list is an excerpt, not a table`);
+      } else {
         list.items.forEach((item, j) => {
           const iat = (f: string): string => `lists[${i}].items[${j}].${f}`;
-          if (typeof item?.id !== 'string' || item.id === '') push(iat('id'), 'is required');
-          if (typeof item?.title !== 'string' || item.title.trim() === '') push(iat('title'), 'is required');
+          // `id` is what an action posts back, so it is bounded like the rest.
+          checkText(iat('id'), item?.id, true);
+          checkText(iat('title'), item?.title, true);
+          checkText(iat('subtitle'), item?.subtitle, false);
+          checkText(iat('badge'), item?.badge, false);
           checkHref(iat('href'), item?.href);
         });
       }

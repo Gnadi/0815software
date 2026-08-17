@@ -10,10 +10,14 @@ import type { SellerConfig } from '../server/config.js';
 import {
   CONTEXT_FILTERS,
   isModulePath,
+  MAX_FIELD_LENGTH,
+  MAX_ITEMS_PER_LIST,
+  MAX_TILES,
   parseSummaryContext,
   SUMMARY_VERSION,
   validateSummary,
   type ModuleSummary,
+  type SummaryTile,
 } from '../shared/summary.js';
 
 /**
@@ -317,6 +321,66 @@ describe('validateSummary', () => {
     const inner = valid();
     inner.tiles[0]!.href = '/x\\y';
     expect(validateSummary(inner).map((p) => p.field)).toContain('tiles[0].href');
+  });
+
+  /**
+   * A consumer renders every tile and row it is handed. Without these, one peer
+   * answering with a hundred thousand rows — a bad query, a misconfigured URL
+   * pointing at something that is not a module — takes the reader's browser
+   * down with it. The prose already called a list an excerpt; these make it so.
+   */
+  it('refuses a summary too large to put on a screen', () => {
+    const tile = (key: string): SummaryTile => ({
+      key,
+      label: 'x',
+      value: '1',
+      unit: null,
+      tone: 'neutral',
+      href: null,
+    });
+
+    const tooManyTiles = valid();
+    tooManyTiles.tiles = Array.from({ length: MAX_TILES + 1 }, (_, i) => tile(`t${i}`));
+    expect(validateSummary(tooManyTiles).map((p) => p.field)).toContain('tiles');
+
+    const tooManyRows = valid();
+    tooManyRows.lists[0]!.items = Array.from({ length: MAX_ITEMS_PER_LIST + 1 }, (_, i) => ({
+      id: `i${i}`,
+      title: 'x',
+      subtitle: null,
+      badge: null,
+      tone: 'neutral' as const,
+      at: null,
+      href: null,
+    }));
+    expect(validateSummary(tooManyRows).map((p) => p.message).join(' ')).toContain('excerpt, not a table');
+
+    // Exactly at the limit is fine — the cap bounds a mistake, it does not
+    // shape a design.
+    const atLimit = valid();
+    atLimit.tiles = Array.from({ length: MAX_TILES }, (_, i) => tile(`t${i}`));
+    expect(validateSummary(atLimit)).toEqual([]);
+  });
+
+  it('refuses a single field long enough to be a payload of its own', () => {
+    const huge = valid();
+    huge.tiles[0]!.value = 'x'.repeat(MAX_FIELD_LENGTH + 1);
+    expect(validateSummary(huge).map((p) => p.field)).toContain('tiles[0].value');
+
+    // `valid()` reads an empty database, so give it a row to make too long.
+    const hugeTitle = valid();
+    hugeTitle.lists[0]!.items = [
+      {
+        id: 'AN-1',
+        title: 'x'.repeat(MAX_FIELD_LENGTH + 1),
+        subtitle: null,
+        badge: null,
+        tone: 'neutral',
+        at: null,
+        href: null,
+      },
+    ];
+    expect(validateSummary(hugeTitle).map((p) => p.field)).toContain('lists[0].items[0].title');
   });
 
   it('refuses duplicate keys, which a saved board could not tell apart', () => {

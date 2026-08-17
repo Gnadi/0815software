@@ -29,6 +29,52 @@ export interface PeerClientOptions {
   fetch?: FetchLike;
 }
 
+/**
+ * The most a peer may say in one answer.
+ *
+ * The summary contract already caps tiles, lists and rows, but that check runs
+ * on a PARSED body — by which point an enormous one has already been read into
+ * this process and handed to `JSON.parse`. This is the limit before that: 1 MiB
+ * is orders of magnitude above a real summary (MOD-13's is under 4 KiB) and
+ * comfortably below anything that hurts.
+ */
+const MAX_RESPONSE_BYTES = 1024 * 1024;
+
+/** Sentinel for a body that ran past the cap — distinct from any real body. */
+const TOO_LARGE = Symbol('too-large');
+
+/**
+ * Read a response body, stopping at `MAX_RESPONSE_BYTES`.
+ *
+ * `res.text()` would read whatever arrives, however much that is. This reads
+ * the stream instead and aborts the request the moment the limit is passed, so
+ * the bytes already sent are the only ones this process ever holds.
+ *
+ * A body-less response (204, or a HEAD) has no stream; that is an empty string,
+ * not an error.
+ */
+async function readCapped(res: Response, controller: AbortController): Promise<string | typeof TOO_LARGE> {
+  if (!res.body) return res.text();
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_RESPONSE_BYTES) {
+        controller.abort();
+        return TOO_LARGE;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 /** A peer answered, but not with something we can render. */
 function contractProblem(problems: { field: string; message: string }[]): string {
   const first = problems[0]!;
@@ -110,9 +156,16 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
       // A body that is not JSON is a peer answering something other than its
       // API — a proxy error page, most often — and saying so beats "undefined".
       let body: unknown = null;
-      // Reading the body is also bounded: a peer that sends headers and then
-      // stalls mid-body would otherwise hang here, past the deadline above.
-      const text = await Promise.race([res.text(), deadline]);
+      // Reading the body is bounded two ways. By TIME, because a peer that
+      // sends headers and then stalls would otherwise hang past the deadline
+      // above. And by SIZE, because the deadline does not bound a peer that
+      // answers quickly and enormously: a mistyped URL pointing at a file
+      // server, or a module with a runaway query, would be read into memory in
+      // full and only then rejected. `readCapped` stops at the limit.
+      const text = await Promise.race([readCapped(res, controller), deadline]);
+      if (text === TOO_LARGE) {
+        return { ok: false, problem: `answered with more than ${MAX_RESPONSE_BYTES / 1024} KiB` };
+      }
       if (text !== '') {
         try {
           body = JSON.parse(text);
