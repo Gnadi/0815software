@@ -145,16 +145,34 @@ export function appliedFilters(context: SummaryContext, supported: readonly Cont
 /**
  * Is this a link the shell may join to a peer's public origin?
  *
- * Only a rooted, single-slash path. Rejected, and why each one matters:
- * `https://elsewhere/x` and `//elsewhere/x` are other origins — a peer that
- * could return one would decide where the shell's own UI navigates, which is
- * the whole reason links are relative here. `javascript:` is script in a link.
- * A relative `x/y` resolves against whatever the shell's current path happens
- * to be, so the same summary would point somewhere different depending on which
- * board you were on.
+ * Only a rooted, single-slash path, and it has to survive a URL PARSER rather
+ * than just a string comparison — the two disagree in ways that decide origin:
+ *
+ * - `https://elsewhere/x` and `//elsewhere/x` are plainly other origins. A peer
+ *   that could return one would choose where the shell's UI navigates, which is
+ *   the whole reason links are relative here. `javascript:` is script in a link.
+ * - **`/\elsewhere/x` is also another origin.** For http(s) the URL standard
+ *   treats a backslash exactly as a forward slash, so a browser reads this as
+ *   `//elsewhere/x` — while `startsWith('//')` says it is fine. Any backslash
+ *   is refused; no real module path contains one.
+ * - **Tabs, newlines and other C0 controls are STRIPPED before parsing**, so
+ *   `/<tab>/elsewhere` becomes `//elsewhere` after the parser is done with it.
+ *   A prefix check run on the raw string never sees the second slash.
+ * - A relative `x/y` resolves against whatever the shell's current path happens
+ *   to be, so the same summary would point somewhere different depending on
+ *   which board you were on.
+ *
+ * `server/handoff.ts:isRedeemPath` enforces the identical rule on the other
+ * side of the seam, where the value becomes a `Location` header. Keep them the
+ * same: a path this accepts and that one refuses is a widget whose link works
+ * until someone clicks it.
  */
 export function isModulePath(href: unknown): href is string {
-  return typeof href === 'string' && href.startsWith('/') && !href.startsWith('//');
+  if (typeof href !== 'string') return false;
+  if (!href.startsWith('/')) return false;
+  if (/[\u0000-\u001F\u007F]/.test(href)) return false;
+  if (href.includes('\\')) return false;
+  return !href.startsWith('//');
 }
 
 export interface SummaryProblem {

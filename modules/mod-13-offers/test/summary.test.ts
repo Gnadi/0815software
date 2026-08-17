@@ -297,6 +297,28 @@ describe('validateSummary', () => {
     expect(validateSummary(protocolRelative).map((p) => p.field)).toContain('tiles[0].href');
   });
 
+  it('refuses an href that only a URL parser sees as another origin', () => {
+    // A prefix check waves these through; a browser reads each as a different
+    // host. The shell joins an href onto the peer's public origin, so a peer
+    // able to return one would choose where the board navigates. The second
+    // assertion is the proof rather than the prose.
+    const s = valid();
+    for (const href of ['/\\evil.example', '/\\/evil.example', '/\t/evil.example', '/\n/evil.example']) {
+      s.tiles[0]!.href = href;
+      expect(validateSummary(s).map((p) => p.field), `accepted ${JSON.stringify(href)}`).toContain('tiles[0].href');
+      expect(new URL(href, 'https://mine.example').host, `${JSON.stringify(href)} stayed on-origin`).not.toBe(
+        'mine.example',
+      );
+    }
+
+    // A backslash anywhere is refused too, even where it resolves harmlessly:
+    // no real module path has one, and a rule that does not depend on WHERE the
+    // character sits is the one that stays correct.
+    const inner = valid();
+    inner.tiles[0]!.href = '/x\\y';
+    expect(validateSummary(inner).map((p) => p.field)).toContain('tiles[0].href');
+  });
+
   it('refuses duplicate keys, which a saved board could not tell apart', () => {
     const s = valid();
     s.tiles[1]!.key = s.tiles[0]!.key;

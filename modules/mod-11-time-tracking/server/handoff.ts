@@ -60,13 +60,34 @@ const PRUNE_INTERVAL_MS = 60_000;
 const MAX_LIVE_TICKETS = 10_000;
 
 /**
- * The path a shell may hand off into. Same rule as the summary contract's
- * hrefs: rooted, single-slash, this module's own space. `//host` and
- * `https://host` are other origins; a bare `x` resolves against wherever the
- * browser happens to be.
+ * The path a shell may hand off into — rooted, this module's own space.
+ *
+ * This is the single most security-sensitive check in the file, because the
+ * value ends up in a `Location` header on a response that has ALREADY set a
+ * session cookie. A path that escapes the origin here is an open redirect
+ * immediately after a login, which is the classic way a session gets handed to
+ * somebody else's page.
+ *
+ * A prefix check alone does not do it, because a URL parser and `startsWith`
+ * disagree about what an origin is:
+ *
+ * - `//host/x` and `https://host/x` are other origins outright.
+ * - **`/\host/x` is too.** For http(s) the URL standard reads a backslash as a
+ *   forward slash, so the browser resolves this as `//host/x` even though
+ *   `startsWith('//')` is false. Any backslash is refused.
+ * - **C0 controls are stripped before parsing**, so `/<tab>/host` becomes
+ *   `//host` by the time it is resolved — after any check on the raw string.
+ * - A bare `x` resolves against wherever the browser happens to be.
+ *
+ * Identical to `shared/summary.ts:isModulePath`, which guards the same value on
+ * the shell's side. If you change one, change both.
  */
 export function isRedeemPath(path: unknown): path is string {
-  return typeof path === 'string' && path.startsWith('/') && !path.startsWith('//');
+  if (typeof path !== 'string') return false;
+  if (!path.startsWith('/')) return false;
+  if (/[\u0000-\u001F\u007F]/.test(path)) return false;
+  if (path.includes('\\')) return false;
+  return !path.startsWith('//');
 }
 
 /**

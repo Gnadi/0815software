@@ -15,8 +15,9 @@ import { createHandoff, isRedeemPath, TICKET_TTL_MS } from '../server/handoff.js
  * handoff surface at all — not a closed one, an absent one — because that is
  * what every standalone install runs and what the embed design promises.
  *
- * This file is byte-identical in every module that supports the shell, because
- * server/handoff.ts is.
+ * `server/handoff.ts` is byte-identical in every module that supports the
+ * shell, and so is this suite apart from the module-relative paths it hands
+ * off into — those necessarily differ, because they are each module's own.
  */
 
 const auth: AuthConfig = {
@@ -264,10 +265,48 @@ describe('the ticket itself', () => {
 describe('isRedeemPath', () => {
   it('accepts this module’s own paths only', () => {
     expect(isRedeemPath('/')).toBe(true);
-    expect(isRedeemPath('/invoices?status=overdue')).toBe(true);
+    expect(isRedeemPath('/?view=x')).toBe(true);
     expect(isRedeemPath('//evil.example')).toBe(false);
     expect(isRedeemPath('https://evil.example')).toBe(false);
     expect(isRedeemPath('offers')).toBe(false);
     expect(isRedeemPath(undefined)).toBe(false);
+  });
+
+  /**
+   * The payloads a `startsWith('//')` check waves through.
+   *
+   * Every one of these resolves to ANOTHER ORIGIN once a URL parser sees it —
+   * which is exactly what a browser does with the `Location` header this value
+   * becomes, on a response that has already set a session cookie. The second
+   * assertion is the proof rather than the prose: it resolves each payload the
+   * way a browser would, and requires the host to have moved.
+   */
+  it('refuses the payloads that only a URL parser sees as another origin', () => {
+    const escapes = [
+      '/\\evil.example', // a backslash IS a slash for http(s)
+      '/\\/evil.example',
+      '/\t/evil.example', // C0 controls are stripped before parsing
+      '/\n/evil.example',
+      '/\r/evil.example',
+    ];
+    for (const path of escapes) {
+      expect(isRedeemPath(path), `accepted ${JSON.stringify(path)}`).toBe(false);
+      expect(new URL(path, 'https://mine.example').host, `${JSON.stringify(path)} stayed on-origin`).not.toBe(
+        'mine.example',
+      );
+    }
+  });
+
+  it('refuses a backslash anywhere, not only where it escapes the origin', () => {
+    // `/x\y` resolves harmlessly today. It is still refused: no real module
+    // path contains a backslash, and the rule is far easier to keep right when
+    // it does not depend on WHERE the character sits.
+    expect(isRedeemPath('/x\\y')).toBe(false);
+  });
+
+  it('refuses to mint a ticket for one, so it can never reach a Location header', () => {
+    const handoff = createHandoff(auth);
+    expect(() => handoff.issue('ada@example', '/\\evil.example')).toThrow(/module-relative/);
+    expect(() => handoff.issue('ada@example', '/\t/evil.example')).toThrow(/module-relative/);
   });
 });
