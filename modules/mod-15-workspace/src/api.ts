@@ -59,6 +59,12 @@ export interface CatalogueAction {
   available: boolean;
 }
 
+/**
+ * Which credentials this deployment accepts. With SSO configured the logins
+ * belong to PS-01 Identity, without it to this module's own admin account.
+ */
+export type AuthMode = { sso: false } | { sso: true; org: string };
+
 export interface Catalogue {
   modules: CatalogueModule[];
   actions: CatalogueAction[];
@@ -77,6 +83,8 @@ export const api = {
   login: (username: string, password: string) =>
     request<{ ok: true; username: string }>('/api/login', post({ username, password })),
   logout: () => request<{ ok: true }>('/api/logout', post()),
+  /** Which credentials this deployment accepts — readable before signing in. */
+  authMode: () => request<AuthMode>('/api/auth-mode'),
   me: () => request<{ username: string }>('/api/me'),
 
   catalogue: () => request<Catalogue>('/api/catalogue'),

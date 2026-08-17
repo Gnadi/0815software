@@ -27,7 +27,7 @@ import {
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import type { PeerClient } from './peers.js';
 import type { ModuleSessions } from './sessions.js';
-import { nullVerifier, type LoginVerifier } from './sso.js';
+import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import { CATALOGUE } from '../shared/catalogue.js';
 import { ACTIONS, actionById } from '../shared/actions.js';
 import { isModulePath } from '../shared/summary.js';
@@ -59,21 +59,23 @@ export interface AppOptions {
   platform?: PlatformHooks;
   verifyLogin?: LoginVerifier;
   /**
-   * Is PS-01 validating logins?
+   * Which credentials this deployment accepts, served as-is from
+   * GET /api/auth-mode. Defaults to this module's own — the standalone case.
    *
-   * The board reports this to its own UI, because without an identity provider
-   * this module has exactly ONE account that can authenticate — `auth.ts`
-   * compares the submitted username against the single configured
-   * ADMIN_USERNAME — so every operator is literally the same actor. Boards key
-   * on that actor, and so does the identity the shell asserts when it hands off
-   * or runs an action.
+   * It answers a second question too, which is why there is no separate flag
+   * for it: with no identity provider this module has exactly ONE account that
+   * can authenticate — `auth.ts` compares the submitted username against the
+   * single configured ADMIN_USERNAME — so every operator is literally the same
+   * actor. Boards key on that actor, and so does the identity the shell asserts
+   * when it hands off or runs an action.
    *
-   * Nothing here is broken by it, and the isolation is real code either way
+   * Nothing is broken by it, and the isolation is real code either way
    * (`getBoard` filters on owner). But "shared board" and "your colleague's
    * name on your invoice" are surprises worth stating out loud rather than
-   * leaving to be discovered.
+   * leaving to be discovered, so `/api/catalogue` reports it and the board
+   * says so. Both facts come from `loginMode` because they are the same fact.
    */
-  identityConfigured?: boolean;
+  loginMode?: LoginMode;
 }
 
 export function createApp({
@@ -85,7 +87,7 @@ export function createApp({
   staticDir,
   platform = noopPlatform,
   verifyLogin = nullVerifier,
-  identityConfigured = false,
+  loginMode = LOCAL_LOGIN,
 }: AppOptions): express.Express {
   const app = express();
 
@@ -116,6 +118,15 @@ export function createApp({
     } catch {
       res.status(503).json({ ok: false });
     }
+  });
+
+  // Which credentials this deployment accepts, read by the login form before
+  // anyone is signed in — hence public. With SSO configured, PS-01 validates
+  // logins and this module's own admin credentials are rejected, so a form
+  // advertising them would send people at a password that cannot work. The org
+  // slug is deployment configuration, not a secret.
+  app.get('/api/auth-mode', (_req, res) => {
+    res.json(loginMode);
   });
 
   app.post('/api/login', async (req, res) => {
@@ -167,7 +178,7 @@ export function createApp({
         available: peers.has(sourceModule) && peers.has(targetModule),
       })),
       customers_configured: platform.hasCustomers(),
-      identity_configured: identityConfigured,
+      identity_configured: loginMode.sso,
     });
   });
 

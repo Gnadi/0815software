@@ -177,7 +177,9 @@ Opt-in and best-effort, like every module in the catalogue:
 - **PS-01 Identity** — `IDENTITY_URL` + `IDENTITY_ORG`: PS-01 validates the
   login and this module issues its own session carrying that identity. It is
   what makes boards per person and what puts a real name on cross-module
-  actions.
+  actions. Configured, this module's own `admin` credentials stop working, so
+  the login form asks the server which ones to name (`GET /api/auth-mode`)
+  rather than advertising a password that cannot work.
 - **PS-07 Audit Log** — `AUDIT_URL`: the activity feed, and where this module
   records the actions a board performs.
 - **PS-11 Customers** — `CUSTOMERS_URL`: the context bar's customer picker.

@@ -7,7 +7,7 @@ import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
 import { createPeerClient } from './peers.js';
 import { createModuleSessions } from './sessions.js';
-import { buildLoginVerifier } from './sso.js';
+import { buildLoginVerifier, loginModeOf } from './sso.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { CATALOGUE } from '../shared/catalogue.js';
@@ -44,10 +44,11 @@ const app = createApp({
   staticDir,
   platform,
   verifyLogin: buildLoginVerifier(config.sso),
-  // Both are required before PS-01 actually validates a login (`sso.ts`), so
-  // half-configured counts as unconfigured — the board would otherwise promise
-  // separate identities it is not getting.
-  identityConfigured: Boolean(config.sso.identityUrl && config.sso.identityOrg),
+  // Derived from the same two fields the verifier switches on, so the login
+  // form's hint, the board's shared-account notice and what actually happens at
+  // sign-in cannot drift apart. Half-configured counts as unconfigured — the
+  // board would otherwise promise separate identities it is not getting.
+  loginMode: loginModeOf(config.sso),
 });
 
 app.listen(config.port, () => {

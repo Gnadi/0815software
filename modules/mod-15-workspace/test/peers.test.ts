@@ -95,6 +95,18 @@ function build(
   return createApp({ db, auth, peers: client, sessions: createModuleSessions(client) });
 }
 
+/** The same app with PS-01 validating logins. */
+function withSso(): Express {
+  const client = createPeerClient({ peers: PEERS, serviceToken: TOKEN, timeoutMs: 200, fetch: stubFetch({}) });
+  return createApp({
+    db,
+    auth,
+    peers: client,
+    sessions: createModuleSessions(client),
+    loginMode: { sso: true, org: 'acme' },
+  });
+}
+
 async function signIn(app: Express): Promise<string> {
   const res = await request(app).post('/api/login').send({ username: 'admin', password: 'test-password' }).expect(200);
   return res.headers['set-cookie']![0]!.split(';')[0]!;
@@ -202,17 +214,33 @@ describe('the catalogue', () => {
     let res = await request(standalone).get('/api/catalogue').set('Cookie', cookie).expect(200);
     expect(res.body.identity_configured).toBe(false);
 
-    const client = createPeerClient({ peers: PEERS, serviceToken: TOKEN, timeoutMs: 200, fetch: stubFetch({}) });
-    const withIdentity = createApp({
-      db,
-      auth,
-      peers: client,
-      sessions: createModuleSessions(client),
-      identityConfigured: true,
-    });
-    cookie = await signIn(withIdentity);
-    res = await request(withIdentity).get('/api/catalogue').set('Cookie', cookie).expect(200);
+    cookie = await signIn(withSso());
+    res = await request(withSso()).get('/api/catalogue').set('Cookie', cookie).expect(200);
     expect(res.body.identity_configured).toBe(true);
+  });
+});
+
+/**
+ * Which credentials the login form should name.
+ *
+ * With SSO configured this module's own admin credentials are REJECTED — PS-01
+ * decides — so a form still advertising "admin / admin" points people at a
+ * password that cannot work. The form asks the server rather than guessing, and
+ * because the answer comes from the same `loginMode` the shared-board notice
+ * reads, the hint and the behaviour cannot drift apart.
+ */
+describe('GET /api/auth-mode', () => {
+  it('is public — the form reads it before anyone can sign in', async () => {
+    // Behind the session gate this endpoint would be useless: nobody who needs
+    // the hint has a session yet. The org slug is deployment configuration,
+    // not a secret.
+    const res = await request(build(stubFetch({}))).get('/api/auth-mode').expect(200);
+    expect(res.body).toEqual({ sso: false });
+  });
+
+  it('names PS-01 and the org when SSO is configured', async () => {
+    const res = await request(withSso()).get('/api/auth-mode').expect(200);
+    expect(res.body).toEqual({ sso: true, org: 'acme' });
   });
 });
 
