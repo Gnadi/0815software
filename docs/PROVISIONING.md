@@ -6,14 +6,14 @@ this document automates.*
 
 ## The shape of it
 
-A customer licenses a subset of the fourteen modules. That selection determines
+A customer licenses a subset of the fifteen modules. That selection determines
 everything else: which Platform Services have to run, which secrets exist, which
 subdomains Caddy issues certificates for, whether a ticker sidecar is needed, and
 which module-to-module bridges are wired. One command turns the selection into a
 deployment, and one command proves the deployment works.
 
 ```
-modules/registry.json          the source of truth: 14 modules, 11 services
+modules/registry.json          the source of truth: 15 modules, 11 services
         │
         ├─ deploy/provision.mjs      → customers/<name>/{docker-compose.yml, .env,
         │                              Caddyfile, README.md, manifest.json}
@@ -155,7 +155,7 @@ processes, in production mode, with freshly generated secrets, and asserts:
 - the generated `.env` has no `FILL-ME-IN` left, no value a boot guard would
   reject, and defines every variable the compose file references.
 
-A seven-service stack takes about ten seconds. All fourteen modules against every
+A seven-service stack takes about ten seconds. All fifteen modules against every
 service takes about twenty.
 
 `deploy/smoke.mjs` is the narrower, older check: every Platform Service, no
@@ -211,3 +211,21 @@ which is the point of one stack per customer.
   deployment-time substitution, deliberately left to the operator.
 - **The generator does not talk to anything.** It writes files. It never contacts
   a host, a registry or a DNS provider, so it is safe to run and diff repeatedly.
+
+## Provisioning a stack with MOD-15 Workspace
+
+Nothing extra to pass. When the selection includes `mod-15-workspace`, the
+generator wires it to every other module in that stack — `<MODULE>_URL` for the
+internal address it reads summaries from, `<MODULE>_PUBLIC_URL` for the origin
+a browser uses to frame or link to it — and sets `SHELL_ORIGIN` on every module
+whose registry entry has `constraints.embeddable`.
+
+That reciprocity is what turns on framing and session handoff. It is deliberately
+NOT in the registry: whether a module is framed depends on whether the customer
+licensed a shell, which is a property of the selection rather than of the module.
+A stack without the Workspace leaves `SHELL_ORIGIN` unset everywhere, and every
+module keeps its blanket `X-Frame-Options: DENY`.
+
+Three modules never receive it — MOD-01, MOD-07 and MOD-09 — because their end
+users are not staff. They appear on the board as figures and open in a new tab.
+See [`SHELL-CONTRACT.md`](./SHELL-CONTRACT.md).

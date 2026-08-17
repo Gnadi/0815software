@@ -333,3 +333,20 @@ is best-effort — a payments outage never fails a placed order. See
 ## License
 
 MIT © 0815software — see [LICENSE](LICENSE).
+
+## The shell contract — appearing on a dashboard
+
+`GET /api/summary`, guarded by `PLATFORM_SERVICE_TOKEN`, is how this module
+puts figures on a [MOD-15 Workspace](../mod-15-workspace) board. With no token
+configured the endpoint is closed, which is the standalone default.
+
+This module is **not embeddable and reads no `SHELL_ORIGIN`**: its end users
+are not staff, so a staff shell has no principal to sign in as
+([`docs/PLATFORM-READINESS.md`](../../docs/PLATFORM-READINESS.md), item C1). A
+board shows its figures and opens it in a new tab, where this module's own
+login and access rules apply as usual. See
+[`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md).
+
+This one does carry rows, unlike the other two domain-user modules: a shop's
+orders are already visible to whoever runs the shop, and there is no per-user
+access rule here for a shell to bypass.

@@ -7,14 +7,14 @@ own. It holds no shared backend services; those live in the
 them over APIs. The two catalogs are independent (see the
 [architecture overview](../README.md#architecture)).
 
-The 0815software module catalogue: fourteen standard modules for standard
+The 0815software module catalogue: fifteen standard modules for standard
 business problems, each shipped MIT-licensed with full source code. This
-directory holds the implementations. **All fourteen modules are now
+directory holds the implementations. **All fifteen modules are now
 available**: MOD-01 Customer Portal, MOD-02 Admin Dashboard, MOD-03 Inventory
 Management, MOD-04 Invoice & Billing, MOD-05 Employee Directory, MOD-06
 Procurement Tracker, MOD-07 Storefront, MOD-08 Reporting Suite, MOD-09
 Document Management, MOD-10 CRM Lite, MOD-11 Time Tracking, MOD-12 Support
-Ticket System, MOD-13 Offers and MOD-14 Subsidies & Funds. See the
+Ticket System, MOD-13 Offers, MOD-14 Subsidies & Funds and MOD-15 Workspace. See the
 [catalogue page](https://0815software.com/modules) for scopes and
 descriptions.
 
@@ -34,6 +34,7 @@ descriptions.
 | MOD-12 | Support Ticket System | **Available** | [mod-12-support-tickets](./mod-12-support-tickets) |
 | MOD-13 | Offers                | **Available** | [mod-13-offers](./mod-13-offers) |
 | MOD-14 | Subsidies & Funds     | **Available** | [mod-14-subsidies-funds](./mod-14-subsidies-funds) |
+| MOD-15 | Workspace             | **Available** | [mod-15-workspace](./mod-15-workspace) |
 
 Each module is a self-contained application with its own `package.json`,
 `LICENSE` and README — install and run it independently of this repository.
@@ -74,10 +75,28 @@ notifications, workflow, AI, integrations, files, audit) to the service;
 unset, the module keeps its standalone behavior with no outbound calls, and a
 downstream outage never fails the local operation.
 
-**All fourteen modules ship this wiring** (each has a `server/platform.ts` and
+**All fifteen modules ship this wiring** (each has a `server/platform.ts` and
 a README "Platform integration" section). The richest consumers: MOD-04
 Invoice & Billing → PS-03/06/07/08, MOD-07 Storefront → PS-08 checkout, MOD-12
 Support Tickets → PS-03/04/07, MOD-09 Document Management → PS-06 (+ PS-07),
 MOD-13 Offers → PS-03 (+ PS-07). Every other module records its key state
 changes on PS-07 Audit Log. All integrations are opt-in and best-effort, so
 each module still installs and runs standalone with the `*_URL` env vars unset.
+
+## The shell contract — appearing on a dashboard
+
+Every module answers **`GET /api/summary`** (machine token, closed without
+one), and the eleven with a staff login also accept `SHELL_ORIGIN`, which swaps
+their blanket `X-Frame-Options: DENY` for a `frame-ancestors` naming one shell
+and opens two session-handoff routes.
+
+[MOD-15 Workspace](./mod-15-workspace) is the consumer: a per-person board of
+widgets fed live by the modules in the stack, with one shared customer filter,
+embedded module UIs, and cross-module actions that call a target module's
+*existing* routes as the person who clicked.
+
+**None of it changes a standalone install.** With `PLATFORM_SERVICE_TOKEN` and
+`SHELL_ORIGIN` unset, the summary endpoint is closed, the handoff routes are
+not mounted and framing is denied outright — and each module's suite asserts
+that default rather than only the opt-in. See
+[`docs/SHELL-CONTRACT.md`](../docs/SHELL-CONTRACT.md).

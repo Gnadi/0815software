@@ -379,3 +379,22 @@ never fails intake. Everything is opt-in (`NOTIFICATION_URL`, `AUDIT_URL`,
 ---
 
 MIT © 2026 0815software. See [LICENSE](./LICENSE).
+
+## The shell contract — appearing on a dashboard
+
+`GET /api/summary`, guarded by `PLATFORM_SERVICE_TOKEN`, is how this module
+puts figures and short lists on a [MOD-15 Workspace](../mod-15-workspace)
+board. The shape is `shared/summary.ts`, byte-identical in every module; the
+values are computed by the same functions this module's own screens read, so a
+widget cannot disagree with the module beside it.
+
+Set `SHELL_ORIGIN` to the Workspace's origin and two more things follow: this
+module can be framed by that one shell (`frame-ancestors` replaces the blanket
+`X-Frame-Options: DENY`), and `POST /api/session/handoff` / `POST
+/api/session/issue` open, so the Workspace can obtain a session for whoever is
+using it. This module still mints its own sessions — the shell only asserts
+who, and only because it holds the machine token and was named here.
+
+With both unset — the default, and what a standalone install runs — the summary
+endpoint is closed, the handoff routes are not mounted, and framing is denied
+outright. See [`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md).
