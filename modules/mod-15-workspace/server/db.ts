@@ -24,6 +24,11 @@ import Database from 'better-sqlite3';
  * 3. NO CACHED PEER DATA. Deliberately absent: any table holding summaries,
  *    tiles or activity. It would make the board fast and wrong, and "wrong but
  *    fast" is not a trade a dashboard gets to make.
+ *
+ *    `server/peers.ts` does share a fan-out that is already IN FLIGHT between
+ *    simultaneous readers, which is deduplication rather than caching: nothing
+ *    is retained once the request settles, and every figure is still one a
+ *    module produced for that very request.
  */
 export function openDb(path: string): Database.Database {
   const db = new Database(path);

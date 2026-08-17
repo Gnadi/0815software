@@ -281,6 +281,74 @@ describe('collecting summaries', () => {
   });
 });
 
+describe('several boards asking at once', () => {
+  it('collapses simultaneous fan-outs for the same context into one', async () => {
+    let calls = 0;
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const client = createPeerClient({
+      peers: { 'mod-13-offers': PEERS['mod-13-offers']! },
+      serviceToken: TOKEN,
+      timeoutMs: 5_000,
+      fetch: async () => {
+        calls += 1;
+        await gate;
+        return new Response(JSON.stringify(summaryOf('mod-13-offers')), { status: 200 });
+      },
+    });
+
+    // Ten boards refreshing on the same tick, all looking at everything.
+    const rounds = Array.from({ length: 10 }, () => client.summaries({}));
+    release!();
+    const answers = await Promise.all(rounds);
+
+    expect(calls, 'one round of requests, not ten').toBe(1);
+    for (const answer of answers) expect(answer[0]!.ok).toBe(true);
+  });
+
+  it('does not hand one person’s customer view to another', async () => {
+    const asked: string[] = [];
+    const client = createPeerClient({
+      peers: { 'mod-13-offers': PEERS['mod-13-offers']! },
+      serviceToken: TOKEN,
+      timeoutMs: 5_000,
+      fetch: async (input) => {
+        asked.push(new URL(input).search);
+        return new Response(JSON.stringify(summaryOf('mod-13-offers')), { status: 200 });
+      },
+    });
+
+    // Different contexts are different questions. Sharing an answer between
+    // them would show one person another customer's figures.
+    await Promise.all([client.summaries({ party: 1 }), client.summaries({ party: 2 }), client.summaries({})]);
+    expect(new Set(asked).size).toBe(3);
+  });
+
+  it('does not let a failed round poison every later one', async () => {
+    let attempt = 0;
+    const client = createPeerClient({
+      peers: { 'mod-13-offers': PEERS['mod-13-offers']! },
+      serviceToken: TOKEN,
+      timeoutMs: 5_000,
+      fetch: async () => {
+        attempt += 1;
+        if (attempt === 1) throw new Error('connect ECONNREFUSED');
+        return new Response(JSON.stringify(summaryOf('mod-13-offers')), { status: 200 });
+      },
+    });
+
+    // An in-flight entry left behind after a rejection would serve that failure
+    // to every later caller for the life of the process — the one way
+    // deduplication is worse than repetition.
+    const first = await client.summaries({});
+    expect(first[0]!.ok).toBe(false);
+    const second = await client.summaries({});
+    expect(second[0]!.ok).toBe(true);
+  });
+});
+
 describe('opening a module inside the Workspace', () => {
   it('returns a public URL that redeems a handoff ticket', async () => {
     const app = build(

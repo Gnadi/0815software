@@ -20,6 +20,16 @@ import type { ActivityEvent, Board as BoardModel, PeerSummary, ShellContext, Wid
  * owning module produced just now.
  */
 
+/**
+ * How often an open board re-asks every module.
+ *
+ * Sixty seconds is chosen against the modules, not the reader: these are
+ * SQLite-backed services and a board fans out to all of them at once. Faster
+ * would buy very little — these figures change on the scale of a working day —
+ * and would cost every module in the stack.
+ */
+const REFRESH_MS = 60_000;
+
 interface Embed {
   moduleId: string;
   label: string;
@@ -104,6 +114,33 @@ export function App() {
   useEffect(() => {
     void boot();
   }, [boot]);
+
+  /**
+   * Keep the board current on its own.
+   *
+   * A dashboard is left open. Without this it would sit showing this morning's
+   * figures looking perfectly current, which is the characteristic way a
+   * dashboard lies.
+   *
+   * Only while the tab is VISIBLE, and once immediately on becoming visible
+   * again. A board on a background tab is being read by nobody, and every tick
+   * of it is a round of requests to every module in the stack — so the pause is
+   * as much for the modules as for this page. The server collapses simultaneous
+   * refreshes into one fan-out per module (`server/peers.ts`).
+   */
+  useEffect(() => {
+    if (!ready) return;
+
+    const refreshIfVisible = (): void => {
+      if (document.visibilityState === 'visible') void loadWidgetData();
+    };
+    const timer = setInterval(refreshIfVisible, REFRESH_MS);
+    document.addEventListener('visibilitychange', refreshIfVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshIfVisible);
+    };
+  }, [ready, loadWidgetData]);
 
   const active = useMemo(() => boards.find((b) => b.id === activeId) ?? null, [boards, activeId]);
 

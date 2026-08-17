@@ -139,6 +139,8 @@ export interface PeerClient {
 export function createPeerClient(options: PeerClientOptions): PeerClient {
   const { peers, serviceToken, timeoutMs } = options;
   const doFetch: FetchLike = options.fetch ?? ((input, init) => fetch(input, init));
+  /** Fan-outs currently running, by context. See `summaries` for why. */
+  const inFlight = new Map<string, Promise<PeerSummary[]>>();
 
   async function call(
     moduleId: string,
@@ -205,7 +207,7 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
     return serviceToken ? { 'X-Service-Token': serviceToken, 'Content-Type': 'application/json' } : { 'Content-Type': 'application/json' };
   }
 
-  return {
+  const client: PeerClient = {
     statuses(): PeerStatus[] {
       return CATALOGUE.map((entry) => {
         const peer = peerOf(peers, entry.id);
@@ -266,18 +268,40 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
       return { ok: true, module: moduleId, summary };
     },
 
-    async summaries(context: SummaryContext): Promise<PeerSummary[]> {
-      // Concurrent on purpose: the board's latency is its slowest peer, not the
-      // sum of fourteen. `allSettled` is belt and braces — `summary` already
-      // resolves rather than rejects — so one unforeseen throw cannot take the
-      // whole board down.
-      const configured = CATALOGUE.filter((entry) => peerOf(peers, entry.id) !== undefined);
-      const results = await Promise.allSettled(configured.map((entry) => this.summary(entry.id, context)));
-      return results.map((result, i) =>
-        result.status === 'fulfilled'
-          ? result.value
-          : { ok: false as const, module: configured[i]!.id, problem: describe(result.reason) },
-      );
+    summaries(context: SummaryContext): Promise<PeerSummary[]> {
+      // Boards refresh on a timer, so several people watching the same thing
+      // ask the same question at nearly the same moment. One fan-out already in
+      // flight for THIS context is shared rather than repeated: ten open boards
+      // become one round of requests per module instead of ten.
+      //
+      // Keyed by the context, because two people looking at different customers
+      // are not asking the same question and must not be given each other's
+      // answer. And it is DEDUPLICATION, not a cache — nothing is retained once
+      // the request settles, so a figure on a board is still one a module
+      // produced for that very request. `db.ts` explains why that matters.
+      const key = JSON.stringify([context.party ?? null, context.from ?? null, context.to ?? null]);
+      const existing = inFlight.get(key);
+      if (existing) return existing;
+
+      const run = (async (): Promise<PeerSummary[]> => {
+        // Concurrent on purpose: the board's latency is its slowest peer, not
+        // the sum of fourteen. `allSettled` is belt and braces — `summary`
+        // already resolves rather than rejects — so one unforeseen throw cannot
+        // take the whole board down.
+        const configured = CATALOGUE.filter((entry) => peerOf(peers, entry.id) !== undefined);
+        const results = await Promise.allSettled(configured.map((entry) => client.summary(entry.id, context)));
+        return results.map((result, i) =>
+          result.status === 'fulfilled'
+            ? result.value
+            : { ok: false as const, module: configured[i]!.id, problem: describe(result.reason) },
+        );
+      })();
+
+      inFlight.set(key, run);
+      // Cleared however it settles. A rejected round that stayed in the map
+      // would hand its failure to every later caller for the life of the
+      // process — the one way deduplication can be worse than repetition.
+      return run.finally(() => inFlight.delete(key));
     },
 
     async handoff(moduleId: string, actor: string, path: string) {
@@ -329,4 +353,6 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
       });
     },
   };
+
+  return client;
 }

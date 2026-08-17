@@ -146,6 +146,12 @@ There is deliberately **no cache of peer data**. It would make the board fast
 and wrong, and "wrong but fast" is not a trade a dashboard gets to make. It
 also means losing this file costs a layout, never a record.
 
+An open board re-asks every module once a minute, and pauses while its tab is
+hidden. Simultaneous refreshes for the same customer and date range share one
+round of requests per module — deduplication of a call already in flight, not a
+cache: nothing survives the request, so every figure is still one the owning
+module produced just then.
+
 ## Platform integration
 
 Opt-in and best-effort, like every module in the catalogue:

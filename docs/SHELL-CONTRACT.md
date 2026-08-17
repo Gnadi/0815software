@@ -168,7 +168,9 @@ with no change to the generator.
   module needs no knowledge of who is watching it and no delivery guarantees.
 - **A cache.** The Workspace stores layouts and no peer data. A board is always
   showing figures the owning module produced just now — "wrong but fast" is not
-  a trade a dashboard gets to make.
+  a trade a dashboard gets to make. It does share a fan-out already in flight
+  between readers asking the same question at the same moment, which retains
+  nothing and so is deduplication rather than caching.
 - **A privilege.** The machine token opens summaries and mints sessions. It
   performs no writes anywhere; writes are done as a person or not at all.
 - **A second place to define a number.** Every figure comes from the function
