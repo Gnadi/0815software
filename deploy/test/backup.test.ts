@@ -35,7 +35,7 @@ describe('backup coverage', () => {
   it('has a package to check', () => {
     // 11 services + 15 modules; if the registry shrinks, so does this suite,
     // and a silently empty test would defeat the whole point.
-    expect(packagePaths.length).toBe(26);
+    expect(packagePaths.length).toBe(27);
   });
 
   for (const pkg of packagePaths) {

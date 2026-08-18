@@ -14,7 +14,8 @@ available**: MOD-01 Customer Portal, MOD-02 Admin Dashboard, MOD-03 Inventory
 Management, MOD-04 Invoice & Billing, MOD-05 Employee Directory, MOD-06
 Procurement Tracker, MOD-07 Storefront, MOD-08 Reporting Suite, MOD-09
 Document Management, MOD-10 CRM Lite, MOD-11 Time Tracking, MOD-12 Support
-Ticket System, MOD-13 Offers, MOD-14 Subsidies & Funds and MOD-15 Workspace. See the
+Ticket System, MOD-13 Offers, MOD-14 Subsidies & Funds, MOD-15 Workspace and
+MOD-16 Mosaic. See the
 [catalogue page](https://0815software.com/modules) for scopes and
 descriptions.
 
@@ -35,6 +36,7 @@ descriptions.
 | MOD-13 | Offers                | **Available** | [mod-13-offers](./mod-13-offers) |
 | MOD-14 | Subsidies & Funds     | **Available** | [mod-14-subsidies-funds](./mod-14-subsidies-funds) |
 | MOD-15 | Workspace             | **Available** | [mod-15-workspace](./mod-15-workspace) |
+| MOD-16 | Mosaic                | **Available** | [mod-16-mosaic](./mod-16-mosaic) |
 
 Each module is a self-contained application with its own `package.json`,
 `LICENSE` and README — install and run it independently of this repository.
@@ -86,14 +88,20 @@ each module still installs and runs standalone with the `*_URL` env vars unset.
 ## The shell contract — appearing on a dashboard
 
 Every module answers **`GET /api/summary`** (machine token, closed without
-one), and the eleven with a staff login also accept `SHELL_ORIGIN`, which swaps
-their blanket `X-Frame-Options: DENY` for a `frame-ancestors` naming one shell
-and opens two session-handoff routes.
+one), and those with a staff login also accept `SHELL_ORIGIN` — a
+comma-separated list of shell origins, which swaps their blanket
+`X-Frame-Options: DENY` for a `frame-ancestors` naming those shells and opens
+two session-handoff routes.
 
-[MOD-15 Workspace](./mod-15-workspace) is the consumer: a per-person board of
-widgets fed live by the modules in the stack, with one shared customer filter,
-embedded module UIs, and cross-module actions that call a target module's
-*existing* routes as the person who clicked.
+There are two consumers, and a stack can run both:
+
+- **[MOD-15 Workspace](./mod-15-workspace)** SUMMARISES the modules: a
+  per-person board of widgets fed live by each one, with a shared customer
+  filter and cross-module actions that call a target's *existing* routes as
+  the person who clicked.
+- **[MOD-16 Mosaic](./mod-16-mosaic)** RUNS them: each pane is a whole module
+  in a frame, already signed in, on a grid you arrange. Nothing is summarised
+  and nothing is reimplemented.
 
 **None of it changes a standalone install.** With `PLATFORM_SERVICE_TOKEN` and
 `SHELL_ORIGIN` unset, the summary endpoint is closed, the handoff routes are

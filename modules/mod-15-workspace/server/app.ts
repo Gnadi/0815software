@@ -27,6 +27,7 @@ import {
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import type { PeerClient } from './peers.js';
 import type { ModuleSessions } from './sessions.js';
+import { createHandoff, isRedeemPath, safeServiceTokenEqual } from './handoff.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import { CATALOGUE } from '../shared/catalogue.js';
 import { ACTIONS, actionById } from '../shared/actions.js';
@@ -76,6 +77,22 @@ export interface AppOptions {
    * says so. Both facts come from `loginMode` because they are the same fact.
    */
   loginMode?: LoginMode;
+  /**
+   * The platform machine token (PLATFORM_SERVICE_TOKEN), for the handoff routes
+   * below. This shell CONSUMES the token to call its peers; these two routes are
+   * the other direction — another shell calling this one.
+   */
+  serviceToken?: string;
+  /**
+   * The shell origins allowed to embed THIS module and to sign users into it.
+   *
+   * A shell being framed by another shell is not a curiosity: MOD-16 Mosaic
+   * tiles whole modules, and this is one. The registry has said
+   * `embeddable: true` since this module existed, but the routes that promise
+   * makes were never mounted — so a Mosaic pane holding the Workspace showed a
+   * login form instead of the board. Empty is still the default.
+   */
+  shellOrigins?: string[];
 }
 
 export function createApp({
@@ -88,8 +105,11 @@ export function createApp({
   platform = noopPlatform,
   verifyLogin = nullVerifier,
   loginMode = LOCAL_LOGIN,
+  serviceToken,
+  shellOrigins = [],
 }: AppOptions): express.Express {
   const app = express();
+  const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
 
   if (hardening) {
     if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
@@ -128,6 +148,52 @@ export function createApp({
   app.get('/api/auth-mode', (_req, res) => {
     res.json(loginMode);
   });
+
+  // ── Shell handoff ────────────────────────────────────────────────────
+  // Mounted only when the operator named a shell in SHELL_ORIGIN, so a
+  // standalone install has no such surface at all. Byte-identical to the
+  // eleven other modules that accept a handoff; see handoff.ts for why the
+  // destination is signed into the ticket rather than passed alongside it.
+  if (handoff) {
+    const requireServiceToken = (req: Request): void => {
+      const provided = req.headers['x-service-token'];
+      if (!serviceToken || typeof provided !== 'string' || !safeServiceTokenEqual(provided, serviceToken)) {
+        throw new DomainError(401, 'Service token required');
+      }
+    };
+
+    app.post('/api/session/handoff', (req, res) => {
+      requireServiceToken(req);
+      const { actor, path } = body(req);
+      if (typeof actor !== 'string' || actor.trim() === '') throw new DomainError(422, 'actor is required');
+      const target = path === undefined ? '/' : path;
+      if (!isRedeemPath(target)) throw new DomainError(422, 'path must be module-relative');
+      res.json(handoff.issue(actor.trim(), target));
+    });
+
+    app.post('/api/session/issue', (req, res) => {
+      requireServiceToken(req);
+      const { actor } = body(req);
+      if (typeof actor !== 'string' || actor.trim() === '') throw new DomainError(422, 'actor is required');
+      res.json(handoff.issueSession(actor.trim()));
+    });
+
+    // The browser lands here from a frame's `src`. Deliberately NOT under /api:
+    // it is a navigation, and it must stay outside the session gate — it is how
+    // a session is obtained in the first place.
+    app.get('/session/handoff', (req, res) => {
+      const result = handoff.redeem(req.query.ticket);
+      if (!result.ok) {
+        // One status for all three verdicts. Which of "never issued", "already
+        // used" and "expired" a ticket hit is not something an unauthenticated
+        // caller gets to probe for.
+        res.status(401).type('text/plain').send('Handoff ticket is not valid');
+        return;
+      }
+      res.setHeader('Set-Cookie', result.cookie);
+      res.redirect(302, result.location);
+    });
+  }
 
   app.post('/api/login', async (req, res) => {
     const { username, password } = body(req);

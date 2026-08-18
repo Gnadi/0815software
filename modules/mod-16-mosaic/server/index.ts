@@ -6,7 +6,6 @@ import { hardeningFromEnv } from './hardening.js';
 import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
 import { createPeerClient } from './peers.js';
-import { createModuleSessions } from './sessions.js';
 import { buildLoginVerifier, loginModeOf } from './sso.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
@@ -19,9 +18,9 @@ assertProductionConfig([
 ]);
 const db = openDb(config.databasePath);
 
-// No seed. The Workspace has nothing to invent: a person's first board is
-// created on their first visit (`ensureBoards`), and everything on it comes
-// from the modules in the stack.
+// No seed. This module has nothing to invent: a person's first board is created
+// on their first visit (`ensureBoards`) and starts empty, because which modules
+// a customer licensed is not knowable from here.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
@@ -33,14 +32,12 @@ const peers = createPeerClient({
   serviceToken: config.platform.serviceToken,
   timeoutMs: config.peerTimeoutMs,
 });
-const sessions = createModuleSessions(peers);
 
 const app = createApp({
   db,
   hardening: hardeningFromEnv(),
   auth: config.auth,
   peers,
-  sessions,
   staticDir,
   platform,
   verifyLogin: buildLoginVerifier(config.sso),
@@ -49,34 +46,34 @@ const app = createApp({
   // sign-in cannot drift apart. Half-configured counts as unconfigured — the
   // board would otherwise promise separate identities it is not getting.
   loginMode: loginModeOf(config.sso),
-  serviceToken: config.platform.serviceToken,
-  shellOrigins: config.shellOrigins,
 });
 
 app.listen(config.port, () => {
-  console.log(`[mod-15] workspace API on http://localhost:${config.port}`);
-  if (staticDir) console.log(`[mod-15] serving client from ${staticDir}`);
+  console.log(`[mod-16] mosaic API on http://localhost:${config.port}`);
+  if (staticDir) console.log(`[mod-16] serving client from ${staticDir}`);
 
+  // A pane needs THREE things, and a missing one of them produces a frame that
+  // looks broken rather than a message that explains itself. So each is
+  // reported at boot, while somebody is still reading the logs.
   const configured = CATALOGUE.filter((entry) => config.peers[entry.id] !== undefined);
-  if (configured.length === 0) {
-    console.log('[mod-15] no modules are wired — set <MODULE>_URL to put them on the board');
+  const tileable = configured.filter((entry) => entry.embeddable && config.peers[entry.id]!.publicUrl !== null);
+  if (tileable.length === 0) {
+    console.log('[mod-16] no module can be tiled yet — set <MODULE>_URL and <MODULE>_PUBLIC_URL');
   } else {
-    console.log(`[mod-15] ${configured.length} module(s) wired: ${configured.map((e) => e.label).join(', ')}`);
+    console.log(`[mod-16] ${tileable.length} module(s) tileable: ${tileable.map((e) => e.label).join(', ')}`);
   }
 
-  // The two misconfigurations that produce a board which LOOKS broken rather
-  // than one that reports a problem, so both are called out at boot.
   if (!config.platform.serviceToken) {
-    console.warn('[mod-15] WARNING: PLATFORM_SERVICE_TOKEN is unset — no module will answer a summary');
+    console.warn('[mod-16] WARNING: PLATFORM_SERVICE_TOKEN is unset — no module will mint a session, so every pane will fail');
   }
-  const framable = configured.filter((entry) => entry.embeddable && config.peers[entry.id]!.publicUrl === null);
-  if (framable.length > 0) {
+  const noPublic = configured.filter((entry) => entry.embeddable && config.peers[entry.id]!.publicUrl === null);
+  if (noPublic.length > 0) {
     console.warn(
-      `[mod-15] WARNING: no public URL for ${framable.map((e) => e.publicUrlEnv).join(', ')} —` +
-        ' those modules will show figures but cannot be embedded',
+      `[mod-16] WARNING: no public URL for ${noPublic.map((e) => e.publicUrlEnv).join(', ')} —` +
+        ' a browser cannot reach a container name, so those modules cannot be tiled',
     );
   }
   if (config.auth.password === 'admin') {
-    console.warn('[mod-15] WARNING: using default credentials (admin/admin) — set ADMIN_USERNAME/ADMIN_PASSWORD');
+    console.warn('[mod-16] WARNING: using default credentials (admin/admin) — set ADMIN_USERNAME/ADMIN_PASSWORD');
   }
 });

@@ -782,6 +782,119 @@
         "acceptsSourceDb": false,
         "publishesReportViews": false
       }
+    },
+    {
+      "id": "mod-16-mosaic",
+      "n": "MOD-16",
+      "slug": "mosaic",
+      "title": "Mosaic",
+      "label": "Mosaic",
+      "defaultPort": 3016,
+      "scope": "3–4 WKS",
+      "services": {
+        "required": [],
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log"
+        ]
+      },
+      "peers": {
+        "optional": [
+          {
+            "id": "mod-01-customer-portal",
+            "urlEnv": "PORTAL_URL",
+            "publicUrlEnv": "PORTAL_PUBLIC_URL"
+          },
+          {
+            "id": "mod-02-admin-dashboard",
+            "urlEnv": "ADMIN_URL",
+            "publicUrlEnv": "ADMIN_PUBLIC_URL"
+          },
+          {
+            "id": "mod-03-inventory-management",
+            "urlEnv": "INVENTORY_URL",
+            "publicUrlEnv": "INVENTORY_PUBLIC_URL"
+          },
+          {
+            "id": "mod-04-invoice-billing",
+            "urlEnv": "INVOICING_URL",
+            "publicUrlEnv": "INVOICING_PUBLIC_URL"
+          },
+          {
+            "id": "mod-05-employee-directory",
+            "urlEnv": "DIRECTORY_URL",
+            "publicUrlEnv": "DIRECTORY_PUBLIC_URL"
+          },
+          {
+            "id": "mod-06-procurement-tracker",
+            "urlEnv": "PROCUREMENT_URL",
+            "publicUrlEnv": "PROCUREMENT_PUBLIC_URL"
+          },
+          {
+            "id": "mod-07-storefront",
+            "urlEnv": "SHOP_URL",
+            "publicUrlEnv": "SHOP_PUBLIC_URL"
+          },
+          {
+            "id": "mod-08-reporting-suite",
+            "urlEnv": "REPORTING_URL",
+            "publicUrlEnv": "REPORTING_PUBLIC_URL"
+          },
+          {
+            "id": "mod-09-document-management",
+            "urlEnv": "DOCUMENTS_URL",
+            "publicUrlEnv": "DOCUMENTS_PUBLIC_URL"
+          },
+          {
+            "id": "mod-10-crm-lite",
+            "urlEnv": "CRM_URL",
+            "publicUrlEnv": "CRM_PUBLIC_URL"
+          },
+          {
+            "id": "mod-11-time-tracking",
+            "urlEnv": "TIME_URL",
+            "publicUrlEnv": "TIME_PUBLIC_URL"
+          },
+          {
+            "id": "mod-12-support-tickets",
+            "urlEnv": "SUPPORT_URL",
+            "publicUrlEnv": "SUPPORT_PUBLIC_URL"
+          },
+          {
+            "id": "mod-13-offers",
+            "urlEnv": "OFFERS_URL",
+            "publicUrlEnv": "OFFERS_PUBLIC_URL"
+          },
+          {
+            "id": "mod-14-subsidies-funds",
+            "urlEnv": "SUBSIDIES_URL",
+            "publicUrlEnv": "SUBSIDIES_PUBLIC_URL"
+          },
+          {
+            "id": "mod-15-workspace",
+            "urlEnv": "WORKSPACE_URL",
+            "publicUrlEnv": "WORKSPACE_PUBLIC_URL"
+          }
+        ]
+      },
+      "env": {
+        "required": [],
+        "optional": [
+          "PUBLIC_BASE_URL",
+          "PEER_TIMEOUT_MS"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "embeddable": false,
+        "needsPublicBaseUrl": true,
+        "acceptsSourceDb": false,
+        "publishesReportViews": false
+      }
     }
   ]
 }

@@ -118,6 +118,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.offers.title':                'Offers',
     'mod.subsidies-funds.title':       'Subsidies & Funds',
     'mod.dashboard.title':             'Dashboard',
+    'mod.mosaic.title':   'Mosaic',
 
     // ─── /platform and /modules pages (headers, card chrome, prose) ─────
     'page.rail.platform':      'Platform',
@@ -345,12 +346,19 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.subsidies-funds.feat.3':                    'Applicant-side — never miss a grant deadline',
     'mod.subsidies-funds.scope':                     '3–4 WKS',
     'mod.dashboard.body':                            'One screen for every module you run. Drag-and-drop widgets fed live by your modules, one shared customer filter, and cross-module actions.',
+    'mod.mosaic.body':   'The modules themselves, side by side. Whole apps in a grid you arrange, each one already signed in.',
     'mod.dashboard.overview':                        'A dashboard that hosts the other modules rather than replacing them. Each module you licensed contributes widgets — figures and short lists it computes itself — which you arrange on a board per person. Pick a customer once and every widget narrows to them. Open a module full-screen inside the Workspace, already signed in, or act across modules without opening either: an accepted offer becomes a draft invoice from a button on the board. Every module still installs and runs on its own; nothing here is a second copy of anything.',
+    'mod.mosaic.overview':   'Where the Workspace summarises your modules, Mosaic runs them. Every pane is a whole module — its real interface, everything it can do — in its own frame on a grid you drag and resize. Open Invoicing next to Offers next to the CRM and work across all three without a single tab switch or a second login: each pane signs itself in through a one-time ticket, so the module mints its own session and this one never sees a credential. Nothing is reimplemented here, and nothing is summarised; the modules are simply present. Every one of them still installs and runs on its own.',
     'mod.dashboard.feat.0':                          'Per-person drag-and-drop board of live module widgets',
+    'mod.mosaic.feat.0':   'Whole modules as panes — the real UI, not a widget over it',
     'mod.dashboard.feat.1':                          'One shared customer and date filter every module honours',
+    'mod.mosaic.feat.1':   'Drag and resize on a 12-column grid, saved per person',
     'mod.dashboard.feat.2':                          'Modules embedded full-screen, signed in, no second login',
+    'mod.mosaic.feat.2':   'Each pane already signed in, through a single-use handoff ticket',
     'mod.dashboard.feat.3':                          'Cross-module actions that run as you, not as a service account',
+    'mod.mosaic.feat.3':   'Named boards for the arrangements you keep coming back to',
     'mod.dashboard.scope':                           '4–5 WKS',
+    'mod.mosaic.scope':   '3–4 WKS',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'How a 0815 project runs.',
@@ -503,6 +511,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.offers.title':                'Angebote',
     'mod.subsidies-funds.title':       'Förderungen & Fonds',
     'mod.dashboard.title':             'Dashboard',
+    'mod.mosaic.title':   'Mosaic',
 
     // ─── /platform and /modules pages (headers, card chrome, prose) ─────
     'page.rail.platform':      'Plattform',
@@ -730,12 +739,19 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.subsidies-funds.feat.3':                    'Aus Sicht der Antragsteller — nie wieder eine Förderfrist verpassen',
     'mod.subsidies-funds.scope':                     '3–4 WO',
     'mod.dashboard.body':                            'Ein Bildschirm für alle Module, die du betreibst. Frei anordenbare Widgets, live aus deinen Modulen, ein gemeinsamer Kundenfilter und modulübergreifende Aktionen.',
+    'mod.mosaic.body':   'Die Module selbst, nebeneinander. Ganze Anwendungen in einem Raster, das du anordnest — jede bereits angemeldet.',
     'mod.dashboard.overview':                        'Ein Dashboard, das die anderen Module beherbergt statt sie zu ersetzen. Jedes lizenzierte Modul liefert Widgets — Kennzahlen und kurze Listen, die es selbst berechnet — die du pro Person auf einem Board anordnest. Einmal eine Kundin auswählen, und jedes Widget schränkt sich darauf ein. Ein Modul im Vollbild innerhalb des Workspace öffnen, bereits angemeldet, oder modulübergreifend handeln, ohne eines davon zu öffnen: Aus einem angenommenen Angebot wird per Knopfdruck eine Rechnung im Entwurf. Jedes Modul läuft weiterhin eigenständig; nichts hier ist eine zweite Kopie von irgendetwas.',
+    'mod.mosaic.overview':   'Wo der Workspace deine Module zusammenfasst, führt Mosaic sie aus. Jede Kachel ist ein ganzes Modul — seine echte Oberfläche, mit allem, was es kann — in einem eigenen Rahmen auf einem Raster, das du ziehst und skalierst. Öffne Rechnungen neben Angeboten neben dem CRM und arbeite in allen dreien, ohne einen einzigen Tab-Wechsel und ohne zweiten Login: jede Kachel meldet sich über ein Einmal-Ticket selbst an, das Modul stellt seine eigene Sitzung aus, und dieses hier bekommt nie ein Passwort zu sehen. Hier wird nichts nachgebaut und nichts zusammengefasst; die Module sind einfach da. Jedes läuft weiterhin für sich allein.',
     'mod.dashboard.feat.0':                          'Frei anordenbares Board pro Person mit Live-Widgets der Module',
+    'mod.mosaic.feat.0':   'Ganze Module als Kacheln — die echte Oberfläche, kein Widget darüber',
     'mod.dashboard.feat.1':                          'Ein gemeinsamer Kunden- und Zeitraumfilter, den jedes Modul beachtet',
+    'mod.mosaic.feat.1':   'Ziehen und skalieren auf einem 12-Spalten-Raster, pro Person gespeichert',
     'mod.dashboard.feat.2':                          'Module im Vollbild eingebettet, angemeldet, ohne zweiten Login',
+    'mod.mosaic.feat.2':   'Jede Kachel bereits angemeldet, über ein Einmal-Ticket',
     'mod.dashboard.feat.3':                          'Modulübergreifende Aktionen, ausgeführt als du — nicht als Dienstkonto',
+    'mod.mosaic.feat.3':   'Benannte Boards für die Anordnungen, zu denen du immer zurückkehrst',
     'mod.dashboard.scope':                           '4–5 WKS',
+    'mod.mosaic.scope':   '3–4 WKS',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      'So läuft ein 0815-Projekt ab.',

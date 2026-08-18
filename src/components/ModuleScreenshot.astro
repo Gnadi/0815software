@@ -61,7 +61,7 @@ const positive = s.statuses ? s.statuses[0] : '';
 
   <!-- Sidebar — every module has one except the shell, which hosts the others
        and uses the full width for their widgets. -->
-  {s.variant !== 'workspace' && (
+  {s.variant !== 'workspace' && s.variant !== 'mosaic' && (
   <g>
   <rect x="0" y={BAR} width={SIDE} height={H - BAR} fill={c.side} />
   <line x1={SIDE} y1={BAR} x2={SIDE} y2={H} stroke={c.line} />
@@ -86,7 +86,7 @@ const positive = s.statuses ? s.statuses[0] : '';
   )}
 
   <!-- Content header -->
-  {s.variant !== 'workspace' && (
+  {s.variant !== 'workspace' && s.variant !== 'mosaic' && (
   <g>
   <text x={CX + PAD} y={CY + 44} font-family={sans} font-size="22" font-weight="500" fill={c.fg}>
     {module.title}
@@ -326,6 +326,74 @@ const positive = s.statuses ? s.statuses[0] : '';
             ))}
 
             {/* Resize grip, bottom-right, as on every real widget. */}
+            <path d={`M ${x + wpx - 14} ${y + hpx - 5} L ${x + wpx - 5} ${y + hpx - 14}`} stroke={c.mute} stroke-width="1" />
+            <path d={`M ${x + wpx - 8} ${y + hpx - 5} L ${x + wpx - 5} ${y + hpx - 8}`} stroke={c.mute} stroke-width="1" />
+          </g>
+        );
+      })}
+    </g>
+  )}
+
+  <!-- ── MOSAIC ────────────────────────────────────────────────── -->
+  {s.variant === 'mosaic' && s.panes && (
+    <g>
+      {/* Same full-width bar as the other shell: brand, boards, ADD PANE. */}
+      <text x="32" y={BAR + 40} font-family={mono} font-size="12" fill={c.mute} letter-spacing="0.5">{module.n}</text>
+      <text x="92" y={BAR + 40} font-family={mono} font-size="12" font-weight="600" fill={c.fg} letter-spacing="0.5">MOSAIC</text>
+
+      {s.boards && s.boards.map((name, i) => {
+        const tabW = 118;
+        const x = 200 + i * (tabW + 8);
+        return (
+          <g>
+            {i === 0 && <rect x={x} y={BAR + 20} width={tabW} height="28" rx="4" fill="rgba(232,228,220,0.06)" stroke={accent} />}
+            <text x={x + tabW / 2} y={BAR + 39} text-anchor="middle" font-family={mono} font-size="11"
+              fill={i === 0 ? c.fg : c.mute} letter-spacing="0.8">{name.toUpperCase()}</text>
+          </g>
+        );
+      })}
+
+      <rect x={W - 152} y={BAR + 20} width="120" height="28" rx="4" fill="none" stroke={c.lineS} />
+      <text x={W - 92} y={BAR + 38} text-anchor="middle" font-family={mono} font-size="10" fill={c.dim} letter-spacing="0.8">ADD PANE</text>
+      <line x1="0" y1={BAR + 68} x2={W} y2={BAR + 68} stroke={c.line} />
+
+      {/* The panes. Each is a MINIATURE OF THAT MODULE'S OWN SCREEN — its
+          header bar, its rows — because the whole claim of this module is that
+          these are applications rather than summaries of them. */}
+      {s.panes.map((pane) => {
+        const cols = 12;
+        const gap = 12;
+        const left = 24;
+        const top = BAR + 92;
+        const colW = (W - left * 2 - gap * (cols - 1)) / cols;
+        const rowH = 64;
+        const x = left + pane.x * (colW + gap);
+        const y = top + pane.y * (rowH + gap);
+        const wpx = pane.w * colW + (pane.w - 1) * gap;
+        const hpx = pane.h * rowH + (pane.h - 1) * gap;
+        return (
+          <g>
+            <rect x={x} y={y} width={wpx} height={hpx} rx="4" fill={c.panel} stroke={c.line} />
+            {/* The pane's own header: the drag handle, naming which module it is. */}
+            <rect x={x} y={y} width={wpx} height="30" rx="4" fill="rgba(232,228,220,0.03)" />
+            <text x={x + 14} y={y + 20} font-family={mono} font-size="9" fill={accent} letter-spacing="1">{pane.n}</text>
+            <text x={x + 14 + pane.n.length * 6.4 + 10} y={y + 20} font-family={sans} font-size="11" fill={c.dim}>{pane.label}</text>
+            <line x1={x} y1={y + 30} x2={x + wpx} y2={y + 30} stroke={c.line} />
+
+            {/* Inside the frame: the module's own toolbar and rows. */}
+            <rect x={x + 12} y={y + 42} width="86" height="18" rx="3" fill="none" stroke={c.line} />
+            <text x={x + 22} y={y + 55} font-family={sans} font-size="9" fill={c.mute}>Search…</text>
+            <rect x={x + wpx - 70} y={y + 42} width="58" height="18" rx="3" fill={accent} opacity="0.85" />
+            <text x={x + wpx - 41} y={y + 55} text-anchor="middle" font-family={mono} font-size="8" font-weight="600" fill="#0A0A0A">+ NEW</text>
+
+            {pane.rows.map((row, r) => (
+              <g>
+                <text x={x + 14} y={y + 84 + r * 24} font-family={sans} font-size="11" fill={c.dim}>{row}</text>
+                <line x1={x + 12} y1={y + 92 + r * 24} x2={x + wpx - 12} y2={y + 92 + r * 24} stroke={c.line} opacity="0.55" />
+              </g>
+            ))}
+
+            {/* Resize grip, as on every real pane. */}
             <path d={`M ${x + wpx - 14} ${y + hpx - 5} L ${x + wpx - 5} ${y + hpx - 14}`} stroke={c.mute} stroke-width="1" />
             <path d={`M ${x + wpx - 8} ${y + hpx - 5} L ${x + wpx - 5} ${y + hpx - 8}`} stroke={c.mute} stroke-width="1" />
           </g>

@@ -94,8 +94,8 @@ describe('registry document', () => {
 
   it('covers every module directory, exactly once, in catalogue order', () => {
     const ids = modules.map((m: any) => m.id);
-    expect(ids).toHaveLength(15);
-    expect(new Set(ids).size).toBe(15);
+    expect(ids).toHaveLength(16);
+    expect(new Set(ids).size).toBe(16);
     expect([...ids].sort()).toEqual(ids);
     for (const mod of modules) expect(mod.n).toBe(`MOD-${mod.id.slice(4, 6)}`);
   });
@@ -348,7 +348,7 @@ describe('catalogue copy is translated in every language', () => {
     expect(missing, `missing ${lang} translations`).toEqual([]);
   });
 
-  it('derived a key set that covers all 11 services and all 14 modules', () => {
+  it('derived a key set that covers all 11 services and all 16 modules', () => {
     expect(serviceSlugs).toHaveLength(services.length);
     expect(respCounts).toHaveLength(services.length);
     expect(featCounts).toHaveLength(modules.length);

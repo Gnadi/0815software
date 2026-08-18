@@ -36,8 +36,24 @@ export interface ScreenWidget {
   dragging?: boolean;
 }
 
+/**
+ * One pane on a Mosaic board: a whole module in a frame, in the same
+ * 12-column grid the real one uses. `rows` are a few lines of that module's own
+ * screen — the point of the picture is that these are applications, not
+ * summaries, so the miniature has to look like the app.
+ */
+export interface ScreenPane {
+  n: string;
+  label: string;
+  rows: string[];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface ModuleScreen {
-  variant: 'table' | 'dashboard' | 'board' | 'detail' | 'catalogue' | 'workspace';
+  variant: 'table' | 'dashboard' | 'board' | 'detail' | 'catalogue' | 'workspace' | 'mosaic';
   accent: string;
   nav: string[];
   // table
@@ -59,6 +75,9 @@ export interface ModuleScreen {
   boards?: string[];
   contextChip?: string;
   widgets?: ScreenWidget[];
+  // mosaic — panes are whole modules, so each one is drawn as a miniature of
+  // that module's own UI rather than as a figure.
+  panes?: ScreenPane[];
 }
 
 /** The copy this file owns, keyed by the registry's module id. */
@@ -487,6 +506,61 @@ const presentation: Record<string, ModulePresentation> = {
           y: 5,
           w: 12,
           h: 2,
+        },
+      ],
+    },
+  },
+  'mod-16-mosaic': {
+    body: 'The modules themselves, side by side. Whole apps in a grid you arrange, each one already signed in.',
+    overview:
+      'Where the Workspace summarises your modules, Mosaic runs them. Every pane is a whole module — its real interface, everything it can do — in its own frame on a grid you drag and resize. Open Invoicing next to Offers next to the CRM and work across all three without a single tab switch or a second login: each pane signs itself in through a one-time ticket, so the module mints its own session and this one never sees a credential. Nothing is reimplemented here, and nothing is summarised; the modules are simply present. Every one of them still installs and runs on its own.',
+    features: [
+      'Whole modules as panes — the real UI, not a widget over it',
+      'Drag and resize on a 12-column grid, saved per person',
+      'Each pane already signed in, through a single-use handoff ticket',
+      'Named boards for the arrangements you keep coming back to',
+    ],
+    screen: {
+      variant: 'mosaic',
+      accent: '#9A8FB5',
+      nav: [],
+      boards: ['Sales desk', 'Month end'],
+      panes: [
+        {
+          n: 'MOD-13',
+          label: 'Offers',
+          rows: ['AN-2026-0007 · Rollout · ACCEPTED', 'AN-2026-0011 · Wartung · SENT', 'AN-2026-0014 · Ausbau · DRAFT'],
+          x: 0,
+          y: 0,
+          w: 6,
+          h: 4,
+        },
+        {
+          n: 'MOD-04',
+          label: 'Invoicing',
+          rows: ['RE-2026-0087 · € 4,180 · OVERDUE', 'RE-2026-0086 · € 1,240 · SENT', 'RE-2026-0085 · € 890 · PAID'],
+          x: 6,
+          y: 0,
+          w: 6,
+          h: 4,
+        },
+        {
+          n: 'MOD-10',
+          label: 'CRM',
+          rows: ['Helios · Battery pilot · € 12,000', 'Nordwind · Warehouse · € 48,000', 'Alpine · Hosting · € 30,000'],
+          x: 0,
+          y: 4,
+          w: 5,
+          h: 3,
+        },
+        {
+          n: 'MOD-12',
+          label: 'Support',
+          rows: ['#4120 · SLA breached · 3d', '#4118 · Unassigned · 2d', '#4109 · Open · 1d'],
+          x: 5,
+          y: 4,
+          w: 7,
+          h: 3,
         },
       ],
     },

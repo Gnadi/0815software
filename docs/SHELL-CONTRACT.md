@@ -1,7 +1,7 @@
 # The Shell Contract: `/api/summary`, `SHELL_ORIGIN` and handoff
 
-*How a module appears on a dashboard without giving up its independence.
-Decided August 2026, alongside MOD-15 Workspace.*
+*How a module appears inside a shell without giving up its independence.
+Decided August 2026 alongside MOD-15 Workspace, extended for MOD-16 Mosaic.*
 
 ## The stance
 
@@ -10,7 +10,7 @@ capability from doing so, and loses none by not.**
 
 Everything below is gated on configuration that is unset by default. With
 `PLATFORM_SERVICE_TOKEN` and `SHELL_ORIGIN` unset — which is every standalone
-install, and every stack that runs no Workspace — a module's bytes on the wire
+install, and every stack that runs no shell — a module's bytes on the wire
 are exactly what they were before this contract existed: the same
 `X-Frame-Options: DENY`, the same closed endpoints, the same local login. That
 is the property the whole design is built to keep, and every module's suite
@@ -106,13 +106,21 @@ One env var, read by each module's `config.ts` and mapped to the registry's
 `constraints.embeddable`. Unset is the default. Set to a shell's origin:
 
 - `server/hardening.ts` emits `Content-Security-Policy: frame-ancestors
-  <SHELL_ORIGIN>` **instead of** `X-Frame-Options: DENY`. The two are never
+  <SHELL_ORIGIN…>` **instead of** `X-Frame-Options: DENY`. The two are never
   sent together: browsers prefer the CSP, so a `DENY` beside it is a header
   that reads as a refusal, is ignored, and misleads whoever audits it.
+
+  It is a **comma-separated list**, because a stack may run more than one
+  shell. It was a single value until MOD-16 existed, and the provisioner
+  assigned it in a loop — so the last shell won and every earlier one framed
+  nothing, which from inside that frame is indistinguishable from a broken
+  module. One malformed entry now fails the whole list rather than leaving half
+  a policy standing.
 - The two handoff routes below are mounted. Unset, they do not exist.
 
-**Only the eleven modules with `supportsSso: true` are embeddable.** MOD-01,
-MOD-07 and MOD-09 authenticate domain users — portal customers, shop guests,
+**Only modules with `supportsSso: true` are embeddable** — twelve of the
+sixteen, the Workspace included. MOD-01, MOD-07 and MOD-09 authenticate domain
+users — portal customers, shop guests,
 matter users ([`PLATFORM-READINESS.md`](./PLATFORM-READINESS.md), item C1) — so
 a staff shell has no principal to assert in them. `embeddable` implies
 `supportsSso`, checked by the drift test: what a shell hands over is the
@@ -212,6 +220,36 @@ module when a shell is in the selection. It identifies the shell by what it
 **declares** — a module asking for a peer's public origin is precisely one that
 will put that peer in a browser — never by its id, so a second shell would work
 with no change to the generator.
+
+## Two shells, one contract
+
+The seam has two consumers, and a stack can run both. They differ in what a
+panel IS, and everything else follows from that:
+
+| | MOD-15 Workspace | MOD-16 Mosaic |
+| --- | --- | --- |
+| A panel is | a widget — one figure, or a short list | a whole module in a frame |
+| Uses | `/api/summary` **and** the handoff | the handoff **only** |
+| Also uses | PS-11 for one shared customer filter, PS-07 for a merged feed | neither: each pane has the module's own filters |
+| The module must | answer a summary | be framable and have a public URL |
+
+Mosaic is the smaller consumer: it reads no figures, so it needs no summary
+contract, no context echo and no size caps on a peer's answer. What it does
+need is the part the Workspace uses only for its embed view — a single-use
+ticket per frame, redeemed by the browser, with the module minting its own
+session.
+
+**The Workspace is itself tileable.** It declares `embeddable: true` like any
+other module, and MOD-16 frames it. That was a promise the registry made before
+the routes existed: nothing framed a shell until Mosaic did, so a pane holding
+the Workspace would have shown a login form, with a 404 in somebody's logs as
+the only clue. It mounts the two handoff routes now, from the same copy-in
+`handoff.ts` the other eleven use.
+
+**Mosaic is not tileable**, and that is not symmetry withheld for its own sake:
+a shell framing itself is a recursion with no bottom, and no second shell wants
+to frame it. Its `config.ts` therefore does not read `SHELL_ORIGIN` at all —
+the same posture MOD-01, MOD-07 and MOD-09 take, for a different reason.
 
 ## What this deliberately is not
 
