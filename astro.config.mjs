@@ -10,4 +10,9 @@ export default defineConfig({
   output: 'static',
   adapter: vercel(),
   integrations: [sitemap()],
+  redirects: {
+    // MOD-15 was called Dashboard before it was renamed Workspace, and the old
+    // detail page was linked from the landing page and indexed under that slug.
+    '/modules/dashboard': '/modules/workspace',
+  },
 });

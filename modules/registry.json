@@ -677,8 +677,8 @@
     {
       "id": "mod-15-workspace",
       "n": "MOD-15",
-      "slug": "dashboard",
-      "title": "Dashboard",
+      "slug": "workspace",
+      "title": "Workspace",
       "label": "Workspace",
       "defaultPort": 3015,
       "scope": "4–5 WKS",
