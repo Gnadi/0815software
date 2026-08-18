@@ -117,18 +117,35 @@ describe('password hashing stays off the event loop', () => {
 
   it('verifies several passwords concurrently rather than one after another', async () => {
     const stored = await hashPassword('a-password');
-    const started = Date.now();
-    await verifyPassword('a-password', stored);
-    const one = Date.now() - started;
 
-    const batchStarted = Date.now();
-    await Promise.all(Array.from({ length: 4 }, () => verifyPassword('a-password', stored)));
-    const four = Date.now() - batchStarted;
+    // Both arms do the SAME four hashes, back to back, so whatever else the
+    // machine is doing hits them equally and cancels out of the ratio.
+    //
+    // The earlier shape compared the batch against a single warm-up hash, and
+    // that denominator was the whole problem: one sample landing in a quiet
+    // window (39ms, where a loaded runner's typical is ~90ms) made a perfectly
+    // parallel batch look 3x too slow. It failed CI roughly one run in seven
+    // under load while the implementation was entirely correct.
+    const attempts = 4;
+    let started = Date.now();
+    for (let i = 0; i < attempts; i++) await verifyPassword('a-password', stored);
+    const serial = Date.now() - started;
 
-    // libuv's threadpool is 4 threads by default, so four hashes overlap.
-    // Serialized on the loop they would cost ~4x one; allow generous slack
-    // and still catch the serial case.
-    expect(four, `4 concurrent verifications took ${four}ms vs ${one}ms for one`).toBeLessThan(one * 3);
+    started = Date.now();
+    await Promise.all(Array.from({ length: attempts }, () => verifyPassword('a-password', stored)));
+    const concurrent = Date.now() - started;
+
+    // libuv's threadpool is 4 threads by default, so four hashes overlap and
+    // the batch costs about one. On the event loop they cannot overlap at all,
+    // and the two arms come out equal — measured at 0.98–1.02 with `scryptSync`
+    // restored, against 0.25–0.46 for the async form even with every core
+    // saturated. The bar sits in the wide gap between those.
+    const ratio = concurrent / serial;
+    expect(
+      ratio,
+      `4 verifications took ${concurrent}ms concurrently vs ${serial}ms serially (${ratio.toFixed(2)}) —` +
+        ' a ratio near 1 means they did not overlap, so the hashing is back on the event loop',
+    ).toBeLessThan(0.7);
   });
 
   it('keeps answering /api/tokens/verify while logins are being processed', async () => {

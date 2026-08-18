@@ -198,3 +198,21 @@ When `AUDIT_URL` (+ `PLATFORM_SERVICE_TOKEN`) is set, security-relevant actions
 [PS-07 Audit Log](../../platform/ps-07-audit-log) via the shared
 [`@0815software/platform-clients`](../../platform/clients) package. Best-effort
 and opt-in — unset, the module runs standalone. See `server/platform.ts`.
+
+## The shell contract — appearing on a dashboard
+
+`GET /api/summary`, guarded by `PLATFORM_SERVICE_TOKEN`, is how this module
+puts figures on a [MOD-15 Workspace](../mod-15-workspace) board. With no token
+configured the endpoint is closed, which is the standalone default.
+
+This module is **not embeddable and reads no `SHELL_ORIGIN`**: its end users
+are not staff, so a staff shell has no principal to sign in as
+([`docs/PLATFORM-READINESS.md`](../../docs/PLATFORM-READINESS.md), item C1). A
+board shows its figures and opens it in a new tab, where this module's own
+login and access rules apply as usual. See
+[`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md).
+
+Its summary carries **counts only, no rows**: access here is per user, and the
+machine token names none — so any list it could hand a shell would be
+assembled across everyone at once, which is exactly what the rest of this
+module exists to prevent.

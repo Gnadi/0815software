@@ -347,14 +347,45 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
     // Module-to-module wiring, declared in the registry's `peers`. Only wired
     // when the peer is in the SAME stack — a customer who did not license
     // MOD-13 gets a MOD-04 with no OFFERS_URL, which is exactly the standalone
-    // behaviour. Internal container URL, never the public one.
+    // behaviour.
+    //
+    // `urlEnv` is the INTERNAL container URL and is what a consumer calls
+    // server-side. `publicUrlEnv`, when a consumer declares one, is the
+    // customer-facing origin — a browser cannot reach a container name, so an
+    // iframe src or a deep link needs the public one. Conflating them produces
+    // a board of frames that fail to load with nothing in any log.
     planned.peers = [];
     for (const peer of peersOf(planned.mod)) {
       const target = byId.get(peer.id);
       if (!target) continue;
       planned.env[peer.urlEnv] = `http://${target.subdomain}:${target.mod.defaultPort}`;
+      if (peer.publicUrlEnv) planned.env[peer.publicUrlEnv] = target.url;
       planned.peers.push({ ...peer, subdomain: target.subdomain });
     }
+  }
+
+  // SHELL_ORIGIN is the other half of the embed seam, and it points the other
+  // way: a shell names its peers, and every embeddable peer must name the shell
+  // back. Set here rather than in the registry because it depends on the
+  // SELECTION — with no shell in the stack nothing frames anything, and every
+  // module must keep its blanket X-Frame-Options: DENY.
+  //
+  // A shell is identified by what it DECLARES, never by its id: a module that
+  // asks for a peer's public origin is precisely a module that will put that
+  // peer in a browser — an iframe or a link — which is exactly the relationship
+  // SHELL_ORIGIN authorises.
+  //
+  // ACCUMULATED, not assigned. This comment used to claim a second shell would
+  // need no change here, and that was wrong: with `=` the last shell in the
+  // list won and every earlier one framed nothing, which from inside that
+  // frame is indistinguishable from a broken module. A stack can legitimately
+  // run both — MOD-15 Workspace summarises modules, MOD-16 Mosaic frames them
+  // whole — so the variable is a comma-separated list and each shell appends.
+  const shells = plannedModules.filter((p) => peersOf(p.mod).some((peer) => peer.publicUrlEnv));
+  for (const planned of plannedModules) {
+    if (!planned.mod.constraints.embeddable) continue;
+    const origins = shells.filter((shell) => shell !== planned).map((shell) => shell.url);
+    if (origins.length > 0) planned.env.SHELL_ORIGIN = origins.join(',');
   }
 
   return {

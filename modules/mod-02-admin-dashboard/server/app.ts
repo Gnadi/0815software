@@ -11,6 +11,9 @@ import {
   sessionCookie,
   type AuthConfig,
 } from './auth.js';
+import { createHandoff, isRedeemPath, safeServiceTokenEqual } from './handoff.js';
+import { parseSummaryContext } from '../shared/summary.js';
+import { moduleSummary } from './summary.js';
 import { toCsv } from './csv.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
@@ -136,14 +139,29 @@ export interface AppOptions {
   platform?: PlatformHooks;
   verifyLogin?: LoginVerifier;
   /**
+   * The platform machine token (PLATFORM_SERVICE_TOKEN). When set, it is the
+   * only credential that opens the shell summary and the handoff routes — the
+   * caller is another service in the same stack, not a human. Unset means all
+   * of them are closed, which is the standalone default.
+   */
+  serviceToken?: string;
+  /**
+   * The shell origins allowed to embed this module and to sign users into it
+   * (SHELL_ORIGIN). Empty — the default — leaves the handoff routes unmounted
+   * entirely and keeps `X-Frame-Options: DENY` in `hardening.ts`. A list, so a
+   * stack can run both MOD-15 Workspace and MOD-16 Mosaic.
+   */
+  shellOrigins?: string[];
+  /**
    * Which credentials the login form should name, served as-is from
    * GET /api/auth-mode. Defaults to this module's own — the standalone case.
    */
   loginMode?: LoginMode;
 }
 
-export function createApp({ db, hardening, auth, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [] }: AppOptions): express.Express {
   const app = express();
+  const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
 
   // Transport hardening: security headers, a default-deny CORS policy and
   // per-IP rate limits. Mounted only when a config is passed — index.ts always
@@ -219,6 +237,93 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
     res.json({ ok: true, username: actor });
   });
+
+  // ── Machine-to-machine ───────────────────────────────────────────────
+  // Authenticated with the platform machine token, NOT a staff session: the
+  // caller is another service in the same stack. With no token configured
+  // every route below is closed, which is the standalone default.
+  //
+  // This module answers with `res.status(...)` rather than throwing: it has no
+  // DomainError and no error-mapping middleware, and adding one here just for
+  // these routes would leave two error idioms in one file.
+  function refuseWithoutServiceToken(req: Request, res: Response): boolean {
+    const provided = req.headers['x-service-token'];
+    if (!serviceToken || typeof provided !== 'string' || !safeServiceTokenEqual(provided, serviceToken)) {
+      res.status(401).json({ error: 'Service token required' });
+      return true;
+    }
+    return false;
+  }
+
+  /** The parsed JSON body, or an empty object. */
+  function payload(req: Request): Record<string, unknown> {
+    return typeof req.body === 'object' && req.body !== null ? (req.body as Record<string, unknown>) : {};
+  }
+
+  // What this module looks like on a shell's board (shared/summary.ts).
+  app.get('/api/summary', (req, res, next) => {
+  // Only ours when a machine token is actually presented.
+    //
+    // MOD-11 already serves a session-guarded /api/summary of its own, and this
+    // route is mounted above the session gate, so without the fallthrough it
+    // would shadow that endpoint and answer 401 to the module's own frontend.
+    // Rather than give one module a different path from the other fourteen —
+    // the contract is worth more than the collision is expensive — this route
+    // claims only the requests that are unambiguously the shell's.
+    if (req.headers['x-service-token'] === undefined) {
+      next();
+      return;
+    }
+        if (refuseWithoutServiceToken(req, res)) return;
+    res.json(moduleSummary(db, parseSummaryContext(req.query as Record<string, unknown>)));
+  });
+
+  // ── Shell handoff ────────────────────────────────────────────────────
+  // Mounted only when the operator named a shell in SHELL_ORIGIN, so a
+  // standalone module has no such surface at all. See handoff.ts for why the
+  // destination is signed into the ticket rather than passed alongside it.
+  if (handoff) {
+    app.post('/api/session/handoff', (req, res) => {
+      if (refuseWithoutServiceToken(req, res)) return;
+      const { actor, path } = payload(req);
+      if (typeof actor !== 'string' || actor.trim() === '') {
+        res.status(422).json({ error: 'actor is required' });
+        return;
+      }
+      const target = path === undefined ? '/' : path;
+      if (!isRedeemPath(target)) {
+        res.status(422).json({ error: 'path must be module-relative' });
+        return;
+      }
+      res.json(handoff.issue(actor.trim(), target));
+    });
+
+    app.post('/api/session/issue', (req, res) => {
+      if (refuseWithoutServiceToken(req, res)) return;
+      const { actor } = payload(req);
+      if (typeof actor !== 'string' || actor.trim() === '') {
+        res.status(422).json({ error: 'actor is required' });
+        return;
+      }
+      res.json(handoff.issueSession(actor.trim()));
+    });
+
+    // The browser lands here from an iframe `src`. Deliberately NOT under
+    // /api: it is a navigation, and it must stay outside the session gate
+    // below — it is how a session is obtained in the first place.
+    app.get('/session/handoff', (req, res) => {
+      const result = handoff.redeem(req.query.ticket);
+      if (!result.ok) {
+        // One status for all three verdicts. Which of "never issued",
+        // "already used" and "expired" a ticket hit is not something an
+        // unauthenticated caller gets to probe for.
+        res.status(401).type('text/plain').send('Handoff ticket is not valid');
+        return;
+      }
+      res.setHeader('Set-Cookie', result.cookie);
+      res.redirect(302, result.location);
+    });
+  }
 
   // ── Everything below requires a valid session ────────────────────────
   app.use('/api', requireAuth(auth));

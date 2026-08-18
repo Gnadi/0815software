@@ -58,17 +58,44 @@ export interface TransferLine {
   net_cents: number;
 }
 
+/**
+ * What kind of thing the source was handing over.
+ *
+ * This is the field an importer reads FIRST, because it decides whether the
+ * transfer is something that importer may act on at all. The shape is the same
+ * either way; what differs is how much the numbers are worth:
+ *
+ * - `offer` — a document the customer has agreed to. Its lines and totals are
+ *   exact and self-checking, and an importer must refuse the transfer rather
+ *   than re-round them (`validateTransfer`).
+ * - `deal` — a pipeline opportunity. It carries the source's single value
+ *   estimate as one line at `vat_rate: 0`, because a CRM has no VAT concept
+ *   and inventing one there would put a tax rate in the module least qualified
+ *   to choose it. An importer that needs a rate applies its OWN default and
+ *   produces something an operator edits before it is issued.
+ *
+ * The distinction is load-bearing, not decorative: a deal is a guess about
+ * money and an offer is a promise about it, so **an importer names the kinds it
+ * accepts and refuses the rest**. MOD-04 bills offers and refuses deals; MOD-13
+ * quotes deals and refuses offers; MOD-11 plans work from offers only.
+ */
+export type TransferKind = 'offer' | 'deal';
+
 /** Where the document came from — the idempotency key of an import. */
 export interface TransferOrigin {
-  /** What kind of document this was. Only "offer" exists today. */
-  kind: 'offer';
+  kind: TransferKind;
   /** The exporting module's registry id, e.g. "mod-13-offers". */
   module: string;
-  /** Stable, human-visible reference — an offer number. */
+  /**
+   * Stable, human-visible reference — an offer number, or `DEAL-<id>` for a
+   * pipeline deal, which has no number of its own. It is the idempotency key of
+   * every import, so it must identify the source thing for as long as that
+   * thing exists, and never be reused for a different one.
+   */
   reference: string;
   /** When the source document was issued, if it has such a date. */
   issued_at: string | null;
-  /** When the customer accepted it, if applicable. */
+  /** When the customer accepted it. Always null for a deal — that is the point. */
   accepted_at: string | null;
 }
 
@@ -146,7 +173,11 @@ export function validateTransfer(value: unknown): TransferProblem[] {
   const origin = t.origin;
   if (!origin || typeof origin !== 'object') push('origin', 'is required');
   else {
-    if (origin.kind !== 'offer') push('origin.kind', 'must be "offer"');
+    // The contract validates that the kind is one it knows. WHICH kinds are
+    // acceptable is the importer's call, not the shape's — see TransferKind.
+    if (origin.kind !== 'offer' && origin.kind !== 'deal') {
+      push('origin.kind', 'must be "offer" or "deal"');
+    }
     if (typeof origin.module !== 'string' || origin.module === '') push('origin.module', 'is required');
     if (typeof origin.reference !== 'string' || origin.reference.trim() === '') {
       push('origin.reference', 'is required — it is what makes an import idempotent');

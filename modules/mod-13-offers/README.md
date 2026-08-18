@@ -326,6 +326,49 @@ than silently produce a wrong invoice.
   this must not enable.
 
 [MOD-04 Invoice & Billing](../mod-04-invoice-billing) consumes it as its *IMPORT
-OFFER* action. See
+OFFER* action, and [MOD-11 Time Tracking](../mod-11-time-tracking) consumes the
+same export to plan the work as a project. See
 [`docs/CUSTOMER-MASTER-DATA.md`](../../docs/CUSTOMER-MASTER-DATA.md) for the
 decision behind it.
+
+## Quoting a deal from the pipeline
+
+The other end of the same chain. `POST /api/offers/import-deal` takes a deal id,
+fetches it from [MOD-10 CRM Lite](../mod-10-crm-lite) over `CRM_URL` as the same
+neutral transfer, and produces a **draft** quote: the deal's title, its customer,
+one line at its value, and a validity date 30 days out. Nothing is sent and
+nothing is numbered — a deal is an estimate, and turning it into a document is
+still the quoting person's job.
+
+- **This module chooses the VAT rate.** A CRM has none, so it exports
+  `vat_rate: 0` meaning "no opinion" and this module applies the 20 % its own
+  line editor starts with. Taking the zero literally would quote everything
+  zero-rated, and that number reaches a customer.
+- **It refuses an accepted offer.** The transfer shape carries those too, and
+  importing one here would make a rival copy of a document this module already
+  owns. The operation someone wants in that case is a **revision**, which
+  already exists and keeps the chain intact.
+- **It is idempotent on the deal**, recorded in `offers.origin_reference`, so
+  clicking twice cannot leave a customer holding two quotes for one job.
+
+With `CRM_URL` unset — the standalone default — the route answers `501` and says
+which variable is missing.
+
+## The shell contract — appearing on a dashboard
+
+`GET /api/summary`, guarded by `PLATFORM_SERVICE_TOKEN`, is how this module
+puts figures and short lists on a [MOD-15 Workspace](../mod-15-workspace)
+board. The shape is `shared/summary.ts`, byte-identical in every module; the
+values are computed by the same functions this module's own screens read, so a
+widget cannot disagree with the module beside it.
+
+Set `SHELL_ORIGIN` to the Workspace's origin and two more things follow: this
+module can be framed by that one shell (`frame-ancestors` replaces the blanket
+`X-Frame-Options: DENY`), and `POST /api/session/handoff` / `POST
+/api/session/issue` open, so the Workspace can obtain a session for whoever is
+using it. This module still mints its own sessions — the shell only asserts
+who, and only because it holds the machine token and was named here.
+
+With both unset — the default, and what a standalone install runs — the summary
+endpoint is closed, the handoff routes are not mounted, and framing is denied
+outright. See [`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md).

@@ -8,7 +8,7 @@ import { InvoicesView } from './components/InvoicesView';
 import { Login } from './components/Login';
 
 export type View =
-  | { name: 'invoices' }
+  | { name: 'invoices'; status?: string }
   | { name: 'invoice'; id: number }
   | { name: 'editor'; id: number | null }
   | { name: 'customers' }
@@ -19,10 +19,36 @@ const NAV: { view: View; label: string }[] = [
   { view: { name: 'customers' }, label: 'Customers' },
 ];
 
+/**
+ * The view a path asks for, or the invoice list when it asks for nothing.
+ *
+ * These are the destinations `server/summary.ts` puts in its `href`s and the
+ * ones MOD-15 Workspace hands off into, so the two must agree — a summary
+ * pointing at `/invoices?status=overdue` and an app that ignored the path
+ * would "work" by silently landing everyone on the unfiltered list, which
+ * looks like a dead link and reads like a bug in the shell.
+ *
+ * Read once on load and then dropped: navigation inside the app stays plain
+ * component state, with no router dependency and no history rewriting.
+ */
+export function initialView(path: string, search: string): View {
+  const detail = /^\/invoices\/(\d+)$/.exec(path);
+  if (detail) return { name: 'invoice', id: Number(detail[1]) };
+  if (path === '/invoices/new') return { name: 'editor', id: null };
+  if (path === '/invoices') {
+    const status = new URLSearchParams(search).get('status');
+    return { name: 'invoices', status: status ?? undefined };
+  }
+  const ledger = /^\/customers\/(\d+)$/.exec(path);
+  if (ledger) return { name: 'ledger', id: Number(ledger[1]) };
+  if (path === '/customers') return { name: 'customers' };
+  return { name: 'invoices' };
+}
+
 export function App() {
   const [ready, setReady] = useState(false);
   const [loggedOut, setLoggedOut] = useState(false);
-  const [view, setView] = useState<View>({ name: 'invoices' });
+  const [view, setView] = useState<View>(() => initialView(window.location.pathname, window.location.search));
 
   const load = useCallback(async () => {
     try {
@@ -92,6 +118,7 @@ export function App() {
       <main className="main">
         {view.name === 'invoices' && (
           <InvoicesView
+            initialStatus={view.status}
             onOpen={(id) => setView({ name: 'invoice', id })}
             onNew={() => setView({ name: 'editor', id: null })}
             onAuthLost={onAuthLost}

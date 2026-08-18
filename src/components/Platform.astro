@@ -48,6 +48,64 @@ import { modules } from '../data/modules';
     </div>
   </div>
 
+  <!-- Shells — the two modules that compose the others -->
+  <div class="platform__block platform__block--shell">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 05.02</div>
+      <div class="section-rail__name">Shells</div>
+    </div>
+    <div class="shells">
+      <h3 class="shells__h3" data-i18n="shell.h3">Run several modules? Run them on one screen.</h3>
+      <p class="shells__intro" data-i18n="shell.intro">
+        Two modules do that, and they do it differently. One summarises what
+        your modules know; the other simply runs them, side by side.
+      </p>
+
+      <div class="shells__grid">
+        <a class="shell" href="/modules/workspace">
+          <div class="shell__eyebrow" aria-hidden="true">MOD-15</div>
+          <h4 class="shell__h4" data-i18n="shell.workspace.title">Workspace</h4>
+          <p class="shell__lead" data-i18n="shell.workspace.lead">
+            A board over the modules you licensed. Live widgets from each, one
+            customer filter that every one of them honours, and actions that
+            reach across them — a deal becomes a draft quote, an accepted quote
+            a draft invoice, the work a project to book time against, without
+            any of those apps being opened.
+          </p>
+          <ul class="shell__points">
+            <li data-i18n="shell.workspace.point.0">Live figures, computed by the module that owns them</li>
+            <li data-i18n="shell.workspace.point.1">One customer, filtered across every module at once</li>
+            <li data-i18n="shell.workspace.point.2">Modules embedded, no second login</li>
+            <li data-i18n="shell.workspace.point.3">Cross-module actions, recorded against you</li>
+          </ul>
+          <span class="shell__cta" data-i18n="shell.workspace.cta">See how it composes →</span>
+        </a>
+
+        <a class="shell" href="/modules/mosaic">
+          <div class="shell__eyebrow" aria-hidden="true">MOD-16</div>
+          <h4 class="shell__h4" data-i18n="shell.mosaic.title">Mosaic</h4>
+          <p class="shell__lead" data-i18n="shell.mosaic.lead">
+            The modules themselves, side by side. Every pane is a whole module —
+            its real interface, everything it can do — on a grid you drag and
+            resize. Nothing is summarised and nothing is rebuilt; the apps are
+            simply present, each one already signed in.
+          </p>
+          <ul class="shell__points">
+            <li data-i18n="shell.mosaic.point.0">Whole modules as panes, not widgets over them</li>
+            <li data-i18n="shell.mosaic.point.1">Drag and resize on a 12-column grid, saved per person</li>
+            <li data-i18n="shell.mosaic.point.2">Each pane signed in by a single-use ticket</li>
+            <li data-i18n="shell.mosaic.point.3">Named boards for the arrangements you keep</li>
+          </ul>
+          <span class="shell__cta" data-i18n="shell.mosaic.cta">See the panes →</span>
+        </a>
+      </div>
+
+      <p class="shells__note" data-i18n="shell.note">
+        Either way, every module still installs and runs perfectly well on its own.
+      </p>
+    </div>
+  </div>
+
   <!-- Business Modules -->
   <div class="platform__block">
     <div class="section-rail" aria-hidden="true">
@@ -103,6 +161,119 @@ import { modules } from '../data/modules';
   line-height: 1.55;
   color: var(--fg-dim);
   max-width: 640px;
+}
+
+.platform__block--shell { margin-bottom: 56px; }
+
+.shells__h3 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.6px;
+  margin-bottom: 12px;
+}
+
+.shells__intro {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  max-width: 620px;
+  margin-bottom: 24px;
+}
+
+/* Two cards, equal width. They are siblings on purpose: the choice between
+   them is the point of this section, and a stacked pair reads as a sequence. */
+.shells__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.shells__note {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg-mute, var(--fg-dim));
+  margin-top: 20px;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  padding: 28px;
+  border: 1px solid var(--line);
+  background: var(--bg-2, rgba(255, 255, 255, 0.02));
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.14s ease;
+}
+
+.shell:hover { border-color: var(--fg-dim); }
+
+.shell__eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--fg-mute, var(--fg-dim));
+  margin-bottom: 10px;
+}
+
+.shell__h4 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.4px;
+  margin-bottom: 14px;
+}
+
+.shell__lead {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  margin-bottom: 20px;
+}
+
+.shell__cta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+/* Takes the slack so the two cards' CTAs land on the same line even when the
+   leads run to different lengths. */
+.shell__points {
+  list-style: none;
+  margin: 0 0 22px;
+  padding: 0;
+  flex: 1;
+  align-content: start;
+  display: grid;
+  gap: 10px;
+}
+
+.shell__points li {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--fg-dim);
+  padding-left: 18px;
+  position: relative;
+}
+
+.shell__points li::before {
+  /* The literal character, not '\u2192': CSS escapes are bare hex (\2192), so
+     the JS-style form rendered as the text "u2192" — five characters wide in an
+     18px gutter, sitting on top of the label beside it. */
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: var(--fg-mute, var(--fg-dim));
+}
+
+@media (max-width: 900px) {
+  .shells__grid { grid-template-columns: 1fr; }
+  .shell { padding: 24px; }
+  .shells__h3 { font-size: 22px; }
 }
 
 .platform__block {
@@ -229,6 +400,12 @@ import { modules } from '../data/modules';
 }
 
 @media (max-width: 767px) {
+  /* The card follows the same phone treatment as the rest of this section,
+     which it was missing: its only breakpoint was the 900px one above. */
+  .shell { padding: 20px; }
+  .shells__h3 { font-size: 20px; }
+  .shells__intro { font-size: 15px; }
+  .shell__h4 { font-size: 19px; }
   .platform__h2 { font-size: 28px; letter-spacing: -0.6px; }
   .platform__intro { font-size: 16px; }
   .svc-row { flex-wrap: wrap; row-gap: 4px; }

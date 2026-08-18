@@ -107,6 +107,8 @@ export interface ProjectInput {
   billableDefault: boolean;
   rateCents: number;
   active: boolean;
+  /** Injectable creation stamp. Defaults to now; the API never supplies it. */
+  createdAt?: string;
 }
 
 export function createProject(db: Database.Database, input: ProjectInput): number {
@@ -121,7 +123,7 @@ export function createProject(db: Database.Database, input: ProjectInput): numbe
       input.billableDefault ? 1 : 0,
       input.rateCents,
       input.active ? 1 : 0,
-      nowIso(),
+      input.createdAt ?? nowIso(),
     );
   return Number(info.lastInsertRowid);
 }

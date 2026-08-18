@@ -44,6 +44,12 @@ export interface Customer {
   email: string | null;
   vat_id: string | null;
   address: string | null;
+  /**
+   * The PS-11 Customers party this customer is, when the master service is
+   * wired (server/db.ts). Null standalone, and null for a row created before
+   * the column existed — which is why nothing may assume it is set.
+   */
+  party_id: number | null;
   archived_at: string | null;
   created_at: string;
 }

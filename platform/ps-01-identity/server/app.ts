@@ -173,13 +173,14 @@ export function createApp({
   /**
    * No principal may hand out authority it does not itself hold.
    *
-   * `role:write` and `apikey:write` are permissions to ADMINISTER grants, not
-   * to invent them. Without this cap an Administrator — who deliberately lacks
-   * `org:write` — could reach it three ways: mint an unscoped API key (which
-   * carried the whole catalogue), define a custom role granting it, or simply
-   * assign themselves the Owner role. Each turned "may manage roles and keys"
-   * into "may become the Owner", which is the escalation the role split exists
-   * to prevent.
+   * `role:write`, `apikey:write` and `user:write` are permissions to ADMINISTER
+   * grants, not to invent them. Without this cap an Administrator — who
+   * deliberately lacks `org:write` — could reach it four ways: mint an unscoped
+   * API key (which carried the whole catalogue), define a custom role granting
+   * it, assign themselves the Owner role, or create a new user that already
+   * holds it and log in as that (the caller picks the password). Each turned
+   * "may manage users, roles and keys" into "may become the Owner", which is
+   * the escalation the role split exists to prevent.
    */
   const requireGrantable = (res: Response, granted: readonly Permission[]): void => {
     const held = principalOf(res).permissions;
@@ -580,6 +581,28 @@ export function createApp({
     }
     const roleKeys = Array.isArray(b.role_keys) ? (b.role_keys as unknown[]) : ['member'];
 
+    // Resolve the roles BEFORE anything is written, so the cap below sees what
+    // the caller actually asked for — and so an unknown key is a 422 rather
+    // than an exception thrown halfway through a transaction.
+    //
+    // CREATING A USER IS A WAY OF GRANTING. Whoever holds these roles holds
+    // their permissions, and the caller chose the password, so "create a user
+    // with role X" hands over exactly what "assign role X" does — to an account
+    // the caller can log into. Without this cap an Administrator, who
+    // deliberately lacks `org:write`, could create an Owner and sign in as it:
+    // the same escalation `requireGrantable` closes on /api/users/:id/roles,
+    // /api/roles and /api/api-keys, through the one door that had no lock.
+    const roleIds: number[] = [];
+    for (const key of roleKeys) {
+      if (typeof key !== 'string') continue;
+      const role = db
+        .prepare('SELECT id FROM roles WHERE key = ? AND (org_id IS NULL OR org_id = ?)')
+        .get(key, orgId) as { id: number } | undefined;
+      if (!role) fail(422, 'Validation failed', [{ field: 'role_keys', message: `unknown role "${key}"` }]);
+      roleIds.push(role.id);
+    }
+    requireGrantable(res, roleIds.flatMap((roleId) => rolePermissions(db, roleId)));
+
     // Hashed before the (synchronous) transaction opens — see POST /api/orgs.
     const passwordHash = await hashPassword(password);
 
@@ -591,15 +614,10 @@ export function createApp({
         )
         .run(orgId, email, name, passwordHash, nowIso(now()));
       const userId = Number(info.lastInsertRowid);
-      for (const key of roleKeys) {
-        if (typeof key !== 'string') continue;
-        const role = db
-          .prepare('SELECT id FROM roles WHERE key = ? AND (org_id IS NULL OR org_id = ?)')
-          .get(key, orgId) as { id: number } | undefined;
-        if (!role) fail(422, 'Validation failed', [{ field: 'role_keys', message: `unknown role "${key}"` }]);
+      for (const roleId of roleIds) {
         db.prepare('INSERT OR IGNORE INTO user_roles (user_id, role_id, created_at) VALUES (?, ?, ?)').run(
           userId,
-          role.id,
+          roleId,
           nowIso(now()),
         );
       }

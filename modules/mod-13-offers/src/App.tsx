@@ -10,10 +10,35 @@ import { PublicOffer } from './components/PublicOffer';
 
 export type View =
   | { name: 'dashboard' }
-  | { name: 'offers' }
+  | { name: 'offers'; status?: string }
   | { name: 'offer'; id: number }
   | { name: 'editor'; id: number | null }
   | { name: 'customers' };
+
+/**
+ * The staff view a path asks for, or the dashboard when it asks for nothing.
+ *
+ * These are the destinations `server/summary.ts` puts in its `href`s and the
+ * ones MOD-15 Workspace hands off into, so the two must agree — a summary
+ * pointing at `/offers?status=sent` and an app that ignored the path would
+ * "work" by silently landing everyone on the dashboard, which looks like a
+ * dead link and reads like a bug in the shell.
+ *
+ * Read once on load and then dropped: navigation inside the staff face stays
+ * plain component state, with no router dependency and no history rewriting,
+ * exactly as before.
+ */
+export function initialView(path: string, search: string): View {
+  const detail = /^\/offers\/(\d+)$/.exec(path);
+  if (detail) return { name: 'offer', id: Number(detail[1]) };
+  if (path === '/offers/new') return { name: 'editor', id: null };
+  if (path === '/offers') {
+    const status = new URLSearchParams(search).get('status');
+    return { name: 'offers', status: status ?? undefined };
+  }
+  if (path === '/customers') return { name: 'customers' };
+  return { name: 'dashboard' };
+}
 
 const NAV: { view: View; label: string }[] = [
   { view: { name: 'dashboard' }, label: 'Dashboard' },
@@ -43,7 +68,7 @@ export function App() {
 function AdminApp() {
   const [ready, setReady] = useState(false);
   const [loggedOut, setLoggedOut] = useState(false);
-  const [view, setView] = useState<View>({ name: 'dashboard' });
+  const [view, setView] = useState<View>(() => initialView(window.location.pathname, window.location.search));
 
   const load = useCallback(async () => {
     try {
@@ -112,6 +137,7 @@ function AdminApp() {
         )}
         {view.name === 'offers' && (
           <OffersView
+            initialStatus={view.status}
             onOpen={(id) => setView({ name: 'offer', id })}
             onNew={() => setView({ name: 'editor', id: null })}
             onAuthLost={onAuthLost}

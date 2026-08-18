@@ -17,8 +17,43 @@ export interface ScreenStat { label: string; value: string; }
 export interface ScreenColumn { title: string; cards: string[]; }
 export interface ScreenField { label: string; value: string; }
 
+/**
+ * One widget on a Workspace board, in the same 12-column grid the real one uses
+ * (`mod-15-workspace/shared/types.ts`, GRID_COLUMNS). `source` is the module the
+ * figures came from — the label the real widget header carries — because a board
+ * that does not say which module each number belongs to is just a dashboard.
+ */
+export interface ScreenWidget {
+  source: string;
+  label: string;
+  value?: string;
+  rows?: string[];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Drawn lifted and outlined, the way the real grid previews a drag. */
+  dragging?: boolean;
+}
+
+/**
+ * One pane on a Mosaic board: a whole module in a frame, in the same
+ * 12-column grid the real one uses. `rows` are a few lines of that module's own
+ * screen — the point of the picture is that these are applications, not
+ * summaries, so the miniature has to look like the app.
+ */
+export interface ScreenPane {
+  n: string;
+  label: string;
+  rows: string[];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface ModuleScreen {
-  variant: 'table' | 'dashboard' | 'board' | 'detail' | 'catalogue';
+  variant: 'table' | 'dashboard' | 'board' | 'detail' | 'catalogue' | 'workspace' | 'mosaic';
   accent: string;
   nav: string[];
   // table
@@ -35,6 +70,14 @@ export interface ModuleScreen {
   list?: string[];
   // catalogue
   cards?: { title: string; sub: string }[];
+  // workspace — a shell that hosts other modules, so it has no sidebar of its
+  // own: boards are tabs, and every panel is fed by the module it names.
+  boards?: string[];
+  contextChip?: string;
+  widgets?: ScreenWidget[];
+  // mosaic — panes are whole modules, so each one is drawn as a miniature of
+  // that module's own UI rather than as a figure.
+  panes?: ScreenPane[];
 }
 
 /** The copy this file owns, keyed by the registry's module id. */
@@ -394,6 +437,134 @@ const presentation: Record<string, ModulePresentation> = {
       statuses: ['Approved', 'Submitted', 'Draft'],
     },
   },
+  'mod-15-workspace': {
+    body: 'One screen for every module you run. Drag-and-drop widgets fed live by your modules, one shared customer filter, and cross-module actions.',
+    overview:
+      'A dashboard that hosts the other modules rather than replacing them. Each module you licensed contributes widgets — figures and short lists it computes itself — which you arrange on a board per person. Pick a customer once and every widget narrows to them. Open a module full-screen inside the Workspace, already signed in, or act across modules without opening either: a deal becomes a draft quote, an accepted quote becomes a draft invoice, and the work becomes a project to book time against — three buttons on the board, each recorded against you in the module it touched. Every module still installs and runs on its own; nothing here is a second copy of anything.',
+    features: [
+      'Per-person drag-and-drop board of live module widgets',
+      'One shared customer and date filter every module honours',
+      'Modules embedded full-screen, signed in, no second login',
+      'Cross-module actions that run as you, not as a service account',
+    ],
+    screen: {
+      // Not `dashboard`: that variant draws four tiles and a revenue chart, which
+      // is a report, not a shell. This module's whole point is that every panel
+      // belongs to a DIFFERENT module and that you arrange them yourself, so the
+      // mockup has to show the source labels, the board tabs and a widget being
+      // dragged — or it advertises the wrong product.
+      variant: 'workspace',
+      accent: '#8FA98C',
+      nav: [],
+      boards: ['Overview', 'Finance', 'Delivery'],
+      contextChip: 'Blaustern Café GmbH',
+      widgets: [
+        { source: 'OFFERS', label: 'Offers out', value: '7', x: 0, y: 0, w: 3, h: 2 },
+        { source: 'INVOICING', label: 'Outstanding', value: '€ 42,180', x: 3, y: 0, w: 3, h: 2 },
+        { source: 'CRM', label: 'Weighted pipeline', value: '€ 85,725', x: 6, y: 0, w: 3, h: 2 },
+        { source: 'TIME', label: 'Billable share', value: '93 %', x: 9, y: 0, w: 3, h: 2 },
+        {
+          source: 'OFFERS',
+          label: 'Accepted, ready to bill',
+          rows: ['AN-2026-0007 · Rollout', 'AN-2026-0011 · Wartung', 'AN-2026-0014 · Ausbau'],
+          x: 0,
+          y: 2,
+          w: 5,
+          h: 3,
+        },
+        {
+          source: 'SUPPORT',
+          label: 'Waiting longest',
+          rows: ['#4120 · 3d · SLA breached', '#4118 · 2d · Unassigned', '#4109 · 1d · Open'],
+          x: 5,
+          y: 2,
+          w: 4,
+          h: 3,
+        },
+        // Mid-drag, exactly as the real grid previews one: lifted, outlined, and
+        // overlapping its neighbour because the board never reflows what you did
+        // not touch (see Board.tsx).
+        {
+          source: 'CRM',
+          label: 'Follow-ups due',
+          rows: ['Helios · Angebot nachfassen', 'Nordwind · Termin'],
+          x: 8,
+          y: 2,
+          w: 4,
+          h: 3,
+          dragging: true,
+        },
+        // The shell's own widget: one feed over every module, read from PS-07.
+        {
+          source: 'WORKSPACE',
+          label: 'Activity',
+          rows: [
+            'ada@acme.test · offer.sent · OFFERS · AN-2026-0014',
+            'ada@acme.test · invoice.issued · INVOICING · RE-2026-0087',
+          ],
+          x: 0,
+          y: 5,
+          w: 12,
+          h: 2,
+        },
+      ],
+    },
+  },
+  'mod-16-mosaic': {
+    body: 'The modules themselves, side by side. Whole apps in a grid you arrange, each one already signed in.',
+    overview:
+      'Where the Workspace summarises your modules, Mosaic runs them. Every pane is a whole module — its real interface, everything it can do — in its own frame on a grid you drag and resize. Open Invoicing next to Offers next to the CRM and work across all three without a single tab switch or a second login: each pane signs itself in through a one-time ticket, so the module mints its own session and this one never sees a credential. Nothing is reimplemented here, and nothing is summarised; the modules are simply present. Every one of them still installs and runs on its own.',
+    features: [
+      'Whole modules as panes — the real UI, not a widget over it',
+      'Drag and resize on a 12-column grid, saved per person',
+      'Each pane already signed in, through a single-use handoff ticket',
+      'Named boards for the arrangements you keep coming back to',
+    ],
+    screen: {
+      variant: 'mosaic',
+      accent: '#9A8FB5',
+      nav: [],
+      boards: ['Sales desk', 'Month end'],
+      panes: [
+        {
+          n: 'MOD-13',
+          label: 'Offers',
+          rows: ['AN-2026-0007 · Rollout · ACCEPTED', 'AN-2026-0011 · Wartung · SENT', 'AN-2026-0014 · Ausbau · DRAFT'],
+          x: 0,
+          y: 0,
+          w: 6,
+          h: 4,
+        },
+        {
+          n: 'MOD-04',
+          label: 'Invoicing',
+          rows: ['RE-2026-0087 · € 4,180 · OVERDUE', 'RE-2026-0086 · € 1,240 · SENT', 'RE-2026-0085 · € 890 · PAID'],
+          x: 6,
+          y: 0,
+          w: 6,
+          h: 4,
+        },
+        {
+          n: 'MOD-10',
+          label: 'CRM',
+          rows: ['Helios · Battery pilot · € 12,000', 'Nordwind · Warehouse · € 48,000', 'Alpine · Hosting · € 30,000'],
+          x: 0,
+          y: 4,
+          w: 5,
+          h: 3,
+        },
+        {
+          n: 'MOD-12',
+          label: 'Support',
+          rows: ['#4120 · SLA breached · 3d', '#4118 · Unassigned · 2d', '#4109 · Open · 1d'],
+          x: 5,
+          y: 4,
+          w: 7,
+          h: 3,
+        },
+      ],
+    },
+  },
 };
 
 function entryFor(mod: ModuleRegistryEntry): ModuleEntry {
@@ -410,7 +581,7 @@ function entryFor(mod: ModuleRegistryEntry): ModuleEntry {
   };
 }
 
-/** Catalogue order is the registry's order (MOD-01 … MOD-14). */
+/** Catalogue order is the registry's order (MOD-01 … MOD-15). */
 export const modules: ModuleEntry[] = registryModules.map(entryFor);
 
 export function getModule(slug: string): ModuleEntry | undefined {

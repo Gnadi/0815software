@@ -48,6 +48,8 @@ const app = createApp({
   platform,
   verifyLogin: buildLoginVerifier(config.sso),
   loginMode: loginModeOf(config.sso),
+  serviceToken: config.platform.serviceToken,
+  shellOrigins: config.shellOrigins,
 });
 
 app.listen(config.port, () => {

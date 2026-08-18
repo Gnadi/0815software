@@ -356,6 +356,11 @@ dependency, and it is deliberately narrow:
   invoice with `200` instead of creating a second one.
 - **Only accepted offers.** MOD-13 refuses to export a draft, a merely sent, a
   rejected, a withdrawn or a superseded offer, and the reason is passed through.
+- **Never a pipeline deal.** The same transfer shape can carry one — MOD-10
+  exports deals so MOD-13 can quote them — and a deal validates perfectly well
+  as a shape. Its money is the part that differs: one salesperson's estimate, at
+  a rate the CRM did not choose, for something nobody has agreed to buy. This
+  module refuses it explicitly and says to quote it first.
 - **It is optional.** With `OFFERS_URL` unset the endpoint answers `501` and this
   module has no notion of offers at all. The full test suite passes either way.
 
@@ -387,3 +392,22 @@ these, that's commissioned work — exactly the kind 0815software does:
 ## License
 
 MIT © 0815software — see [LICENSE](LICENSE).
+
+## The shell contract — appearing on a dashboard
+
+`GET /api/summary`, guarded by `PLATFORM_SERVICE_TOKEN`, is how this module
+puts figures and short lists on a [MOD-15 Workspace](../mod-15-workspace)
+board. The shape is `shared/summary.ts`, byte-identical in every module; the
+values are computed by the same functions this module's own screens read, so a
+widget cannot disagree with the module beside it.
+
+Set `SHELL_ORIGIN` to the Workspace's origin and two more things follow: this
+module can be framed by that one shell (`frame-ancestors` replaces the blanket
+`X-Frame-Options: DENY`), and `POST /api/session/handoff` / `POST
+/api/session/issue` open, so the Workspace can obtain a session for whoever is
+using it. This module still mints its own sessions — the shell only asserts
+who, and only because it holds the machine token and was named here.
+
+With both unset — the default, and what a standalone install runs — the summary
+endpoint is closed, the handoff routes are not mounted, and framing is denied
+outright. See [`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md).

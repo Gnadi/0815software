@@ -339,3 +339,48 @@ state changes on [PS-07 Audit Log](../../platform/ps-07-audit-log) via the
 shared [`@0815software/platform-clients`](../../platform/clients) package.
 Calls are best-effort and opt-in — unset, the module runs standalone. See
 `server/platform.ts`.
+
+## The shell contract — appearing on a dashboard
+
+`GET /api/summary`, guarded by `PLATFORM_SERVICE_TOKEN`, is how this module
+puts figures and short lists on a [MOD-15 Workspace](../mod-15-workspace)
+board. The shape is `shared/summary.ts`, byte-identical in every module; the
+values are computed by the same functions this module's own screens read, so a
+widget cannot disagree with the module beside it.
+
+Set `SHELL_ORIGIN` to the Workspace's origin and two more things follow: this
+module can be framed by that one shell (`frame-ancestors` replaces the blanket
+`X-Frame-Options: DENY`), and `POST /api/session/handoff` / `POST
+/api/session/issue` open, so the Workspace can obtain a session for whoever is
+using it. This module still mints its own sessions — the shell only asserts
+who, and only because it holds the machine token and was named here.
+
+With both unset — the default, and what a standalone install runs — the summary
+endpoint is closed, the handoff routes are not mounted, and framing is denied
+outright. See [`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md).
+
+## Planning an accepted offer as a project
+
+`POST /api/projects/import-offer` takes an offer number, fetches it from MOD-13
+over `OFFERS_URL` as a neutral document transfer (`shared/transfer.ts`), and
+creates a project with **one task per offer line** — so hours land against the
+thing that was sold rather than in one bucket somebody untangles later. The
+Workspace puts a **PLAN WORK** button on the accepted-offers widget that calls
+this route as the person who clicked.
+
+**The money deliberately stays behind.** A project's `rate_cents` is what an
+*hour* costs; an offer's total is what the *job* costs, and the offer does not
+say how many hours are in it — a fixed-price one may have no answer at all. An
+imported project therefore starts at a rate of zero for someone to set, because
+a number that looks authoritative and is invented would be inherited by every
+billable-hours total afterwards.
+
+**It refuses a pipeline deal.** The same transfer shape can carry one, and
+staffing a project for work the customer has not agreed to buy is how a team
+ends up having booked real hours against a job that never happens.
+
+It is idempotent on the offer number: a second import returns the first
+project, because one job's hours split across two projects is a mistake nobody
+notices until billing. With `OFFERS_URL` unset — the standalone default — the
+route answers `501` and says which variable is missing. See
+[`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md).

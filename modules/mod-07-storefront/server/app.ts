@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
@@ -51,6 +52,8 @@ import {
 import { ordersCsv } from './csv.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import { likeTerm } from './store.js';
+import { parseSummaryContext } from '../shared/summary.js';
+import { moduleSummary } from './summary.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -147,9 +150,17 @@ export interface AppOptions {
   staticDir?: string;
   /** Optional PS-08 Payments integration; defaults to a no-op (standalone). */
   platform?: PlatformHooks;
+  /**
+   * The platform machine token (PLATFORM_SERVICE_TOKEN). When set, it is the
+   * only credential that opens GET /api/summary — the shell's read of this
+   * module. Unset means the endpoint is closed, which is the standalone
+   * default. There is no handoff route here: this module's users are not
+   * staff, so it is not embeddable.
+   */
+  serviceToken?: string;
 }
 
-export function createApp({ db, hardening, auth, staticDir, platform = noopPlatform }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, staticDir, platform = noopPlatform, serviceToken }: AppOptions): express.Express {
   const app = express();
 
   // Transport hardening: security headers, a default-deny CORS policy and
@@ -324,6 +335,48 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     }
     res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth)));
     res.json({ ok: true, username: auth.username });
+  });
+
+  // ── Machine-to-machine ───────────────────────────────────────────────
+  // The shell summary, authenticated with the platform machine token and NOT a
+  // user session: the caller is another service in the same stack. With no
+  // token configured the endpoint is closed, which is the standalone default.
+  //
+  // Mounted ABOVE the session gate below, because the caller has no session —
+  // that is the whole point of the machine token.
+  //
+  // There is no handoff here. This module's users are not staff, so a staff
+  // shell has no principal to sign in as, and it is not embeddable
+  // (docs/PLATFORM-READINESS.md, item C1).
+  //
+  // The constant-time compare is local rather than imported from `handoff.ts`:
+  // that file does not exist here, because this module cannot do a handoff at
+  // all — its sessions carry a shape a shell has no principal for.
+  const tokenMatches = (provided: string): boolean => {
+    const a = Buffer.from(provided);
+    const b = Buffer.from(serviceToken ?? '');
+    return a.length === b.length && timingSafeEqual(a, b);
+  };
+
+  app.get('/api/summary', (req, res, next) => {
+  // Only ours when a machine token is actually presented.
+    //
+    // MOD-11 already serves a session-guarded /api/summary of its own, and this
+    // route is mounted above the session gate, so without the fallthrough it
+    // would shadow that endpoint and answer 401 to the module's own frontend.
+    // Rather than give one module a different path from the other fourteen —
+    // the contract is worth more than the collision is expensive — this route
+    // claims only the requests that are unambiguously the shell's.
+    if (req.headers['x-service-token'] === undefined) {
+      next();
+      return;
+    }
+        const provided = req.headers['x-service-token'];
+    if (!serviceToken || typeof provided !== 'string' || !tokenMatches(provided)) {
+      res.status(401).json({ error: 'Service token required' });
+      return;
+    }
+    res.json(moduleSummary(db, parseSummaryContext(req.query as Record<string, unknown>)));
   });
 
   app.use('/api/admin', requireAuth(auth));

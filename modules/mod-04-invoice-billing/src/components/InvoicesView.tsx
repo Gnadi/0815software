@@ -5,6 +5,8 @@ import { fmtDate, fmtEur } from '../format';
 import { PaymentBadge, StatusBadge } from './StatusBadge';
 
 interface Props {
+  /** Status filter to open with, from a deep link (`/invoices?status=overdue`). */
+  initialStatus?: string;
   onOpen: (id: number) => void;
   onNew: () => void;
   onAuthLost: () => void;
@@ -19,10 +21,15 @@ const FILTERS = [
   { value: 'overdue', label: 'OVERDUE' },
 ];
 
-export function InvoicesView({ onOpen, onNew, onAuthLost }: Props) {
+export function InvoicesView({ initialStatus, onOpen, onNew, onAuthLost }: Props) {
   const [rows, setRows] = useState<InvoiceRow[] | null>(null);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('');
+  // A status this view does not offer is dropped rather than sent to the API:
+  // an unknown filter would return nothing and read as "no invoices" instead
+  // of as the bad link it is.
+  const [filter, setFilter] = useState(() =>
+    FILTERS.some((f) => f.value !== '' && f.value === initialStatus) ? (initialStatus as string) : '',
+  );
   const [error, setError] = useState('');
   // Billing an accepted offer: one prompt, one call. The server refuses an
   // unaccepted offer and is idempotent on the offer number, so the UI has no
