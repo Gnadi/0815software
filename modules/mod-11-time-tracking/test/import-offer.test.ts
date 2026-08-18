@@ -5,7 +5,7 @@ import type Database from 'better-sqlite3';
 import { createApp } from '../server/app.js';
 import { openDb } from '../server/db.js';
 import type { AuthConfig } from '../server/auth.js';
-import { noopPlatform, OfferFetchError, type PlatformHooks } from '../server/platform.js';
+import { buildPlatform, noopPlatform, OfferFetchError, type PlatformHooks } from '../server/platform.js';
 import { importTransfer } from '../server/transfer-import.js';
 import { TRANSFER_VERSION, transferTotals, type DocumentTransfer } from '../shared/transfer.js';
 import type { Project } from '../shared/types.js';
@@ -308,6 +308,33 @@ describe('POST /api/projects/import-offer — what it refuses', () => {
       .set('Cookie', cookie)
       .send({ offer_number: 'AN-2026-0007' })
       .expect(502);
+  });
+
+  /**
+   * Offers that is DOWN, not one that answered badly.
+   *
+   * The case above stubs the hook and throws an `OfferFetchError`, which only
+   * proves the route maps that error. A refused connection, a DNS failure or
+   * the fetch timeout throw from `fetch` itself, and those used to escape the
+   * route's `instanceof` check entirely and surface as `500 Internal server
+   * error` — pointing the operator at this module when the problem is the one
+   * it was calling. So this case uses a real platform pointed at a dead port.
+   */
+  it('reports an unreachable Offers as a bad gateway, not as its own failure', async () => {
+    const app = createApp({
+      db,
+      auth,
+      platform: buildPlatform({ offersUrl: 'http://127.0.0.1:1', serviceToken: 'tok' }),
+    });
+    const cookie = await login(app);
+
+    const res = await request(app)
+      .post('/api/projects/import-offer')
+      .set('Cookie', cookie)
+      .send({ offer_number: 'AN-2026-0007' })
+      .expect(502);
+    expect(String(res.body.error)).toMatch(/unreachable/i);
+    expect(String(res.body.error)).not.toBe('Internal server error');
   });
 
   it('requires an offer number', async () => {

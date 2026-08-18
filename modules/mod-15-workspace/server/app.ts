@@ -256,11 +256,19 @@ export function createApp({
 
   app.get('/api/activity', async (_req, res) => {
     const actor = actorOf(res, auth);
+    // PS-07 gates READS behind a principal, so with no held identity the call
+    // comes back 401 and `activity()` yields []. Reported separately because
+    // "nobody has done anything" and "this board cannot read the trail as you"
+    // are different facts with different fixes, and they produce the same
+    // empty array — the distinction `configured` already draws for an unwired
+    // audit service, drawn one level further in.
+    const identity = sessions.identityFor(actor);
     res.json({
-      events: await platform.activity(ACTIVITY_LIMIT, sessions.identityFor(actor)),
+      events: await platform.activity(ACTIVITY_LIMIT, identity),
       // PS-07, not PS-11 — this route once reported the customers service by
       // copy-paste, which made an unwired audit log look like a quiet one.
       configured: platform.hasAudit(),
+      readable: identity !== undefined,
     });
   });
 

@@ -47,6 +47,16 @@ response and refuses the peer when it fails:
 2. **Links are module-relative paths, never absolute URLs.** A module does not
    reliably know its own public URL; the shell knows every peer's. A peer that
    could return an absolute URL would decide where the shell's UI navigates.
+
+   The other half of this is on the RECEIVING side, and it is not free: these
+   apps are single-page, so a module serves `index.html` for every path and
+   must read `window.location` at start-up to open the screen the path names.
+   A module that does not simply lands on its default view — right app, wrong
+   screen, with a URL that says otherwise. **MOD-04, MOD-07, MOD-12 and MOD-13
+   do this today** (`initialView(pathname, search)`); the other ten publish
+   `href`s that a board will navigate to and then not honour. Fixing that is
+   per-module work — each SPA's route table is its own — and until it is done,
+   a board link should be read as "open that module", not "open that record".
 3. **Keys are stable.** `key` identifies a widget across responses, so a saved
    board survives an upgrade. Renaming a key retires the widget; changing a
    `label` does not. Keys are unique across a module's whole summary.

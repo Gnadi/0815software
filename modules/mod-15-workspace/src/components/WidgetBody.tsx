@@ -19,6 +19,8 @@ interface Props {
   actions: CatalogueAction[];
   activity: ActivityEvent[];
   activityConfigured: boolean;
+  /** False once the PS-01 identity this board reads PS-07 with has gone. */
+  activityReadable: boolean;
   onOpen: (moduleId: string, path: string) => void;
   onAction: (actionId: string, itemId: string) => Promise<void>;
 }
@@ -98,12 +100,19 @@ export function WidgetBody({
   actions,
   activity,
   activityConfigured,
+  activityReadable,
   onOpen,
   onAction,
 }: Props) {
   if (widget.kind === 'activity') {
     if (!activityConfigured && activity.length === 0) {
       return <Unavailable reason="PS-07 Audit Log is not configured for this stack, so there is no activity to show." />;
+    }
+    // PS-07 gates reads behind a principal, and this board holds one only while
+    // it is being used. An expired one reads as an empty log, which is the one
+    // thing this widget must never claim on someone else's behalf.
+    if (!activityReadable) {
+      return <Unavailable reason="This board no longer holds the sign-in it reads the audit trail with. Sign in again to see activity." />;
     }
     if (activity.length === 0) return <p className="widget__stale mono">NOTHING RECORDED YET</p>;
     return (

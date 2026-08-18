@@ -114,6 +114,18 @@ a {
   font-size: 12px;
   letter-spacing: 1px;
   color: var(--fg-mute);
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+}
+
+/* A board that cannot start says why and offers the way out, rather than
+   sitting on LOADING… with nothing to click. */
+.boot__error {
+  max-width: 42ch;
+  color: var(--danger);
+  letter-spacing: 0;
+  line-height: 1.5;
 }
 
 /* ── Login ───────────────────────────────────────────────────────────── */

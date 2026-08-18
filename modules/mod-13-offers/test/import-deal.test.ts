@@ -6,7 +6,7 @@ import { createApp } from '../server/app.js';
 import { openDb } from '../server/db.js';
 import type { AuthConfig } from '../server/auth.js';
 import type { SellerConfig } from '../server/config.js';
-import { DealFetchError, noopPlatform, type PlatformHooks } from '../server/platform.js';
+import { buildPlatform, DealFetchError, noopPlatform, type PlatformHooks } from '../server/platform.js';
 import { importTransfer } from '../server/transfer-import.js';
 import { TRANSFER_VERSION, transferTotals, type DocumentTransfer } from '../shared/transfer.js';
 import type { OfferDetail } from '../shared/types.js';
@@ -391,6 +391,36 @@ describe('POST /api/offers/import-deal — what it refuses', () => {
     const broken = build(dealSource({}, { fail: new DealFetchError(503, 'crm unavailable') }).hooks);
     cookie = await login(broken);
     await request(broken).post('/api/offers/import-deal').set('Cookie', cookie).send({ deal_id: 3 }).expect(502);
+  });
+
+  /**
+   * A CRM that is DOWN, not one that answered badly.
+   *
+   * The case above stubs the hook and throws a `DealFetchError`, which only
+   * proves the route maps that error. A refused connection, a DNS failure or
+   * the fetch timeout throw from `fetch` itself, and those used to escape the
+   * route's `instanceof` check entirely and surface as `500 Internal server
+   * error` — which points the operator at this module when the problem is the
+   * one it was calling. So this case uses a real platform pointed at a port
+   * nothing is listening on.
+   */
+  it('reports an unreachable CRM as a bad gateway, not as its own failure', async () => {
+    const app = createApp({
+      db,
+      auth,
+      seller,
+      clock: () => CLOCK,
+      platform: buildPlatform({ crmUrl: 'http://127.0.0.1:1', serviceToken: 'tok' }),
+    });
+    const cookie = await login(app);
+
+    const res = await request(app)
+      .post('/api/offers/import-deal')
+      .set('Cookie', cookie)
+      .send({ deal_id: 3 })
+      .expect(502);
+    expect(String(res.body.error)).toMatch(/unreachable/i);
+    expect(String(res.body.error)).not.toBe('Internal server error');
   });
 
   it('requires a deal id', async () => {

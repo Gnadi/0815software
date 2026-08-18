@@ -750,16 +750,42 @@ describe('the credentials the board holds for a person', () => {
     expect(sessions.identityFor('ada@example')).toBeUndefined();
   });
 
-  it('lets a held token expire rather than keeping it for the life of the process', () => {
+  it('lets an UNUSED token expire rather than keeping it for the life of the process', () => {
     let clock = 1_000_000;
     const client = createPeerClient({ peers: PEERS, serviceToken: TOKEN, timeoutMs: 200, fetch: stubFetch({}) });
     const sessions = createModuleSessions(client, () => clock);
     sessions.rememberIdentity('ada@example', 'ps01-token');
 
-    clock += 14 * 60_000;
-    expect(sessions.identityFor('ada@example')).toBe('ps01-token');
+    // Nothing reads it in between — nobody is looking at this board.
+    clock += 16 * 60_000;
+    expect(sessions.identityFor('ada@example')).toBeUndefined();
+  });
 
-    clock += 2 * 60_000; // past the 15-minute hold
+  /**
+   * The window is IDLE time, not total time, and the difference is a bug this
+   * module already shipped once.
+   *
+   * As a fixed window from login the token expired under an open board: the
+   * shell session lasts twelve hours and the board polls every minute, so at
+   * minute sixteen the PS-07 read silently lost its principal. The feed then
+   * rendered "NOTHING RECORDED YET" over a full audit log — the misleading
+   * empty state this module is built to avoid, produced by its own credential
+   * handling.
+   */
+  it('keeps the token alive while the board is actually being used', () => {
+    let clock = 1_000_000;
+    const client = createPeerClient({ peers: PEERS, serviceToken: TOKEN, timeoutMs: 200, fetch: stubFetch({}) });
+    const sessions = createModuleSessions(client, () => clock);
+    sessions.rememberIdentity('ada@example', 'ps01-token');
+
+    // An hour of ordinary use: the board re-asks every minute.
+    for (let minute = 0; minute < 60; minute++) {
+      clock += 60_000;
+      expect(sessions.identityFor('ada@example'), `token lost after ${minute + 1} minutes of use`).toBe('ps01-token');
+    }
+
+    // …and it still goes when the use stops.
+    clock += 16 * 60_000;
     expect(sessions.identityFor('ada@example')).toBeUndefined();
   });
 
@@ -824,6 +850,65 @@ describe('the activity feed', () => {
     // …while the picker, which really is PS-11's, says it IS configured.
     const catalogue = await request(withCustomersOnly).get('/api/catalogue').set('Cookie', cookie).expect(200);
     expect(catalogue.body.customers_configured).toBe(true);
+  });
+
+  /**
+   * The feed must never show an empty log it merely could not read.
+   *
+   * PS-07 gates reads behind a principal, and this board holds one only while
+   * someone is using it. When that lapses the read comes back 401 and the
+   * events array is empty — indistinguishable, to the widget, from a stack
+   * where nothing has happened. `readable` is what tells them apart.
+   */
+  it('says it could not read the trail, rather than that nothing happened', async () => {
+    let clock = 1_000_000;
+    const client = createPeerClient({ peers: PEERS, serviceToken: TOKEN, timeoutMs: 200, fetch: stubFetch({}) });
+    const sessions = createModuleSessions(client, () => clock);
+    const app = createApp({
+      db,
+      auth,
+      peers: client,
+      sessions,
+      platform: {
+        async audit() {},
+        async parties() {
+          return [];
+        },
+        hasAudit: () => true,
+        hasCustomers: () => false,
+        // Standing in for PS-07: a principal reads the trail, nothing else does.
+        async activity(_limit, identityToken) {
+          return identityToken
+            ? [{ id: 1, at: '2026-07-20T10:00:00Z', actor: 'ada@example', action: 'offer.sent', resource: 'offer:7', module: null }]
+            : [];
+        },
+      },
+      verifyLogin: async () => ({ ok: true as const, actor: 'ada@example', identityToken: 'ps01-token' }),
+    });
+
+    const login = await request(app).post('/api/login').send({ username: 'ada@example', password: 'x' }).expect(200);
+    const cookie = login.headers['set-cookie']![0]!.split(';')[0]!;
+
+    let res = await request(app).get('/api/activity').set('Cookie', cookie).expect(200);
+    expect(res.body.events).toHaveLength(1);
+    expect(res.body.readable).toBe(true);
+
+    // An open board, polling every minute for an hour. This is the case that
+    // used to go quietly blank at minute sixteen.
+    for (let minute = 0; minute < 60; minute++) {
+      clock += 60_000;
+      res = await request(app).get('/api/activity').set('Cookie', cookie).expect(200);
+    }
+    expect(res.body.events, 'the feed emptied while the board was in use').toHaveLength(1);
+    expect(res.body.readable).toBe(true);
+
+    // Left alone past the idle window: now the feed really cannot be read, and
+    // says so instead of reporting an empty log.
+    clock += 16 * 60_000;
+    res = await request(app).get('/api/activity').set('Cookie', cookie).expect(200);
+    expect(res.body.events).toEqual([]);
+    expect(res.body.configured).toBe(true);
+    expect(res.body.readable).toBe(false);
   });
 
   it('reports it as configured once PS-07 is wired', async () => {

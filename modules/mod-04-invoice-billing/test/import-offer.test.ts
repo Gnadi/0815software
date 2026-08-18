@@ -6,7 +6,7 @@ import { createApp } from '../server/app.js';
 import { openDb } from '../server/db.js';
 import type { AuthConfig } from '../server/auth.js';
 import type { SellerConfig } from '../server/config.js';
-import { noopPlatform, OfferFetchError, type PlatformHooks } from '../server/platform.js';
+import { buildPlatform, noopPlatform, OfferFetchError, type PlatformHooks } from '../server/platform.js';
 import { importTransfer } from '../server/transfer-import.js';
 import { TRANSFER_VERSION, transferTotals, validateTransfer, type DocumentTransfer } from '../shared/transfer.js';
 import { computeTotals } from '../shared/money.js';
@@ -314,6 +314,34 @@ describe('POST /api/invoices/import-offer', () => {
       .send({ offer_number: 'AN-2026-0007' });
     expect(res.status).toBe(422);
     expect(res.body.error).toContain('CHF');
+  });
+});
+
+describe('when the offer source is down rather than merely unhappy', () => {
+  /**
+   * The stubbed cases above throw an `OfferFetchError`, which proves the route
+   * maps that error and nothing more. A refused connection, a DNS failure or
+   * the fetch timeout throw from `fetch` itself; those escaped the route's
+   * `instanceof` check and surfaced as `500 Internal server error`, sending
+   * whoever is on call to read this module's logs when the fault is in the one
+   * it was calling.
+   */
+  it('reports a bad gateway with the reason, not its own 500', async () => {
+    const app = createApp({
+      db,
+      auth,
+      seller,
+      platform: buildPlatform({ offersUrl: 'http://127.0.0.1:1', serviceToken: 'tok' }),
+    });
+    cookie = await login(app);
+
+    const res = await request(app)
+      .post('/api/invoices/import-offer')
+      .set('Cookie', cookie)
+      .send({ offer_number: 'AN-2026-0007' })
+      .expect(502);
+    expect(String(res.body.error)).toMatch(/unreachable/i);
+    expect(String(res.body.error)).not.toBe('Internal server error');
   });
 });
 

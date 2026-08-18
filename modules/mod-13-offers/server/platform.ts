@@ -130,10 +130,21 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
       // Bounded like every platform-client call: a CRM instance that accepts
       // the connection and then stalls must not hold the operator's import
       // request open indefinitely.
-      const res = await fetch(`${crmUrl}/api/deals/${encodeURIComponent(dealId)}/transfer`, {
-        headers: cfg.serviceToken ? { 'X-Service-Token': cfg.serviceToken } : {},
-        signal: AbortSignal.timeout(DEAL_FETCH_TIMEOUT_MS),
-      });
+      let res: Response;
+      try {
+        res = await fetch(`${crmUrl}/api/deals/${encodeURIComponent(dealId)}/transfer`, {
+          headers: cfg.serviceToken ? { 'X-Service-Token': cfg.serviceToken } : {},
+          signal: AbortSignal.timeout(DEAL_FETCH_TIMEOUT_MS),
+        });
+      } catch (err) {
+        // A refused connection, a DNS failure or the timeout above all throw
+        // from `fetch` itself rather than answering, so without this they left
+        // as a bare TypeError/TimeoutError, missed the route's `instanceof`
+        // check, and surfaced as an opaque 500 — pointing the operator at this
+        // module when the problem is the one it was calling. 502 with the
+        // reason is the same answer a non-OK response already produced.
+        throw new DealFetchError(502, `The deal source is unreachable: ${err instanceof Error ? err.message : String(err)}`);
+      }
       const text = await res.text();
       let parsed: unknown;
       try {

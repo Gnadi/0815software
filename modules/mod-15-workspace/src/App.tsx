@@ -39,6 +39,8 @@ interface Embed {
 export function App() {
   const [ready, setReady] = useState(false);
   const [loggedOut, setLoggedOut] = useState(false);
+  /** Why the board could not start, when it could not. */
+  const [bootError, setBootError] = useState('');
 
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
   /** Who this session belongs to — shown by the no-identity notice below. */
@@ -49,6 +51,8 @@ export function App() {
   const [summaries, setSummaries] = useState<PeerSummary[]>([]);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [activityConfigured, setActivityConfigured] = useState(false);
+  /** Does this board still hold a PS-01 identity to read the trail with? */
+  const [activityReadable, setActivityReadable] = useState(true);
 
   const [picking, setPicking] = useState(false);
   const [embed, setEmbed] = useState<Embed | null>(null);
@@ -96,11 +100,13 @@ export function App() {
       // client from "are there any modules" made it always true, so an unwired
       // audit log rendered as an empty feed rather than an unconfigured one.
       setActivityConfigured(activityResult.value.configured);
+      setActivityReadable(activityResult.value.readable);
     }
   }, []);
 
   const boot = useCallback(async () => {
     try {
+      setBootError('');
       const { username } = await api.me();
       setMe(username);
       setLoggedOut(false);
@@ -109,8 +115,18 @@ export function App() {
       setReady(true);
       void loadWidgetData();
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) setLoggedOut(true);
-      else throw err;
+      if (err instanceof ApiError && err.status === 401) {
+        setLoggedOut(true);
+        return;
+      }
+      // Anything else — this module's own API answering 500, or the browser
+      // losing the network between mount and the first response — used to be
+      // re-thrown into a `void boot()` with no catch. That rejection went
+      // nowhere and no state changed, so the board sat on LOADING… forever
+      // with nothing said and nothing to click. A dashboard is read during
+      // incidents; being permanently blank during one is the worst moment for
+      // it, and a refresh was the only way out.
+      setBootError(err instanceof Error ? err.message : 'Something went wrong starting the board');
     }
   }, [loadBoards, loadWidgetData]);
 
@@ -268,6 +284,16 @@ export function App() {
   );
 
   if (loggedOut) return <Login onSuccess={() => void boot()} />;
+  if (!ready && bootError) {
+    return (
+      <div className="boot mono">
+        <p className="boot__error">{bootError}</p>
+        <button className="btn btn--primary" onClick={() => void boot()}>
+          TRY AGAIN
+        </button>
+      </div>
+    );
+  }
   if (!ready) return <div className="boot mono">LOADING…</div>;
 
   return (
@@ -383,6 +409,7 @@ export function App() {
               actions={catalogue?.actions ?? []}
               activity={activity}
               activityConfigured={activityConfigured}
+              activityReadable={activityReadable}
               onOpen={(moduleId, path) => void open(moduleId, path)}
               onAction={runAction}
             />

@@ -2,11 +2,12 @@
  * A principal may administer grants; it may not invent authority for itself.
  *
  * The Administrator role deliberately stops short of `org:write` — that is the
- * one thing separating it from Owner. Regression cover for the three routes
+ * one thing separating it from Owner. Regression cover for the four routes
  * that each handed it over anyway: minting an unscoped API key (which carried
  * the whole permission catalogue regardless of the creator), defining a custom
- * role, and assigning an existing higher role. Each turned `role:write` /
- * `apikey:write` into a path to Owner.
+ * role, assigning an existing higher role, and creating a new user already
+ * holding one. Each turned `role:write`, `apikey:write` or `user:write` into a
+ * path to Owner.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
@@ -80,6 +81,55 @@ describe('an Administrator cannot become an Owner', () => {
 
     const after = (await request(app).get('/api/me').set(as(t))).body.permissions as string[];
     expect(after).not.toContain('org:write');
+  });
+
+  /**
+   * The fourth door, and the one that had no lock.
+   *
+   * Assigning the Owner role to an EXISTING user is refused above. Creating a
+   * NEW user with it was not — and it is the same grant with a shortcut, since
+   * the caller also chooses the password and can therefore log straight in.
+   * `POST /api/users` needs `user:write`, which an Administrator holds by
+   * design, so this was reachable by exactly the principal the role split
+   * exists to hold below `org:write`.
+   */
+  it('cannot create a user holding a role it could not assign', async () => {
+    const t = await adminToken();
+
+    await request(app)
+      .post('/api/users')
+      .set(as(t))
+      .send({
+        email: 'backdoor@acme.test',
+        name: 'Backdoor',
+        password: 'a-password-the-admin-chose',
+        role_keys: ['owner'],
+      })
+      .expect(403);
+
+    // Refused before the INSERT, not cleaned up after it: a created-then-
+    // stripped account would still have a password the Administrator knows.
+    const users = await request(app).get('/api/users').set(as(t));
+    expect(users.body.users.map((u: { email: string }) => u.email)).not.toContain('backdoor@acme.test');
+
+    // And the account cannot be logged into, which is the step that would have
+    // turned the row into `org:write`.
+    const login = await request(app)
+      .post('/api/login')
+      .send({ org_slug: 'acme', email: 'backdoor@acme.test', password: 'a-password-the-admin-chose' });
+    expect(login.status).toBe(401);
+  });
+
+  it('can still create a user at or below its own authority', async () => {
+    // The cap is on EXCESS, not on the act — an Administrator managing members
+    // is the whole point of the role, and every permission a Member holds is
+    // one an Administrator holds too.
+    const t = await adminToken();
+    await request(app)
+      .post('/api/users')
+      .set(as(t))
+      .send({ email: 'newbie@acme.test', name: 'Newbie', password: 'a-fine-password', role_keys: ['member'] })
+      .expect(201);
   });
 });
 

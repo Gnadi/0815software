@@ -31,14 +31,24 @@ import type { PeerClient } from './peers.js';
 const REFRESH_MARGIN_MS = 60_000;
 
 /**
- * How long to hold one at most, regardless of what the peer says.
+ * How long to hold one after it was last USED, regardless of what the peer says.
  *
  * A module's SESSION_TTL_HOURS may be twelve; keeping a session that long in
  * a process that never sees the person again means an action could run under
  * an identity that logged out hours ago. Fifteen minutes keeps the vault close
  * to "someone is using the board right now".
+ *
+ * IDLE time, not total time — the distinction is the whole point, and getting
+ * it wrong broke the thing this module exists to get right. As a fixed window
+ * from login it expired under an open board: the shell session lasts twelve
+ * hours, so at minute sixteen the PS-07 read lost its principal, came back
+ * 401, and the feed rendered "NOTHING RECORDED YET" over a full audit log —
+ * exactly the misleading empty state db.ts and platform.ts both argue against.
+ * A board being read every minute is the clearest possible evidence that
+ * someone is using it, so reading extends the hold and only real idleness
+ * ends it.
  */
-const MAX_HOLD_MS = 15 * 60_000;
+const MAX_IDLE_MS = 15 * 60_000;
 
 interface Held {
   cookie: string;
@@ -53,7 +63,10 @@ export interface ModuleSessions {
    * dropped on logout.
    */
   rememberIdentity(actor: string, token: string): void;
-  /** That token, if this process still holds one for them. */
+  /**
+   * That token, if this process still holds one for them — and, because a read
+   * is proof the person is still here, extends the hold by another idle window.
+   */
   identityFor(actor: string): string | undefined;
   /**
    * A session cookie for this person at this module, minting one if needed.
@@ -96,16 +109,19 @@ export function createModuleSessions(peers: PeerClient, now: () => number = Date
     rememberIdentity(actor: string, token: string): void {
       const at = now();
       prune(at);
-      identities.set(actor, { token, expiresAt: at + MAX_HOLD_MS });
+      identities.set(actor, { token, expiresAt: at + MAX_IDLE_MS });
     },
 
     identityFor(actor: string): string | undefined {
+      const at = now();
       const identity = identities.get(actor);
       if (!identity) return undefined;
-      if (identity.expiresAt <= now()) {
+      if (identity.expiresAt <= at) {
         identities.delete(actor);
         return undefined;
       }
+      // Sliding, not fixed: this read means the board is being looked at.
+      identity.expiresAt = at + MAX_IDLE_MS;
       return identity.token;
     },
 
@@ -121,7 +137,7 @@ export function createModuleSessions(peers: PeerClient, now: () => number = Date
       const issued = await peers.issueSession(moduleId, actor);
       if (!issued.ok) return issued;
 
-      held.set(key(actor, moduleId), { cookie: issued.cookie, expiresAt: at + MAX_HOLD_MS });
+      held.set(key(actor, moduleId), { cookie: issued.cookie, expiresAt: at + MAX_IDLE_MS });
       return { ok: true as const, cookie: issued.cookie };
     },
 
