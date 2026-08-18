@@ -197,7 +197,10 @@ import { modules } from '../data/modules';
 }
 
 .shell__points li::before {
-  content: '\u2192';
+  /* The literal character, not '\u2192': CSS escapes are bare hex (\2192), so
+     the JS-style form rendered as the text "u2192" — five characters wide in an
+     18px gutter, sitting on top of the label beside it. */
+  content: '→';
   position: absolute;
   left: 0;
   color: var(--fg-mute, var(--fg-dim));
@@ -332,6 +335,11 @@ import { modules } from '../data/modules';
 }
 
 @media (max-width: 767px) {
+  /* The card follows the same phone treatment as the rest of this section,
+     which it was missing: its only breakpoint was the 900px one above. */
+  .shell { padding: 20px; gap: 20px; }
+  .shell__h3 { font-size: 20px; }
+  .shell__lead { font-size: 15px; }
   .platform__h2 { font-size: 28px; letter-spacing: -0.6px; }
   .platform__intro { font-size: 16px; }
   .svc-row { flex-wrap: wrap; row-gap: 4px; }
