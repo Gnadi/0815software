@@ -59,7 +59,10 @@ const positive = s.statuses ? s.statuses[0] : '';
     {`0815software.app/${module.slug}`}
   </text>
 
-  <!-- Sidebar -->
+  <!-- Sidebar — every module has one except the shell, which hosts the others
+       and uses the full width for their widgets. -->
+  {s.variant !== 'workspace' && (
+  <g>
   <rect x="0" y={BAR} width={SIDE} height={H - BAR} fill={c.side} />
   <line x1={SIDE} y1={BAR} x2={SIDE} y2={H} stroke={c.line} />
   <rect x="24" y={BAR + 28} width="10" height="10" rx="2" fill={accent} />
@@ -79,7 +82,12 @@ const positive = s.statuses ? s.statuses[0] : '';
     </g>
   ))}
 
+  </g>
+  )}
+
   <!-- Content header -->
+  {s.variant !== 'workspace' && (
+  <g>
   <text x={CX + PAD} y={CY + 44} font-family={sans} font-size="22" font-weight="500" fill={c.fg}>
     {module.title}
   </text>
@@ -88,6 +96,8 @@ const positive = s.statuses ? s.statuses[0] : '';
   <rect x={CX + CW - PAD - 104} y={CY + 26} width="104" height="30" rx="4" fill={accent} />
   <text x={CX + CW - PAD - 52} y={CY + 45} text-anchor="middle" font-family={mono} font-size="11" font-weight="600" fill="#0A0A0A">+ NEW</text>
   <line x1={CX + PAD} y1={CY + 72} x2={CX + CW - PAD} y2={CY + 72} stroke={c.line} />
+  </g>
+  )}
 
   <!-- ── TABLE ─────────────────────────────────────────────── -->
   {s.variant === 'table' && s.columns && s.rows && (
@@ -232,6 +242,92 @@ const positive = s.statuses ? s.statuses[0] : '';
             <circle cx={cx + cardW / 2} cy={cy + 52} r="26" fill="none" stroke={accent} stroke-width="1.5" opacity="0.7" />
             <text x={cx + 18} y={cy + 138} font-family={sans} font-size="15" fill={c.fg}>{card.title}</text>
             <text x={cx + 18} y={cy + 160} font-family={mono} font-size="12" fill={accent}>{card.sub}</text>
+          </g>
+        );
+      })}
+    </g>
+  )}
+
+  <!-- ── WORKSPACE ─────────────────────────────────────────── -->
+  {s.variant === 'workspace' && s.widgets && (
+    <g>
+      {/* One bar across the full width: brand, board tabs, the shared context,
+          and the two buttons that change what is on the board. This is the real
+          layout (mod-15-workspace/src/App.tsx) — there is no sidebar. */}
+      <text x="32" y={BAR + 40} font-family={mono} font-size="12" fill={c.mute} letter-spacing="0.5">{module.n}</text>
+      <text x="92" y={BAR + 40} font-family={mono} font-size="12" font-weight="600" fill={c.fg} letter-spacing="0.5">WORKSPACE</text>
+
+      {s.boards && s.boards.map((name, i) => {
+        const tabW = 104;
+        const x = 210 + i * (tabW + 8);
+        return (
+          <g>
+            {i === 0 && <rect x={x} y={BAR + 20} width={tabW} height="28" rx="4" fill="rgba(232,228,220,0.06)" stroke={accent} />}
+            <text x={x + tabW / 2} y={BAR + 39} text-anchor="middle" font-family={mono} font-size="11"
+              fill={i === 0 ? c.fg : c.mute} letter-spacing="0.8">{name.toUpperCase()}</text>
+          </g>
+        );
+      })}
+
+      {/* The context bar: pick a customer once, every widget re-asks its own
+          module that question. */}
+      {s.contextChip && (
+        <g>
+          <rect x={W - 452} y={BAR + 20} width="256" height="28" rx="14" fill={c.panel} stroke={accent} />
+          <circle cx={W - 434} cy={BAR + 34} r="4" fill={accent} />
+          <text x={W - 422} y={BAR + 38} font-family={sans} font-size="12" fill={c.dim}>{s.contextChip}</text>
+        </g>
+      )}
+      <rect x={W - 184} y={BAR + 20} width="104" height="28" rx="4" fill="none" stroke={c.lineS} />
+      <text x={W - 132} y={BAR + 38} text-anchor="middle" font-family={mono} font-size="10" fill={c.dim} letter-spacing="0.8">ADD WIDGET</text>
+      <rect x={W - 68} y={BAR + 20} width="44" height="28" rx="4" fill="none" stroke={c.lineS} />
+      <text x={W - 46} y={BAR + 38} text-anchor="middle" font-family={mono} font-size="10" fill={c.mute} letter-spacing="0.8">↻</text>
+      <line x1="0" y1={BAR + 68} x2={W} y2={BAR + 68} stroke={c.line} />
+
+      {/* The board itself: the same 12-column grid the module ships. */}
+      {s.widgets.map((wd) => {
+        const cols = 12;
+        const gap = 12;
+        const left = 24;
+        const top = BAR + 92;
+        const colW = (W - left * 2 - gap * (cols - 1)) / cols;
+        const rowH = 64;
+        const lift = wd.dragging ? -10 : 0;
+        const x = left + wd.x * (colW + gap);
+        const y = top + wd.y * (rowH + gap) + lift;
+        const wpx = wd.w * colW + (wd.w - 1) * gap;
+        const hpx = wd.h * rowH + (wd.h - 1) * gap;
+        return (
+          <g>
+            {/* Where it will land — the grid previews the drop rather than
+                shoving its neighbours aside. */}
+            {wd.dragging && (
+              <rect x={x} y={y - lift} width={wpx} height={hpx} rx="4" fill="none"
+                stroke={accent} stroke-dasharray="4 4" opacity="0.5" />
+            )}
+            <rect x={x} y={y} width={wpx} height={hpx} rx="4" fill={c.panel}
+              stroke={wd.dragging ? accent : c.line} />
+            {/* The header is the drag handle, and it names the module the
+                figures came from. */}
+            <text x={x + 14} y={y + 24} font-family={mono} font-size="9" fill={accent} letter-spacing="1">{wd.source}</text>
+            <text x={x + 14 + wd.source.length * 6.4 + 10} y={y + 24} font-family={mono} font-size="9" fill={c.mute} letter-spacing="0.6">{wd.label.toUpperCase()}</text>
+            <line x1={x} y1={y + 34} x2={x + wpx} y2={y + 34} stroke={c.line} />
+
+            {wd.value && (
+              <text x={x + 14} y={y + 76} font-family={sans} font-size="26" font-weight="500" fill={c.fg}>{wd.value}</text>
+            )}
+            {wd.rows && wd.rows.map((row, r) => (
+              <g>
+                <text x={x + 14} y={y + 58 + r * 26} font-family={sans} font-size="12" fill={c.dim}>{row}</text>
+                {r < wd.rows!.length - 1 && (
+                  <line x1={x + 14} y1={y + 68 + r * 26} x2={x + wpx - 14} y2={y + 68 + r * 26} stroke={c.line} opacity="0.6" />
+                )}
+              </g>
+            ))}
+
+            {/* Resize grip, bottom-right, as on every real widget. */}
+            <path d={`M ${x + wpx - 14} ${y + hpx - 5} L ${x + wpx - 5} ${y + hpx - 14}`} stroke={c.mute} stroke-width="1" />
+            <path d={`M ${x + wpx - 8} ${y + hpx - 5} L ${x + wpx - 5} ${y + hpx - 8}`} stroke={c.mute} stroke-width="1" />
           </g>
         );
       })}

@@ -17,8 +17,27 @@ export interface ScreenStat { label: string; value: string; }
 export interface ScreenColumn { title: string; cards: string[]; }
 export interface ScreenField { label: string; value: string; }
 
+/**
+ * One widget on a Workspace board, in the same 12-column grid the real one uses
+ * (`mod-15-workspace/shared/types.ts`, GRID_COLUMNS). `source` is the module the
+ * figures came from — the label the real widget header carries — because a board
+ * that does not say which module each number belongs to is just a dashboard.
+ */
+export interface ScreenWidget {
+  source: string;
+  label: string;
+  value?: string;
+  rows?: string[];
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Drawn lifted and outlined, the way the real grid previews a drag. */
+  dragging?: boolean;
+}
+
 export interface ModuleScreen {
-  variant: 'table' | 'dashboard' | 'board' | 'detail' | 'catalogue';
+  variant: 'table' | 'dashboard' | 'board' | 'detail' | 'catalogue' | 'workspace';
   accent: string;
   nav: string[];
   // table
@@ -35,6 +54,11 @@ export interface ModuleScreen {
   list?: string[];
   // catalogue
   cards?: { title: string; sub: string }[];
+  // workspace — a shell that hosts other modules, so it has no sidebar of its
+  // own: boards are tabs, and every panel is fed by the module it names.
+  boards?: string[];
+  contextChip?: string;
+  widgets?: ScreenWidget[];
 }
 
 /** The copy this file owns, keyed by the registry's module id. */
@@ -405,24 +429,66 @@ const presentation: Record<string, ModulePresentation> = {
       'Cross-module actions that run as you, not as a service account',
     ],
     screen: {
-      variant: 'dashboard',
+      // Not `dashboard`: that variant draws four tiles and a revenue chart, which
+      // is a report, not a shell. This module's whole point is that every panel
+      // belongs to a DIFFERENT module and that you arrange them yourself, so the
+      // mockup has to show the source labels, the board tabs and a widget being
+      // dragged — or it advertises the wrong product.
+      variant: 'workspace',
       accent: '#8FA98C',
-      nav: ['Overview', 'Finance', 'Delivery'],
-      stats: [
-        { label: 'Offers out', value: '7' },
-        { label: 'Outstanding', value: '€ 42,180' },
-        { label: 'Overdue', value: '3' },
-        { label: 'Open tickets', value: '11' },
+      nav: [],
+      boards: ['Overview', 'Finance', 'Delivery'],
+      contextChip: 'Blaustern Café GmbH',
+      widgets: [
+        { source: 'OFFERS', label: 'Offers out', value: '7', x: 0, y: 0, w: 3, h: 2 },
+        { source: 'INVOICING', label: 'Outstanding', value: '€ 42,180', x: 3, y: 0, w: 3, h: 2 },
+        { source: 'CRM', label: 'Weighted pipeline', value: '€ 85,725', x: 6, y: 0, w: 3, h: 2 },
+        { source: 'TIME', label: 'Billable share', value: '93 %', x: 9, y: 0, w: 3, h: 2 },
+        {
+          source: 'OFFERS',
+          label: 'Accepted, ready to bill',
+          rows: ['AN-2026-0007 · Rollout', 'AN-2026-0011 · Wartung', 'AN-2026-0014 · Ausbau'],
+          x: 0,
+          y: 2,
+          w: 5,
+          h: 3,
+        },
+        {
+          source: 'SUPPORT',
+          label: 'Waiting longest',
+          rows: ['#4120 · 3d · SLA breached', '#4118 · 2d · Unassigned', '#4109 · 1d · Open'],
+          x: 5,
+          y: 2,
+          w: 4,
+          h: 3,
+        },
+        // Mid-drag, exactly as the real grid previews one: lifted, outlined, and
+        // overlapping its neighbour because the board never reflows what you did
+        // not touch (see Board.tsx).
+        {
+          source: 'CRM',
+          label: 'Follow-ups due',
+          rows: ['Helios · Angebot nachfassen', 'Nordwind · Termin'],
+          x: 8,
+          y: 2,
+          w: 4,
+          h: 3,
+          dragging: true,
+        },
+        // The shell's own widget: one feed over every module, read from PS-07.
+        {
+          source: 'WORKSPACE',
+          label: 'Activity',
+          rows: [
+            'ada@acme.test · offer.sent · OFFERS · AN-2026-0014',
+            'ada@acme.test · invoice.issued · INVOICING · RE-2026-0087',
+          ],
+          x: 0,
+          y: 5,
+          w: 12,
+          h: 2,
+        },
       ],
-      columns: ['Module', 'Widget', 'Value'],
-      rows: [
-        ['Offers', 'Accepted, ready to bill', '4'],
-        ['Invoicing', 'Overdue, oldest first', '3'],
-        ['CRM', 'Follow-ups due', '6'],
-        ['Support', 'Waiting longest', '11'],
-        ['Time', 'Timesheets to approve', '2'],
-      ],
-      statuses: ['Live', 'Filtered'],
     },
   },
 };
