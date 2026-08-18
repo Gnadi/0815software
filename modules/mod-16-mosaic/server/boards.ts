@@ -182,12 +182,43 @@ function validPane(input: PaneInput): Omit<Pane, 'id' | 'board_id'> {
   };
 }
 
+/**
+ * Where a new pane goes when the caller did not say.
+ *
+ * Beside the others, not on top of them. Every pane defaults to (0, 0), so
+ * without this the second one lands exactly under the first and the third under
+ * that — three applications stacked in one rectangle, each needing to be
+ * dragged out by hand before the board is usable at all. "Side by side" is the
+ * entire premise of this module; it should not be a chore.
+ *
+ * The rule is the one a person would use: continue the current row while the
+ * pane fits, otherwise start a new one below everything placed so far. It does
+ * not hunt for gaps — a board where somebody has already arranged things is
+ * theirs, and dropping a pane into a hole they left open would be a surprise.
+ */
+function nextFreeSpot(existing: Pane[], w: number): { x: number; y: number } {
+  if (existing.length === 0) return { x: 0, y: 0 };
+
+  // The row the most recent pane sits on, and how far right it reaches.
+  const lastY = Math.max(...existing.map((p) => p.y));
+  const onLastRow = existing.filter((p) => p.y === lastY);
+  const rightEdge = Math.max(...onLastRow.map((p) => p.x + p.w));
+
+  if (rightEdge + w <= GRID_COLUMNS) return { x: rightEdge, y: lastY };
+  return { x: 0, y: lastY + Math.max(...onLastRow.map((p) => p.h)) };
+}
+
 export function addPane(db: Database.Database, owner: string, boardId: number, input: PaneInput): Pane {
-  getBoard(db, owner, boardId);
+  const board = getBoard(db, owner, boardId);
   const pane = validPane(input);
+  // An explicit placement wins; an absent one is laid out beside what is there.
+  const placed =
+    input.x === undefined && input.y === undefined
+      ? { ...pane, ...nextFreeSpot(board.panes, pane.w) }
+      : pane;
   const info = db
     .prepare('INSERT INTO panes (board_id, module_id, x, y, w, h) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(boardId, pane.module_id, pane.x, pane.y, pane.w, pane.h);
+    .run(boardId, placed.module_id, placed.x, placed.y, placed.w, placed.h);
   return db
     .prepare('SELECT id, board_id, module_id, x, y, w, h FROM panes WHERE id = ?')
     .get(Number(info.lastInsertRowid)) as Pane;

@@ -2,10 +2,11 @@
 /**
  * 0815software Platform — live, clickable demo.
  *
- * Boots seven real business apps — Workspace, CRM, Offers, Invoicing, Time,
- * Support, Documents — plus exactly the Platform Services they need (nine
+ * Boots eight real business apps — Mosaic, Workspace, CRM, Offers, Invoicing,
+ * Time, Support, Documents — plus exactly the Platform Services they need (nine
  * today), each app serving its actual web UI, all wired to one shared identity
- * provider and platform. Then
+ * provider and platform. Two of those apps are SHELLS over the other six, which
+ * is why every embeddable module names both of them in SHELL_ORIGIN. Then
  * it serves a hub page that links you into every running app with the demo
  * logins. The selection below is a list of modules/registry.json ids; the
  * topology is derived from it.
@@ -34,6 +35,7 @@ const ORG = 'acme';
 // which Platform Services to boot, whether the app does SSO — is derived from
 // modules/registry.json, so the demo cannot drift from the modules.
 const SELECTION = [
+  'mod-16-mosaic',
   'mod-15-workspace',
   'mod-10-crm-lite',
   'mod-13-offers',
@@ -45,7 +47,8 @@ const SELECTION = [
 
 /** Demo-only narrative copy, keyed by registry id. */
 const BLURBS = {
-  'mod-15-workspace': 'One board over the other six — start here.',
+  'mod-16-mosaic': 'The other modules themselves, tiled side by side.',
+  'mod-15-workspace': 'One board of live widgets over the other modules.',
   'mod-10-crm-lite': 'Deals in a pipeline; each one can become a quote.',
   'mod-13-offers': 'Quotes a customer accepts online.',
   'mod-04-invoice-billing': 'Bills the accepted quote — one click, five services.',
@@ -67,8 +70,12 @@ const APPS = stack.modules.map((mod) => ({
   port: demoModulePort(mod),
 }));
 
-/** The app that frames the others, if this selection has one. */
-const shellApp = APPS.find((app) => peersOf(app.mod).some((peer) => peer.publicUrlEnv));
+/**
+ * The apps that frame the others. A LIST, because this selection has two —
+ * MOD-15 Workspace summarises the modules, MOD-16 Mosaic tiles them whole —
+ * and picking one would leave the other framing nothing.
+ */
+const shellApps = APPS.filter((app) => peersOf(app.mod).some((peer) => peer.publicUrlEnv));
 
 /** Newest mtime under a directory, or 0 when it does not exist. */
 function newestUnder(dir) {
@@ -182,14 +189,18 @@ function bootStack() {
       env[peer.urlEnv] = `http://127.0.0.1:${target.port}`;
       if (peer.publicUrlEnv) env[peer.publicUrlEnv] = `http://localhost:${target.port}`;
     }
-    // The other half of the embed seam: every embeddable app names the shell
+    // The other half of the embed seam: every embeddable app names the shells
     // back, which is what swaps its X-Frame-Options: DENY for a frame-ancestors
-    // naming only the Workspace, and opens its session-handoff routes. Derived
-    // from what a module DECLARES — one that asks for a peer's public origin is
-    // one that will put that peer in a browser — never from an id, exactly as
-    // deploy/provision.mjs does it.
-    if (mod.constraints.embeddable && shellApp && mod.id !== shellApp.mod.id) {
-      env.SHELL_ORIGIN = `http://localhost:${shellApp.port}`;
+    // naming them, and opens its session-handoff routes. Derived from what a
+    // module DECLARES — one that asks for a peer's public origin is one that
+    // will put that peer in a browser — never from an id, exactly as
+    // deploy/provision.mjs does it. Accumulated, not assigned: with two shells
+    // an `=` here would let the last one silently win.
+    if (mod.constraints.embeddable) {
+      const origins = shellApps
+        .filter((shell) => shell.mod.id !== mod.id)
+        .map((shell) => `http://localhost:${shell.port}`);
+      if (origins.length > 0) env.SHELL_ORIGIN = origins.join(',');
     }
 
     M[mod.label] = boot({ group: 'modules', name: mod.id, port, tag: mod.label, compiled: true, env });
@@ -203,7 +214,7 @@ function bootStack() {
 const CARDS = APPS.map(({ mod, label, port }) => ({
   label,
   port,
-  shell: shellApp?.mod.id === mod.id,
+  shell: shellApps.some((shell) => shell.mod.id === mod.id),
   blurb: BLURBS[mod.id] ?? '',
   services: servicesOf(mod)
     .filter((s) => s.urlEnv !== 'IDENTITY_URL')
@@ -288,8 +299,8 @@ async function main() {
 
   console.log(`  ${c.green('✓')} Everything is up.\n`);
   console.log(`  ${c.bold('Open the hub:')}  ${c.cyan(`http://localhost:${HUB_PORT}`)}`);
-  if (shellApp) {
-    console.log(c.dim(`  Or go straight to the board: http://localhost:${shellApp.port}`));
+  for (const shell of shellApps) {
+    console.log(c.dim(`  Or go straight to ${shell.label}: http://localhost:${shell.port}`));
   }
   console.log(c.dim(`  Apps: ${CARDS.map((a) => `${a.label} :${a.port}`).join('  ·  ')}`));
   console.log(c.dim('  SSO login: owner@acme.test / demo-owner   ·   Documents: admin / demo-admin'));

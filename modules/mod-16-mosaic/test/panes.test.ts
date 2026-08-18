@@ -129,6 +129,48 @@ describe('panes', () => {
     expect(res.body.h).toBeGreaterThanOrEqual(3);
   });
 
+  /**
+   * Every pane defaults to (0, 0). Without a layout rule the second one lands
+   * exactly under the first — three applications stacked in one rectangle,
+   * each to be dragged out by hand before the board is usable. "Side by side"
+   * is the premise of this module, so it is the default rather than a chore.
+   */
+  it('lays a new pane beside the others rather than on top of them', async () => {
+    const app = build();
+    const cookie = await signIn(app);
+    const board = await firstBoard(app, cookie);
+
+    const add = (moduleId: string) =>
+      request(app).post(`/api/boards/${board}/panes`).set('Cookie', cookie).send({ module_id: moduleId }).expect(201);
+
+    // Default width is 6, so two fill the row…
+    const first = await add('mod-13-offers');
+    expect(first.body).toMatchObject({ x: 0, y: 0 });
+    const second = await add('mod-04-invoice-billing');
+    expect(second.body).toMatchObject({ x: 6, y: 0 });
+
+    // …and the third starts a new one below them, not in a gap of its own.
+    const third = await add('mod-15-workspace');
+    expect(third.body).toMatchObject({ x: 0 });
+    expect(third.body.y).toBeGreaterThan(0);
+  });
+
+  it('honours a placement the caller asked for', async () => {
+    const app = build();
+    const cookie = await signIn(app);
+    const board = await firstBoard(app, cookie);
+
+    await request(app).post(`/api/boards/${board}/panes`).set('Cookie', cookie).send({ module_id: 'mod-13-offers' }).expect(201);
+    // An explicit position wins over the automatic one — the client sends this
+    // when a person drops a pane somewhere deliberately.
+    const placed = await request(app)
+      .post(`/api/boards/${board}/panes`)
+      .set('Cookie', cookie)
+      .send({ module_id: 'mod-04-invoice-billing', x: 3, y: 7 })
+      .expect(201);
+    expect(placed.body).toMatchObject({ x: 3, y: 7 });
+  });
+
   it('allows the same module twice, because two views side by side is the point', async () => {
     const app = build();
     const cookie = await signIn(app);
