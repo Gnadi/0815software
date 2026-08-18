@@ -1,5 +1,5 @@
 import type { AuthConfig } from './auth.js';
-import { shellOriginFromEnv } from './hardening.js';
+import { shellOriginsFromEnv } from './hardening.js';
 import type { PlatformConfig } from './platform.js';
 import type { SsoConfig } from './sso.js';
 
@@ -23,10 +23,11 @@ export interface ServerConfig {
   /**
    * The MOD-15 Workspace origin allowed to embed this module and to sign users
    * into it. Unset — the default, and every standalone install — turns off
-   * framing and the handoff routes alike. Parsed by `shellOriginFromEnv`, which
+   * framing and the handoff routes alike. A comma-separated LIST, because a
+   * stack may run more than one shell. Parsed by `shellOriginsFromEnv`, which
    * refuses a malformed value rather than dropping it.
    */
-  shellOrigin?: string;
+  shellOrigins: string[];
   auth: AuthConfig;
   seller: SellerConfig;
   platform: PlatformConfig;
@@ -73,7 +74,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     databasePath: env.DATABASE_PATH ?? './data.db',
     sellerRefreshMs: numberFromEnv('SELLER_REFRESH_MS', env.SELLER_REFRESH_MS, 300_000, 0, 86400000),
     publicBaseUrl: env.PUBLIC_BASE_URL ?? `http://localhost:${port}`,
-    shellOrigin: shellOriginFromEnv(env.SHELL_ORIGIN),
+    shellOrigins: shellOriginsFromEnv(env.SHELL_ORIGIN),
     auth: {
       username: env.ADMIN_USERNAME ?? 'admin',
       password: env.ADMIN_PASSWORD ?? 'admin',

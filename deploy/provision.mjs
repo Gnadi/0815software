@@ -373,13 +373,19 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
   // A shell is identified by what it DECLARES, never by its id: a module that
   // asks for a peer's public origin is precisely a module that will put that
   // peer in a browser — an iframe or a link — which is exactly the relationship
-  // SHELL_ORIGIN authorises. A second shell would work with no change here.
+  // SHELL_ORIGIN authorises.
+  //
+  // ACCUMULATED, not assigned. This comment used to claim a second shell would
+  // need no change here, and that was wrong: with `=` the last shell in the
+  // list won and every earlier one framed nothing, which from inside that
+  // frame is indistinguishable from a broken module. A stack can legitimately
+  // run both — MOD-15 Workspace summarises modules, MOD-16 Mosaic frames them
+  // whole — so the variable is a comma-separated list and each shell appends.
   const shells = plannedModules.filter((p) => peersOf(p.mod).some((peer) => peer.publicUrlEnv));
-  for (const shell of shells) {
-    for (const planned of plannedModules) {
-      if (planned === shell || !planned.mod.constraints.embeddable) continue;
-      planned.env.SHELL_ORIGIN = shell.url;
-    }
+  for (const planned of plannedModules) {
+    if (!planned.mod.constraints.embeddable) continue;
+    const origins = shells.filter((shell) => shell !== planned).map((shell) => shell.url);
+    if (origins.length > 0) planned.env.SHELL_ORIGIN = origins.join(',');
   }
 
   return {

@@ -3,7 +3,7 @@ import type { NextFunction, Request, Response } from 'express';
 import {
   hardeningFromEnv,
   hardeningMiddleware,
-  shellOriginFromEnv,
+  shellOriginsFromEnv,
   trustProxyHops,
   type HardeningConfig,
 } from '../server/hardening.js';
@@ -27,6 +27,8 @@ function config(overrides: Partial<HardeningConfig> = {}): HardeningConfig {
     rateLimitRpm: 0,
     loginRateLimitRpm: 0,
     corsOrigins: [],
+    // No shell named: the standalone posture every case below starts from.
+    shellOrigins: [],
     hsts: false,
     requestTimeoutMs: 0,
     trustProxy: 0,
@@ -200,31 +202,60 @@ describe('security headers and CORS', () => {
    * existed. That is the promise the whole embed design rests on.
    */
   it('denies framing outright when no shell origin is configured', () => {
-    const { headers } = call(hardeningMiddleware(config({ shellOrigin: undefined })));
+    const { headers } = call(hardeningMiddleware(config({ shellOrigins: [] })));
     expect(headers['x-frame-options']).toBe('DENY');
     expect(headers['content-security-policy']).toBeUndefined();
   });
 
-  it('names the one shell origin, and drops X-Frame-Options when it does', () => {
-    const { headers } = call(hardeningMiddleware(config({ shellOrigin: 'https://workspace.example' })));
+  it('names the shell origin, and drops X-Frame-Options when it does', () => {
+    const { headers } = call(hardeningMiddleware(config({ shellOrigins: ['https://workspace.example'] })));
     expect(headers['content-security-policy']).toBe('frame-ancestors https://workspace.example');
     // Both together would be a header that reads as a refusal and is ignored:
     // browsers prefer the CSP, so DENY alongside it misleads whoever audits it.
     expect(headers['x-frame-options']).toBeUndefined();
   });
+
+  /**
+   * A stack may run more than one shell — MOD-15 Workspace summarises modules,
+   * MOD-16 Mosaic frames them whole — and this module has no business picking
+   * between them. While the config held a single value the provisioner's last
+   * write won and the other shell framed nothing, which looks exactly like a
+   * broken module from the inside of that frame.
+   */
+  it('names every configured shell, so two of them can both frame this module', () => {
+    const { headers } = call(
+      hardeningMiddleware(config({ shellOrigins: ['https://workspace.example', 'https://mosaic.example'] })),
+    );
+    expect(headers['content-security-policy']).toBe(
+      'frame-ancestors https://workspace.example https://mosaic.example',
+    );
+    expect(headers['x-frame-options']).toBeUndefined();
+  });
 });
 
-describe('shellOriginFromEnv', () => {
-  it('is unset by default, and treats blank as unset', () => {
-    expect(shellOriginFromEnv(undefined)).toBeUndefined();
-    expect(shellOriginFromEnv('')).toBeUndefined();
-    expect(shellOriginFromEnv('   ')).toBeUndefined();
+describe('shellOriginsFromEnv', () => {
+  it('is empty by default, and treats blank as empty', () => {
+    expect(shellOriginsFromEnv(undefined)).toEqual([]);
+    expect(shellOriginsFromEnv('')).toEqual([]);
+    expect(shellOriginsFromEnv('   ')).toEqual([]);
   });
 
   it('normalizes a valid origin', () => {
-    expect(shellOriginFromEnv('https://workspace.example')).toBe('https://workspace.example');
-    expect(shellOriginFromEnv('  https://workspace.example/  ')).toBe('https://workspace.example');
-    expect(shellOriginFromEnv('http://localhost:3015')).toBe('http://localhost:3015');
+    expect(shellOriginsFromEnv('https://workspace.example')).toEqual(['https://workspace.example']);
+    expect(shellOriginsFromEnv('  https://workspace.example/  ')).toEqual(['https://workspace.example']);
+    expect(shellOriginsFromEnv('http://localhost:3015')).toEqual(['http://localhost:3015']);
+  });
+
+  it('reads a comma-separated list, and keeps the operator’s order', () => {
+    expect(shellOriginsFromEnv('https://workspace.example, https://mosaic.example')).toEqual([
+      'https://workspace.example',
+      'https://mosaic.example',
+    ]);
+    // A trailing comma is a typo, not a request to allow nothing.
+    expect(shellOriginsFromEnv('https://workspace.example,')).toEqual(['https://workspace.example']);
+    // The same shell named twice is one entry: a repeated origin in
+    // frame-ancestors is noise in a header people audit by eye.
+    expect(shellOriginsFromEnv('https://a.example, https://a.example/')).toEqual(['https://a.example']);
   });
 
   /**
@@ -234,13 +265,16 @@ describe('shellOriginFromEnv', () => {
    * fail while a human is still watching.
    */
   it('refuses a value that is not a bare origin, rather than dropping it', () => {
-    expect(() => shellOriginFromEnv('workspace.example')).toThrow(/absolute origin/);
-    expect(() => shellOriginFromEnv('not a url')).toThrow(/absolute origin/);
-    expect(() => shellOriginFromEnv('javascript:alert(1)')).toThrow(/http or https/);
+    expect(() => shellOriginsFromEnv('workspace.example')).toThrow(/absolute origins/);
+    expect(() => shellOriginsFromEnv('not a url')).toThrow(/absolute origins/);
+    expect(() => shellOriginsFromEnv('javascript:alert(1)')).toThrow(/http or https/);
     // frame-ancestors matches ORIGINS. Silently widening a path to the whole
     // origin is not this function's decision to make.
-    expect(() => shellOriginFromEnv('https://workspace.example/app')).toThrow(/no path/);
-    expect(() => shellOriginFromEnv('https://workspace.example/?x=1')).toThrow(/no path/);
+    expect(() => shellOriginsFromEnv('https://workspace.example/app')).toThrow(/no path/);
+    expect(() => shellOriginsFromEnv('https://workspace.example/?x=1')).toThrow(/no path/);
+    // One bad entry fails the whole list: half a policy is not a policy, and
+    // the operator would never see which half survived.
+    expect(() => shellOriginsFromEnv('https://good.example, nonsense')).toThrow(/absolute origins/);
   });
 
   it('emits HSTS only when configured', () => {

@@ -43,12 +43,12 @@ let db: Database.Database;
  */
 let shell: Express;
 
-function build(overrides: { serviceToken?: string; shellOrigin?: string } = {}): Express {
+function build(overrides: { serviceToken?: string; shellOrigins?: string[] } = {}): Express {
   return createApp({
     db,
     auth,
     serviceToken: SERVICE_TOKEN,
-    shellOrigin: SHELL,
+    shellOrigins: [SHELL],
     ...overrides,
   });
 }
@@ -65,7 +65,7 @@ beforeEach(() => {
 
 describe('the standalone default', () => {
   it('mounts no handoff surface at all when no shell origin is configured', async () => {
-    const standalone = build({ shellOrigin: undefined });
+    const standalone = build({ shellOrigins: [] });
 
     // The two /api routes are not mounted, so they fall through to the session
     // gate and answer 401 — the same answer any unauthenticated /api call

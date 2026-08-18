@@ -1,5 +1,5 @@
 import type { AuthConfig } from './auth.js';
-import { shellOriginFromEnv } from './hardening.js';
+import { shellOriginsFromEnv } from './hardening.js';
 import type { PlatformConfig } from './platform.js';
 import type { SsoConfig } from './sso.js';
 import { CATALOGUE } from '../shared/catalogue.js';
@@ -30,11 +30,11 @@ export interface ServerConfig {
    */
   publicBaseUrl: string;
   /**
-   * Set when this Workspace is itself embedded in another shell. Present for
-   * symmetry with every other module — the whole catalogue reads it — and
-   * unset in every deployment we ship.
+   * Set when this Workspace is itself embedded in another shell — which is no
+   * longer hypothetical: MOD-16 Mosaic frames whole modules, and this one is
+   * `embeddable` like any other. A list, because a stack may run both.
    */
-  shellOrigin?: string;
+  shellOrigins: string[];
   /** How long a peer has to answer a summary call before the widget gives up. */
   peerTimeoutMs: number;
   auth: AuthConfig;
@@ -153,7 +153,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     port,
     databasePath: env.DATABASE_PATH ?? './data.db',
     publicBaseUrl: env.PUBLIC_BASE_URL ?? `http://localhost:${port}`,
-    shellOrigin: shellOriginFromEnv(env.SHELL_ORIGIN),
+    shellOrigins: shellOriginsFromEnv(env.SHELL_ORIGIN),
     // Five seconds: long enough for a cold SQLite read on a loaded box, short
     // enough that one sick peer cannot make the whole board feel broken. Every
     // peer is fetched concurrently, so this is the board's worst case, not its

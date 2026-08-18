@@ -20,7 +20,7 @@ describe('defaults', () => {
     expect(config.port).toBe(3015);
     expect(config.databasePath).toBe('./data.db');
     expect(config.peers).toEqual({});
-    expect(config.shellOrigin).toBeUndefined();
+    expect(config.shellOrigins).toEqual([]);
     expect(config.platform.serviceToken).toBeUndefined();
   });
 
@@ -154,7 +154,7 @@ describe('platform wiring', () => {
   });
 
   it('reads SHELL_ORIGIN, so this module can itself be embedded', () => {
-    expect(configFromEnv({ SHELL_ORIGIN: 'https://shell.example/' }).shellOrigin).toBe('https://shell.example');
+    expect(configFromEnv({ SHELL_ORIGIN: 'https://shell.example/' }).shellOrigins).toEqual(['https://shell.example']);
     expect(() => configFromEnv({ SHELL_ORIGIN: 'shell.example' })).toThrow(/absolute origin/);
   });
 });

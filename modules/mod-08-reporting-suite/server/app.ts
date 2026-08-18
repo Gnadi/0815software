@@ -186,11 +186,12 @@ export interface AppOptions {
    */
   serviceToken?: string;
   /**
-   * The MOD-15 Workspace origin allowed to embed this module and to sign users
-   * into it (SHELL_ORIGIN). Unset — the default — leaves the handoff routes
-   * unmounted entirely and keeps `X-Frame-Options: DENY` in `hardening.ts`.
+   * The shell origins allowed to embed this module and to sign users into it
+   * (SHELL_ORIGIN). Empty — the default — leaves the handoff routes unmounted
+   * entirely and keeps `X-Frame-Options: DENY` in `hardening.ts`. A list, so a
+   * stack can run both MOD-15 Workspace and MOD-16 Mosaic.
    */
-  shellOrigin?: string;
+  shellOrigins?: string[];
   /**
    * Which credentials the login form should name, served as-is from
    * GET /api/auth-mode. Defaults to this module's own — the standalone case.
@@ -198,9 +199,9 @@ export interface AppOptions {
   loginMode?: LoginMode;
 }
 
-export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, auth, exportsDir, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigin }: AppOptions): express.Express {
+export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, auth, exportsDir, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [] }: AppOptions): express.Express {
   const app = express();
-  const handoff = shellOrigin ? createHandoff(auth) : null;
+  const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
   // The policy for THIS request, with the published view set read fresh from
   // the source's catalog (see source-db.ts `sourcePolicy` for why per-check
   // rather than snapshotted at boot). Called at every validation and every

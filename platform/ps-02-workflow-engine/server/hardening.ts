@@ -22,16 +22,22 @@ export interface HardeningConfig {
   /** Socket inactivity timeout in ms. 0 disables. */
   requestTimeoutMs: number;
   /**
-   * The MOD-15 Workspace origin allowed to embed this module in a frame.
+   * The shell origins allowed to embed this module in a frame.
    *
-   * Unset — the default, and what every standalone install runs — keeps the
-   * blanket `X-Frame-Options: DENY` below. Set, it is the SOLE `frame-ancestors`
-   * value: one named origin, never a wildcard and never a list, because the
-   * shell is a component of this same stack rather than a category of caller.
-   * It also gates the handoff routes (`handoff.ts`), so embedding and
+   * Empty — the default, and what every standalone install runs — keeps the
+   * blanket `X-Frame-Options: DENY` below. Non-empty, these are the ONLY
+   * `frame-ancestors` values: named origins, never a wildcard, because a shell
+   * is a component of this same stack rather than a category of caller. It also
+   * gates the handoff routes (`handoff.ts`), so embedding and
    * signing-in-from-the-shell are one operator decision, not two.
+   *
+   * A LIST rather than one value, because a stack may run more than one shell —
+   * MOD-15 Workspace summarises modules, MOD-16 Mosaic frames them whole — and
+   * a module has no reason to pick between them. It was a single value until a
+   * second shell existed, at which point the provisioner's last write silently
+   * won and the other shell framed nothing.
    */
-  shellOrigin?: string;
+  shellOrigins: string[];
   /**
    * Number of reverse proxies in front of this service (Express `trust proxy`).
    * 0 = trust nobody: `req.ip` is the socket peer. Behind the stack's Caddy
@@ -91,27 +97,35 @@ function nonNegativeNumber(raw: string | undefined, fallback: number): number {
  * thought it meant, and silently widening it to the whole origin is not our
  * decision to make.
  */
-export function shellOriginFromEnv(raw: string | undefined): string | undefined {
-  if (raw === undefined || raw.trim() === '') return undefined;
-  let url: URL;
-  try {
-    url = new URL(raw.trim());
-  } catch {
-    throw new Error(`SHELL_ORIGIN must be an absolute origin — got ${JSON.stringify(raw)}`);
+export function shellOriginsFromEnv(raw: string | undefined): string[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  const seen = new Set<string>();
+  for (const part of raw.split(',')) {
+    const entry = part.trim();
+    // A trailing comma is a typo, not a request to allow nothing; skipping the
+    // empty piece is the one lenience here.
+    if (entry === '') continue;
+    let url: URL;
+    try {
+      url = new URL(entry);
+    } catch {
+      throw new Error(`SHELL_ORIGIN must be absolute origins — got ${JSON.stringify(entry)}`);
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      throw new Error(`SHELL_ORIGIN must be http or https — got ${JSON.stringify(entry)}`);
+    }
+    if (url.pathname !== '/' || url.search !== '' || url.hash !== '') {
+      throw new Error(`SHELL_ORIGIN must be origins with no path — got ${JSON.stringify(entry)}`);
+    }
+    seen.add(url.origin);
   }
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
-    throw new Error(`SHELL_ORIGIN must be http or https — got ${JSON.stringify(raw)}`);
-  }
-  if (url.pathname !== '/' || url.search !== '' || url.hash !== '') {
-    throw new Error(`SHELL_ORIGIN must be an origin with no path — got ${JSON.stringify(raw)}`);
-  }
-  return url.origin;
+  return [...seen];
 }
 
 export function hardeningFromEnv(env: NodeJS.ProcessEnv = process.env): HardeningConfig {
   return {
     rateLimitRpm: nonNegativeNumber(env.RATE_LIMIT_RPM, 600),
-    shellOrigin: shellOriginFromEnv(env.SHELL_ORIGIN),
+    shellOrigins: shellOriginsFromEnv(env.SHELL_ORIGIN),
     loginRateLimitRpm: nonNegativeNumber(env.LOGIN_RATE_LIMIT_RPM, 20),
     corsOrigins: (env.CORS_ORIGINS ?? '')
       .split(',')
@@ -183,8 +197,8 @@ export function hardeningMiddleware(config: HardeningConfig, now: () => number =
     // (`ALLOW-FROM` is dead), and where both are present browsers prefer the
     // CSP — so emitting DENY alongside `frame-ancestors` would be a header
     // that reads as a refusal, is ignored, and misleads whoever audits it.
-    if (config.shellOrigin) {
-      res.setHeader('Content-Security-Policy', `frame-ancestors ${config.shellOrigin}`);
+    if (config.shellOrigins.length > 0) {
+      res.setHeader('Content-Security-Policy', `frame-ancestors ${config.shellOrigins.join(' ')}`);
     } else {
       res.setHeader('X-Frame-Options', 'DENY');
     }

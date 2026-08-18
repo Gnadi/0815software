@@ -90,7 +90,7 @@ function summary(query = ''): request.Test {
 
 beforeEach(async () => {
   db = openDb(':memory:');
-  app = createApp({ db, auth, seller, serviceToken: SERVICE_TOKEN, shellOrigin: SHELL });
+  app = createApp({ db, auth, seller, serviceToken: SERVICE_TOKEN, shellOrigins: [SHELL] });
   const login = await request(app).post('/api/login').send({ username: 'admin', password: 'test-password' });
   cookie = login.headers['set-cookie']![0]!.split(';')[0]!;
 });
@@ -254,7 +254,7 @@ describe('a shell driving the offer → invoice action as the user', () => {
       auth,
       seller,
       serviceToken: SERVICE_TOKEN,
-      shellOrigin: SHELL,
+      shellOrigins: [SHELL],
       platform: {
         async audit() {},
         async notify() {},
