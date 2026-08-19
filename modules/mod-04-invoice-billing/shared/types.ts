@@ -116,3 +116,126 @@ export interface FieldError {
   field: string;
   message: string;
 }
+
+// ── Payables: the bills we owe and the bank file that pays them ────────
+
+/**
+ * DERIVED bill status. Like an invoice's "paid", none of this is a column:
+ * the database stores only the facts (`paid_at`, `cancelled_at`, and whether
+ * an active payment-run item exists), and the label is computed at read time
+ * so it cannot drift away from them.
+ *
+ *   open       payable — editable, cancellable, may go into a payment run
+ *   scheduled  in an active payment run: the file has been produced, the
+ *              bank has not been confirmed to have executed it yet
+ *   paid       settled (the run was marked executed, or someone paid it by
+ *              other means and recorded that)
+ *   cancelled  we are not paying it — kept, never deleted
+ */
+export const BILL_STATUSES = ['open', 'scheduled', 'paid', 'cancelled'] as const;
+export type BillStatus = (typeof BILL_STATUSES)[number];
+
+/** DERIVED payment-run status, from `executed_at` / `discarded_at`. */
+export const RUN_STATUSES = ['created', 'executed', 'discarded'] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+/** Someone we pay. The IBAN is stored normalized (no spaces, upper case). */
+export interface Creditor {
+  id: number;
+  name: string;
+  iban: string;
+  bic: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface CreditorRow extends Creditor {
+  bill_count: number;
+  /** Gross still owed to this creditor: bills that are neither paid nor cancelled. */
+  open_cents: number;
+}
+
+/** One incoming bill — what we owe, to whom, by when. */
+export interface Bill {
+  id: number;
+  creditor_id: number;
+  /** The supplier's own invoice number. Unique per creditor: no double entry. */
+  reference: string;
+  /** Payment purpose override; the reference is used when this is null. */
+  remittance: string | null;
+  /** Gross amount to transfer, in integer cents. Bills carry no VAT split. */
+  amount_cents: number;
+  issue_date: string | null;
+  due_date: string;
+  note: string | null;
+  paid_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+}
+
+/** One row of the bills list — status, creditor and overdue are all derived. */
+export interface BillRow extends Bill {
+  creditor_name: string;
+  creditor_iban: string;
+  creditor_bic: string | null;
+  status: BillStatus;
+  /** Derived: open (not scheduled, paid or cancelled) and due date < today. */
+  overdue: boolean;
+  /** The active payment run this bill sits in, when it is scheduled. */
+  payment_run_id: number | null;
+  /** What the payment file will say — the remittance, or the reference. */
+  payment_reference: string;
+}
+
+/**
+ * One transfer inside a payment run — a FROZEN snapshot of the bill and its
+ * creditor as they were when the file was produced. Renaming a supplier or
+ * correcting their IBAN afterwards must not change a file the bank already
+ * has, so nothing here is read back through a join.
+ */
+export interface PaymentRunItem {
+  bill_id: number;
+  position: number;
+  end_to_end_id: string;
+  amount_cents: number;
+  creditor_name: string;
+  creditor_iban: string;
+  creditor_bic: string | null;
+  remittance: string;
+  /** The bill's reference, for the screen — never part of the file itself. */
+  reference: string;
+}
+
+export interface PaymentRunRow {
+  id: number;
+  /** The pain.001 `MsgId`: the bank's duplicate check, and this run's name. */
+  message_id: string;
+  execution_date: string;
+  status: RunStatus;
+  debtor_name: string;
+  debtor_iban: string;
+  debtor_bic: string | null;
+  item_count: number;
+  total_cents: number;
+  created_by: string | null;
+  created_at: string;
+  executed_at: string | null;
+  discarded_at: string | null;
+}
+
+export interface PaymentRunDetail extends PaymentRunRow {
+  items: PaymentRunItem[];
+}
+
+/** What the payment screens need to know before offering to build a file. */
+export interface PaymentConfig {
+  /** The debtor: this installation's own account, from SELLER_* / PS-11. */
+  debtor_name: string;
+  debtor_iban: string;
+  debtor_bic: string | null;
+  /** False when the configured IBAN is missing or invalid — see `problem`. */
+  ready: boolean;
+  problem: string | null;
+  pain_version: string;
+  batch_booking: boolean;
+}

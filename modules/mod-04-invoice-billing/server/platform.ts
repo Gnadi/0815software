@@ -99,6 +99,23 @@ export interface OfferBilledInfo {
   actor: string;
 }
 
+/**
+ * Recorded when a SEPA payment run changes hands: produced, executed by the
+ * bank, or thrown away. Money leaving the company is exactly the kind of event
+ * an audit log exists for, and the file itself lives only in the operator's
+ * download — so the trail has to be here.
+ */
+export interface PaymentRunEventInfo {
+  event: 'created' | 'executed' | 'discarded';
+  runId: number;
+  /** The pain.001 MsgId — how the bank identifies the same file. */
+  messageId: string;
+  count: number;
+  totalFormatted: string;
+  executionDate: string;
+  actor: string;
+}
+
 export interface PlatformHooks {
   invoiceIssued(info: InvoiceIssuedInfo): Promise<void>;
   payInvoice(info: PayInvoiceInfo): Promise<PaymentResult>;
@@ -131,6 +148,8 @@ export interface PlatformHooks {
    * keeps its SELLER_* environment values. See server/seller.ts.
    */
   fetchSelf(): Promise<SelfParty | null>;
+  /** Record a payment-run event on PS-07, when configured. Best-effort. */
+  paymentRunEvent(info: PaymentRunEventInfo): Promise<void>;
 }
 
 /** The no-op hooks used when nothing is configured. */
@@ -158,6 +177,9 @@ export const noopPlatform: PlatformHooks = {
   },
   async fetchSelf() {
     return null;
+  },
+  async paymentRunEvent() {
+    /* standalone: nothing to do */
   },
 };
 
@@ -320,6 +342,25 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
             offer_number: info.offerNumber,
             customer: info.customerName,
             total: info.totalFormatted,
+          },
+        });
+      } catch (err) {
+        console.warn('[mod-04] audit failed:', err);
+      }
+    },
+
+    async paymentRunEvent(info: PaymentRunEventInfo): Promise<void> {
+      if (!audit) return;
+      try {
+        await audit.record({
+          actor: info.actor,
+          action: `payment_run.${info.event}`,
+          resource: `payment-run:${info.messageId}`,
+          metadata: {
+            run_id: info.runId,
+            transfers: info.count,
+            total: info.totalFormatted,
+            execution_date: info.executionDate,
           },
         });
       } catch (err) {

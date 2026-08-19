@@ -222,6 +222,10 @@ describe('the views exist and the migration is idempotent', () => {
     }
   });
 
+  // The views are a read-only contract: `ensureReportViews` may add and
+  // rebuild views, and must never materialize one as a table or touch the
+  // module's own. The list is the whole schema, receivables and payables
+  // alike, so a stray CREATE TABLE anywhere in the migration shows up here.
   it('adds no table and changes no existing one', () => {
     const tables = (
       db
@@ -229,10 +233,14 @@ describe('the views exist and the migration is idempotent', () => {
         .all() as { name: string }[]
     ).map((t) => t.name);
     expect(tables).toEqual([
+      'bills',
+      'creditors',
       'customers',
       'invoice_counters',
       'invoice_lines',
       'invoices',
+      'payment_run_items',
+      'payment_runs',
       'payments',
     ]);
     expect(tables.some((t) => t.startsWith('report_'))).toBe(false);

@@ -531,6 +531,56 @@ textarea.field__input {
   font-variant-numeric: tabular-nums;
 }
 
+/* An IBAN or a timestamp in a stat block: readable, not a headline number. */
+.stat__value--small {
+  font-size: 13px;
+  letter-spacing: 0.4px;
+}
+
+.stat__sub {
+  margin-top: 6px;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  color: var(--fg-mute);
+}
+
+/* ── The payment run bar ─────────────────────────────────────────────── */
+/* The one action the bills screen exists for, kept in view under the list:
+   what is selected, when it should execute, and the button that writes the
+   file. */
+.payrun {
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding: 16px 18px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+
+.payrun__label {
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  color: var(--fg-mute);
+}
+
+.payrun__total {
+  font-size: 24px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  margin: 6px 0;
+}
+
+.payrun__date {
+  max-width: 200px;
+}
+
+.payrun .btn {
+  margin-left: auto;
+}
+
 /* ── Ledger entry types & signed amounts ─────────────────────────────── */
 .movetype {
   display: inline-block;
@@ -611,6 +661,32 @@ textarea.field__input {
 .badge--overdue {
   color: var(--danger);
   border-color: rgba(217, 138, 122, 0.4);
+}
+
+/* Payables: bills and payment runs. Same vocabulary as the invoice badges —
+   accent for settled, muted for nothing-to-do, struck through for abandoned. */
+.badge--bill-paid,
+.badge--run-executed {
+  color: #0a0a0a;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.badge--bill-scheduled,
+.badge--run-created {
+  color: var(--fg);
+}
+
+.badge--bill-open {
+  color: var(--fg-mute);
+  border-color: var(--line);
+}
+
+.badge--bill-cancelled,
+.badge--run-discarded {
+  color: var(--fg-mute);
+  border-color: var(--line);
+  text-decoration: line-through;
 }
 
 /* ── Invoice editor ──────────────────────────────────────────────────── */

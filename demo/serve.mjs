@@ -125,7 +125,16 @@ const platformEnv = { SERVICE_TOKEN: SVC_TOKEN, ADMIN_PASSWORD: ADMIN_PW, SESSIO
 /** Extra, module-specific demo configuration beyond the derived service URLs. */
 const MODULE_ENV = {
   'mod-13-offers': { SELLER_NAME: 'Acme Corporation' },
-  'mod-04-invoice-billing': { SELLER_NAME: 'Acme Corporation', NOTIFICATION_INVOICE_CHANNEL: 'transactional-email' },
+  'mod-04-invoice-billing': {
+    SELLER_NAME: 'Acme Corporation',
+    NOTIFICATION_INVOICE_CHANNEL: 'transactional-email',
+    // A real (check-digit valid) demo account, so Invoicing's Bills screen can
+    // actually produce a SEPA payment file. The module's shipped placeholder
+    // fails validation on purpose, which is right for a fresh install and
+    // useless in a demo.
+    SELLER_IBAN: 'AT61 1904 3002 3457 3201',
+    SELLER_BIC: 'GIBAATWWXXX',
+  },
   'mod-12-support-tickets': { INTAKE_SECRET: 'demo-intake-secret' },
 };
 

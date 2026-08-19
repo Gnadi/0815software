@@ -6,15 +6,22 @@ import {
   recordPayment,
   type LineInput,
 } from './invoices.js';
+import { cancelBill, createBill, createCreditor, markBillPaid } from './bills.js';
 
 /**
  * Example dataset: 5 customers and 12 invoices across both years and
  * every status — drafts, sent (some overdue), partially and fully paid,
- * and cancelled — plus payments including partial ones. Everything goes
- * THROUGH the domain functions (createDraft → finalizeInvoice →
- * recordPayment/cancelInvoice), so the seeded database satisfies the
- * same invariants as a live one: gapless numbers per year, no stored
- * totals, no stored payment status.
+ * and cancelled — plus payments including partial ones, and on the payables
+ * side 4 creditors with 6 bills (overdue, open, settled, cancelled).
+ * Everything goes THROUGH the domain functions (createDraft →
+ * finalizeInvoice → recordPayment/cancelInvoice, createCreditor →
+ * createBill), so the seeded database satisfies the same invariants as a
+ * live one: gapless numbers per year, no stored totals, no stored payment
+ * status, and creditor IBANs that actually pass their check digits.
+ *
+ * No payment run is seeded. A run needs THIS installation's own IBAN as the
+ * debtor account, which is configuration rather than data — the first run is
+ * the operator's, made once SELLER_IBAN is real.
  *
  * Idempotent: the dataset is relational, so seeding is all-or-nothing —
  * if any customers exist the seed is skipped entirely.
@@ -244,17 +251,76 @@ export function seed(db: Database.Database): void {
       }
       if (spec.cancelled) cancelInvoice(db, invoiceId, spec.cancelled[1], spec.cancelled[0]);
     }
+
+    // ── Payables: creditors and their bills ────────────────────────────
+    // The other direction of the module. The IBANs are real-shaped and pass
+    // the check digits — a seeded bill has to be payable, or the very first
+    // thing anyone tries with the payment file fails on example data.
+    const creditors: [string, string, string | null, string | null][] = [
+      ['Stadtwerke Wien Energie GmbH', 'AT962011182202120077', 'GIBAATWWXXX', 'Electricity, monthly'],
+      ['Novum Bürotechnik GmbH', 'AT731200052345678901', 'BKAUATWWXXX', null],
+      ['Hosting Nord GmbH', 'DE89370400440532013000', 'COBADEFFXXX', 'Servers and backups'],
+      ['Kanzlei Weber & Partner', 'AT543477600000123456', null, 'Tax advisor — quarterly'],
+    ];
+    const creditorIds = creditors.map(([name, iban, bic, note]) =>
+      createCreditor(db, { name, iban, bic, note }),
+    );
+    const [ENERGY, OFFICE, HOSTING, TAX] = creditorIds as [number, number, number, number];
+
+    interface BillSpec {
+      creditor: number;
+      reference: string;
+      amountCents: number;
+      issue: string;
+      due: string;
+      remittance?: string;
+      note?: string;
+      paid?: string;
+      cancelled?: string;
+    }
+    const bills: BillSpec[] = [
+      // Overdue, waiting to be paid.
+      { creditor: ENERGY, reference: 'SW-2026-004512', amountCents: 384_20, issue: '2026-06-02', due: '2026-06-16' },
+      { creditor: HOSTING, reference: 'RE-2026-0881', amountCents: 1_188_00, issue: '2026-06-28', due: '2026-07-12',
+        remittance: 'RF18539007547034', note: 'Structured creditor reference — goes into the file as SCOR.' },
+      // Open, not yet due.
+      { creditor: OFFICE, reference: '2026/1147', amountCents: 642_60, issue: '2026-08-04', due: '2026-09-03' },
+      { creditor: TAX, reference: 'HR-2026-Q2', amountCents: 2_040_00, issue: '2026-08-10', due: '2026-09-10',
+        remittance: 'Honorar Q2/2026 — Rechnung HR-2026-Q2' },
+      // Already settled, and one we are not paying.
+      { creditor: ENERGY, reference: 'SW-2026-003980', amountCents: 371_55, issue: '2026-05-04', due: '2026-05-18',
+        paid: '2026-05-15T09:20:00Z' },
+      { creditor: OFFICE, reference: '2026/0908', amountCents: 219_00, issue: '2026-04-21', due: '2026-05-05',
+        cancelled: '2026-04-30T11:05:00Z', note: 'Goods returned — credit note received.' },
+    ];
+    for (const spec of bills) {
+      const billId = createBill(db, {
+        creditorId: spec.creditor,
+        reference: spec.reference,
+        remittance: spec.remittance ?? null,
+        amountCents: spec.amountCents,
+        issueDate: spec.issue,
+        dueDate: spec.due,
+        note: spec.note ?? null,
+        createdAt: `${spec.issue}T08:00:00Z`,
+      });
+      if (spec.paid) markBillPaid(db, billId, spec.paid);
+      if (spec.cancelled) cancelBill(db, billId, spec.cancelled);
+    }
   })();
 
   const stats = db
     .prepare(
       `SELECT (SELECT COUNT(*) FROM customers) AS customers,
               (SELECT COUNT(*) FROM invoices) AS invoices,
-              (SELECT COUNT(*) FROM payments) AS payments`,
+              (SELECT COUNT(*) FROM payments) AS payments,
+              (SELECT COUNT(*) FROM creditors) AS creditors,
+              (SELECT COUNT(*) FROM bills) AS bills`,
     )
-    .get() as { customers: number; invoices: number; payments: number };
+    .get() as { customers: number; invoices: number; payments: number; creditors: number; bills: number };
   console.log(
-    `[seed] inserted ${stats.customers} customers, ${stats.invoices} invoices, ${stats.payments} payments`,
+    `[seed] inserted ${stats.customers} customers, ${stats.invoices} invoices, ${stats.payments} payments, ` +
+      `${stats.creditors} creditors, ${stats.bills} bills`,
   );
 }
 
