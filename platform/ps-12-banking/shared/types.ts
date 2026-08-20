@@ -1,0 +1,196 @@
+/**
+ * PS-12 Banking — the wire contract, shared between this server and
+ * `@0815software/platform-clients`.
+ *
+ * Two things are deliberately absent, and their absence is the design:
+ *
+ * - **No key material.** Nothing in this file can carry a private key. The
+ *   most a caller ever sees of one is a digest, which is a value meant to be
+ *   read aloud and compared against a bank's letter.
+ * - **Nothing about invoices or bills.** The service takes bytes, a BTF and an
+ *   idempotency key. Keeping the payload opaque is what lets any module that
+ *   can produce an ISO 20022 file reach the bank without this service growing
+ *   an opinion about that module's domain.
+ */
+
+export interface FieldError {
+  field: string;
+  message: string;
+}
+
+// ── Connections and their key lifecycle ───────────────────────────────
+
+/**
+ * DERIVED connection state, folded from the append-only event stream. It moves
+ * in one direction, and the step that matters is the last one before `ready`:
+ *
+ *   created          the access exists; no keys yet
+ *   keys_generated   our three key pairs exist, encrypted at rest
+ *   ini_sent         the bank has our signature key
+ *   hia_sent         the bank has our auth and encryption keys
+ *   hpb_fetched      we have the bank's keys — NOT yet trusted
+ *   ready            a human confirmed the bank's key digests; orders allowed
+ *   suspended        deliberately stopped; orders refused
+ *   failed           the bank refused a setup step
+ *
+ * `hpb_fetched` is not `ready` on purpose. The HPB response cannot prove it
+ * came from the bank, so an operator has to compare the digests against what
+ * the bank published — that comparison, not the protocol, is what makes a
+ * substituted key visible.
+ */
+export const CONNECTION_STATES = [
+  'created',
+  'keys_generated',
+  'ini_sent',
+  'hia_sent',
+  'hpb_fetched',
+  'ready',
+  'suspended',
+  'failed',
+] as const;
+export type ConnectionState = (typeof CONNECTION_STATES)[number];
+
+/** What the API shows about one of our keys. Never the key itself. */
+export interface SubscriberKeyInfo {
+  purpose: 'ES' | 'AUTH' | 'ENC';
+  version: string;
+  /** Base64 SHA-256 of the public key, as EBICS defines the hash. */
+  digest: string;
+  /** The same value grouped in eights, to be read off a printed page. */
+  digestFormatted: string;
+  created_at: string;
+}
+
+/** One of the bank's keys, and whether a human has vouched for it. */
+export interface BankKeyInfo {
+  purpose: 'AUTH' | 'ENC';
+  version: string;
+  digest: string;
+  digestFormatted: string;
+  fetched_at: string;
+  /** Null until an operator confirmed this digest against the bank's letter. */
+  verified_at: string | null;
+  verified_by: string | null;
+}
+
+export interface ConnectionEvent {
+  type: string;
+  actor: string | null;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface Connection {
+  key: string;
+  display_name: string;
+  bank_key: string;
+  url: string;
+  host_id: string;
+  partner_id: string;
+  user_id: string;
+  ebics_version: string;
+  es_version: string;
+  debtor_iban: string | null;
+  /** Ceilings enforced before anything is signed — see the service README. */
+  max_amount_minor: number;
+  max_transfers: number;
+  state: ConnectionState;
+  created_at: string;
+}
+
+export interface ConnectionDetail extends Connection {
+  keys: SubscriberKeyInfo[];
+  bank_keys: BankKeyInfo[];
+  events: ConnectionEvent[];
+}
+
+// ── Orders ────────────────────────────────────────────────────────────
+
+/**
+ * DERIVED order status, folded from its event stream.
+ *
+ *   queued       accepted by this service, not yet sent
+ *   initialised  the bank assigned a transaction id
+ *   transferred  every segment is with the bank
+ *   accepted     the bank acknowledged the whole order
+ *   rejected     the bank refused it, with a code
+ *   failed       the conversation broke; whether the bank has it is unknown
+ *
+ * `failed` and `rejected` are not the same thing and must not be merged: a
+ * rejection is a decision, a failure is an unknown, and only one of them is
+ * safe to resubmit.
+ */
+export const ORDER_STATUSES = [
+  'queued',
+  'initialised',
+  'transferred',
+  'accepted',
+  'rejected',
+  'failed',
+] as const;
+export type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+/** The Business Transaction Format, as a bank documents it. */
+export interface BtfInput {
+  service_name: string;
+  scope?: string;
+  option?: string;
+  msg_name: string;
+  msg_version?: string;
+  container?: string;
+}
+
+export interface OrderEvent {
+  type: string;
+  ebics_code: string | null;
+  meta: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface Order {
+  public_id: string;
+  connection: string;
+  /** The MsgId parsed out of the payload — the file's own identity. */
+  msg_id: string;
+  btf: BtfInput;
+  status: OrderStatus;
+  /** SHA-256 of exactly the bytes that were signed. */
+  payload_sha256: string;
+  amount_minor: number | null;
+  tx_count: number | null;
+  transaction_id: string | null;
+  created_by: string | null;
+  created_at: string;
+  /** The bank's last word, when it said one. */
+  ebics_code: string | null;
+  message: string | null;
+}
+
+export interface OrderDetail extends Order {
+  events: OrderEvent[];
+}
+
+/** What `POST /api/orders` takes. */
+export interface SubmitOrderInput {
+  connection: string;
+  btf: BtfInput;
+  /** The file itself, base64. Opaque to this service. */
+  payload_base64: string;
+  /**
+   * The caller's own key for this submission — MOD-04 sends
+   * `payment-run:<MsgId>`. A retry with the same key returns the first order
+   * rather than creating a second one.
+   */
+  idempotency_key?: string;
+}
+
+/** A dry run: what would be sent, without sending it. */
+export interface OrderPreview {
+  msg_id: string;
+  payload_sha256: string;
+  amount_minor: number | null;
+  tx_count: number | null;
+  btf: BtfInput;
+  /** Problems that would stop the submission, if any. */
+  problems: FieldError[];
+}

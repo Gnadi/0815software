@@ -1,0 +1,195 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { NextFunction, Request, Response } from 'express';
+
+export interface AuthConfig {
+  username: string;
+  password: string;
+  secret: string;
+  ttlHours: number;
+  secureCookie: boolean;
+  /** Shared secret for event ingestion and the inbound hook receiver. */
+  serviceToken: string;
+  /**
+   * Identity seam: when set, a Bearer token that is not this service's own
+   * admin token is verified against PS-01 (`POST {identityUrl}/api/tokens/verify`)
+   * so PS-01-issued end-user sessions are accepted. Unset = standalone mode.
+   */
+  identityUrl?: string;
+}
+
+/** Minimal fetch surface for the identity-seam verification call. */
+export type SeamFetch = (
+  url: string,
+  init?: { method?: string; headers?: Record<string, string>; body?: string },
+) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+
+/** Permission a PS-01 principal must hold to act through this service's seam. */
+export const REQUIRED_SEAM_PERMISSION = 'platform:admin';
+
+const SEAM_CACHE_TTL_MS = 30_000;
+const seamCache = new Map<string, { ok: boolean; expires: number }>();
+
+/**
+ * Verify a token against PS-01's cross-service contract. The principal must
+ * hold `platform:admin` — a merely valid session is not enough. Verdicts are
+ * cached briefly so a busy session doesn't verify on every request.
+ * Never throws.
+ */
+export async function verifyIdentityToken(
+  identityUrl: string,
+  token: string,
+  doFetch: SeamFetch,
+): Promise<boolean> {
+  const cacheKey = `${identityUrl}\n${token}`;
+  const cached = seamCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) return cached.ok;
+  try {
+    const res = await doFetch(`${identityUrl.replace(/\/+$/, '')}/api/tokens/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    let ok = false;
+    if (res.ok) {
+      const verdict = (await res.json()) as { valid?: boolean; permissions?: string[] };
+      ok =
+        verdict.valid === true &&
+        Array.isArray(verdict.permissions) &&
+        verdict.permissions.includes(REQUIRED_SEAM_PERMISSION);
+    }
+    if (seamCache.size > 5_000) seamCache.clear();
+    seamCache.set(cacheKey, { ok, expires: Date.now() + SEAM_CACHE_TTL_MS });
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+export const COOKIE_NAME = 'ps08_session';
+export const SERVICE_HEADER = 'x-service-token';
+
+export function nowIso(ms: number = Date.now()): string {
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function sign(payload: string, secret: string): string {
+  return createHmac('sha256', secret).update(payload).digest('hex');
+}
+
+export function hmacSign(payload: string, secret: string): string {
+  return sign(payload, secret);
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+}
+
+// ── Admin session: stateless HMAC token "<expiryMillis>.<hmac>" ────────
+
+export function createToken(config: AuthConfig, now = Date.now()): string {
+  const expiry = String(now + config.ttlHours * 3600_000);
+  return `${expiry}.${sign(expiry, config.secret)}`;
+}
+
+export function verifyToken(config: AuthConfig, token: string, now = Date.now()): boolean {
+  const dot = token.indexOf('.');
+  if (dot < 1) return false;
+  const expiry = token.slice(0, dot);
+  const mac = token.slice(dot + 1);
+  if (!/^\d+$/.test(expiry) || Number(expiry) < now) return false;
+  return safeEqual(mac, sign(expiry, config.secret));
+}
+
+export function checkCredentials(config: AuthConfig, username: unknown, password: unknown): boolean {
+  return (
+    typeof username === 'string' &&
+    typeof password === 'string' &&
+    safeEqual(username, config.username) &&
+    safeEqual(password, config.password)
+  );
+}
+
+export function checkServiceToken(config: AuthConfig, provided: unknown): 'ok' | 'missing' | 'bad' {
+  if (typeof provided !== 'string' || provided.length === 0) return 'missing';
+  return safeEqual(provided, config.serviceToken) ? 'ok' : 'bad';
+}
+
+// ── Cookie / bearer helpers ────────────────────────────────────────────
+
+export function parseBearer(header: string | undefined): string | null {
+  if (!header) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match ? match[1]!.trim() : null;
+}
+
+/**
+ * Percent-decode a cookie value, keeping the raw text when the encoding is
+ * malformed.
+ *
+ * `decodeURIComponent` THROWS a URIError on a stray percent sign, and a cookie
+ * is attacker-controlled text that a browser then replays on every single
+ * request for the whole TTL. Unguarded, that throw escapes the session
+ * middleware, so a client holding one corrupt byte gets a 500 on every
+ * request instead of the 401 that would send it back to the login page — a
+ * session that can neither authenticate nor recover, and an error page where
+ * the deployment's monitoring expects an auth failure. Undecodable bytes are
+ * not a valid signed token either, so handing them on verbatim fails
+ * verification and lands on the same 401 as any other bad cookie.
+ */
+function decodeCookieValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+export function parseCookies(header: string | undefined): Record<string, string> {
+  const cookies: Record<string, string> = {};
+  if (!header) return cookies;
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=');
+    if (eq > 0) cookies[part.slice(0, eq).trim()] = decodeCookieValue(part.slice(eq + 1).trim());
+  }
+  return cookies;
+}
+
+export function sessionCookie(config: AuthConfig, token: string): string {
+  const attrs = [
+    `${COOKIE_NAME}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${config.ttlHours * 3600}`,
+  ];
+  if (config.secureCookie) attrs.push('Secure');
+  return attrs.join('; ');
+}
+
+export function clearedCookie(): string {
+  return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+}
+
+/** Admin gate: a valid session cookie or `Authorization: Bearer <token>`. */
+export function requireAuth(config: AuthConfig, seam?: { fetch?: SeamFetch }) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const token = parseBearer(req.headers.authorization) ?? parseCookies(req.headers.cookie)[COOKIE_NAME];
+    if (token && verifyToken(config, token)) {
+      next();
+      return;
+    }
+    if (token && config.identityUrl) {
+      const doFetch = seam?.fetch ?? (globalThis.fetch as unknown as SeamFetch);
+      void verifyIdentityToken(config.identityUrl, token, doFetch)
+        .then((ok) => {
+          if (ok) next();
+          else res.status(401).json({ error: 'Authentication required' });
+        })
+        .catch(() => res.status(401).json({ error: 'Authentication required' }));
+      return;
+    }
+    res.status(401).json({ error: 'Authentication required' });
+  };
+}

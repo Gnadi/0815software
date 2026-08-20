@@ -5,11 +5,11 @@ exchange, and signed ISO 20022 uploads over the customer's own bank
 connection. Part of the [Platform Services catalog](../README.md). Backend
 service, MIT-licensed, self-contained.
 
-> **Status: phase 1 of 6 — the protocol core.** The XML, crypto, signature and
-> envelope layers are implemented and tested. There is no HTTP API, no database
-> and no bank connection yet; those are phases 2–5. See
-> [Build order](#build-order) for what lands when. Nothing here is ready to
-> talk to a real bank.
+> **Status: phase 2 of 6 — key custody and the key exchange.** The protocol
+> core, the encrypted key store, the connection lifecycle and a mock bank to
+> run it against are implemented and tested. There is no HTTP API yet and no
+> order submission; those are phases 3–5. See [Build order](#build-order).
+> Nothing here has talked to a real bank.
 
 ## What this service is for
 
@@ -88,6 +88,20 @@ Node's automatic padding is PKCS#7, so it is switched off and the padding is
 done by hand; using the wrong one produces a file the bank decrypts into
 garbage with no useful error.
 
+### The key store
+
+Private keys are AES-256-GCM ciphertext at rest under `EBICS_KEY_SECRET`, are
+never returned by any endpoint, and are reached through one function that takes
+a *purpose* rather than a key id — so an order cannot accidentally be signed
+with the authentication key.
+
+**`EBICS_KEY_SECRET` is the one secret to back up.** `deploy/provision.mjs`
+generates a fresh random value for every declared secret on every provision, so
+re-provisioning a live stack rotates it. The service therefore decrypts one
+stored key at boot and refuses to start if it cannot, naming the recovery:
+restore the previous secret, or re-initialise with the bank on paper — which
+takes days.
+
 ### The signature, as an attacker would test it
 
 `verifyAuthSignature` recomputes everything from the received document. It
@@ -96,6 +110,30 @@ insists on exactly one `Reference` whose URI is the EBICS xpointer (a valid
 signature over a *different* fragment is the signature-wrapping attack), and
 only then verifies the RSA signature. The test suite includes each of those as
 a failing case.
+
+## The lifecycle, and the one step that is a human
+
+```
+created → keys_generated → ini_sent → hia_sent → hpb_fetched → ready
+                                                      ↑            ↓
+                                          (an operator confirms  suspended
+                                           the bank's digests)
+```
+
+Every step but one is protocol. **`hpb_fetched` → `ready` is a person.** The
+state is folded from an append-only event stream at read time, so there is no
+status column that can disagree with what happened, and `requireReady` is the
+single gate every order passes.
+
+Two consequences worth stating, both covered by tests:
+
+- **Re-fetching the bank's keys clears the confirmation.** A bank rotating its
+  keys is normal; inheriting a human's tick for keys nobody looked at is how a
+  substituted key would wear someone else's approval. A re-fetch moves the
+  connection backwards, never forwards.
+- **A digest mismatch is recorded, not shrugged off.** It is what an attacker
+  in the middle looks like, so it is an event on the connection and the
+  connection stays unusable.
 
 ## Trust, and where it actually comes from
 
@@ -119,9 +157,9 @@ produces a plausible value that never matches the bank's letter.
 
 | Phase | Deliverable | Status |
 | ----- | ----------- | ------ |
-| 1 | Protocol core: canonical XML, crypto, dsig, envelopes, codes | **Done** — 103 tests |
-| 2 | Service skeleton, key custody, the key-exchange lifecycle, the INI letter | Next |
-| 3 | Orders: BTU upload, segmentation, receipts, idempotency, ceilings | |
+| 1 | Protocol core: canonical XML, crypto, dsig, envelopes, codes | **Done** |
+| 2 | Key custody, the connection lifecycle, the mock bank | **Done** — 127 tests |
+| 3 | Orders: BTU upload, segmentation, receipts, idempotency, ceilings | Next |
 | 4 | Catalogue wiring: registry, provisioning, site copy, client, OpenAPI | |
 | 5 | MOD-04 integration — "Send via EBICS" beside "Download XML" | |
 | 6 | Downloads: camt.053 and pain.002, and reconciliation back into MOD-04 | |
