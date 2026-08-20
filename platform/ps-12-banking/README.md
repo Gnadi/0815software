@@ -5,11 +5,11 @@ exchange, and signed ISO 20022 uploads over the customer's own bank
 connection. Part of the [Platform Services catalog](../README.md). Backend
 service, MIT-licensed, self-contained.
 
-> **Status: phase 2 of 6 — key custody and the key exchange.** The protocol
-> core, the encrypted key store, the connection lifecycle and a mock bank to
-> run it against are implemented and tested. There is no HTTP API yet and no
-> order submission; those are phases 3–5. See [Build order](#build-order).
-> Nothing here has talked to a real bank.
+> **Status: phase 3 of 6 — a payment file reaches the bank.** The protocol
+> core, the encrypted key store, the connection lifecycle and signed BTU
+> uploads are implemented and tested against a mock bank that verifies what it
+> is sent. There is no HTTP API yet and no downloads; those are phases 4–6. See
+> [Build order](#build-order). Nothing here has talked to a real bank.
 
 ## What this service is for
 
@@ -135,6 +135,56 @@ Two consequences worth stating, both covered by tests:
   in the middle looks like, so it is an event on the connection and the
   connection stays unusable.
 
+## Submitting a payment file
+
+```
+requireReady → replay check → ceilings → sign → initialisation → segments → accepted
+```
+
+The order matters more than any single step. At signature class E the signature
+**is** the payment, so every refusal gets its chance before the ES key is
+touched; a ceiling enforced after signing would be no ceiling at all. The test
+for this asserts the bank received nothing, not merely that an error was
+thrown.
+
+### Sent at most once, twice over
+
+| Layer | Catches |
+| ----- | ------- |
+| the caller's `idempotency_key` | a retried request, a double-clicked button |
+| `UNIQUE (connection_id, msg_id)` | the same file with no key, or under a new one |
+
+MOD-04's payment run is byte-stable and stores its `MsgId`, so both layers
+converge on the same answer. Uniqueness is **per connection**: two banks are
+two duplicate checks. And when the earlier attempt was refused, resubmitting is
+not silently deduplicated — the error names the fix, because the bank keys its
+own duplicate check on the `MsgId` and a corrected file needs a new one.
+
+### `rejected` and `failed` are not the same thing
+
+A rejection is a decision the bank made and told us about. A failure is a
+conversation that broke, and whether the bank has the file is **unknown**. Only
+one of the two is safe to resubmit, so they are kept apart all the way to the
+API — and a technical code in the retryable range is recorded as `failed`, not
+`rejected`, for the same reason.
+
+Rejections are filed under the code that actually *decided* them. A business
+rejection travels with technical code `000000`; storing the technical code
+would file a refused payment under one that reads as success.
+
+### Reading inside the file, as little as possible
+
+The service is payload-agnostic — a caller hands over bytes, a BTF and a key.
+But "at most once" needs the file's identity and "ceilings hold" needs its
+amount, and both live inside it. So when the BTF says `pain.001`, exactly four
+things are read: `MsgId`, `NbOfTxs`, `CtrlSum`, currency. Everything else stays
+opaque and falls back to the SHA-256 of the bytes, which is a perfectly good
+answer to "have I sent this before?". Nothing is ever rewritten: the bytes that
+get signed are the bytes the caller supplied.
+
+A payload that cannot be read is **refused** when ceilings are set. "I could
+not tell how much this is" is not a reason to send it.
+
 ## Trust, and where it actually comes from
 
 INI and HIA are **unsecured messages** — they cannot be otherwise, because the
@@ -158,9 +208,9 @@ produces a plausible value that never matches the bank's letter.
 | Phase | Deliverable | Status |
 | ----- | ----------- | ------ |
 | 1 | Protocol core: canonical XML, crypto, dsig, envelopes, codes | **Done** |
-| 2 | Key custody, the connection lifecycle, the mock bank | **Done** — 127 tests |
-| 3 | Orders: BTU upload, segmentation, receipts, idempotency, ceilings | Next |
-| 4 | Catalogue wiring: registry, provisioning, site copy, client, OpenAPI | |
+| 2 | Key custody, the connection lifecycle, the mock bank | **Done** |
+| 3 | Orders: BTU upload, segmentation, receipts, idempotency, ceilings | **Done** — 161 tests |
+| 4 | Catalogue wiring: registry, provisioning, site copy, client, OpenAPI | Next |
 | 5 | MOD-04 integration — "Send via EBICS" beside "Download XML" | |
 | 6 | Downloads: camt.053 and pain.002, and reconciliation back into MOD-04 | |
 

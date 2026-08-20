@@ -51,6 +51,10 @@ export interface MockBankOptions {
   hostId?: string;
   /** Force a business-level rejection on the next upload, e.g. '091303'. */
   rejectUploadsWith?: string;
+  /** Refuse at the initialisation phase, before any segment is sent. */
+  rejectInitWith?: string;
+  /** Answer the initialisation without a TransactionID, which is nonsense. */
+  omitTransactionId?: boolean;
   /** Make HPB answer before INI/HIA, to test the client's ordering. */
   allowHpbBeforeInit?: boolean;
 }
@@ -74,6 +78,9 @@ interface OpenTransaction {
   promisedDigest: string;
   esVersion: string;
   signatureValue: Buffer;
+  /** The ES key this transaction's signature must verify against. */
+  esPublicPem: string;
+  btf: ReceivedOrder['btf'];
 }
 
 /** What the bank did with a file, so a test can assert on the bank's view. */
@@ -81,7 +88,8 @@ export interface ReceivedOrder {
   transactionId: string;
   /** The plaintext file, reassembled and decrypted by the bank. */
   orderData: Buffer;
-  btf: { serviceName: string; msgName: string };
+  /** The Business Transaction Format the client declared for the file. */
+  btf: { serviceName: string; scope: string | null; option: string | null; msgName: string; msgVersion: string | null };
   /** True when the bank-technical signature verified over that file. */
   signatureValid: boolean;
 }
@@ -291,6 +299,13 @@ export class MockBank {
       return this.response({ technical: '091104', reportText: 'the signature data could not be decrypted' });
     }
 
+    if (this.options.rejectInitWith !== undefined) {
+      return this.response({
+        business: this.options.rejectInitWith,
+        reportText: 'the bank refused this order at initialisation',
+      });
+    }
+
     const segments = Number.parseInt(textOf(at(statics, EBICS_NS, 'NumSegments')).trim() || '1', 10);
     const id = `MOCKTX-${++this.counter}`;
     this.transactions.set(id, {
@@ -302,9 +317,26 @@ export class MockBank {
       promisedDigest: textOf(at(dataTransfer, EBICS_NS, 'DataDigest')).replace(/\s+/g, ''),
       esVersion,
       signatureValue,
+      esPublicPem: subscriber.esPublicPem,
+      btf: this.btfOf(statics),
     });
 
+    if (this.options.omitTransactionId === true) return this.response({ segments });
     return this.response({ transactionId: id, segments });
+  }
+
+  /** Read the BTF back out of the request, as a bank would to route the file. */
+  private btfOf(statics: XmlElement): ReceivedOrder['btf'] {
+    const service = at(statics, EBICS_NS, 'OrderDetails', 'BTUOrderParams', 'Service');
+    if (service === null) return { serviceName: '', scope: null, option: null, msgName: '', msgVersion: null };
+    const msgName = at(service, EBICS_NS, 'MsgName');
+    return {
+      serviceName: textOf(at(service, EBICS_NS, 'ServiceName')).trim(),
+      scope: nullIfEmpty(textOf(at(service, EBICS_NS, 'Scope')).trim()),
+      option: nullIfEmpty(textOf(at(service, EBICS_NS, 'ServiceOption')).trim()),
+      msgName: textOf(msgName).trim(),
+      msgVersion: msgName === null ? null : nullIfEmpty(attrOf(msgName, 'version') ?? ''),
+    };
   }
 
   private uploadTransfer(root: XmlElement): string {
@@ -342,9 +374,8 @@ export class MockBank {
       return this.response({ technical: '000000', business: '091105', reportText: 'DataDigest does not match the file' });
     }
 
-    const subscriber = [...this.subscribers.values()].find((s) => s.esPublicPem !== undefined);
     const signatureValid = verifyOrderData(
-      subscriber!.esPublicPem!,
+      open.esPublicPem,
       orderData,
       open.signatureValue,
       open.esVersion === 'A006' ? 'A006' : 'A005',
@@ -357,7 +388,7 @@ export class MockBank {
     this.received.push({
       transactionId: id,
       orderData,
-      btf: { serviceName: '', msgName: '' },
+      btf: open.btf,
       signatureValid,
     });
 
@@ -410,4 +441,8 @@ export class MockBank {
   private subscriberKey(partnerId: string, userId: string): string {
     return `${partnerId}|${userId}`;
   }
+}
+
+function nullIfEmpty(value: string): string | null {
+  return value === '' ? null : value;
 }
