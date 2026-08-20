@@ -5,10 +5,10 @@ exchange, and signed ISO 20022 uploads over the customer's own bank
 connection. Part of the [Platform Services catalog](../README.md). Backend
 service, MIT-licensed, self-contained.
 
-> **Status: phase 3 of 6 — a payment file reaches the bank.** The protocol
-> core, the encrypted key store, the connection lifecycle and signed BTU
-> uploads are implemented and tested against a mock bank that verifies what it
-> is sent. There is no HTTP API yet and no downloads; those are phases 4–6. See
+> **Status: phase 4 of 6 — wired into the catalogue.** The protocol core, the
+> encrypted key store, the connection lifecycle, signed BTU uploads and the
+> HTTP API are implemented and tested against a mock bank that verifies what it
+> is sent. Remaining: the MOD-04 button (phase 5) and downloads (phase 6). See
 > [Build order](#build-order). Nothing here has talked to a real bank.
 
 ## What this service is for
@@ -185,6 +185,49 @@ get signed are the bytes the caller supplied.
 A payload that cannot be read is **refused** when ceilings are set. "I could
 not tell how much this is" is not a reason to send it.
 
+## The API, and the line drawn through it
+
+| Caller | Credential | May |
+| ------ | ---------- | --- |
+| an operator | admin session | everything — connections, keys, INI/HIA/HPB, confirming the bank's digests, suspending |
+| a module | `X-Service-Token` | submit an order, read an order, list bank profiles. Nothing else. |
+
+A service token presented to an operator route gets **403, not 401**: the
+caller is authenticated, with the wrong credential for a human's job. Saying so
+is what stops someone "fixing" it by giving a module the admin password.
+
+That line is the bound on a leaked module token. It cannot bring a connection
+into existence, cannot move one to `ready`, and cannot lift a ceiling — so the
+worst it can do is send a file within limits a human set, on a connection a
+human activated.
+
+```
+GET  /api/banks                                    BTF conventions; no URLs
+POST /api/connections · GET /api/connections[/:key]
+POST /api/connections/:key/keys                    the three pairs, once
+POST /api/connections/:key/ini · /hia · /hpb
+GET  /api/connections/:key/ini-letter.pdf          digests to sign and post
+POST /api/connections/:key/verify-bank-keys        → ready
+POST /api/connections/:key/suspend · /resume
+POST /api/orders            {connection, btf, payload_base64, idempotency_key}
+                            ?validate=1 → a dry run that signs nothing
+GET  /api/orders[/:public_id]                      folded status + events
+```
+
+`platform/clients` exports `BankingClient`, so a module that can produce an ISO
+20022 file reaches the bank in three lines: add `BANKING_URL`, construct the
+client, call `submitOrder`.
+
+### Bank profiles carry no URLs
+
+`bank-registry.ts` ships BTF conventions per scheme and country — and no URLs,
+no host ids and no named banks. Those come from the EBICS contract the bank
+sends the customer, and a guessed one fails as a connection timeout rather than
+as "you have not entered your bank's details". Every profile is marked
+`confirmed: false`, because nothing in this repository can check a BTF against
+a bank's own documentation. `?validate=1` is how an operator checks one without
+money moving.
+
 ## Trust, and where it actually comes from
 
 INI and HIA are **unsecured messages** — they cannot be otherwise, because the
@@ -209,9 +252,9 @@ produces a plausible value that never matches the bank's letter.
 | ----- | ----------- | ------ |
 | 1 | Protocol core: canonical XML, crypto, dsig, envelopes, codes | **Done** |
 | 2 | Key custody, the connection lifecycle, the mock bank | **Done** |
-| 3 | Orders: BTU upload, segmentation, receipts, idempotency, ceilings | **Done** — 161 tests |
-| 4 | Catalogue wiring: registry, provisioning, site copy, client, OpenAPI | Next |
-| 5 | MOD-04 integration — "Send via EBICS" beside "Download XML" | |
+| 3 | Orders: BTU upload, segmentation, receipts, idempotency, ceilings | **Done** |
+| 4 | HTTP API, bank profiles, INI letter, catalogue wiring, client | **Done** — 281 tests |
+| 5 | MOD-04 integration — "Send via EBICS" beside "Download XML" | Next |
 | 6 | Downloads: camt.053 and pain.002, and reconciliation back into MOD-04 | |
 
 ## Scripts

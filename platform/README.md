@@ -43,6 +43,7 @@ through the shared [`clients`](./clients) package.
 | PS-09 | Search           | Cross-entity keyword & faceted search     | 4009     | Available |
 | PS-10 | Number           | Gapless sequence numbers per scope        | 4010     | Available |
 | PS-11 | Customers        | Party master data: customers and suppliers | 4011     | Available |
+| PS-12 | Banking          | EBICS 3.0 bank transport for ISO 20022 files | 4012   | Available |
 
 - [PS-01 · Identity](./ps-01-identity) — authentication, users, roles,
   permissions, OAuth (real OIDC flow + offline mock IdP), API keys,
@@ -72,6 +73,14 @@ through the shared [`clients`](./clients) package.
   VAT id, email), per-module references as the migration path for module-local
   tables, merge-with-redirect for duplicates, and the stack owner's own `self`
   party as the single home for the seller identity.
+- [PS-12 · Banking](./ps-12-banking) — EBICS 3.0 (H005) bank transport:
+  subscriber key custody, the INI/HIA/HPB key exchange with a printable INI
+  letter, and signed ISO 20022 uploads over the customer's own bank connection.
+  Node built-in crypto only — the exclusive XML canonicaliser and the XML-DSig
+  signature are implemented here rather than taken as dependencies. A
+  connection carries no order until a human has confirmed the bank's key
+  digests, and a payment file is submitted at most once. Nothing in it has
+  spoken to a real bank yet.
 
 Modules consume these through the shared
 [`@0815software/platform-clients`](./clients) package — one typed client per

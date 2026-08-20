@@ -157,6 +157,21 @@
         "ADMIN_PASSWORD",
         "SERVICE_TOKEN"
       ]
+    },
+    {
+      "id": "ps-12-banking",
+      "n": "PS-12",
+      "label": "Banking",
+      "defaultPort": 4012,
+      "routePrefix": "/banking",
+      "urlEnv": "BANKING_URL",
+      "tickDriven": true,
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN",
+        "EBICS_KEY_SECRET"
+      ]
     }
   ],
   "modules": [

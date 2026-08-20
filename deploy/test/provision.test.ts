@@ -207,10 +207,10 @@ describe('ticker inclusion', () => {
 
   it('ticks every tick-driven service and nothing else', () => {
     const plan = planStack(args('--modules', 'mod-13-offers', '--all-services'));
-    expect(plan.tickTargets.map((s: any) => s.n)).toEqual(['PS-02', 'PS-03', 'PS-05', 'PS-08']);
+    expect(plan.tickTargets.map((s: any) => s.n)).toEqual(['PS-02', 'PS-03', 'PS-05', 'PS-08', 'PS-12']);
     const compose = renderCompose(plan, '..');
-    for (const port of [4002, 4003, 4005, 4008]) expect(compose).toContain(`:${port}/api/tick`);
-    for (const port of [4001, 4004, 4006, 4007, 4009, 4010]) expect(compose).not.toContain(`:${port}/api/tick`);
+    for (const port of [4002, 4003, 4005, 4008, 4012]) expect(compose).toContain(`:${port}/api/tick`);
+    for (const port of [4001, 4004, 4006, 4007, 4009, 4010, 4011]) expect(compose).not.toContain(`:${port}/api/tick`);
   });
 });
 

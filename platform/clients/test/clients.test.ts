@@ -3,6 +3,7 @@ import type { FetchLike } from '../src/http.js';
 import {
   AiClient,
   AuditClient,
+  BankingClient,
   FilesClient,
   IdentityClient,
   IntegrationClient,
@@ -120,6 +121,32 @@ describe('per-service client shapes', () => {
     await client.refund(1, 200);
     expect(calls[1]!.url).toBe('http://pay/api/intents/1/refund');
     expect(JSON.parse(calls[1]!.body!)).toEqual({ amount_minor: 200 });
+  });
+
+  it('BankingClient.submitOrder base64-encodes the file and carries the idempotency key', async () => {
+    const { fetch, calls } = recorder({ public_id: 'ord_1', status: 'accepted' });
+    const client = new BankingClient({ baseUrl: 'http://bank', serviceToken: 's', fetch });
+    const payload = Buffer.from('<Document/>', 'utf8');
+
+    await client.submitOrder({
+      connection: 'main',
+      btf: { service_name: 'SCT', scope: 'AT', msg_name: 'pain.001' },
+      payload,
+      idempotencyKey: 'payment-run:M1',
+    });
+    expect(calls[0]!.url).toBe('http://bank/api/orders');
+    expect(JSON.parse(calls[0]!.body!)).toEqual({
+      connection: 'main',
+      btf: { service_name: 'SCT', scope: 'AT', msg_name: 'pain.001' },
+      payload_base64: payload.toString('base64'),
+      idempotency_key: 'payment-run:M1',
+    });
+
+    // The dry run goes to the same route with ?validate=1 and no key: it
+    // stores nothing, so there is nothing for a key to deduplicate.
+    await client.previewOrder({ connection: 'main', btf: { service_name: 'SCT', msg_name: 'pain.001' }, payload });
+    expect(calls[1]!.url).toBe('http://bank/api/orders?validate=1');
+    expect(JSON.parse(calls[1]!.body!).idempotency_key).toBeUndefined();
   });
 
   it('SearchClient.search encodes facet filters as facet.<key> params', async () => {

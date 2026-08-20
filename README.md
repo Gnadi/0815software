@@ -90,13 +90,13 @@ graph TD
   [`registry.json`](./modules/registry.json): the machine-readable description
   of every module and service that the marketing catalogue, the demos and the
   provisioning script all derive from.
-- [`platform/`](./platform/README.md) — the eleven Platform Services (PS-01
+- [`platform/`](./platform/README.md) — the twelve Platform Services (PS-01
   Identity, PS-02 Workflow Engine, PS-03 Notification Hub, PS-04 AI Platform,
   PS-05 Integration Hub, PS-06 File Storage, PS-07 Audit Log, PS-08 Payments,
-  PS-09 Search, PS-10 Number, PS-11 Customers) and the shared
+  PS-09 Search, PS-10 Number, PS-11 Customers, PS-12 Banking) and the shared
   [`clients`](./platform/clients) package. Implemented as backend-only APIs
   (Express 5 + SQLite + tests), each self-contained on its own port. All
-  fifteen modules are wired in, opt-in and best-effort: a module with no
+  sixteen modules are wired in, opt-in and best-effort: a module with no
   service URLs configured still runs standalone.
 - [`deploy/`](./deploy/README.md) — `provision.mjs` turns a customer's module
   selection into a ready-to-run stack (compose file, generated secrets, Caddy

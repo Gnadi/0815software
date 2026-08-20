@@ -102,7 +102,7 @@ describe('registry document', () => {
 
   it('covers every Platform Service, exactly once, in catalogue order', () => {
     const ids = services.map((s: any) => s.id);
-    expect(ids).toHaveLength(11);
+    expect(ids).toHaveLength(12);
     expect([...ids].sort()).toEqual(ids);
     for (const svc of services) expect(svc.n).toBe(`PS-${svc.id.slice(3, 5)}`);
   });
@@ -250,6 +250,11 @@ describe.each(services.map((s: any) => [s.id, s] as const))('service %s does not
       'WEBHOOK_SECRET',
       'INTEGRATION_ENCRYPTION_KEY',
       'SIGNING_SECRET',
+      // PS-12's key-store secret. Unlike every other name here, losing this one
+      // does not log anyone out — it makes the RSA keys that sign payments
+      // undecryptable, and the recovery is a new key exchange with the bank on
+      // paper. It must be in the registry so provisioning declares it.
+      'EBICS_KEY_SECRET',
     ]);
     const fromCode = [...read].filter((name) => secretish.has(name)).sort();
     expect([...svc.secrets].sort()).toEqual(fromCode);

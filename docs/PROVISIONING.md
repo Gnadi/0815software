@@ -38,7 +38,7 @@ catalogue number, slug, title, short operational label, default port, typical
 scope, the Platform Services it integrates with, its module-specific env vars and
 secrets, any module peers it bridges to, and four deployment constraints —
 `supportsSso`, `needsPublicBaseUrl`, `acceptsSourceDb`, `publishesReportViews`.
-It also carries the eleven
+It also carries the twelve
 Platform Services with their ports, Caddy route prefixes, URL env var,
 tick-driven flag and per-stack secrets.
 
@@ -73,12 +73,13 @@ node deploy/provision.mjs \
 What it decides for you:
 
 - **The minimal service set.** MOD-04 + MOD-13 reference PS-01, PS-03, PS-06,
-  PS-07, PS-08, PS-10 and PS-11 — seven, not eleven. Services nobody references
+  PS-07, PS-08, PS-10 and PS-11 — seven, not twelve. Services nobody references
   are not started. `--all-services` overrides this when you want the full
   platform available for later.
 - **Fresh secrets.** Every one generated with `randomBytes(32).toString('hex')`:
   per-service `SESSION_SECRET`, `ADMIN_PASSWORD`, `WEBHOOK_SECRET`,
-  `SIGNING_SECRET`, PS-05's `INTEGRATION_ENCRYPTION_KEY`, and per-module
+  `SIGNING_SECRET`, PS-05's `INTEGRATION_ENCRYPTION_KEY`, PS-12's
+  `EBICS_KEY_SECRET` (**see the warning below**), and per-module
   `ADMIN_PASSWORD` / `SESSION_SECRET` / `INTAKE_SECRET`. No two customers share a
   value and none is a repo default, which matters because every container runs
   `NODE_ENV=production` and the boot guard refuses known dev defaults.
@@ -189,6 +190,24 @@ afterwards.
 `Caddyfile` from the new selection; then reconcile `.env` by hand so the secrets
 you are already running with survive, adding only the new entries. `manifest.json`
 records what the previous run resolved, which is what makes that diff readable.
+
+### ⚠️ PS-12's `EBICS_KEY_SECRET` is not like the other secrets
+
+`generateSecrets` mints a fresh random value for **every** declared secret on
+every run, `--force` included. For the other secrets that is a nuisance: a
+rotated `SESSION_SECRET` logs everyone out, and the fix is to log back in.
+
+`EBICS_KEY_SECRET` encrypts the RSA private keys that sign payments. Rotating it
+does not log anyone out — it makes every stored bank key undecryptable, and the
+only recovery is a fresh key exchange with the bank: new keys, a new INI letter,
+signed by hand and posted, and days of no payments while it is processed.
+
+So when a stack contains PS-12, **copy the running `EBICS_KEY_SECRET` into the
+regenerated `.env` before bringing the stack back up**, and keep a copy of it
+wherever that customer's other unrecoverable material lives. PS-12 refuses to
+boot when the configured secret cannot decrypt what is already stored, which
+turns this from silent data loss into a startup failure — but the backup is
+what actually saves you.
 
 ## 6. Decommission
 

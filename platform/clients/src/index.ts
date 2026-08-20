@@ -33,3 +33,13 @@ export type {
   ResolveInput,
   ResolveResult,
 } from './customers.js';
+
+export { BankingClient } from './banking.js';
+export type {
+  BankOrder,
+  BankOrderStatus,
+  BankProfile,
+  Btf,
+  OrderPreview,
+  SubmitOrderInput,
+} from './banking.js';

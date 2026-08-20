@@ -1132,7 +1132,24 @@ Two steps this does not do for you, and both matter:
   restic job to another machine; that is what makes this a backup.
 - **Back \`.env\` up separately.** It holds the secrets, and a restored volume
   is useless with the wrong \`SESSION_SECRET\`.
+${
+  plan.services.some(({ service }) => service.secrets.includes('EBICS_KEY_SECRET'))
+    ? `
+### ⚠️ \`PS12_EBICS_KEY_SECRET\` is unrecoverable
 
+Of every secret in \`.env\`, this one is different in kind. It encrypts the RSA
+private keys PS-12 uses to sign payments. Losing it does not log anyone out —
+it makes every stored bank key undecryptable, and the only recovery is a fresh
+key exchange with the bank: new keys, a new INI letter signed by hand and
+posted, and days with no outgoing payments while it is processed.
+
+Keep a copy wherever this customer's other unrecoverable material lives, and
+**never let a re-provision overwrite it** — see Upgrades below. PS-12 refuses to
+boot when the configured secret cannot open the key store, which turns silent
+data loss into a startup failure; the backup is what actually saves you.
+`
+    : ''
+}
 ## Upgrades
 
 \`\`\`sh
@@ -1144,7 +1161,14 @@ Migrations are append-only and idempotent and apply on boot, so rolling this
 customer forward is pull + rebuild + restart. If the module selection changed,
 re-run \`deploy/provision.mjs\` with \`--force\` — it regenerates
 \`docker-compose.yml\` and \`Caddyfile\` — then reconcile \`.env\` by hand so the
-secrets you are already running with survive.
+secrets you are already running with survive.${
+  plan.services.some(({ service }) => service.secrets.includes('EBICS_KEY_SECRET'))
+    ? ` **\`--force\` generates a fresh
+value for every secret, \`PS12_EBICS_KEY_SECRET\` included — copy the running
+one back in before bringing the stack up, or this customer's bank connections
+are gone.**`
+    : ''
+}
 
 ## Decommissioning
 
