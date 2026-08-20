@@ -8,6 +8,7 @@ import { newTransactionKey, packOrderData, type EsVersion } from './ebics/crypto
 import { parseResponse } from './ebics/parse.js';
 import type { Verdict } from './ebics/codes.js';
 import { checkCeilings, inspectPayload, type PayloadFacts } from './payload.js';
+import { bankProfile } from './bank-registry.js';
 import type { BtfInput, Order, OrderDetail, OrderEvent, OrderStatus } from '../shared/types.js';
 
 /**
@@ -314,6 +315,7 @@ export async function submitOrder(ctx: OrderContext, input: SubmitInput): Promis
 interface ConnectionRow {
   id: number;
   key: string;
+  bank_key: string;
   url: string;
   host_id: string;
   partner_id: string;
@@ -353,7 +355,10 @@ async function transmit(
   // Pack once: the segments are slices of THIS string, so the digest the bank
   // checks and the bytes it reassembles come from the same encryption.
   const packed = packOrderData(transactionKey, input.payload);
-  const segments = splitSegments(packed, ctx.segmentLimit ?? SEGMENT_LIMIT);
+  // The bank's own published maximum, when its profile names one below the
+  // protocol's; an explicit context override wins over both (tests use it).
+  const limit = ctx.segmentLimit ?? bankProfile(connection.bank_key)?.segmentLimit ?? SEGMENT_LIMIT;
+  const segments = splitSegments(packed, limit);
 
   const btf: Btf = {
     serviceName: input.btf.service_name,

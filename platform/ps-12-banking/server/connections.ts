@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { DomainError } from './errors.js';
+import { bankProfile } from './bank-registry.js';
 import {
   assertKeyStoreReadable,
   generateSubscriberKeys,
@@ -213,6 +214,14 @@ function subscriberOf(row: ConnectionRow): Subscriber {
 export function createConnection(db: Database.Database, input: ConnectionInput, actor?: string): Connection {
   const existing = db.prepare('SELECT id FROM bank_connections WHERE key = ?').get(input.key);
   if (existing !== undefined) throw new DomainError(409, `a connection named "${input.key}" already exists`);
+
+  // A typo'd profile would otherwise be discovered at the first upload, as a
+  // BTF the bank does not recognise.
+  if (bankProfile(input.bankKey) === undefined) {
+    throw new DomainError(422, 'this bank profile is not one this service knows', [
+      { field: 'bank_key', message: `unknown profile "${input.bankKey}" — see GET /api/banks` },
+    ]);
+  }
 
   const now = nowIso();
   const id = db.transaction((): number => {

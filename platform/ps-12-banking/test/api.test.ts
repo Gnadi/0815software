@@ -1,0 +1,443 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import request from 'supertest';
+import type { Express } from 'express';
+import type Database from 'better-sqlite3';
+import { createApp } from '../server/app.js';
+import { openDb } from '../server/db.js';
+import { Transport } from '../server/transport.js';
+import type { AuthConfig } from '../server/auth.js';
+import { MockBank } from './mock-bank.js';
+
+/**
+ * The HTTP surface, and above all the line drawn through it.
+ *
+ * A module's `X-Service-Token` may submit an order and read one. It may not
+ * create a bank connection, may not activate one, and may not touch a key. At
+ * signature class E a submitted order is money gone, so what bounds a leaked
+ * service token is the ceilings a human set on a connection a human activated
+ * — and that bound is only real if the token cannot reach those routes.
+ *
+ * So every operator route is checked twice: once for "no credential at all"
+ * and once for "a valid service token", and the second is the one that would
+ * quietly stop being true if someone swapped a middleware.
+ */
+
+const auth: AuthConfig = {
+  username: 'admin',
+  password: 'test-pass',
+  secret: 'test-secret',
+  ttlHours: 12,
+  secureCookie: false,
+  serviceToken: 'test-service',
+};
+
+const KEY_SECRET = '55'.repeat(32);
+const SERVICE = { 'X-Service-Token': 'test-service' };
+
+const BTF = { service_name: 'SCT', scope: 'AT', msg_name: 'pain.001', msg_version: '03', container: 'XML' };
+
+let db: Database.Database;
+let bank: MockBank;
+let app: Express;
+let session: string;
+
+function pain001(msgId: string, total = '100.00', count = 1): string {
+  const each = (Number(total) / count).toFixed(2);
+  const tx = Array.from(
+    { length: count },
+    () => `<CdtTrfTxInf><Amt><InstdAmt Ccy="EUR">${each}</InstdAmt></Amt></CdtTrfTxInf>`,
+  ).join('');
+  return Buffer.from(
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+      `<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03"><CstmrCdtTrfInitn>` +
+      `<GrpHdr><MsgId>${msgId}</MsgId><NbOfTxs>${count}</NbOfTxs><CtrlSum>${total}</CtrlSum></GrpHdr>` +
+      `<PmtInf>${tx}</PmtInf></CstmrCdtTrfInitn></Document>`,
+    'utf8',
+  ).toString('base64');
+}
+
+/** Drive a connection to `ready` over HTTP, the way an operator would. */
+async function bringUp(key = 'main', overrides: Record<string, unknown> = {}): Promise<void> {
+  await request(app)
+    .post('/api/connections')
+    .set('Authorization', `Bearer ${session}`)
+    .send({
+      key,
+      display_name: 'Test Bank',
+      bank_key: 'sepa-at',
+      url: 'https://bank.example/ebics',
+      host_id: bank.hostId,
+      partner_id: 'PARTNER1',
+      user_id: 'USER1',
+      ...overrides,
+    })
+    .expect(201);
+
+  const as = (path: string) => request(app).post(path).set('Authorization', `Bearer ${session}`);
+  await as(`/api/connections/${key}/keys`).expect(201);
+  await as(`/api/connections/${key}/ini`).expect(200);
+  await as(`/api/connections/${key}/hia`).expect(200);
+  const hpb = await as(`/api/connections/${key}/hpb`).expect(200);
+
+  const digest = (purpose: string): string =>
+    (hpb.body.bank_keys as { purpose: string; digestFormatted: string }[]).find((k) => k.purpose === purpose)!
+      .digestFormatted;
+  await as(`/api/connections/${key}/verify-bank-keys`)
+    .send({ auth_digest: digest('AUTH'), enc_digest: digest('ENC') })
+    .expect(200);
+}
+
+beforeEach(async () => {
+  db = openDb(':memory:');
+  bank = new MockBank();
+  app = createApp({
+    db,
+    auth,
+    keySecret: KEY_SECRET,
+    transport: new Transport({ post: async (_url, body) => bank.post(body) }),
+  });
+  const login = await request(app).post('/api/login').send({ username: 'admin', password: 'test-pass' }).expect(200);
+  session = login.body.token as string;
+});
+
+// ── The credential line ───────────────────────────────────────────────
+
+describe('who may do what', () => {
+  const OPERATOR_ROUTES: [string, string][] = [
+    ['post', '/api/connections'],
+    ['get', '/api/connections'],
+    ['get', '/api/connections/main'],
+    ['post', '/api/connections/main/keys'],
+    ['post', '/api/connections/main/ini'],
+    ['post', '/api/connections/main/hia'],
+    ['post', '/api/connections/main/hpb'],
+    ['get', '/api/connections/main/ini-letter.pdf'],
+    ['post', '/api/connections/main/verify-bank-keys'],
+    ['post', '/api/connections/main/suspend'],
+    ['post', '/api/connections/main/resume'],
+  ];
+
+  it.each(OPERATOR_ROUTES)('%s %s needs a credential', async (method, path) => {
+    const res = await (request(app) as unknown as Record<string, (p: string) => request.Test>)[method]!(path);
+    expect(res.status).toBe(401);
+  });
+
+  it.each(OPERATOR_ROUTES)('%s %s refuses a service token — this is the whole boundary', async (method, path) => {
+    const res = await (request(app) as unknown as Record<string, (p: string) => request.Test>)
+      [method]!(path)
+      .set(SERVICE);
+    // 403, not 401: the caller IS authenticated, with the wrong credential for
+    // a human's job. Saying so is what stops someone "fixing" it by adding the
+    // service token to a module's config.
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatch(/admin session/);
+  });
+
+  it.each([
+    ['get', '/api/orders'],
+    ['get', '/api/orders/ord_x'],
+    ['post', '/api/orders'],
+    ['post', '/api/tick'],
+    ['get', '/api/banks'],
+  ] as [string, string][])('%s %s accepts a service token', async (method, path) => {
+    const res = await (request(app) as unknown as Record<string, (p: string) => request.Test>)
+      [method]!(path)
+      .set(SERVICE);
+    expect(res.status).not.toBe(401);
+    expect(res.status).not.toBe(403);
+  });
+
+  it('leaves health, ready and metrics open', async () => {
+    await request(app).get('/api/health').expect(200);
+    await request(app).get('/api/ready').expect(200);
+    await request(app).get('/api/metrics').expect(200);
+  });
+});
+
+// ── The bank profile registry ─────────────────────────────────────────
+
+describe('GET /api/banks', () => {
+  it('lists profiles, every one of them marked unconfirmed', async () => {
+    const res = await request(app).get('/api/banks').set(SERVICE).expect(200);
+    expect(res.body.banks.length).toBeGreaterThan(0);
+    // Nothing in this repo can check a BTF against a bank's documentation, so
+    // nothing here may claim to have been checked.
+    for (const profile of res.body.banks) expect(profile.confirmed).toBe(false);
+    expect(res.body.banks.map((b: { key: string }) => b.key)).toContain('sepa-at');
+  });
+
+  it('carries no URLs and no host ids — those come from the contract', async () => {
+    const res = await request(app).get('/api/banks').set(SERVICE).expect(200);
+    const serialised = JSON.stringify(res.body);
+    expect(serialised).not.toMatch(/https?:\/\//);
+  });
+});
+
+// ── The lifecycle over HTTP ───────────────────────────────────────────
+
+describe('bringing a connection up', () => {
+  it('walks created → ready and only then accepts an order', async () => {
+    await bringUp();
+    const detail = await request(app)
+      .get('/api/connections/main')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+    expect(detail.body.state).toBe('ready');
+
+    const order = await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'main', btf: BTF, payload_base64: pain001('M1') })
+      .expect(201);
+    expect(order.body.status).toBe('accepted');
+  });
+
+  it('refuses an order before a human confirmed the bank keys', async () => {
+    const as = (path: string) => request(app).post(path).set('Authorization', `Bearer ${session}`);
+    await as('/api/connections')
+      .send({
+        key: 'raw',
+        display_name: 'Test',
+        bank_key: 'generic',
+        url: 'https://bank.example/ebics',
+        host_id: bank.hostId,
+        partner_id: 'P1',
+        user_id: 'U1',
+      })
+      .expect(201);
+    await as('/api/connections/raw/keys').expect(201);
+    await as('/api/connections/raw/ini').expect(200);
+    await as('/api/connections/raw/hia').expect(200);
+    await as('/api/connections/raw/hpb').expect(200);
+
+    const res = await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'raw', btf: BTF, payload_base64: pain001('M1') })
+      .expect(409);
+    expect(res.body.error).toMatch(/nobody has confirmed/);
+    expect(bank.received).toEqual([]);
+  });
+
+  it('refuses an unknown bank profile at creation, not at the first upload', async () => {
+    const res = await request(app)
+      .post('/api/connections')
+      .set('Authorization', `Bearer ${session}`)
+      .send({
+        key: 'typo',
+        display_name: 'Test',
+        bank_key: 'sepa-atx',
+        url: 'https://bank.example/ebics',
+        host_id: 'H',
+        partner_id: 'P',
+        user_id: 'U',
+      })
+      .expect(422);
+    expect(res.body.details[0].field).toBe('bank_key');
+  });
+
+  it('never returns key material, on any route', async () => {
+    await bringUp();
+    for (const path of ['/api/connections', '/api/connections/main']) {
+      const res = await request(app).get(path).set('Authorization', `Bearer ${session}`).expect(200);
+      expect(JSON.stringify(res.body)).not.toMatch(/PRIVATE KEY/);
+    }
+  });
+});
+
+// ── The INI letter ────────────────────────────────────────────────────
+
+describe('the INI letter', () => {
+  it('is a PDF carrying the digests a human will compare', async () => {
+    const as = (path: string) => request(app).post(path).set('Authorization', `Bearer ${session}`);
+    await as('/api/connections')
+      .send({
+        key: 'main',
+        display_name: 'Test Bank',
+        bank_key: 'sepa-at',
+        url: 'https://bank.example/ebics',
+        host_id: 'MOCKHOST',
+        partner_id: 'PARTNER1',
+        user_id: 'USER1',
+      })
+      .expect(201);
+    const keys = await as('/api/connections/main/keys').expect(201);
+
+    const res = await request(app)
+      .get('/api/connections/main/ini-letter.pdf')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+
+    expect(res.headers['content-type']).toContain('application/pdf');
+    const pdf = res.body as Buffer;
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+
+    // The digests have to actually be ON the page: a letter that renders but
+    // omits them is worse than no letter, because it gets signed and posted.
+    const text = pdf.toString('latin1');
+    for (const key of keys.body.keys as { digestFormatted: string }[]) {
+      expect(text).toContain(key.digestFormatted.slice(0, 8));
+    }
+    // Both letters — INI for the signature key, HIA for the other two.
+    expect(text).toContain('EBICS INI Letter');
+    expect(text).toContain('EBICS HIA Letter');
+    expect(text).not.toMatch(/PRIVATE KEY/);
+
+    // The cross-reference table is hand-written, and a wrong offset produces a
+    // file that some viewers repair silently and others refuse. Check that
+    // every offset really lands on the object it claims.
+    const startxref = Number(/startxref\s+(\d+)/.exec(text)![1]);
+    const xref = text.slice(startxref);
+    expect(xref.startsWith('xref')).toBe(true);
+    const offsets = [...xref.matchAll(/^(\d{10}) 00000 n $/gm)].map((m) => Number(m[1]));
+    expect(offsets.length).toBeGreaterThan(4);
+    offsets.forEach((offset, i) => {
+      expect(text.slice(offset, offset + 20)).toMatch(new RegExp(`^${i + 1} 0 obj`));
+    });
+    expect(text.trimEnd().endsWith('%%EOF')).toBe(true);
+  });
+
+  it('refuses to print before there are keys', async () => {
+    await request(app)
+      .post('/api/connections')
+      .set('Authorization', `Bearer ${session}`)
+      .send({
+        key: 'bare',
+        display_name: 'Test',
+        bank_key: 'generic',
+        url: 'https://bank.example/ebics',
+        host_id: 'H',
+        partner_id: 'P',
+        user_id: 'U',
+      })
+      .expect(201);
+    await request(app)
+      .get('/api/connections/bare/ini-letter.pdf')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(409);
+  });
+});
+
+// ── Orders over HTTP ──────────────────────────────────────────────────
+
+describe('POST /api/orders', () => {
+  beforeEach(async () => {
+    await bringUp();
+  });
+
+  it('answers 201 for a new order and 200 for a replay of the same one', async () => {
+    const payload = { connection: 'main', btf: BTF, payload_base64: pain001('M1'), idempotency_key: 'run:M1' };
+    const first = await request(app).post('/api/orders').set(SERVICE).send(payload).expect(201);
+    const second = await request(app).post('/api/orders').set(SERVICE).send(payload).expect(200);
+
+    expect(second.body.public_id).toBe(first.body.public_id);
+    expect(bank.received).toHaveLength(1);
+  });
+
+  it('?validate=1 signs nothing and stores nothing', async () => {
+    const before = bank.requests.length;
+    const res = await request(app)
+      .post('/api/orders?validate=1')
+      .set(SERVICE)
+      .send({ connection: 'main', btf: BTF, payload_base64: pain001('M1', '250.00', 2) })
+      .expect(200);
+
+    expect(res.body).toMatchObject({ msg_id: 'M1', amount_minor: 25_000, tx_count: 2, problems: [] });
+    expect(bank.requests).toHaveLength(before);
+    const list = await request(app).get('/api/orders').set(SERVICE).expect(200);
+    expect(list.body.orders).toEqual([]);
+  });
+
+  it('reports ceiling problems in a preview rather than throwing', async () => {
+    await bringUp('capped', { partner_id: 'P2', user_id: 'U2', max_amount_minor: 1_000, max_transfers: 1 });
+    const res = await request(app)
+      .post('/api/orders?validate=1')
+      .set(SERVICE)
+      .send({ connection: 'capped', btf: BTF, payload_base64: pain001('M9', '500.00', 3) })
+      .expect(200);
+    expect(res.body.problems).toHaveLength(2);
+  });
+
+  it('refuses a payload that is not really base64', async () => {
+    const res = await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'main', btf: BTF, payload_base64: 'this is not base64 !!!' })
+      .expect(422);
+    // Buffer.from silently drops non-base64 characters, so an unchecked decode
+    // would sign bytes the caller never sent.
+    expect(res.body.details[0].field).toBe('payload_base64');
+    expect(bank.received).toEqual([]);
+  });
+
+  it('refuses a request with no BTF', async () => {
+    const res = await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'main', payload_base64: pain001('M1') })
+      .expect(422);
+    expect(res.body.details[0].field).toBe('btf');
+  });
+
+  it('returns the order — not an error — when the bank refuses it', async () => {
+    bank.configure({ rejectUploadsWith: '091303' });
+    const res = await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'main', btf: BTF, payload_base64: pain001('M1') })
+      .expect(201);
+
+    // A caller has to be able to record WHICH order was refused against its own
+    // record; an exception would lose the id it needs to do that.
+    expect(res.body.status).toBe('rejected');
+    expect(res.body.ebics_code).toBe('091303');
+    expect(res.body.public_id).toMatch(/^ord_/);
+  });
+
+  it('shows the event stream on the detail route', async () => {
+    const created = await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'main', btf: BTF, payload_base64: pain001('M1') })
+      .expect(201);
+
+    const res = await request(app).get(`/api/orders/${created.body.public_id}`).set(SERVICE).expect(200);
+    expect(res.body.events.map((e: { type: string }) => e.type)).toEqual([
+      'queued',
+      'initialised',
+      'segment_sent',
+      'transferred',
+      'accepted',
+    ]);
+    await request(app).get('/api/orders/ord_missing').set(SERVICE).expect(404);
+  });
+
+  it('filters the list by connection', async () => {
+    await bringUp('second', { partner_id: 'P3', user_id: 'U3' });
+    await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'main', btf: BTF, payload_base64: pain001('M1') })
+      .expect(201);
+    await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'second', btf: BTF, payload_base64: pain001('M2') })
+      .expect(201);
+
+    const res = await request(app).get('/api/orders?connection=second').set(SERVICE).expect(200);
+    expect(res.body.orders.map((o: { msg_id: string }) => o.msg_id)).toEqual(['M2']);
+  });
+});
+
+// ── The tick ──────────────────────────────────────────────────────────
+
+describe('POST /api/tick', () => {
+  it('says honestly that it has nothing to do yet', async () => {
+    const res = await request(app).post('/api/tick').set(SERVICE).expect(200);
+    // The route exists because the registry declares this service tick-driven,
+    // and a scheduler POSTing to a 404 looks broken.
+    expect(res.body.downloads_fetched).toBe(0);
+    expect(res.body.note).toMatch(/phase 6/);
+  });
+});
