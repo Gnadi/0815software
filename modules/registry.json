@@ -157,6 +157,21 @@
         "ADMIN_PASSWORD",
         "SERVICE_TOKEN"
       ]
+    },
+    {
+      "id": "ps-12-banking",
+      "n": "PS-12",
+      "label": "Banking",
+      "defaultPort": 4012,
+      "routePrefix": "/banking",
+      "urlEnv": "BANKING_URL",
+      "tickDriven": true,
+      "secrets": [
+        "SESSION_SECRET",
+        "ADMIN_PASSWORD",
+        "SERVICE_TOKEN",
+        "EBICS_KEY_SECRET"
+      ]
     }
   ],
   "modules": [
@@ -274,7 +289,8 @@
           "ps-07-audit-log",
           "ps-08-payments",
           "ps-10-number",
-          "ps-11-customers"
+          "ps-11-customers",
+          "ps-12-banking"
         ]
       },
       "peers": {
@@ -292,6 +308,7 @@
           "SELLER_VAT_ID"
         ],
         "optional": [
+          "BANK_CONNECTION",
           "NOTIFICATION_INVOICE_CHANNEL",
           "SELLER_BIC",
           "SELLER_IBAN",

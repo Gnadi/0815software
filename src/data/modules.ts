@@ -176,19 +176,21 @@ const presentation: Record<string, ModulePresentation> = {
     },
   },
   'mod-04-invoice-billing': {
-    body: 'Generate, send, and track invoices. PDF export, payment status, customer ledger.',
+    body: 'Generate, send, and track invoices — and pay the bills you owe with a SEPA file for your online banking.',
     overview:
-      'Totals are never stored, they are derived: an invoice stores line items only — quantity, unit net price in integer cents and VAT rate — and net, VAT-per-rate and gross are always recomputed from the lines. Send invoices, export clean PDFs, track payment status and keep a running customer ledger. The test suite proves the arithmetic to the cent.',
+      'Totals are never stored, they are derived: an invoice stores line items only — quantity, unit net price in integer cents and VAT rate — and net, VAT-per-rate and gross are always recomputed from the lines. Send invoices, export clean PDFs, track payment status and keep a running customer ledger. The other direction is covered too: record the bills you owe, tick the ones to pay, and download a valid SEPA credit transfer file (ISO 20022 pain.001) to upload in your online banking — with the IBANs check-digit validated, a bill payable only once, and every produced file frozen. With PS-12 Banking wired the same run goes straight to the bank over EBICS instead, though the download never goes away. The test suite proves the arithmetic to the cent.',
     features: [
       'Line-item invoices with per-line VAT rates',
       'Totals recomputed from lines in integer cents — never stored',
       'PDF export and payment-status tracking',
       'Running per-customer ledger',
+      'SEPA payment file (pain.001) for paying bills in your online banking',
+      'Or send it straight to the bank over EBICS, when PS-12 Banking is wired',
     ],
     screen: {
       variant: 'detail',
       accent: '#C08B8B',
-      nav: ['Invoices', 'Customers', 'Ledger'],
+      nav: ['Invoices', 'Customers', 'Bills', 'Ledger'],
       recordTitle: 'Invoice 2026-0148',
       list: ['0148 · Sent', '0147 · Paid', '0146 · Overdue', '0145 · Paid'],
       fields: [

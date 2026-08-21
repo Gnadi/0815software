@@ -33,6 +33,35 @@ import {
   type DraftInput,
   type LineInput,
 } from './invoices.js';
+import {
+  cancelBill,
+  createBill,
+  createCreditor,
+  createPaymentRun,
+  deleteBill,
+  deleteCreditor,
+  discardRun,
+  getBill,
+  getCreditor,
+  listBills,
+  listCreditors,
+  listPaymentRuns,
+  markBillPaid,
+  markRunExecuted,
+  payablesSummary,
+  paymentConfig,
+  paymentRunDetail,
+  paymentRunFilename,
+  paymentRunXml,
+  assertRunSubmittable,
+  recordBankSubmission,
+  updateBill,
+  updateCreditor,
+  type BillInput,
+  type CreditorInput,
+} from './bills.js';
+import { MAX_AMOUNT_CENTS, MAX_REMITTANCE, sepaAmount } from '../shared/sepa.js';
+import { BILL_STATUSES, type BillStatus } from '../shared/types.js';
 import { renderInvoicePdf } from './pdf.js';
 import { fmtEur } from '../shared/money.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
@@ -101,6 +130,64 @@ function validateCustomer(input: Record<string, unknown>): CustomerInput {
   return { name, email, vat_id, address };
 }
 
+/**
+ * A creditor as typed into the form. The IBAN and BIC are checked in
+ * `bills.ts` — where the SEPA rules live — so this only guards the shape.
+ */
+function validateCreditor(input: Record<string, unknown>): CreditorInput {
+  const errors: FieldError[] = [];
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  if (name === '' || name.length > 160) {
+    errors.push({ field: 'name', message: 'Name is required (max 160 characters)' });
+  }
+  const iban = typeof input.iban === 'string' ? input.iban.trim() : '';
+  if (iban === '') errors.push({ field: 'iban', message: 'IBAN is required' });
+  // Long enough to allow the spacing people paste ("GIBA ATWW XXX"); the real
+  // 8-or-11 check happens after normalization, in bills.ts.
+  const bic = optText(input.bic, 'bic', errors, 16);
+  const note = optText(input.note, 'note', errors, 300);
+  if (errors.length > 0) fail(errors);
+  return { name, iban, bic, note };
+}
+
+/**
+ * A bill as typed into the form.
+ *
+ * `amount_cents` is the GROSS amount to transfer — what the supplier's
+ * invoice says is due, not a net figure this module would then have to apply
+ * a VAT rate to. A bill is a payment instruction, not a tax document: the
+ * module has no view on how the amount splits, and inventing one here would
+ * put a tax decision in the screen least qualified to make it.
+ */
+function validateBill(input: Record<string, unknown>): BillInput {
+  const errors: FieldError[] = [];
+  const creditorId = id(input.creditor_id, 'creditor_id', errors);
+
+  const reference = typeof input.reference === 'string' ? input.reference.trim() : '';
+  if (reference === '' || reference.length > 64) {
+    errors.push({ field: 'reference', message: "The supplier's invoice number is required (max 64 characters)" });
+  }
+  const remittance = optText(input.remittance, 'remittance', errors, MAX_REMITTANCE);
+
+  const amountCents = Number(input.amount_cents);
+  if (!Number.isInteger(amountCents) || amountCents <= 0) {
+    errors.push({ field: 'amount_cents', message: 'Amount must be a positive integer amount in cents' });
+  } else if (amountCents > MAX_AMOUNT_CENTS) {
+    errors.push({
+      field: 'amount_cents',
+      message: `A single SEPA transfer cannot exceed ${sepaAmount(MAX_AMOUNT_CENTS)} EUR`,
+    });
+  }
+
+  const issueDate = optDate(input.issue_date, 'issue_date', errors);
+  const dueDate = optDate(input.due_date, 'due_date', errors);
+  if (dueDate === null) errors.push({ field: 'due_date', message: 'A due date is required' });
+  const note = optText(input.note, 'note', errors, 500);
+
+  if (errors.length > 0) fail(errors);
+  return { creditorId, reference, remittance, amountCents, issueDate, dueDate: dueDate!, note };
+}
+
 function validateDraft(input: Record<string, unknown>): DraftInput {
   const errors: FieldError[] = [];
   const customerId = id(input.customer_id, 'customer_id', errors);
@@ -150,6 +237,13 @@ export interface AppOptions {
   staticDir?: string;
   /** Optional Platform Services integration; defaults to a no-op (standalone). */
   platform?: PlatformHooks;
+  /**
+   * Whether PS-12 Banking is wired, so the payables screens can offer to send
+   * a run instead of only downloading it. Passed rather than probed: a hook
+   * that returns null is indistinguishable from one that failed, and the UI
+   * must not offer a button that always errors.
+   */
+  bankingConfigured?: boolean;
   verifyLogin?: LoginVerifier;
   /**
    * The platform machine token (PLATFORM_SERVICE_TOKEN). When set, it is the
@@ -172,7 +266,7 @@ export interface AppOptions {
   loginMode?: LoginMode;
 }
 
-export function createApp({ db, hardening, auth, seller, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [] }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, seller, staticDir, platform = noopPlatform, bankingConfigured = false, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [] }: AppOptions): express.Express {
   const app = express();
   const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
 
@@ -560,6 +654,237 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.send(pdf);
+  });
+
+  // ── Payables: bills, and the bank file that pays them ────────────────
+  // The mirror of everything above: invoices are money coming in, bills are
+  // money going out. `server/bills.ts` holds the rules, `shared/sepa.ts` the
+  // pain.001 file. Nothing here talks to a bank — the operator uploads the
+  // file in their own online banking.
+
+  // What the payment screens must know before offering to build a file: who
+  // the debtor is, and whether this installation's own IBAN is usable at all.
+  app.get('/api/payment-config', (_req, res) => {
+    res.json(paymentConfig(seller, false, bankingConfigured));
+  });
+
+  app.get('/api/creditors', (req, res) => {
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    res.json({ creditors: listCreditors(db, search || undefined) });
+  });
+
+  app.post('/api/creditors', (req, res) => {
+    const creditorId = createCreditor(db, validateCreditor(body(req)));
+    res.status(201).json(getCreditor(db, creditorId));
+  });
+
+  app.get('/api/creditors/:id', (req, res) => {
+    res.json(getCreditor(db, Number(req.params.id)));
+  });
+
+  app.put('/api/creditors/:id', (req, res) => {
+    updateCreditor(db, Number(req.params.id), validateCreditor(body(req)));
+    res.json(getCreditor(db, Number(req.params.id)));
+  });
+
+  app.delete('/api/creditors/:id', (req, res) => {
+    deleteCreditor(db, Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  app.get('/api/bills', (req, res) => {
+    const rawStatus = typeof req.query.status === 'string' ? req.query.status : undefined;
+    if (rawStatus && !(BILL_STATUSES as readonly string[]).includes(rawStatus)) {
+      fail([{ field: 'status', message: `status must be one of: ${BILL_STATUSES.join(', ')}` }]);
+    }
+    const today = todayIso();
+    res.json({
+      bills: listBills(
+        db,
+        {
+          search: typeof req.query.search === 'string' ? req.query.search : undefined,
+          status: rawStatus as BillStatus | undefined,
+          overdueOnly: req.query.overdue === '1' || req.query.overdue === 'true',
+        },
+        today,
+      ),
+      totals: payablesSummary(db, today),
+      today,
+    });
+  });
+
+  app.post('/api/bills', (req, res) => {
+    const billId = createBill(db, validateBill(body(req)));
+    res.status(201).json(getBill(db, billId));
+  });
+
+  app.get('/api/bills/:id', (req, res) => {
+    res.json(getBill(db, Number(req.params.id)));
+  });
+
+  app.put('/api/bills/:id', (req, res) => {
+    updateBill(db, Number(req.params.id), validateBill(body(req)));
+    res.json(getBill(db, Number(req.params.id)));
+  });
+
+  app.delete('/api/bills/:id', (req, res) => {
+    deleteBill(db, Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  app.post('/api/bills/:id/cancel', (req, res) => {
+    cancelBill(db, Number(req.params.id));
+    res.json(getBill(db, Number(req.params.id)));
+  });
+
+  // Settled outside a payment run — cash, card, standing order, or a transfer
+  // typed straight into the bank. A scheduled bill is refused (409): its run
+  // is the record of how it is being paid.
+  app.post('/api/bills/:id/mark-paid', (req, res) => {
+    markBillPaid(db, Number(req.params.id));
+    res.json(getBill(db, Number(req.params.id)));
+  });
+
+  app.get('/api/payment-runs', (_req, res) => {
+    res.json({ runs: listPaymentRuns(db), config: paymentConfig(seller, false, bankingConfigured) });
+  });
+
+  app.post('/api/payment-runs', async (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const rawIds = Array.isArray(input.bill_ids) ? input.bill_ids : [];
+    if (rawIds.length === 0) errors.push({ field: 'bill_ids', message: 'Select at least one bill to pay' });
+    const billIds = rawIds.map((raw, i) => id(raw, `bill_ids[${i}]`, errors));
+    const executionDate = optDate(input.execution_date, 'execution_date', errors);
+    if (errors.length > 0) fail(errors);
+
+    const runId = createPaymentRun(db, seller, {
+      billIds,
+      executionDate: executionDate ?? undefined,
+      createdBy: actorOf(res, auth),
+    });
+    const detail = paymentRunDetail(db, runId);
+    await platform.paymentRunEvent({
+      event: 'created',
+      runId,
+      messageId: detail.message_id,
+      count: detail.item_count,
+      totalFormatted: fmtEur(detail.total_cents),
+      executionDate: detail.execution_date,
+      actor: actorOf(res, auth),
+    });
+    res.status(201).json(detail);
+  });
+
+  app.get('/api/payment-runs/:id', (req, res) => {
+    res.json({ ...paymentRunDetail(db, Number(req.params.id)), banking_configured: bankingConfigured });
+  });
+
+  // THE FILE. Rebuilt from the run's frozen snapshot, so downloading it twice
+  // yields the same bytes twice — a bank rejects a second file carrying a
+  // MsgId it has already seen, and an operator who downloads again must get
+  // the file they already uploaded, not a new one.
+  app.get('/api/payment-runs/:id/sepa.xml', (req, res) => {
+    const detail = paymentRunDetail(db, Number(req.params.id));
+    const xml = paymentRunXml(db, Number(req.params.id));
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${paymentRunFilename(detail.message_id)}"`);
+    res.send(xml);
+  });
+
+  /**
+   * Hand the run to the bank over EBICS, when PS-12 is wired.
+   *
+   * The download never goes away and this route never replaces it: a bank
+   * connection is optional, and the file is the fallback for every
+   * installation that does not have one.
+   *
+   * The bytes sent are `paymentRunXml` — the same function the download
+   * serves, rebuilt from the same frozen snapshot. So "what did I send?" and
+   * "what can I download?" cannot diverge, and an operator can hand the bank
+   * the identical file by hand if something goes wrong at the transport.
+   */
+  app.post('/api/payment-runs/:id/submit', async (req, res) => {
+    const runId = Number(req.params.id);
+    // Refuse locally first: a run that must not be sent should not reach the
+    // service that would sign it.
+    assertRunSubmittable(db, runId);
+
+    const detail = paymentRunDetail(db, runId);
+    const result = await platform.submitPaymentRun({
+      messageId: detail.message_id,
+      xml: paymentRunXml(db, runId),
+    });
+    if (result === null) {
+      throw new DomainError(
+        409,
+        'No bank connection is configured (BANKING_URL is unset) — download the file and upload it in online banking',
+      );
+    }
+
+    recordBankSubmission(db, runId, { orderId: result.orderId, status: result.status, message: result.message });
+    const updated = paymentRunDetail(db, runId);
+    await platform.paymentRunEvent({
+      event: updated.status === 'rejected' ? 'rejected' : 'submitted',
+      runId,
+      messageId: updated.message_id,
+      count: updated.item_count,
+      totalFormatted: fmtEur(updated.total_cents),
+      executionDate: updated.execution_date,
+      actor: actorOf(res, auth),
+    });
+    res.json(updated);
+  });
+
+  /**
+   * Re-read the bank's word on a run that was already sent.
+   *
+   * Cheap and safe to call whenever the screen opens: it asks PS-12 and folds
+   * the answer in, so a run that the bank later refused stops looking sent.
+   */
+  app.post('/api/payment-runs/:id/refresh', async (req, res) => {
+    const runId = Number(req.params.id);
+    const detail = paymentRunDetail(db, runId);
+    if (detail.banking_order_id === null) {
+      throw new DomainError(409, 'This payment run was never sent to a bank');
+    }
+
+    const result = await platform.bankOrderStatus(detail.banking_order_id);
+    if (result === null) {
+      throw new DomainError(409, 'No bank connection is configured (BANKING_URL is unset)');
+    }
+    recordBankSubmission(db, runId, { orderId: result.orderId, status: result.status, message: result.message });
+    res.json(paymentRunDetail(db, runId));
+  });
+
+  app.post('/api/payment-runs/:id/mark-executed', async (req, res) => {
+    markRunExecuted(db, Number(req.params.id));
+    const detail = paymentRunDetail(db, Number(req.params.id));
+    await platform.paymentRunEvent({
+      event: 'executed',
+      runId: detail.id,
+      messageId: detail.message_id,
+      count: detail.item_count,
+      totalFormatted: fmtEur(detail.total_cents),
+      executionDate: detail.execution_date,
+      actor: actorOf(res, auth),
+    });
+    res.json(detail);
+  });
+
+  app.post('/api/payment-runs/:id/discard', async (req, res) => {
+    discardRun(db, Number(req.params.id));
+    const detail = paymentRunDetail(db, Number(req.params.id));
+    await platform.paymentRunEvent({
+      event: 'discarded',
+      runId: detail.id,
+      messageId: detail.message_id,
+      count: detail.item_count,
+      totalFormatted: fmtEur(detail.total_cents),
+      executionDate: detail.execution_date,
+      actor: actorOf(res, auth),
+    });
+    res.json(detail);
   });
 
   // ── Static client (production build) ─────────────────────────────────

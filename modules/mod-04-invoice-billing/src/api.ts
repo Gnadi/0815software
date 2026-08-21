@@ -1,9 +1,15 @@
 import type {
+  BillRow,
+  Creditor,
+  CreditorRow,
   Customer,
   FieldError,
   InvoiceDetail,
   InvoiceRow,
   Ledger,
+  PaymentConfig,
+  PaymentRunDetail,
+  PaymentRunRow,
 } from '../shared/types';
 
 export class ApiError extends Error {
@@ -94,9 +100,61 @@ export const api = {
     request<InvoiceDetail>(`/api/invoices/${id}/cancel`, post({ reason })),
   recordPayment: (id: number, values: Record<string, unknown>) =>
     request<InvoiceDetail>(`/api/invoices/${id}/payments`, post(values)),
+
+  // ── Payables: bills, and the bank file that pays them ────────────────
+  /** The debtor account, and whether it is usable — read before offering a run. */
+  paymentConfig: () => request<PaymentConfig>('/api/payment-config'),
+
+  creditors: (search?: string) =>
+    request<{ creditors: CreditorRow[] }>(
+      `/api/creditors${search ? `?search=${encodeURIComponent(search)}` : ''}`,
+    ),
+  createCreditor: (values: Record<string, unknown>) => request<Creditor>('/api/creditors', post(values)),
+  updateCreditor: (id: number, values: Record<string, unknown>) =>
+    request<Creditor>(`/api/creditors/${id}`, { method: 'PUT', body: JSON.stringify(values) }),
+  deleteCreditor: (id: number) => request<{ ok: true }>(`/api/creditors/${id}`, { method: 'DELETE' }),
+
+  bills: (params: URLSearchParams) =>
+    request<{ bills: BillRow[]; totals: PayablesTotals; today: string }>(`/api/bills?${params}`),
+  createBill: (values: Record<string, unknown>) => request<BillRow>('/api/bills', post(values)),
+  updateBill: (id: number, values: Record<string, unknown>) =>
+    request<BillRow>(`/api/bills/${id}`, { method: 'PUT', body: JSON.stringify(values) }),
+  deleteBill: (id: number) => request<{ ok: true }>(`/api/bills/${id}`, { method: 'DELETE' }),
+  cancelBill: (id: number) => request<BillRow>(`/api/bills/${id}/cancel`, post()),
+  markBillPaid: (id: number) => request<BillRow>(`/api/bills/${id}/mark-paid`, post()),
+
+  paymentRuns: () =>
+    request<{ runs: PaymentRunRow[]; config: PaymentConfig }>('/api/payment-runs'),
+  paymentRun: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}`),
+  /** Produce the file. The bills in it become `scheduled` — see shared/sepa.ts. */
+  createPaymentRun: (billIds: number[], executionDate: string | null) =>
+    request<PaymentRunDetail>('/api/payment-runs', post({ bill_ids: billIds, execution_date: executionDate })),
+  submitRun: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}/submit`, post()),
+  refreshRun: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}/refresh`, post()),
+  markRunExecuted: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}/mark-executed`, post()),
+  discardRun: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}/discard`, post()),
 };
+
+/** The payables figures the bills screen shows above its list. */
+export interface PayablesTotals {
+  open_count: number;
+  open_cents: number;
+  overdue_count: number;
+  overdue_cents: number;
+  scheduled_count: number;
+  scheduled_cents: number;
+}
 
 /** URL of the PDF for an invoice (opens in a new tab / downloads). */
 export function invoicePdfUrl(id: number): string {
   return `/api/invoices/${id}/pdf`;
+}
+
+/**
+ * URL of a payment run's pain.001 file — a plain link, so the browser does the
+ * download and the file never passes through JavaScript. The same URL always
+ * yields the same bytes: the run is frozen (server/bills.ts).
+ */
+export function paymentRunXmlUrl(id: number): string {
+  return `/api/payment-runs/${id}/sepa.xml`;
 }

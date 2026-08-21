@@ -1,0 +1,412 @@
+openapi: 3.1.0
+info:
+  title: PS-12 Banking API
+  version: '0.1.0'
+  description: >-
+    EBICS 3.0 (H005) bank transport: subscriber key custody, the INI/HIA/HPB key
+    exchange, and signed ISO 20022 uploads over the customer's own bank
+    connection. Request and response bodies are typed in
+    @0815software/platform-clients; this document is the endpoint + auth surface.
+
+
+    Two kinds of caller, and the split is deliberate. Everything to do with keys
+    needs an **admin session** — a human. A module presenting `X-Service-Token`
+    may submit and read orders, and nothing else: it cannot create a connection,
+    activate one, or lift its own ceilings. At signature class E a submitted
+    order is money gone, so the blast radius of a leaked service token is
+    bounded by limits a human set on a connection a human activated.
+
+
+    Private key material has no route. Digests are the only thing about a key
+    that ever leaves the process.
+servers:
+  - url: http://localhost:4012
+    description: Local / per-customer deployment (behind Caddy in production)
+tags:
+  - name: ps-12-banking
+paths:
+  /api/health:
+    get:
+      summary: Get health
+      tags: [ps-12-banking]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/ready:
+    get:
+      summary: Get ready
+      tags: [ps-12-banking]
+      security: []
+      responses:
+        '200': { description: Success }
+        '503': { description: Database unreachable or migrations pending }
+  /api/metrics:
+    get:
+      summary: Get metrics
+      tags: [ps-12-banking]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/login:
+    post:
+      summary: Create login
+      tags: [ps-12-banking]
+      security: []
+      responses:
+        '200': { description: Success }
+        '401': { description: Invalid username or password }
+  /api/logout:
+    post:
+      summary: Create logout
+      tags: [ps-12-banking]
+      security: []
+      responses:
+        '200': { description: Success }
+  /api/banks:
+    get:
+      summary: List bank profiles
+      description: >-
+        BTF conventions per scheme and country. No URLs and no host ids: those
+        come from the EBICS contract the bank sends the customer. Every profile
+        ships `confirmed: false` until a human has checked it against a bank's
+        own documentation.
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/connections:
+    get:
+      summary: List connections
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '403': { description: A service token cannot reach an operator's route }
+    post:
+      summary: Create connection
+      description: >-
+        key, display_name, bank_key, url, host_id, partner_id and user_id come from the EBICS contract.
+        Optional: es_version (A005 or A006), debtor_iban, max_amount_minor, max_transfers, and the
+        EBICS Product element as product_name / product_language (ISO 639, required with a name) /
+        product_institute_id. Omit the product fields and no Product element is sent.
+        request_eds (default false) makes uploads carry SignatureFlag requestEDS="true", asking the bank
+        to spool them into its distributed-signature (VEU/EDS) queue; PS-12 cannot read that queue back.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Created }
+        '409': { description: A connection with this key already exists }
+        '422': { description: Validation failed (including an unknown bank profile) }
+  /api/connections/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get connection
+      description: The folded state, the key digests, the bank's key digests and the event stream.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '404': { description: No such connection }
+  /api/connections/{key}/keys:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Generate the three key pairs
+      description: >-
+        ES (A005/A006), authentication (X002) and encryption (E002). Once only —
+        a second call would orphan the copy the bank already holds. Returns
+        digests; the private keys never leave the service.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Created }
+        '500': { description: This connection already has keys }
+  /api/connections/{key}/versions:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Ask the bank which EBICS versions it speaks (HEV)
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '502': { description: The bank did not answer usefully }
+  /api/connections/{key}/ini:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Send the signature key (INI)
+      description: An unsecured message — it cannot be otherwise, since the bank holds no key of ours yet. The INI letter is what binds it to a customer.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '409': { description: Out of order for this connection's state }
+  /api/connections/{key}/hia:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Send the authentication and encryption keys (HIA)
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '409': { description: Out of order for this connection's state }
+  /api/connections/{key}/hpb:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Fetch the bank's public keys (HPB)
+      description: >-
+        Moves the connection to `hpb_fetched`, never to `ready`. Re-fetching
+        clears an earlier confirmation, because inheriting a human's tick for
+        keys nobody looked at is how a substituted key would wear someone
+        else's approval.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+  /api/connections/{key}/ini-letter.pdf:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Download the INI and HIA letters
+      description: Two pages carrying the key digests, to be printed, signed by hand and posted. Digests only — never key material.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: A PDF }
+        '409': { description: This connection has no keys yet }
+  /api/connections/{key}/verify-bank-keys:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Confirm the bank's key digests, activating the connection
+      description: >-
+        The one human judgement in the service. HPB cannot prove the keys came
+        from the bank, so an operator compares the digests against the bank's
+        own published letter. A mismatch is recorded as an event and the
+        connection stays unusable — it is what an attacker in the middle looks
+        like.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The connection is now ready }
+        '422': { description: The digests do not match what was fetched }
+  /api/connections/{key}/suspend:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Suspend a connection
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+  /api/connections/{key}/resume:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Resume a suspended connection
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+  /api/connections/{key}/clear-failure:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Step a connection back out of `failed` so setup can be retried
+      description: >-
+        A bank refusing a setup message records a `failed` event, and plenty of
+        those are transient — a host that was down, a subscriber the bank had
+        not activated yet. This moves the connection BACKWARDS to the last step
+        it actually completed, so clearing a failure can never be a route to
+        `ready` without a human confirming the bank's digests.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The connection, back at its last completed step }
+        '409': { description: This connection has not failed }
+  /api/orders:
+    get:
+      summary: List orders
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - name: connection
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000 }
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+    post:
+      summary: Submit a file to the bank
+      description: >-
+        Payload-agnostic: bytes, a BTF and an idempotency key. Deduplicated
+        twice — on the caller's key, and on the file's own MsgId per connection.
+        Ceilings are enforced here, before anything is signed. A `201` is a new
+        order; a `200` means an earlier submission of the same file produced it.
+
+
+        The response carries the order either way, accepted or rejected or
+        failed, because a caller needs the id to record the outcome against its
+        own record.
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - name: validate
+          in: query
+          description: '`1` for a dry run — reports what would be sent, signs nothing and stores nothing.'
+          schema: { type: string, enum: ['1'] }
+      responses:
+        '200': { description: An earlier submission of this file }
+        '201': { description: Submitted }
+        '409': { description: The connection is not ready, or this MsgId belongs to an order that is not finished }
+        '422': { description: Outside this connection's ceilings, or an unreadable payload }
+  /api/orders/{public_id}:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get order
+      description: The folded status and the full event stream, including the bank's return codes.
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '404': { description: No such order }
+  /api/connections/{key}/fetch:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Fetch one BTF now
+      description: >-
+        An operator's button: ask the bank for one message type without waiting
+        for the tick. Optionally scoped to an inclusive `date_range`.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The download, or null when the bank had nothing waiting }
+        '409': { description: The connection is not ready }
+  /api/downloads:
+    get:
+      summary: List downloads
+      description: >-
+        Metadata only — the files themselves are on their own route, so a
+        listing never carries megabytes of XML. `acknowledged_at` null means
+        the bank has not been told we hold the file and will offer it again.
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - name: connection
+          in: query
+          schema: { type: string }
+        - name: kind
+          in: query
+          schema: { type: string, enum: [statement, status, other] }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000 }
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/downloads/{public_id}:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get download
+      description: The metadata plus, for a pain.002, the payment statuses read out of it.
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '404': { description: No such download }
+  /api/downloads/{public_id}/content:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Download the file itself
+      description: >-
+        The bytes the bank sent, stored whole. A camt.053 is deliberately not
+        parsed by this service — matching bookings to invoices belongs to the
+        module that has the invoices.
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: The file }
+        '404': { description: No such download }
+  /api/tick:
+    post:
+      summary: Run the periodic work
+      description: >-
+        Fetch what every ready connection has waiting, and fold any payment
+        status reports back into the orders they are about. Answers 200 with
+        `problems` listed rather than failing: one bank being unreachable must
+        not stop the others being polled, and a scheduler calling this every
+        minute needs an answer it can log.
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: '{downloads_fetched, orders_updated, problems}' }
+        '401': { description: Authentication required }
+components:
+  securitySchemes:
+    serviceToken:
+      type: apiKey
+      in: header
+      name: X-Service-Token
+      description: Shared machine secret. Orders only — it cannot reach any route that touches keys.
+    adminSession:
+      type: http
+      scheme: bearer
+      description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.

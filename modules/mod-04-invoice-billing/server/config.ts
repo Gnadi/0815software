@@ -102,6 +102,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       // PS-11 Customers — when set, an imported customer is resolved against
       // the stack's party master data instead of being copied blind.
       customersUrl: env.CUSTOMERS_URL || undefined,
+      bankingUrl: env.BANKING_URL || undefined,
+      bankConnection: env.BANK_CONNECTION || undefined,
       // MOD-13 Offers — when set, an accepted offer can be billed with one
       // action. Unset means this module behaves exactly as it did before.
       offersUrl: env.OFFERS_URL || undefined,

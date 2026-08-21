@@ -1,5 +1,6 @@
 import {
   AuditClient,
+  BankingClient,
   CustomersClient,
   FilesClient,
   NotificationClient,
@@ -19,6 +20,9 @@ import type { SelfParty } from './seller.js';
  *   - PS-06 File Storage      — archive the rendered invoice PDF
  *   - PS-07 Audit Log         — record the issue event on the tamper-evident trail
  *   - PS-08 Payments          — collect payment for an invoice's open balance
+ *   - PS-12 Banking           — send a payment run to the bank over EBICS,
+ *                               instead of a human downloading the file and
+ *                               uploading it in online banking
  *   - PS-11 Customers         — resolve an imported customer against the
  *                               stack's party master data, so billing an offer
  *                               bills the same party the quote was for
@@ -52,6 +56,10 @@ export interface PlatformConfig {
   paymentsUrl?: string;
   numberUrl?: string;
   customersUrl?: string;
+  /** Base URL of PS-12 Banking. Unset = the download stays the only path. */
+  bankingUrl?: string;
+  /** The PS-12 connection key to submit against (default "main"). */
+  bankConnection?: string;
   /** Base URL of MOD-13 Offers, for billing an accepted offer. */
   offersUrl?: string;
   serviceToken?: string;
@@ -99,6 +107,35 @@ export interface OfferBilledInfo {
   actor: string;
 }
 
+/**
+ * Recorded when a SEPA payment run changes hands: produced, sent to the bank,
+ * refused by it, executed, or thrown away. Money leaving the company is
+ * exactly the kind of event an audit log exists for, and when there is no bank
+ * connection the file lives only in the operator's download — so the trail has
+ * to be here.
+ */
+export interface PaymentRunEventInfo {
+  event: 'created' | 'submitted' | 'rejected' | 'executed' | 'discarded';
+  runId: number;
+  /** The pain.001 MsgId — how the bank identifies the same file. */
+  messageId: string;
+  count: number;
+  totalFormatted: string;
+  executionDate: string;
+  actor: string;
+}
+
+/** A payment run, as PS-12 needs to see it: a file, a name and a total. */
+export interface PaymentRunSubmission {
+  /** The pain.001 `MsgId` — the run's name, and the bank's duplicate check. */
+  messageId: string;
+  /** The file itself, byte-identical to what the download hands over. */
+  xml: string;
+}
+
+/** What PS-12 said, or null when it is not configured. */
+export type BankOrderResult = { orderId: string; status: string; message: string | null } | null;
+
 export interface PlatformHooks {
   invoiceIssued(info: InvoiceIssuedInfo): Promise<void>;
   payInvoice(info: PayInvoiceInfo): Promise<PaymentResult>;
@@ -131,6 +168,24 @@ export interface PlatformHooks {
    * keeps its SELLER_* environment values. See server/seller.ts.
    */
   fetchSelf(): Promise<SelfParty | null>;
+  /** Record a payment-run event on PS-07, when configured. Best-effort. */
+  paymentRunEvent(info: PaymentRunEventInfo): Promise<void>;
+  /**
+   * Hand a payment run to the bank over EBICS. Null when BANKING_URL is unset —
+   * the standalone posture, in which the download is the only path.
+   *
+   * **NOT best-effort, deliberately.** Every other hook here swallows a
+   * failure because the local operation is what matters and the platform call
+   * is decoration. This one IS the operation: an error swallowed into a
+   * shrugged-off warning would leave an operator believing a payment was sent.
+   * A failure propagates and the route says what happened.
+   *
+   * Idempotent on the run's `MsgId`, end to end: a double-clicked button, a
+   * retried request and a resubmitted run all converge on one bank order.
+   */
+  submitPaymentRun(run: PaymentRunSubmission): Promise<BankOrderResult>;
+  /** Re-read a bank order's status. Null when PS-12 is not configured. */
+  bankOrderStatus(orderId: string): Promise<BankOrderResult>;
 }
 
 /** The no-op hooks used when nothing is configured. */
@@ -159,6 +214,15 @@ export const noopPlatform: PlatformHooks = {
   async fetchSelf() {
     return null;
   },
+  async paymentRunEvent() {
+    /* standalone: nothing to do */
+  },
+  async submitPaymentRun() {
+    return null;
+  },
+  async bankOrderStatus() {
+    return null;
+  },
 };
 
 export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
@@ -172,8 +236,12 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const customers = cfg.customersUrl
     ? new CustomersClient({ baseUrl: cfg.customersUrl, serviceToken: cfg.serviceToken })
     : null;
+  const banking = cfg.bankingUrl ? new BankingClient({ baseUrl: cfg.bankingUrl, serviceToken: cfg.serviceToken }) : null;
+  const bankConnection = cfg.bankConnection ?? 'main';
   const offersUrl = cfg.offersUrl ? cfg.offersUrl.replace(/\/+$/, '') : null;
-  if (!notify && !files && !audit && !payments && !numbers && !customers && !offersUrl) return noopPlatform;
+  if (!notify && !files && !audit && !payments && !numbers && !customers && !banking && !offersUrl) {
+    return noopPlatform;
+  }
 
   const channel = cfg.invoiceChannel ?? 'transactional-email';
   const numberScope = cfg.numberScope ?? 'invoice';
@@ -325,6 +393,49 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
       } catch (err) {
         console.warn('[mod-04] audit failed:', err);
       }
+    },
+
+    async paymentRunEvent(info: PaymentRunEventInfo): Promise<void> {
+      if (!audit) return;
+      try {
+        await audit.record({
+          actor: info.actor,
+          action: `payment_run.${info.event}`,
+          resource: `payment-run:${info.messageId}`,
+          metadata: {
+            run_id: info.runId,
+            transfers: info.count,
+            total: info.totalFormatted,
+            execution_date: info.executionDate,
+          },
+        });
+      } catch (err) {
+        console.warn('[mod-04] audit failed:', err);
+      }
+    },
+
+    async submitPaymentRun(run: PaymentRunSubmission): Promise<BankOrderResult> {
+      if (!banking) return null;
+      // No BTF: PS-12 takes it from the connection's own bank profile. Which
+      // Business Transaction Format a given bank wants is the operator's
+      // business, decided once when they set the connection up with the bank's
+      // documentation in front of them — not a constant compiled into a module
+      // that only knows it has produced a pain.001.
+      const order = await banking.submitOrder({
+        connection: bankConnection,
+        payload: Buffer.from(run.xml, 'utf8'),
+        // The run's MsgId end to end: a double-click, a retry and a
+        // resubmission all converge on one bank order — and PS-12 checks the
+        // file's own MsgId as well, so even a lost key cannot pay twice.
+        idempotencyKey: `payment-run:${run.messageId}`,
+      });
+      return { orderId: order.public_id, status: order.status, message: order.message };
+    },
+
+    async bankOrderStatus(orderId: string): Promise<BankOrderResult> {
+      if (!banking) return null;
+      const order = await banking.getOrder(orderId);
+      return { orderId: order.public_id, status: order.status, message: order.message };
     },
   };
 }

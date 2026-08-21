@@ -46,6 +46,7 @@ const app = createApp({
   seller: config.seller,
   staticDir,
   platform,
+  bankingConfigured: config.platform.bankingUrl !== undefined,
   verifyLogin: buildLoginVerifier(config.sso),
   loginMode: loginModeOf(config.sso),
   serviceToken: config.platform.serviceToken,
@@ -59,6 +60,12 @@ app.listen(config.port, () => {
     usingPlatformSeller
       ? `[mod-04] seller letterhead from PS-11 Customers: ${config.seller.name}`
       : `[mod-04] seller letterhead from SELLER_* env: ${config.seller.name}`,
+  );
+  console.log(
+    config.platform.bankingUrl === undefined
+      ? '[mod-04] note: BANKING_URL unset — payment runs are downloaded and uploaded by hand'
+      : `[mod-04] payment runs can be sent to the bank via PS-12 at ${config.platform.bankingUrl}` +
+          ` (connection "${config.platform.bankConnection ?? 'main'}")`,
   );
   if (config.auth.password === 'admin') {
     console.warn('[mod-04] WARNING: using default credentials (admin/admin) — set ADMIN_USERNAME/ADMIN_PASSWORD');

@@ -1,22 +1,33 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from './api';
+import { BillsView } from './components/BillsView';
+import { CreditorsView } from './components/CreditorsView';
 import { CustomerLedger } from './components/CustomerLedger';
 import { CustomersView } from './components/CustomersView';
 import { InvoiceDetail } from './components/InvoiceDetail';
 import { InvoiceEditor } from './components/InvoiceEditor';
 import { InvoicesView } from './components/InvoicesView';
 import { Login } from './components/Login';
+import { PaymentRunDetailView, PaymentRunsView } from './components/PaymentRunsView';
 
 export type View =
   | { name: 'invoices'; status?: string }
   | { name: 'invoice'; id: number }
   | { name: 'editor'; id: number | null }
   | { name: 'customers' }
-  | { name: 'ledger'; id: number };
+  | { name: 'ledger'; id: number }
+  | { name: 'bills' }
+  | { name: 'creditors' }
+  | { name: 'runs' }
+  | { name: 'run'; id: number };
 
 const NAV: { view: View; label: string }[] = [
   { view: { name: 'invoices' }, label: 'Invoices' },
   { view: { name: 'customers' }, label: 'Customers' },
+  // Money going out. The same module, the other direction.
+  { view: { name: 'bills' }, label: 'Bills' },
+  { view: { name: 'runs' }, label: 'Payment runs' },
+  { view: { name: 'creditors' }, label: 'Creditors' },
 ];
 
 /**
@@ -42,6 +53,11 @@ export function initialView(path: string, search: string): View {
   const ledger = /^\/customers\/(\d+)$/.exec(path);
   if (ledger) return { name: 'ledger', id: Number(ledger[1]) };
   if (path === '/customers') return { name: 'customers' };
+  const run = /^\/payment-runs\/(\d+)$/.exec(path);
+  if (run) return { name: 'run', id: Number(run[1]) };
+  if (path === '/payment-runs') return { name: 'runs' };
+  if (path === '/bills') return { name: 'bills' };
+  if (path === '/creditors') return { name: 'creditors' };
   return { name: 'invoices' };
 }
 
@@ -83,7 +99,9 @@ export function App() {
       ? 'invoices'
       : view.name === 'ledger'
         ? 'customers'
-        : view.name;
+        : view.name === 'run'
+          ? 'runs'
+          : view.name;
 
   return (
     <div className="shell">
@@ -148,6 +166,20 @@ export function App() {
             id={view.id}
             onBack={() => setView({ name: 'customers' })}
             onOpenInvoice={(id) => setView({ name: 'invoice', id })}
+            onAuthLost={onAuthLost}
+          />
+        )}
+        {view.name === 'bills' && (
+          <BillsView onOpenRun={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />
+        )}
+        {view.name === 'creditors' && <CreditorsView onAuthLost={onAuthLost} />}
+        {view.name === 'runs' && (
+          <PaymentRunsView onOpen={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />
+        )}
+        {view.name === 'run' && (
+          <PaymentRunDetailView
+            id={view.id}
+            onBack={() => setView({ name: 'runs' })}
             onAuthLost={onAuthLost}
           />
         )}

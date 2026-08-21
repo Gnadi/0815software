@@ -77,6 +77,90 @@ export function openDb(path: string): Database.Database {
       year     INTEGER PRIMARY KEY,
       last_seq INTEGER NOT NULL
     );
+
+    -- ── Payables: bills we owe, and the bank files that pay them ──────
+    -- The other direction of the same module. Everything above is money
+    -- coming in; everything below is money going out, and the two share
+    -- nothing but the seller identity: our own IBAN is the debtor account
+    -- of every transfer, exactly as it is the account printed on every
+    -- invoice. See server/bills.ts and shared/sepa.ts.
+
+    CREATE TABLE IF NOT EXISTS creditors (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT NOT NULL,
+      -- Normalized (no spaces, upper case) and check-digit validated before
+      -- it is ever written. A typo here is money sent to a stranger.
+      iban       TEXT NOT NULL,
+      bic        TEXT,
+      note       TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS bills (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      creditor_id  INTEGER NOT NULL REFERENCES creditors(id),
+      reference    TEXT NOT NULL,
+      remittance   TEXT,
+      amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+      issue_date   TEXT,
+      due_date     TEXT NOT NULL,
+      note         TEXT,
+      paid_at      TEXT,
+      cancelled_at TEXT,
+      created_at   TEXT NOT NULL,
+      -- A bill is settled or abandoned, never both.
+      CHECK (paid_at IS NULL OR cancelled_at IS NULL),
+      -- Entering the same supplier invoice twice is the cheapest way to pay
+      -- it twice, so the database refuses it outright.
+      UNIQUE (creditor_id, reference)
+    );
+    CREATE INDEX IF NOT EXISTS idx_bills_creditor ON bills (creditor_id);
+
+    -- One produced pain.001 file. The debtor block is a SNAPSHOT: the file
+    -- the bank holds must stay exactly reproducible even after the seller
+    -- letterhead changes underneath it.
+    CREATE TABLE IF NOT EXISTS payment_runs (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id     TEXT NOT NULL UNIQUE,
+      execution_date TEXT NOT NULL,
+      batch_booking  INTEGER NOT NULL DEFAULT 0 CHECK (batch_booking IN (0, 1)),
+      debtor_name    TEXT NOT NULL,
+      debtor_iban    TEXT NOT NULL,
+      debtor_bic     TEXT,
+      created_by     TEXT,
+      executed_at    TEXT,
+      discarded_at   TEXT,
+      created_at     TEXT NOT NULL,
+      CHECK (executed_at IS NULL OR discarded_at IS NULL)
+    );
+
+    -- One transfer in that file, frozen the same way and for the same reason.
+    CREATE TABLE IF NOT EXISTS payment_run_items (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id        INTEGER NOT NULL REFERENCES payment_runs(id),
+      bill_id       INTEGER NOT NULL REFERENCES bills(id),
+      position      INTEGER NOT NULL,
+      end_to_end_id TEXT NOT NULL,
+      amount_cents  INTEGER NOT NULL CHECK (amount_cents > 0),
+      creditor_name TEXT NOT NULL,
+      creditor_iban TEXT NOT NULL,
+      creditor_bic  TEXT,
+      remittance    TEXT NOT NULL,
+      -- Cleared only when the run is discarded — see the index below.
+      active        INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+      UNIQUE (run_id, bill_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_run_items_run ON payment_run_items (run_id);
+
+    -- THE INVARIANT OF THIS HALF OF THE MODULE: a bill can be in at most one
+    -- live payment run, so it cannot be paid twice. bills.ts checks it before
+    -- inserting and reports it as a 409; this index is what makes a check that
+    -- somehow slipped — a concurrent request, a future caller — impossible
+    -- rather than merely unlikely. It lives in the items table because a
+    -- partial index can only read the row it indexes, which is exactly why
+    -- "discarded" is a flag here and not a join to payment_runs.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_run_items_live_bill
+      ON payment_run_items (bill_id) WHERE active = 1;
   `);
 
   // ── Additive, idempotent schema evolution ──────────────────────────
@@ -100,6 +184,29 @@ export function openDb(path: string): Database.Database {
     db.exec('ALTER TABLE invoices ADD COLUMN origin_offer_number TEXT');
     db.exec(
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_origin_offer ON invoices (origin_offer_number)',
+    );
+  }
+
+  // Where a payment run went when PS-12 Banking is wired: the order's public
+  // id, when it was handed over, and what the bank said. Null everywhere in a
+  // standalone deployment, which is the whole point — the download is still
+  // the primary path and always will be.
+  //
+  // `bank_status` is PS-12's own word for the order and is stored rather than
+  // derived, because it is the *bank's* fact, not ours: nothing in this
+  // database can recompute "the bank refused it". The run's own status still
+  // derives from the timestamps beside it.
+  if (!columns('payment_runs').includes('banking_order_id')) {
+    db.exec('ALTER TABLE payment_runs ADD COLUMN banking_order_id TEXT');
+    db.exec('ALTER TABLE payment_runs ADD COLUMN submitted_at TEXT');
+    db.exec('ALTER TABLE payment_runs ADD COLUMN rejected_at TEXT');
+    db.exec('ALTER TABLE payment_runs ADD COLUMN bank_status TEXT');
+    db.exec('ALTER TABLE payment_runs ADD COLUMN bank_message TEXT');
+    // One run, one bank order. A second submission of the same run would be a
+    // second payment of the same bills, so it is refused by the schema and not
+    // only by the code path that happens to check.
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_banking_order ON payment_runs (banking_order_id)',
     );
   }
 

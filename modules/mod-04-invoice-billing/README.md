@@ -1,8 +1,10 @@
 # MOD-04 · Invoice & Billing
 
 Generate, send, and track invoices. PDF export, payment status, customer
-ledger. Part of the [0815software](https://0815software.com) module
-catalogue — standard business software, MIT-licensed, always free.
+ledger — and, in the other direction, the bills you owe with a SEPA
+credit transfer file to pay them. Part of the
+[0815software](https://0815software.com) module catalogue — standard
+business software, MIT-licensed, always free.
 
 Three correctness properties are the point of this module, and the test
 suite proves each of them:
@@ -21,6 +23,12 @@ suite proves each of them:
    is a 409; corrections happen via cancellation (which keeps the
    number) plus a new invoice. "Overdue" and payment status are derived
    at read time, never stored.
+4. **A bill is paid once.** The module also runs the *other* direction —
+   bills you owe, and the SEPA credit transfer file (`pain.001`) that
+   pays them in your online banking. A bill enters at most one live
+   payment run, enforced by a unique index rather than by care, and a
+   produced file never changes afterwards. See
+   [Bills and the SEPA payment file](#bills-and-the-sepa-payment-file).
 
 ## Stack
 
@@ -71,17 +79,30 @@ The server seeds an empty database automatically on first start, so
 
 ## Data model
 
-Five tables, no stored derived state:
+Nine tables, no stored derived state — five for money coming in, four for
+money going out:
 
 ```
-customers         name, email, vat_id, address              (CRUD via UI/API)
-invoices          number (NULL for drafts), customer, status,
-                  issue_date, due_date, payment_terms_days,
-                  note, cancellation audit trail
-invoice_lines     invoice, position, description, quantity,
-                  unit_price_cents, vat_rate (0 | 10 | 20)
-payments          invoice, date, amount_cents, note
-invoice_counters  year → last_seq                           (the number source)
+customers          name, email, vat_id, address              (CRUD via UI/API)
+invoices           number (NULL for drafts), customer, status,
+                   issue_date, due_date, payment_terms_days,
+                   note, cancellation audit trail
+invoice_lines      invoice, position, description, quantity,
+                   unit_price_cents, vat_rate (0 | 10 | 20)
+payments           invoice, date, amount_cents, note
+invoice_counters   year → last_seq                           (the number source)
+
+creditors          name, iban (validated), bic, note         (who we pay)
+bills              creditor, reference, remittance, amount_cents (GROSS),
+                   issue_date, due_date, note, paid_at, cancelled_at
+                   UNIQUE (creditor, reference)
+payment_runs       message_id (the pain.001 MsgId), execution_date,
+                   FROZEN debtor name/IBAN/BIC, executed_at, discarded_at,
+                   submitted_at, rejected_at, banking_order_id, bank_status
+                   (the last four only when PS-12 Banking is wired)
+payment_run_items  run, bill, position, end_to_end_id, amount_cents,
+                   FROZEN creditor name/IBAN/BIC and remittance, active
+                   UNIQUE (bill) WHERE active = 1   ← pay-once, in the schema
 ```
 
 **Money** is integer cents everywhere; euros exist only at the rendering
@@ -98,6 +119,20 @@ by CHECKs). The API reports the *derived* status `paid` for a sent
 invoice whose payments cover the gross total, payment status
 (`unpaid` / `partially_paid` / `paid`) from the sum of payments, and
 `overdue` from `due_date < today` — none of these exist as columns.
+
+The payables side follows the same rule: a bill has no status column
+either. `open` / `scheduled` / `paid` / `cancelled` is derived from
+`paid_at`, `cancelled_at` and whether a live payment-run item points at
+it, and a run's `created` / `submitted` / `executed` / `rejected` /
+`discarded` from its timestamps.
+
+One value beside them is **stored** rather than derived, and deliberately:
+`bank_status` is PS-12's own word for the order. Nothing in this database can
+recompute "the bank refused it" — that is the bank's fact, not ours. It also
+carries the distinction that matters most: `failed` means the conversation with
+the bank broke and whether the file arrived is **unknown**, so the run stays
+`submitted` and its bills stay scheduled. Releasing bills whose file may be
+sitting in a bank's queue is how the same invoice gets paid twice.
 
 ### Published reporting views (`report_*`)
 
@@ -192,6 +227,16 @@ draft ──finalize──▶ sent ──payments cover gross──▶ paid   (d
 - **Customer ledger** — per-customer statement: invoices, cancellations
   and payments in chronological order with a running balance; the final
   balance always equals total invoiced minus total paid.
+- **Bills** — what we owe: creditor, their invoice number, gross amount,
+  due date, derived status, and the tick boxes that turn a selection
+  into a bank file. Open / overdue / scheduled totals above the list.
+- **Creditors** — who we pay and into which account, with the IBAN
+  validated on entry (country, length, check digits) and the BIC
+  optional, as SEPA allows.
+- **Payment runs** — every `pain.001` file produced, with its message
+  id, control sum, the transfers inside it, a download button, and the
+  two ends: mark executed (settles its bills) or discard (releases
+  them).
 - **Auth** — single staff login from env vars; stateless HMAC-signed
   session cookie (HttpOnly, SameSite=Lax, optional Secure), exactly as
   in MOD-02/MOD-03.
@@ -212,12 +257,17 @@ All via environment variables (see [`.env.example`](.env.example)):
 | `SELLER_NAME`       | `0815software GmbH`    | Letterhead: seller name                  |
 | `SELLER_ADDRESS`    | *(example address)*    | Letterhead: address, `\|`-separated lines |
 | `SELLER_VAT_ID`     | `ATU00000000`          | Letterhead: seller VAT id                |
-| `SELLER_IBAN`       | *(example IBAN)*       | PDF footer: bank account                 |
-| `SELLER_BIC`        | `EXAMPLEX`             | PDF footer: BIC                          |
+| `SELLER_IBAN`       | *(example IBAN)*       | PDF footer **and the debtor account of every payment file** |
+| `SELLER_BIC`        | `EXAMPLEX`             | PDF footer: BIC; the debtor agent when set |
 
 The server prints a warning on startup while the default password is in
 use. The dev server does not load `.env` files by itself — export the
 variables in your shell or use `node --env-file`.
+
+The shipped `SELLER_IBAN` is a placeholder whose check digits do not
+add up, deliberately: until it is replaced with the real account, the
+payables screens say so and refuse to build a payment file at all. An
+installation cannot pay anyone from an account nobody configured.
 
 ## API
 
@@ -250,6 +300,33 @@ POST   /api/invoices/:id/cancel        {reason} — keeps the number
 POST   /api/invoices/:id/payments      {amount_cents, date?, note?}
                                        overpayment → 422
 GET    /api/invoices/:id/pdf           the invoice as a generated PDF
+
+GET    /api/payment-config             the debtor account + whether it is usable
+
+GET    /api/creditors                  ?search= → creditors + bills + open total
+POST   /api/creditors                  {name, iban, bic?, note?} — IBAN validated
+GET    /api/creditors/:id
+PUT    /api/creditors/:id
+DELETE /api/creditors/:id              409 if the creditor has bills
+
+GET    /api/bills                      ?search=&status=&overdue=1
+                                       (status: open|scheduled|paid|cancelled — derived)
+POST   /api/bills                      {creditor_id, reference, amount_cents,
+                                        due_date, issue_date?, remittance?, note?}
+GET    /api/bills/:id
+PUT    /api/bills/:id                  open bills only — scheduled/paid → 409
+DELETE /api/bills/:id                  never-run open bills only → 409
+POST   /api/bills/:id/cancel           open only — kept, never deleted
+POST   /api/bills/:id/mark-paid        settled outside a run; scheduled → 409
+
+GET    /api/payment-runs               the runs + the debtor config
+POST   /api/payment-runs               {bill_ids: [], execution_date?} → the run
+GET    /api/payment-runs/:id           the frozen transfers inside it
+GET    /api/payment-runs/:id/sepa.xml  THE FILE — pain.001.001.03, as a download
+POST   /api/payment-runs/:id/submit    send it to the bank via PS-12 (BANKING_URL)
+POST   /api/payment-runs/:id/refresh   re-read the bank's word on a sent run
+POST   /api/payment-runs/:id/mark-executed  the bank executed it → bills settled
+POST   /api/payment-runs/:id/discard   not uploaded → bills back to open
 ```
 
 Validation failures return `422` with `{error, details: [{field,
@@ -279,6 +356,15 @@ invoice, the aging buckets are correct *on* their boundaries, every published
 line and payment row carries its invoice's cancellation state, and re-opening
 a database rebuilds the views so an added column reaches an existing
 deployment.
+
+`test/sepa.test.ts` and `test/bills.test.ts` cover the payables half:
+IBAN check digits, non-SEPA countries and the placeholder `SELLER_IBAN`;
+the SEPA character set; the exact bytes of a rendered `pain.001.001.03`
+(golden file, element order included) and that rendering it twice is
+identical; refusing to pay a bill that is already in a run, both through
+the API and at the unique index; a run's frozen creditor surviving a
+later IBAN correction; discard releasing the bills and never reusing a
+`MsgId`; and mark-executed settling every bill in the run.
 
 ## Deploy notes
 
@@ -314,6 +400,26 @@ With `CUSTOMERS_URL` set, an imported customer is resolved against
 blind, so this module and MOD-13 Offers mean the same customer. The resolved
 party id is stored on the local customer row; unset, the module matches against
 its own `customers` table as it always has.
+
+With `BANKING_URL` set, a payment run can be **sent** to the bank over EBICS
+through **PS-12 Banking** instead of downloaded and uploaded by hand — see
+[Bills and the SEPA payment file](#bills-and-the-sepa-payment-file). This
+module still holds no keys and speaks no bank protocol; it hands PS-12 the same
+bytes the download serves, and PS-12 signs them. `BANK_CONNECTION` names which
+of its connections to submit against (default `main`). Unset, the download is
+the only path — which is the default and what most installations want.
+
+Unlike every other hook here, **this one is not best-effort**: an error
+propagates instead of becoming a warning, because a swallowed failure would
+leave an operator believing a payment was sent.
+
+With `AUDIT_URL` set, every payment-run event — `payment_run.created`,
+`payment_run.submitted`, `payment_run.rejected`, `payment_run.executed`,
+`payment_run.discarded`, with the message id, the transfer count and the
+total — is recorded on **PS-07 Audit Log**. Money leaving the company is what
+an audit log is for, and without a bank connection the file itself lives only
+in whoever downloaded it, so the trail has to be in the stack. Unset, nothing
+is sent and the runs are their own record.
 
 ### The seller letterhead
 
@@ -369,6 +475,169 @@ The transport is isolated in `server/platform.ts` (`fetchOffer`) and the shape i
 See [`docs/CUSTOMER-MASTER-DATA.md`](../../docs/CUSTOMER-MASTER-DATA.md) for why
 this exists and what it deliberately does not solve.
 
+## Bills and the SEPA payment file
+
+The other direction of the module: the bills your suppliers send you, and
+the file that pays them. Record a bill, tick the ones to pay, and download a
+**pain.001.001.03 SEPA credit transfer** — the ISO 20022 file every Austrian
+and German online banking accepts as a payment upload, and the payload an
+MBS / EBICS channel carries. Upload it, authorise it at your bank, come back
+and mark the run executed.
+
+```
+creditor (IBAN validated)
+   └── bill  ── select ──▶ payment run ── download ──▶ your online banking
+        │                     │   │  └── send ──▶ PS-12 ──▶ the bank (optional)
+        │              discard│   │mark executed ◀── the bank executes it
+        ▼                     ▼   ▼
+   mark paid / cancel     bills open again / bills paid
+```
+
+### What it does not do — and why
+
+**This module holds no bank credentials and speaks no bank protocol.** It
+writes a file. That boundary has not moved: an EBICS client means subscriber
+keys, certificates and INI/HIA/HPB onboarding per bank and per customer, and a
+key that can move money has no business sitting in a CRUD app beside the
+invoice table.
+
+What changed is where that work lives. **PS-12 Banking** is a Platform Service
+that does hold those keys, in one guarded place, and MOD-04 reaches it over an
+API like any other service:
+
+- `BANKING_URL` **unset** — the default, and what most installations want — and
+  this module behaves exactly as described above. Download, upload, mark
+  executed. No outbound calls, no keys, nothing to certify.
+- `BANKING_URL` **set** — a "Send via EBICS" button appears beside "Download
+  XML" and hands the same bytes to PS-12, which signs them and talks to the
+  bank. **The download never goes away**, because a bank connection is optional
+  and the file is the fallback for the day the connection is down.
+
+And in the other direction: PS-12 collects the bank's **payment status
+reports** (`pain.002`) and folds them back, so a run settles itself. A report
+saying the money moved (`ACSC`) marks the run executed and its bills paid; one
+saying the bank refused it releases the bills back to `open` for a corrected
+run. Nobody has to come back and press "mark executed" — though the button
+stays, because a bank that sends no status reports is still a bank.
+
+The file stays the standardised part either way. Every bank takes it, nothing
+here has to be certified against any bank's API, and an outage at the bank
+cannot break bookkeeping.
+
+The file is a valid pain.001.001.03 per the ISO 20022 schema (the shipped
+example output is validated against the official XSD).
+
+> **A deadline worth knowing about.** The German BTF mapping table (`ebics.de`,
+> 27 February 2026) says that from **11/2026 only pain.001.001.09** is usable
+> for SEPA credit transfers under GBIC 4/5, and only pain.002.001.10 for status
+> reports. This module still produces **.03**. Moving is not a version bump —
+> .09 is the ISO 2019 schema, with structured creditor addresses among other
+> changes — so it wants its own pass, and this note is here so it does not
+> arrive as a surprise.
+ Banks still differ in
+what they accept — some insist on a BIC, some cap the number of transfers,
+some want a lead time on the execution date. **Run one file through your
+bank's file check before the first live upload**, the same way MOD-06's ERP
+export profiles are examples rather than certifications.
+
+### The five rules the tests pin
+
+1. **A bill is paid once.** A bill enters at most one *live* payment run.
+   `server/bills.ts` checks it and answers 409; a partial unique index
+   (`payment_run_items (bill_id) WHERE active = 1`) makes it impossible
+   rather than merely checked. Everything else about payables is
+   recoverable — paying a supplier twice is the one mistake that costs real
+   money and takes weeks to get back.
+2. **A produced file never changes.** A run freezes the debtor account and
+   every transfer's creditor name, IBAN, BIC, amount and remittance at the
+   moment it is created. Correcting a supplier's IBAN afterwards changes the
+   *next* run, never the file the bank already holds — and downloading a run
+   again yields byte-identical XML, because the identifiers and the creation
+   timestamp are stored, not regenerated. (A bank rejects a second file with
+   a `MsgId` it has seen; that is the protection, and it only works if the
+   same run keeps the same id.)
+3. **An unusable own account stops everything, early.** The debtor is
+   `SELLER_IBAN` — the same account printed on your invoices. The shipped
+   placeholder fails its check digits on purpose, so a fresh installation
+   says so on the screen and refuses to build a run, instead of producing a
+   file the bank bounces after everyone has stopped looking.
+4. **Only characters the scheme allows reach the file.** "Müller & Söhne"
+   becomes "Mueller + Soehne" deterministically (`shared/sepa.ts`), accents
+   are dropped to their base letter, and anything else becomes a space —
+   never a rejected file, and never a silently mangled payee.
+5. **A run reaches the bank at most once, and the bytes are the bytes.**
+   With PS-12 wired, a run already sent is refused locally before it reaches
+   the service that would sign it, and cannot be discarded — releasing bills
+   whose file may be in a bank's queue is rule 1 all over again. What is sent
+   is `paymentRunXml`, the same function the download serves, so an operator
+   falling back to uploading by hand uploads the identical file. Rule 1 still
+   holds across the boundary: PS-12 deduplicates on the run's own `MsgId`, so
+   even a lost idempotency key cannot pay twice. And what the bank later says
+   about it wins: a run accepted at upload and refused by a `pain.002` two days
+   later ends up `rejected`, with its bills released, not quietly "sent".
+
+### Money, and what a bill is not
+
+A bill's `amount_cents` is the **gross amount to transfer** — what the
+supplier's invoice says is due. Bills carry no VAT split, no line items and
+no tax logic: a bill is a payment instruction, not a tax document, and
+inventing a VAT breakdown in the screen least qualified to choose a rate
+would be worse than not having one. Your bookkeeping is where the split
+belongs. Money stays integer cents until the two-decimal string the schema
+demands, and the file's `CtrlSum` is summed from those same integers, so it
+can never be a rounding of a rounding.
+
+### Field by field
+
+| pain.001 element | Comes from |
+| ---------------- | ---------- |
+| `GrpHdr/MsgId` | `MOD04-<date>-<8 hex>`, generated once and stored — the bank's duplicate check |
+| `CreDtTm` | when the run was created (stored, so the file is reproducible) |
+| `NbOfTxs` · `CtrlSum` | counted and summed from the run's own transfers |
+| `ReqdExctnDt` | the execution date on the run; today by default, never in the past |
+| `Dbtr` · `DbtrAcct` | `SELLER_NAME` / `SELLER_IBAN` (or the PS-11 `self` party) |
+| `DbtrAgt` | `SELLER_BIC`, or `Othr/Id = NOTPROVIDED` when unset — SEPA is IBAN-only |
+| `BtchBookg` | `false`: one statement line per payment, so each keeps its own trail |
+| `ChrgBr` | `SLEV` — the only charge bearer a SEPA credit transfer allows |
+| `EndToEndId` | `B<bill id>-<their reference>`, ≤ 35 chars — what comes back on the statement |
+| `Cdtr` · `CdtrAcct` · `CdtrAgt` | the creditor, frozen into the run; `CdtrAgt` omitted without a BIC |
+| `RmtInf/Ustrd` | the bill's payment reference (its `remittance`, else the supplier's invoice number) |
+| `RmtInf/Strd` | used instead when that reference is a valid ISO 11649 `RF…` creditor reference, as `SCOR` |
+
+### Trying it
+
+```sh
+export SELLER_IBAN="AT61 1904 3002 3457 3201"   # your own account
+npm run seed && npm start
+```
+
+Sign in, open **Bills** (the seed ships four creditors and six bills), tick
+the open ones, pick an execution date and press *Create payment file*. The
+run opens with its transfers listed; **Download XML** is the file. Or from
+the API:
+
+```sh
+curl -s -b cookie.txt -X POST localhost:3004/api/payment-runs \
+  -H 'Content-Type: application/json' -d '{"bill_ids":[1,2]}'
+curl -s -b cookie.txt localhost:3004/api/payment-runs/1/sepa.xml
+```
+
+Validate the result against the schema if you want to see it for yourself:
+
+```sh
+xmllint --noout --schema pain.001.001.03.xsd sepa-mod04-….xml
+```
+
+With `BANKING_URL` pointed at a PS-12 with a live connection, the same run has
+a **Send via EBICS** button beside the download, and:
+
+```sh
+curl -s -b cookie.txt -X POST localhost:3004/api/payment-runs/1/submit
+```
+
+answers with the run carrying `status: "submitted"`, the bank's order id and
+its verdict.
+
 ## Out of scope
 
 Kept out deliberately to stay a 3–4 week module. If you need any of
@@ -386,8 +655,21 @@ these, that's commissioned work — exactly the kind 0815software does:
   A credit-note document type (negative invoice) is an extension.
 - **Bank reconciliation / payment import** — payments are recorded
   manually or via the API; no CAMT/MT940 parsing, no PSP integration.
+  The payment file goes out; nothing comes back in automatically, which
+  is why marking a run executed is a human action.
 - **e-Invoicing formats** (ebInterface, XRechnung, ZUGFeRD/Factur-X) —
   the PDF is a plain human-readable document.
+- **EBICS (or any other) bank transport** — the module produces the file
+  and stops there; see
+  [Bills and the SEPA payment file](#bills-and-the-sepa-payment-file).
+- **Other payment message versions and schemes** — `pain.001.001.03`
+  only. `pain.001.001.09` is a small addition to one renderer
+  (`shared/sepa.ts`) when your bank requires it; SEPA Direct Debit
+  (`pain.008`, collecting from customers) needs mandates, which is a
+  data model this module does not have.
+- **Approval before payment** — whoever can sign in can produce a file.
+  The bank's own authorisation is the second pair of eyes; multi-tier
+  approval of a payment run is the MOD-06 pattern, not this module's.
 
 ## License
 

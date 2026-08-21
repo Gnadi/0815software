@@ -29,7 +29,8 @@ the `IDENTITY_URL` seam, and a client added to `platform/clients`.
 | — | Feature Flags / Config | Fold into a small service later | Genuinely cross-cutting but tiny; can wait or ship as a lightweight PS-10. |
 | — | Scheduling / Reminders | **Don't build** | Covered by PS-02 (schedules/triggers) + PS-03 (delivery). A new service would overlap both. |
 | — | Reporting **presentation** | **Don't build** | MOD-08 Reporting Suite is a whole module; a service would duplicate it. |
-| — | Reporting **read models** (possible PS-12) | **Not yet** — a convention covers it | Modules publish `report_*` views in their own database (`docs/REPORTING-CONTRACT.md`). Zero runtime cost. Revisit on a *second* consumer or a need to report across hosts. |
+| — | Reporting **read models** (a future service, no number reserved) | **Not yet** — a convention covers it | Modules publish `report_*` views in their own database (`docs/REPORTING-CONTRACT.md`). Zero runtime cost. Revisit on a *second* consumer or a need to report across hosts. |
+| — | **PS-12 Banking** | **Built** | EBICS bank transport. Key custody is the argument: an EBICS subscriber holds RSA keys sufficient to move money, and in a module they end up in every module that ever needs a bank. Written up below. |
 | — | Localization / i18n | **Don't build now** | Belongs to the marketing site's i18n refactor (see `docs/ANALYSIS.md`), not the module platform. |
 
 ---
@@ -166,10 +167,12 @@ or faceted search beyond its local `LIKE` queries — otherwise it's premature.
   client in `platform/clients`, and a network hop on every query. The
   convention costs a migration in the module that opts in and a config flag in
   the module that consumes. It is also not throwaway work: the `report_*`
-  contract is exactly what a PS-12 would have to carry anyway, so adopting it
-  now is the first step of that service rather than a detour around it.
+  contract is exactly what such a service would have to carry anyway, so
+  adopting it now is the first step of that service rather than a detour
+  around it. (This candidate was once penned in as "PS-12"; that number went to
+  Banking, and no number is reserved for read models.)
 
-  **The concrete trigger for revisiting PS-12** — either one is enough:
+  **The concrete trigger for revisiting it** — either one is enough:
 
   1. **A second consumer of cross-module read models.** Realistically MOD-02
      Admin Dashboard, which today has no cross-module data at all. One consumer
@@ -198,10 +201,51 @@ or faceted search beyond its local `LIKE` queries — otherwise it's premature.
 3. **PS-09 Search** — only when a module's local search is outgrown; FTS5 keeps
    it cheap when the need is real.
 4. Revisit Feature Flags (PS-10) if runtime toggles become a recurring ask.
-5. Revisit **PS-12 Read Models** only on one of its two triggers above (a
+5. Revisit **reporting read models** only on one of its two triggers above (a
    second consumer of cross-module read models, or reporting across hosts).
    Until then the `report_*` view contract is the answer, and rolling it out to
    a second module is the cheaper next move.
+6. **PS-12 Banking** — built. Its write-up is below; the remaining work is
+   downloads (camt.053, pain.002) and the first connection to a real bank.
+
+---
+
+## PS-12 · Banking (built, port 4012)
+
+**Purpose.** Speak EBICS 3.0 (H005) to the customer's own bank: hold the
+subscriber's keys, run the key exchange, and upload signed ISO 20022 files.
+
+**Why a service and not a module feature.** MOD-04 Invoice & Billing is the
+first consumer and could have grown an EBICS client of its own. Three reasons
+it did not:
+
+1. **Key custody must happen in exactly one place.** An EBICS subscriber holds
+   RSA private keys that — at signature class E, chosen here — are sufficient
+   to move money. In a module they end up in every module that ever needs a
+   bank, each with its own store, its own secret and its own bugs.
+2. **A second consumer is already visible.** MOD-04 payables now; statement
+   retrieval for receivables matching next; payroll and MOD-06 Procurement
+   later.
+3. **Modules stay standalone.** Integration is opt-in and best-effort like
+   every other service: `BANKING_URL` unset and MOD-04 behaves exactly as it
+   did before — the payment file is still downloadable, and always will be.
+
+**What it gives every other module.** The API is deliberately payload-agnostic:
+a caller hands over bytes, a BTF and an idempotency key, and gets an order whose
+status it can poll. Nothing about invoices or bills is in the service, so a
+module that can produce an ISO 20022 file reaches the bank in three lines — add
+`BANKING_URL`, construct `BankingClient`, call `submitOrder`.
+
+**The costs, stated plainly.** A container and a volume per stack that wants it,
+and one secret — `EBICS_KEY_SECRET` — that is genuinely unrecoverable: losing it
+means a new key exchange with the bank on paper. That is a real operational
+burden, and it is the price of the keys living in one guarded place rather than
+several unguarded ones.
+
+**What is not proven.** Everything is tested against this repository's own
+reading of the specification and, where an offline implementation existed,
+cross-checked against it. No part of it has spoken to a real bank. The first
+live connection should be treated as a debugging exercise.
 
 ## Verification (per new service)
 
