@@ -334,6 +334,7 @@ export function createApp(opts: AppOptions): express.Express {
         userId: reqText(b, 'user_id', 60),
         esVersion: b.es_version === 'A006' ? 'A006' : 'A005',
         product: optionalProduct(b),
+        requestEds: b.request_eds === true || b.request_eds === 'true',
         debtorIban: optionalText(b, 'debtor_iban'),
         maxAmountMinor: optionalInt(b, 'max_amount_minor', 1, Number.MAX_SAFE_INTEGER),
         maxTransfers: optionalInt(b, 'max_transfers', 1, 1_000_000),

@@ -365,6 +365,7 @@ interface ConnectionRow {
   product_name: string | null;
   product_language: string | null;
   product_institute_id: string | null;
+  request_eds: number;
   max_amount_minor: number;
   max_transfers: number;
 }
@@ -446,6 +447,7 @@ async function transmit(
       transactionKey,
       timestamp: at,
       segments: segments.length,
+      requestEDS: connection.request_eds === 1,
     });
     const response = parseResponse(await ctx.transport.send(connection.url, initBody), bank.authPublicPem);
 

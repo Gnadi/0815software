@@ -106,6 +106,7 @@ interface OpenTransaction {
   /** The ES key this transaction's signature must verify against. */
   esPublicPem: string;
   btf: ReceivedOrder['btf'];
+  signature: ReceivedOrder['signature'];
 }
 
 /** What the bank did with a file, so a test can assert on the bank's view. */
@@ -117,6 +118,15 @@ export interface ReceivedOrder {
   btf: { serviceName: string; scope: string | null; option: string | null; msgName: string; msgVersion: string | null };
   /** True when the bank-technical signature verified over that file. */
   signatureValid: boolean;
+  /**
+   * What `BTUOrderParams/SignatureFlag` said the attached ES was for.
+   *
+   * `present: false` means the client asked for authorisation OUTSIDE EBICS —
+   * a real bank would then park the payment for someone to release in online
+   * banking, which is the opposite of what this service is for. Recorded
+   * rather than merely accepted, so a test can assert on it.
+   */
+  signature: { flagPresent: boolean; requestEDS: boolean };
 }
 
 const BANK_AUTH_CERT = bankCertificate(BANK_AUTH.privatePem, 'AUTH');
@@ -377,6 +387,26 @@ export class MockBank {
       });
     }
 
+    // A bank reads BTUOrderParams before it reads anything else, and an upload
+    // that attaches an ES while asking for authorisation OUTSIDE EBICS — which
+    // is what an absent SignatureFlag means — is inconsistent on its face. The
+    // schema cannot catch it, because the element is optional there; every
+    // upload this service makes carries a class-E signature and means it, so
+    // the counterpart is where that gets enforced. (Which code a real bank
+    // returns will differ; the range and the ReportText are what PS-12 acts on.)
+    //
+    // No test drives this branch, and it cannot easily be driven: the flag
+    // lives inside the authenticated header, so stripping it from a built
+    // request invalidates the auth signature and the bank refuses earlier. It
+    // is here to make a regression in the builder loud rather than silent.
+    const signature = this.signatureFlagOf(statics);
+    if (!signature.flagPresent) {
+      return this.response({
+        technical: '091112',
+        reportText: 'BTUOrderParams carries an ES but no SignatureFlag: authorisation outside EBICS was requested',
+      });
+    }
+
     const segments = Number.parseInt(textOf(at(statics, EBICS_NS, 'NumSegments')).trim() || '1', 10);
     const id = `MOCKTX-${++this.counter}`;
     this.transactions.set(id, {
@@ -390,10 +420,21 @@ export class MockBank {
       signatureValue,
       esPublicPem: subscriber.esPublicPem,
       btf: this.btfOf(statics),
+      signature,
     });
 
     if (this.options.omitTransactionId === true) return this.response({ segments });
     return this.response({ transactionId: id, segments });
+  }
+
+  /**
+   * Read `SignatureFlag` back out, as a bank would to decide what to do with
+   * the ES it was handed.
+   */
+  private signatureFlagOf(statics: XmlElement): ReceivedOrder['signature'] {
+    const flag = at(statics, EBICS_NS, 'OrderDetails', 'BTUOrderParams', 'SignatureFlag');
+    if (flag === null) return { flagPresent: false, requestEDS: false };
+    return { flagPresent: true, requestEDS: attrOf(flag, 'requestEDS') === 'true' };
   }
 
   /** Read the BTF back out of the request, as a bank would to route the file. */
@@ -461,6 +502,7 @@ export class MockBank {
       orderData,
       btf: open.btf,
       signatureValid,
+      signature: open.signature,
     });
 
     if (this.options.rejectUploadsWith !== undefined) {

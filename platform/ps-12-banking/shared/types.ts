@@ -100,6 +100,13 @@ export interface Connection {
   /** ISO 639 two-letter code. Required by the schema whenever a name is set. */
   product_language: string | null;
   product_institute_id: string | null;
+  /**
+   * True when uploads ask the bank to spool into its distributed-signature
+   * (VEU/EDS) queue instead of carrying every required signature themselves.
+   * False — the default — is signature class E: this service's own signature
+   * is the whole authorisation.
+   */
+  request_eds: boolean;
   /** Ceilings enforced before anything is signed — see the service README. */
   max_amount_minor: number;
   max_transfers: number;

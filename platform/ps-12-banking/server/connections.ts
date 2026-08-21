@@ -52,6 +52,8 @@ export interface ConnectionInput {
   esVersion?: EsVersion;
   /** The `Product` element. Omit it and no `Product` is sent at all. */
   product?: Product | null;
+  /** Ask the bank to spool uploads into its distributed-signature queue. */
+  requestEds?: boolean;
   debtorIban?: string | null;
   maxAmountMinor?: number;
   maxTransfers?: number;
@@ -71,6 +73,7 @@ interface ConnectionRow {
   product_name: string | null;
   product_language: string | null;
   product_institute_id: string | null;
+  request_eds: number;
   debtor_iban: string | null;
   max_amount_minor: number;
   max_transfers: number;
@@ -189,6 +192,7 @@ function toConnection(db: Database.Database, row: ConnectionRow): Connection {
     product_name: row.product_name,
     product_language: row.product_language,
     product_institute_id: row.product_institute_id,
+    request_eds: row.request_eds === 1,
     debtor_iban: row.debtor_iban,
     max_amount_minor: row.max_amount_minor,
     max_transfers: row.max_transfers,
@@ -280,9 +284,9 @@ export function createConnection(db: Database.Database, input: ConnectionInput, 
       .prepare(
         `INSERT INTO bank_connections
            (key, display_name, bank_key, url, host_id, partner_id, user_id, ebics_version, es_version,
-            product_name, product_language, product_institute_id,
+            product_name, product_language, product_institute_id, request_eds,
             debtor_iban, max_amount_minor, max_transfers, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'H005', ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'H005', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.key,
@@ -296,6 +300,7 @@ export function createConnection(db: Database.Database, input: ConnectionInput, 
         input.product?.name ?? null,
         input.product?.language ?? null,
         input.product?.instituteId ?? null,
+        input.requestEds === true ? 1 : 0,
         input.debtorIban ?? null,
         input.maxAmountMinor ?? 100_000_000,
         input.maxTransfers ?? 500,

@@ -336,6 +336,34 @@ them, but a bank on the telephone says "we've enabled CCT and C53 for you", and
 somebody has to be able to translate — in Germany. In Austria that conversation
 happens in BTF terms already.
 
+### What the attached signature is for
+
+Every upload carries a class-E bank-technical signature — that is the point of
+the service. What says so on the wire is `BTUOrderParams/SignatureFlag`, the
+element that replaced EBICS 2.5's order attribute (`OZHNN`/`DZHNN`). The H005
+schema makes it optional and is unusually explicit about what leaving it out
+means:
+
+> If not present the order doesn't contain any ES and shall be authorised
+> outside EBICS. If present the order shall be authorised within EBICS.
+
+PS-12 sent no flag for a long time. Schema-valid — the element is optional —
+and exactly backwards: the request attached a signature that authorises a
+payment while telling the bank to look for authorisation somewhere else. A real
+bank would have parked every payment for someone to release in online banking,
+which is the manual step the service exists to remove. No schema check can
+catch this, and the mock bank could not either, because it read the signature
+it was given rather than the instruction about it. The mock bank now refuses an
+upload that arrives without the flag.
+
+Set `request_eds` on a connection and the flag carries `requestEDS="true"`
+instead: the bank spools the order into its distributed-signature (VEU/EDS)
+queue and waits for the missing signatories rather than rejecting it. That is
+for accounts whose bank agreement needs a second person. **PS-12 cannot show
+you that queue** — the management order types (`HVU`, `HVZ`, `HVD`, `HVT`,
+`HVE`, `HVS`) are not implemented, so a spooled order is out of sight here
+until a `pain.002` comes back for it.
+
 ### Which client software is speaking
 
 A connection may name a `Product`: the client software's own identification,
@@ -539,11 +567,17 @@ could open, and a status report matched on the wrong id.
 Then the published schemas found six more, and the German BTF mapping table
 found two wrong service definitions. Then the Austrian mapping table found a
 third — a scope dropped from `at-sepa` in the course of fixing the German one,
-which is what copying a market's conventions sideways gets you. All are fixed
-and covered. The pattern across all four rounds is the same and is the useful
-thing to carry forward: **every defect was found by comparing against something
-outside this repository — openssl, Python, the XSDs, the mapping tables — and
-none by adding another test of the kind already there.**
+which is what copying a market's conventions sideways gets you. Then a question
+about VEU found the missing `SignatureFlag`, which is the worst of the lot: not
+a malformed message but a well-formed one that asked for the opposite of what
+was intended. All are fixed and covered.
+
+The pattern is the same every round and is the useful thing to carry forward:
+**every defect was found by comparing against something outside this repository
+— openssl, Python, the XSDs, the mapping tables, a question about a feature we
+had not built — and none by adding another test of the kind already there.**
+The `SignatureFlag` adds a second lesson to it: schema-valid is not the same as
+correct, and an optional element's default can be a decision made by omission.
 
 ## License
 

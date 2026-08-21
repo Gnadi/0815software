@@ -345,6 +345,42 @@ export interface UploadInit {
   timestamp: string;
   /** How many segments the order data will be sent in. */
   segments: number;
+  /**
+   * Ask the bank to spool this order into its distributed-signature (VEU/EDS)
+   * queue instead of requiring every signature up front.
+   *
+   * Default false, which is signature class E as this service is designed:
+   * the ES attached here is all the authorisation the order needs, and a bank
+   * that wants more signatures rejects it outright. Set it when the account's
+   * bank agreement requires a second signatory, who then approves the order in
+   * their own software or the bank's portal.
+   *
+   * **PS-12 cannot show you that queue.** The management order types (HVU,
+   * HVZ, HVD, HVT, HVE, HVS) are not implemented, so an order spooled this way
+   * is out of this service's sight until a pain.002 comes back for it.
+   */
+  requestEDS?: boolean;
+}
+
+/**
+ * `SignatureFlag` — the element that says what the attached ES is *for*.
+ *
+ * It replaces EBICS 2.5's order attribute (`OZHNN`/`DZHNN`), and the schema's
+ * own documentation is unusually explicit about the default:
+ *
+ * > If not present the order doesn't contain any ES and shall be authorised
+ * > outside EBICS. If present the order shall be authorised within EBICS.
+ *
+ * This service attaches a class-E bank-technical signature to every upload —
+ * the whole reason it exists is that nobody has to log into online banking
+ * afterwards. Sending no flag said the opposite of that, which is why the
+ * element is not optional here even though it is optional in the schema.
+ *
+ * `requestEDS="true"` is the distributed-signature (VEU) case: spool the order
+ * and wait for the missing signatures rather than rejecting it.
+ */
+function signatureFlag(requestEDS: boolean): XmlElement {
+  return el('e:SignatureFlag', requestEDS ? { requestEDS: 'true' } : {});
 }
 
 /**
@@ -387,7 +423,7 @@ export function buildUploadInit(params: UploadInit): string {
         productElement(subscriber),
         el('e:OrderDetails', {}, [
           el('e:AdminOrderType', {}, ['BTU']),
-          el('e:BTUOrderParams', {}, [btfElement(btf)]),
+          el('e:BTUOrderParams', {}, [btfElement(btf), signatureFlag(params.requestEDS === true)]),
         ]),
         el('e:BankPubKeyDigests', {}, [
           el('e:Authentication', { Version: 'X002', Algorithm: 'http://www.w3.org/2001/04/xmlenc#sha256' }, [

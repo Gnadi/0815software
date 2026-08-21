@@ -143,6 +143,21 @@ function everyMessage(subscriber: Subscriber): { name: string; xml: string; sche
       schema: 'ebics_request_H005.xsd',
     },
     {
+      name: 'BTU initialisation asking for distributed signature',
+      xml: buildUploadInit({
+        subscriber,
+        keys,
+        bank,
+        btf,
+        orderData,
+        transactionKey,
+        timestamp: TIMESTAMP,
+        segments: 1,
+        requestEDS: true,
+      }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
       name: 'BTU transfer',
       xml: buildTransfer({ subscriber, keys, transactionId: TX_ID, segmentNumber: 1, lastSegment: true, segment: 'AAAA' }),
       schema: 'ebics_request_H005.xsd',
@@ -255,8 +270,15 @@ describeIf('every message still validates when it names the client product', () 
     // Otherwise the suite above would pass by validating the same messages
     // twice, which is the failure mode a parameterised test invites.
     const carriers = everyMessage(withProduct).filter((m) => m.xml.includes('<e:Product '));
-    expect(carriers.map((m) => m.name)).toEqual(['INI', 'HIA', 'HPB', 'BTU initialisation', 'BTD initialisation',
-      'BTD initialisation with a date range']);
+    expect(carriers.map((m) => m.name)).toEqual([
+      'INI',
+      'HIA',
+      'HPB',
+      'BTU initialisation',
+      'BTU initialisation asking for distributed signature',
+      'BTD initialisation',
+      'BTD initialisation with a date range',
+    ]);
     expect(carriers[0]!.xml).toContain('<e:Product InstituteID="INST0815" Language="de">0815software PS-12</e:Product>');
   });
 
@@ -272,6 +294,57 @@ describeIf('every message still validates when it names the client product', () 
 describeIf('every payload inside OrderData validates too', () => {
   it.each(everyPayload().map((p) => [p.name, p] as const))('%s', (_name, payload) => {
     expect(validate(payload.xml, payload.schema)).toBeNull();
+  });
+});
+
+describe('the SignatureFlag says what the attached ES is for', () => {
+  // The schema makes the element optional and its own documentation says what
+  // leaving it out means: "the order doesn't contain any ES and shall be
+  // authorised outside EBICS". Every upload here attaches a class-E signature
+  // and means it, so the element is not optional in practice — and no schema
+  // check can catch its absence, which is why these assert on the bytes.
+  const initOf = (requestEDS?: boolean): string =>
+    buildUploadInit({
+      subscriber,
+      keys,
+      bank,
+      btf,
+      orderData,
+      transactionKey,
+      timestamp: TIMESTAMP,
+      segments: 1,
+      ...(requestEDS === undefined ? {} : { requestEDS }),
+    });
+
+  it('is present and bare by default — every signature must be in the order', () => {
+    expect(initOf()).toContain('<e:SignatureFlag></e:SignatureFlag>');
+    expect(initOf()).not.toContain('requestEDS');
+  });
+
+  it('carries requestEDS="true" when the account needs a second signatory', () => {
+    expect(initOf(true)).toContain('<e:SignatureFlag requestEDS="true"></e:SignatureFlag>');
+  });
+
+  it('sits after the Service element, where the schema puts it', () => {
+    // BTUParamsType is a sequence: Service, SignatureFlag, Parameter. Emitting
+    // it first would be schema-invalid, which the suite above would catch —
+    // this pins the reason so a future edit does not have to rediscover it.
+    const xml = initOf();
+    expect(xml.indexOf('<e:SignatureFlag')).toBeGreaterThan(xml.indexOf('<e:Service>'));
+    expect(xml.indexOf('<e:SignatureFlag')).toBeGreaterThan(xml.indexOf('</e:MsgName>'));
+  });
+
+  it('appears on uploads only, never on a download', () => {
+    // BTDParamsType has no SignatureFlag at all: there is nothing to authorise
+    // in asking for a statement.
+    const download = buildDownloadInit({
+      subscriber,
+      keys,
+      bank,
+      btf: { serviceName: 'EOP', scope: 'AT', msgName: 'camt.053', container: 'ZIP' },
+      timestamp: TIMESTAMP,
+    });
+    expect(download).not.toContain('SignatureFlag');
   });
 });
 

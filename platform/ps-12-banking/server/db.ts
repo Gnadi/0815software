@@ -303,6 +303,26 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    id: 6,
+    name: 'connection-request-eds',
+    up(db) {
+      // Whether uploads ask the bank to spool into its distributed-signature
+      // (VEU/EDS) queue. A property of the account's bank agreement — how many
+      // signatures it requires — so it belongs on the connection, not on the
+      // individual order.
+      //
+      // Default 0, which is signature class E: the ES this service attaches is
+      // the whole authorisation, and a bank wanting more rejects the order
+      // rather than parking it.
+      const columns = (db.prepare('PRAGMA table_info(bank_connections)').all() as { name: string }[]).map(
+        (c) => c.name,
+      );
+      if (!columns.includes('request_eds')) {
+        db.exec('ALTER TABLE bank_connections ADD COLUMN request_eds INTEGER NOT NULL DEFAULT 0');
+      }
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {

@@ -210,6 +210,52 @@ describe('GET /api/banks', () => {
   });
 });
 
+// ── Distributed signature ─────────────────────────────────────────────
+
+describe('what the attached signature is for', () => {
+  it('tells the bank the order carries its own authorisation, by default', async () => {
+    // Signature class E: the ES this service attaches IS the authorisation.
+    // Saying nothing would have meant the opposite — "authorise this outside
+    // EBICS" — and a bank would have parked the payment for a human.
+    await bringUp('main');
+    await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'main', payload_base64: pain001('E1') })
+      .expect(201);
+
+    expect(bank.received[0]!.signature).toEqual({ flagPresent: true, requestEDS: false });
+  });
+
+  it('asks the bank to spool into its distributed-signature queue when the account needs it', async () => {
+    // An account whose bank agreement wants two signatories: without this the
+    // bank rejects a single-signature order outright rather than holding it.
+    await bringUp('twosig', { request_eds: true });
+    const detail = await request(app)
+      .get('/api/connections/twosig')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+    expect(detail.body.request_eds).toBe(true);
+
+    await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'twosig', payload_base64: pain001('E2') })
+      .expect(201);
+
+    expect(bank.received[0]!.signature).toEqual({ flagPresent: true, requestEDS: true });
+  });
+
+  it('defaults to false, so nothing is spooled by accident', async () => {
+    await bringUp('main');
+    const detail = await request(app)
+      .get('/api/connections/main')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+    expect(detail.body.request_eds).toBe(false);
+  });
+});
+
 // ── The Product element ───────────────────────────────────────────────
 
 describe('the client product identification', () => {
