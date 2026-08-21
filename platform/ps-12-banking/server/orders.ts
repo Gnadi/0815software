@@ -78,19 +78,70 @@ export interface SubmitInput {
   idempotencyKey?: string;
 }
 
+/** How a connection wants Verification of Payee handled. */
+export type VopMode = 'default' | 'opt_out' | 'opt_in';
+
+/** The ServiceOption each mode asks for. `default` asks for nothing. */
+const VOP_OPTION: Record<VopMode, string | null> = { default: null, opt_out: 'VOO', opt_in: 'VOI' };
+
 /**
  * The BTF this order will actually be sent with.
  *
  * A caller-supplied one always wins — a bank that needs a different BTF for
- * one message must stay reachable without editing the registry.
+ * one message must stay reachable without editing the registry, and a caller
+ * that names its own BTF has taken responsibility for all of it, Verification
+ * of Payee included.
+ *
+ * ## Verification of Payee
+ *
+ * Since 09.10.2025 the ServiceOption says whether the bank should check the
+ * payee's name against the IBAN: `VOO` opts out, `VOI` opts in. Send neither
+ * and the market's default applies — OPT-OUT for SCT and SCI in both the
+ * German and the Austrian tables. `vop: 'default'` is exactly that, and is
+ * what every connection has unless someone chose otherwise.
+ *
+ * The option slot is **shared**, which is the trap here. It also carries the
+ * payment's own kind, and the published tables combine the two into single
+ * codes: a salary payment opting out is `CFDVOO`, not `CFD` plus `VOO`. Only
+ * some combinations exist — the Austrian table has `CFDVOO` and `THMVOI` but
+ * no `URGVOO` — so this refuses to compose one rather than inventing a code
+ * the bank never published. An operator who needs a combined option names it
+ * on the BTF directly.
  */
-export function resolveBtf(connection: { bank_key: string }, btf?: BtfInput): BtfInput {
+export function resolveBtf(
+  connection: { bank_key: string; vop?: string | null },
+  btf?: BtfInput,
+): BtfInput {
   if (btf !== undefined) return btf;
   const profile = bankProfile(connection.bank_key);
   if (profile === undefined) {
     throw new DomainError(409, `this connection's bank profile "${connection.bank_key}" is not one this service knows`);
   }
-  return profile.creditTransfer;
+
+  return applyVop(profile.creditTransfer, (connection.vop ?? 'default') as VopMode);
+}
+
+/**
+ * Put the Verification-of-Payee choice into a BTF's ServiceOption.
+ *
+ * Separate from `resolveBtf` because the interesting case — a BTF that
+ * already uses the option slot — cannot be reached through any shipped bank
+ * profile, and an unreachable branch is one nothing can test.
+ */
+export function applyVop(btf: BtfInput, mode: VopMode): BtfInput {
+  const option = VOP_OPTION[mode] ?? null;
+  if (option === null) return btf;
+
+  if (btf.option !== undefined) {
+    throw new DomainError(
+      409,
+      `this connection asks for Verification of Payee ${option}, but the BTF already puts "${btf.option}" in ` +
+        `the ServiceOption. The published tables combine the two into a single code — CFD with VOO is "CFDVOO" — ` +
+        `and only some combinations exist: the Austrian table has CFDVOO and THMVOI but no URGVOO. Name the ` +
+        `combined option on the order's own BTF rather than letting this service concatenate one.`,
+    );
+  }
+  return { ...btf, option };
 }
 
 interface OrderRow {
@@ -366,6 +417,7 @@ interface ConnectionRow {
   product_language: string | null;
   product_institute_id: string | null;
   request_eds: number;
+  vop: string;
   max_amount_minor: number;
   max_transfers: number;
 }

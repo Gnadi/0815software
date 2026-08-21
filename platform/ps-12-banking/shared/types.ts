@@ -107,6 +107,12 @@ export interface Connection {
    * is the whole authorisation.
    */
   request_eds: boolean;
+  /**
+   * Verification of Payee. `default` sends no ServiceOption and lets the
+   * market's own default decide (opt-out, in both published tables);
+   * `opt_out` and `opt_in` say so explicitly with VOO / VOI.
+   */
+  vop: 'default' | 'opt_out' | 'opt_in';
   /** Ceilings enforced before anything is signed — see the service README. */
   max_amount_minor: number;
   max_transfers: number;

@@ -364,6 +364,26 @@ you that queue** — the management order types (`HVU`, `HVZ`, `HVD`, `HVT`,
 `HVE`, `HVS`) are not implemented, so a spooled order is out of sight here
 until a `pain.002` comes back for it.
 
+### Verification of Payee
+
+Since 09.10.2025 the ServiceOption on a SEPA credit transfer says whether the
+bank should check the payee's name against the IBAN: `VOO` opts out, `VOI` opts
+in. Send neither and the market's own default applies — OPT-OUT for `SCT` and
+`SCI` in both published tables.
+
+A connection's `vop` is `default`, `opt_out` or `opt_in`. `default` sends no
+option at all, which is what every connection did before this existed; the
+other two say so on the wire. The point of the setting is that an installation
+which cares can make the choice rather than inherit it.
+
+The option slot is **shared**, and that is the trap. It also carries the
+payment's own kind, and the tables combine the two into a single code: a salary
+payment opting out is `CFDVOO`, not `CFD` plus `VOO`. Only some combinations
+exist — the Austrian table has `CFDVOO` and `THMVOI` and no `URGVOO` — so PS-12
+refuses to concatenate one and asks for the combined option on the order's BTF
+instead. Three earlier BTF defects came from composing a plausible code; this
+one declines to.
+
 ### Which client software is speaking
 
 A connection may name a `Product`: the client software's own identification,

@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { DomainError } from './errors.js';
 import { bankProfile } from './bank-registry.js';
+import type { VopMode } from './orders.js';
 import {
   assertKeyStoreReadable,
   certificatePemFor,
@@ -54,6 +55,8 @@ export interface ConnectionInput {
   product?: Product | null;
   /** Ask the bank to spool uploads into its distributed-signature queue. */
   requestEds?: boolean;
+  /** Verification of Payee: leave it to the market default, or say. */
+  vop?: VopMode;
   debtorIban?: string | null;
   maxAmountMinor?: number;
   maxTransfers?: number;
@@ -74,6 +77,7 @@ interface ConnectionRow {
   product_language: string | null;
   product_institute_id: string | null;
   request_eds: number;
+  vop: string;
   debtor_iban: string | null;
   max_amount_minor: number;
   max_transfers: number;
@@ -193,6 +197,7 @@ function toConnection(db: Database.Database, row: ConnectionRow): Connection {
     product_language: row.product_language,
     product_institute_id: row.product_institute_id,
     request_eds: row.request_eds === 1,
+    vop: row.vop as VopMode,
     debtor_iban: row.debtor_iban,
     max_amount_minor: row.max_amount_minor,
     max_transfers: row.max_transfers,
@@ -284,9 +289,9 @@ export function createConnection(db: Database.Database, input: ConnectionInput, 
       .prepare(
         `INSERT INTO bank_connections
            (key, display_name, bank_key, url, host_id, partner_id, user_id, ebics_version, es_version,
-            product_name, product_language, product_institute_id, request_eds,
+            product_name, product_language, product_institute_id, request_eds, vop,
             debtor_iban, max_amount_minor, max_transfers, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'H005', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'H005', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.key,
@@ -301,6 +306,7 @@ export function createConnection(db: Database.Database, input: ConnectionInput, 
         input.product?.language ?? null,
         input.product?.instituteId ?? null,
         input.requestEds === true ? 1 : 0,
+        input.vop ?? 'default',
         input.debtorIban ?? null,
         input.maxAmountMinor ?? 100_000_000,
         input.maxTransfers ?? 500,

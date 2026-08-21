@@ -210,6 +210,80 @@ describe('GET /api/banks', () => {
   });
 });
 
+// ── Verification of Payee ─────────────────────────────────────────────
+
+describe('verification of payee', () => {
+  it('sends no ServiceOption by default, leaving the market default in force', async () => {
+    // Both published tables read an absent option as OPT-OUT for SCT. Saying
+    // nothing is a real choice, and it is the one every existing connection
+    // has — so it must stay the default rather than become opt-in by accident.
+    await bringUp('main');
+    await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'main', payload_base64: pain001('V0') })
+      .expect(201);
+
+    expect(bank.received[0]!.btf.option).toBeNull();
+  });
+
+  it('says VOO when the connection opts out deliberately', async () => {
+    await bringUp('voo', { vop: 'opt_out' });
+    const res = await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'voo', payload_base64: pain001('V1') })
+      .expect(201);
+
+    expect(res.body.btf.option).toBe('VOO');
+    expect(bank.received[0]!.btf.option).toBe('VOO');
+  });
+
+  it('says VOI when the connection opts in', async () => {
+    await bringUp('voi', { vop: 'opt_in' });
+    await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'voi', payload_base64: pain001('V2') })
+      .expect(201);
+
+    expect(bank.received[0]!.btf.option).toBe('VOI');
+  });
+
+  it('leaves a caller-supplied BTF alone — that caller owns all of it', async () => {
+    // Overriding the BTF is how a bank that wants something unusual stays
+    // reachable. Quietly rewriting its ServiceOption would defeat that.
+    await bringUp('voi2', { vop: 'opt_in' });
+    await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'voi2', btf: { ...BTF, option: 'CFDVOO' }, payload_base64: pain001('V3') })
+      .expect(201);
+
+    expect(bank.received[0]!.btf.option).toBe('CFDVOO');
+  });
+
+  it('refuses a value that is not one of the three', async () => {
+    // A typo'd "optout" would otherwise store as nothing and leave the
+    // connection on the market default while claiming a choice was made.
+    const res = await request(app)
+      .post('/api/connections')
+      .set('Authorization', `Bearer ${session}`)
+      .send({
+        key: 'badvop',
+        display_name: 'Test Bank',
+        bank_key: 'at-sepa',
+        url: 'https://bank.example/ebics',
+        host_id: bank.hostId,
+        partner_id: 'PARTNER1',
+        user_id: 'USER1',
+        vop: 'optout',
+      })
+      .expect(422);
+    expect(res.body.details[0].field).toBe('vop');
+  });
+});
+
 // ── Distributed signature ─────────────────────────────────────────────
 
 describe('what the attached signature is for', () => {

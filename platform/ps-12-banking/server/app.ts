@@ -40,7 +40,14 @@ import {
   verifyBankKeys,
   type ExchangeContext,
 } from './connections.js';
-import { listOrders, orderDetail, previewOrder, submitOrder, type OrderContext } from './orders.js';
+import {
+  listOrders,
+  orderDetail,
+  previewOrder,
+  submitOrder,
+  type OrderContext,
+  type VopMode,
+} from './orders.js';
 import {
   downloadContent,
   downloadDetail,
@@ -105,6 +112,24 @@ function optionalInt(source: Record<string, unknown>, field: string, min: number
     ]);
   }
   return value;
+}
+
+/**
+ * Read the Verification-of-Payee choice off a request body.
+ *
+ * Refused rather than silently ignored when it is not one of the three: a
+ * typo'd "optout" would otherwise leave the connection on the market default
+ * while its record claims a deliberate choice was made.
+ */
+function vopMode(source: Record<string, unknown>): VopMode | undefined {
+  const raw = optionalText(source, 'vop');
+  if (raw === undefined) return undefined;
+  if (raw !== 'default' && raw !== 'opt_out' && raw !== 'opt_in') {
+    throw new DomainError(422, 'Validation failed', [
+      { field: 'vop', message: 'must be "default", "opt_out" (VOO) or "opt_in" (VOI)' },
+    ]);
+  }
+  return raw;
 }
 
 /**
@@ -335,6 +360,7 @@ export function createApp(opts: AppOptions): express.Express {
         esVersion: b.es_version === 'A006' ? 'A006' : 'A005',
         product: optionalProduct(b),
         requestEds: b.request_eds === true || b.request_eds === 'true',
+        vop: vopMode(b),
         debtorIban: optionalText(b, 'debtor_iban'),
         maxAmountMinor: optionalInt(b, 'max_amount_minor', 1, Number.MAX_SAFE_INTEGER),
         maxTransfers: optionalInt(b, 'max_transfers', 1, 1_000_000),

@@ -323,6 +323,26 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    id: 7,
+    name: 'connection-verification-of-payee',
+    up(db) {
+      // Verification of Payee. Since 09.10.2025 the ServiceOption VOO/VOI on a
+      // SEPA credit transfer selects opt-out/opt-in; leaving it off means the
+      // market's default decides, and both published tables set that default
+      // to OPT-OUT for SCT and SCI.
+      //
+      // "default" keeps exactly that behaviour — no option, the bank decides —
+      // and is what every existing connection gets. The point of the column is
+      // that an installation which cares can say so rather than inherit it.
+      const columns = (db.prepare('PRAGMA table_info(bank_connections)').all() as { name: string }[]).map(
+        (c) => c.name,
+      );
+      if (!columns.includes('vop')) {
+        db.exec("ALTER TABLE bank_connections ADD COLUMN vop TEXT NOT NULL DEFAULT 'default'");
+      }
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {

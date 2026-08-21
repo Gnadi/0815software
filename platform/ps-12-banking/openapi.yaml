@@ -92,7 +92,9 @@ paths:
         EBICS Product element as product_name / product_language (ISO 639, required with a name) /
         product_institute_id. Omit the product fields and no Product element is sent.
         request_eds (default false) makes uploads carry SignatureFlag requestEDS="true", asking the bank
-        to spool them into its distributed-signature (VEU/EDS) queue; PS-12 cannot read that queue back.
+        to spool them into its distributed-signature (VEU/EDS) queue.
+        vop selects Verification of Payee: "default" (no ServiceOption, the market default decides),
+        "opt_out" (VOO) or "opt_in" (VOI).
       tags: [ps-12-banking]
       security: [{adminSession: []}]
       responses:
