@@ -547,13 +547,17 @@ export function buildSpr(params: {
  *   variant `001`, version `09`. Sending only the version says less than the
  *   bank asked for.
  */
-function btfElement(btf: Btf): XmlElement {
+function btfElement(btf: Btf, name: 'Service' | 'ServiceFilter' = 'Service'): XmlElement {
   const msgAttrs: Record<string, string> = {};
   if (btf.msgVariant !== undefined) msgAttrs.variant = btf.msgVariant;
   if (btf.msgVersion !== undefined) msgAttrs.version = btf.msgVersion;
   if (btf.msgFormat !== undefined) msgAttrs.format = btf.msgFormat;
 
-  return el('e:Service', {}, [
+  // HVU and HVZ name the same structure `ServiceFilter`; everywhere else it is
+  // `Service`. Same children either way — the schema types differ only in that
+  // ServiceType leaves every child optional, which a filter needs and an
+  // actual BTF does not.
+  return el(`e:${name}`, {}, [
     el('e:ServiceName', {}, [btf.serviceName]),
     btf.scope !== undefined ? el('e:Scope', {}, [btf.scope]) : null,
     btf.option !== undefined ? el('e:ServiceOption', {}, [btf.option]) : null,
@@ -624,7 +628,37 @@ export function buildDownloadInit(params: {
   /** Inclusive ISO dates. Both or neither — a half-open range is not a range. */
   dateRange?: { from: string; to: string };
 }): string {
-  const { subscriber, keys, bank, btf } = params;
+  return downloadInitialisation({
+    ...params,
+    orderDetails: [
+      el('e:AdminOrderType', {}, ['BTD']),
+      el('e:BTDOrderParams', {}, [
+        btfElement(params.btf),
+        params.dateRange === undefined
+          ? null
+          : el('e:DateRange', {}, [
+              el('e:Start', {}, [params.dateRange.from]),
+              el('e:End', {}, [params.dateRange.to]),
+            ]),
+      ]),
+    ],
+  });
+}
+
+/**
+ * The initialisation phase every download shares — BTD and the four VEU reads.
+ *
+ * Like its upload counterpart, they differ only in `OrderDetails`. There is no
+ * body at all: a download asks, it does not send.
+ */
+function downloadInitialisation(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  orderDetails: (XmlElement | null)[];
+}): string {
+  const { subscriber, keys, bank } = params;
 
   const root = el('e:ebicsRequest', { Version: H005, Revision: '1' }, [
     el('e:header', { authenticate: 'true' }, [
@@ -634,18 +668,7 @@ export function buildDownloadInit(params: {
         el('e:PartnerID', {}, [subscriber.partnerId]),
         el('e:UserID', {}, [subscriber.userId]),
         productElement(subscriber),
-        el('e:OrderDetails', {}, [
-          el('e:AdminOrderType', {}, ['BTD']),
-          el('e:BTDOrderParams', {}, [
-            btfElement(btf),
-            params.dateRange === undefined
-              ? null
-              : el('e:DateRange', {}, [
-                  el('e:Start', {}, [params.dateRange.from]),
-                  el('e:End', {}, [params.dateRange.to]),
-                ]),
-          ]),
-        ]),
+        el('e:OrderDetails', {}, params.orderDetails),
         el('e:BankPubKeyDigests', {}, [
           el('e:Authentication', { Version: 'X002', Algorithm: 'http://www.w3.org/2001/04/xmlenc#sha256' }, [
             publicKeyDigest(bank.authPublicPem).toString('base64'),
@@ -662,6 +685,137 @@ export function buildDownloadInit(params: {
   ]);
 
   return signed(root, keys.authPrivatePem);
+}
+
+// ── VEU: the distributed-signature queue ──────────────────────────────
+
+/**
+ * The four orders that READ the queue, and the two that change it.
+ *
+ * When an order needs more signatures than it arrived with, the bank spools it
+ * rather than refusing it — that is what `SignatureFlag requestEDS="true"` on
+ * a BTU asks for. These are how a second signatory then sees it and acts:
+ *
+ * | | asks |
+ * | --- | --- |
+ * | `HVU` | what is waiting for MY signature |
+ * | `HVZ` | the same, with the payment details folded in |
+ * | `HVD` | one order's digest and its display file |
+ * | `HVT` | one order's individual transactions |
+ * | `HVE` | add my signature to one order |
+ * | `HVS` | cancel one order |
+ *
+ * `HVU` and `HVZ` take an optional list of service filters; the other four
+ * name exactly one order, by partner, service and order id.
+ */
+export type VeuReadType = 'HVU' | 'HVZ' | 'HVD' | 'HVT';
+
+/** Which order a per-order VEU request is about. */
+export interface VeuOrderRef {
+  /** The customer the order belongs to — not necessarily ours. */
+  partnerId: string;
+  /** The BTF the order was submitted under. */
+  btf: Btf;
+  orderId: string;
+}
+
+/**
+ * `HVU` / `HVZ` — what is waiting for a signature.
+ *
+ * `serviceFilter` narrows the answer to particular BTFs; an empty list asks
+ * for everything, which is the sensible default for an operator's overview.
+ */
+export function buildVeuOverview(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  /** `HVZ` is `HVU` plus the payment details — same request shape. */
+  orderType: 'HVU' | 'HVZ';
+  serviceFilter?: Btf[];
+}): string {
+  return downloadInitialisation({
+    ...params,
+    orderDetails: [
+      el('e:AdminOrderType', {}, [params.orderType]),
+      el(
+        `e:${params.orderType}OrderParams`,
+        {},
+        (params.serviceFilter ?? []).map((btf) => btfElement(btf, 'ServiceFilter')),
+      ),
+    ],
+  });
+}
+
+/**
+ * `HVD` — one order's `DataDigest`, display file and signer list.
+ *
+ * The digest is the point: it is what `HVE` signs. A co-signatory must never
+ * hash the order data themselves and sign that, because they may not have the
+ * order data at all — `OrderDataAvailable` is a flag in this very response.
+ */
+export function buildVeuDetail(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  order: VeuOrderRef;
+}): string {
+  return downloadInitialisation({
+    ...params,
+    orderDetails: [
+      el('e:AdminOrderType', {}, ['HVD']),
+      el('e:HVDOrderParams', {}, veuRequestStructure(params.order)),
+    ],
+  });
+}
+
+/**
+ * `HVT` — the individual transactions inside one order.
+ *
+ * `completeOrderData` false asks for the bank's own summary of each
+ * transaction rather than the raw file, which is what a human approving a
+ * payment actually wants to read. The window is explicit because a collective
+ * order can hold thousands.
+ */
+export function buildVeuTransactions(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  order: VeuOrderRef;
+  completeOrderData?: boolean;
+  fetchLimit?: number;
+  fetchOffset?: number;
+}): string {
+  return downloadInitialisation({
+    ...params,
+    orderDetails: [
+      el('e:AdminOrderType', {}, ['HVT']),
+      el('e:HVTOrderParams', {}, [
+        ...veuRequestStructure(params.order),
+        el('e:OrderFlags', {
+          completeOrderData: params.completeOrderData === true ? 'true' : 'false',
+          fetchLimit: String(params.fetchLimit ?? 100),
+          fetchOffset: String(params.fetchOffset ?? 0),
+        }),
+      ]),
+    ],
+  });
+}
+
+/**
+ * `HVRequestStructure` — PartnerID, Service, OrderID, in that order.
+ *
+ * Shared by HVD, HVE, HVS and HVT, and the order is not ours to choose: the
+ * schema declares it as a sequence.
+ */
+function veuRequestStructure(order: VeuOrderRef): XmlElement[] {
+  return [
+    el('e:PartnerID', {}, [order.partnerId]),
+    btfElement(order.btf),
+    el('e:OrderID', {}, [order.orderId]),
+  ];
 }
 
 /**

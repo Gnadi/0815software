@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HVUResponseOrderData xmlns="urn:org:ebics:H005">
+  <OrderDetails>
+    <Service>
+      <ServiceName>SCT</ServiceName>
+      <Scope>AT</Scope>
+      <MsgName>pain.001</MsgName>
+    </Service>
+    <OrderID>A1B2</OrderID>
+    <OrderDataSize>3074</OrderDataSize>
+    <SigningInfo readyToBeSigned="true" NumSigRequired="2" NumSigDone="1"/>
+    <SignerInfo>
+      <PartnerID>PARTNER1</PartnerID>
+      <UserID>USER1</UserID>
+      <Timestamp>2026-08-21T10:00:00Z</Timestamp>
+      <Permission AuthorisationLevel="E"/>
+    </SignerInfo>
+    <OriginatorInfo>
+      <PartnerID>PARTNER1</PartnerID>
+      <UserID>USER1</UserID>
+      <Timestamp>2026-08-21T09:59:00Z</Timestamp>
+    </OriginatorInfo>
+  </OrderDetails>
+  <OrderDetails>
+    <Service>
+      <ServiceName>SDD</ServiceName>
+      <Scope>AT</Scope>
+      <ServiceOption>COR</ServiceOption>
+      <MsgName>pain.008</MsgName>
+    </Service>
+    <OrderID>C3D4</OrderID>
+    <OrderDataSize>512</OrderDataSize>
+    <SigningInfo readyToBeSigned="false" NumSigRequired="2" NumSigDone="0"/>
+    <OriginatorInfo>
+      <PartnerID>PARTNER1</PartnerID>
+      <UserID>USER2</UserID>
+      <Timestamp>2026-08-21T08:00:00Z</Timestamp>
+    </OriginatorInfo>
+  </OrderDetails>
+</HVUResponseOrderData>

@@ -11,6 +11,9 @@ import {
   buildHpb,
   buildUploadInit,
   buildSpr,
+  buildVeuOverview,
+  buildVeuDetail,
+  buildVeuTransactions,
   buildTransfer,
   buildReceipt,
   buildDownloadInit,
@@ -121,6 +124,7 @@ const certify = (privatePem: string, purpose: 'ES' | 'AUTH' | 'ENC'): string =>
 const CERT = { es: certify(ES.privatePem, 'ES'), auth: certify(AUTH.privatePem, 'AUTH'), enc: certify(ENC.privatePem, 'ENC') };
 const TX_ID = 'A1B2C3D4E5F60718293A4B5C6D7E8F90';
 const transactionKey = Buffer.alloc(16, 7);
+const VEU_ORDER = { partnerId: 'PARTNER1', btf: { serviceName: 'SCT', scope: 'AT', msgName: 'pain.001' }, orderId: 'A1B2' };
 const orderData = Buffer.from('<?xml version="1.0"?><Document xmlns="urn:x"/>', 'utf8');
 
 /** Every message this service can put on the wire, and its schema. */
@@ -188,6 +192,42 @@ function everyMessage(subscriber: Subscriber): { name: string; xml: string; sche
         btf: { serviceName: 'EOP', scope: 'DE', msgName: 'camt.053', container: 'ZIP' },
         timestamp: TIMESTAMP,
         dateRange: { from: '2026-08-01', to: '2026-08-21' },
+      }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HVU overview',
+      xml: buildVeuOverview({ subscriber, keys, bank, timestamp: TIMESTAMP, orderType: 'HVU' }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HVZ overview filtered by service',
+      xml: buildVeuOverview({
+        subscriber,
+        keys,
+        bank,
+        timestamp: TIMESTAMP,
+        orderType: 'HVZ',
+        serviceFilter: [btf, { serviceName: 'SDD', scope: 'AT', option: 'COR', msgName: 'pain.008' }],
+      }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HVD order detail',
+      xml: buildVeuDetail({ subscriber, keys, bank, timestamp: TIMESTAMP, order: VEU_ORDER }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HVT transaction detail',
+      xml: buildVeuTransactions({
+        subscriber,
+        keys,
+        bank,
+        timestamp: TIMESTAMP,
+        order: VEU_ORDER,
+        completeOrderData: false,
+        fetchLimit: 50,
+        fetchOffset: 10,
       }),
       schema: 'ebics_request_H005.xsd',
     },
@@ -272,20 +312,18 @@ describeIf('every message still validates when it names the client product', () 
     expect(validate(message.xml, message.schema)).toBeNull();
   });
 
-  it('actually put the element in', () => {
+  it('actually put the element in — everywhere the schema allows one', () => {
     // Otherwise the suite above would pass by validating the same messages
-    // twice, which is the failure mode a parameterised test invites.
+    // twice, which is the failure mode a parameterised test invites. Asserted
+    // as a rule rather than a list of names: the list grew four entries the
+    // day VEU arrived, and a list that has to be edited to stay true is a test
+    // that will eventually be edited into agreeing with a bug.
     const carriers = everyMessage(withProduct).filter((m) => m.xml.includes('<e:Product '));
-    expect(carriers.map((m) => m.name)).toEqual([
-      'INI',
-      'HIA',
-      'HPB',
-      'BTU initialisation',
-      'BTU initialisation asking for distributed signature',
-      'SPR subscriber lock',
-      'BTD initialisation',
-      'BTD initialisation with a date range',
-    ]);
+    const initialisations = everyMessage(withProduct).filter(
+      (m) => m.xml.includes('<e:TransactionPhase>Initialisation</e:TransactionPhase>') || m.schema.includes('keymgmt'),
+    );
+    expect(carriers.map((m) => m.name).sort()).toEqual(initialisations.map((m) => m.name).sort());
+    expect(carriers.length).toBeGreaterThan(6);
     expect(carriers[0]!.xml).toContain('<e:Product InstituteID="INST0815" Language="de">0815software PS-12</e:Product>');
   });
 

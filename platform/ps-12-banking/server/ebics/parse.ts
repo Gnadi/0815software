@@ -278,3 +278,282 @@ export function allReturnCodes(root: XmlElement): string[] {
     .flatMap((body) => findAll(body, (n) => n.uri === EBICS_NS && n.local === 'ReturnCode'))
     .map((node) => textOf(node).trim());
 }
+
+// ── VEU: reading the distributed-signature queue ──────────────────────
+
+/**
+ * One order waiting in the bank's distributed-signature queue.
+ *
+ * `HVU` and `HVZ` answer with the same shape; `HVZ` fills in more of it. The
+ * fields that matter to a human deciding whether to sign are the amount, the
+ * account and who signed already — and those come from `HVZ`, which is why an
+ * overview built on `HVU` alone is a list of order ids and little else.
+ */
+export interface VeuOrder {
+  /** The bank's id for the queued order — every later request names it. */
+  orderId: string;
+  /** The BTF it was submitted under. */
+  service: {
+    serviceName: string;
+    scope: string | null;
+    option: string | null;
+    msgName: string;
+    container: string | null;
+  };
+  orderDataSize: number;
+  /** How many signatures it needs, how many it has, and whether we may sign. */
+  signing: { required: number; done: number; readyToBeSigned: boolean };
+  /** Who submitted it. */
+  originator: { partnerId: string; userId: string; name: string | null; timestamp: string };
+  /** Who has signed it so far, and at what authorisation level. */
+  signers: {
+    partnerId: string;
+    userId: string;
+    name: string | null;
+    timestamp: string;
+    authorisationLevel: string;
+  }[];
+  additionalOrderInfo: string | null;
+  /**
+   * The digest a co-signature is computed over — `HVZ` and `HVD` carry it,
+   * `HVU` does not. Base64 as the bank sent it.
+   */
+  dataDigest: string | null;
+  /**
+   * From `HVZ` only: the summary a human actually reads before signing.
+   *
+   * The schema calls this group `HVZPaymentOrderDetailsStructure` and makes
+   * every part of it optional, so every field here can be null even when the
+   * group itself is present.
+   */
+  summary: {
+    /** How many payments the collective order holds. */
+    totalOrders: number | null;
+    totalAmount: string | null;
+    isCredit: boolean | null;
+    currency: string | null;
+    /** Free text naming the ordering party, when the bank sends it. */
+    orderPartyInfo: string | null;
+    /** The account the first payment comes from — a sample, not a total. */
+    firstAccount: VeuAccount | null;
+  } | null;
+}
+
+/** Read an `HVUResponseOrderData` or an `HVZResponseOrderData`. */
+export function parseVeuOverview(xml: string): VeuOrder[] {
+  const root = parse(xml);
+  return childrenOf(root, EBICS_NS, 'OrderDetails').map(readVeuOrder);
+}
+
+/**
+ * What `HVD` says about one order.
+ *
+ * `dataDigest` is the whole point: it is what `HVE` signs. A co-signatory must
+ * not hash the order data and sign that instead — they may not have the order
+ * data at all, which is what `orderDataAvailable` is telling you.
+ */
+export interface VeuDetail {
+  dataDigest: string;
+  /** The bank's own human-readable rendering of the order, when it sent one. */
+  displayFile: Buffer | null;
+  orderDataAvailable: boolean;
+  orderDataSize: number;
+  orderDetailsAvailable: boolean;
+  signers: VeuOrder['signers'];
+}
+
+export function parseVeuDetail(xml: string): VeuDetail {
+  const root = parse(xml);
+  const digest = textOf(at(root, EBICS_NS, 'DataDigest')).replace(/\s+/g, '');
+  if (digest === '') throw new ResponseError('the HVD response carries no DataDigest');
+  const display = textOf(at(root, EBICS_NS, 'DisplayFile')).replace(/\s+/g, '');
+  return {
+    dataDigest: digest,
+    displayFile: display === '' ? null : Buffer.from(display, 'base64'),
+    orderDataAvailable: boolOf(root, 'OrderDataAvailable'),
+    orderDataSize: intOf(root, 'OrderDataSize'),
+    orderDetailsAvailable: boolOf(root, 'OrderDetailsAvailable'),
+    signers: readSigners(root),
+  };
+}
+
+/**
+ * One account named by a queued transaction.
+ *
+ * `role` is the field that matters and the one a first reading misses:
+ * `Originator`, `Recipient`, `Charges` or `Other`. An HVT transaction carries
+ * two or three of these, and without the role there is no way to tell who is
+ * paying whom — which is the entire question a co-signatory is answering.
+ */
+export interface VeuAccount {
+  role: string;
+  /** `AccountNumber`, which is an IBAN when `international` is true. */
+  number: string | null;
+  international: boolean;
+  /** `BankCode` — a BIC when it is international. */
+  bankCode: string | null;
+  holder: string | null;
+  /** The bank's own label for this account, from the `Description` attribute. */
+  description: string | null;
+}
+
+/** One payment inside a queued collective order, as `HVT` describes it. */
+export interface VeuTransaction {
+  /** Two or three accounts: payer, payee, and sometimes a charges account. */
+  accounts: VeuAccount[];
+  amount: string;
+  currency: string | null;
+  /** True when the money comes IN. Absent on plenty of banks. */
+  isCredit: boolean | null;
+  executionDate: string | null;
+  descriptions: { type: string; text: string }[];
+}
+
+export interface VeuTransactions {
+  /** How many the order holds in total — not how many came back. */
+  total: number;
+  transactions: VeuTransaction[];
+}
+
+export function parseVeuTransactions(xml: string): VeuTransactions {
+  const root = parse(xml);
+  return {
+    total: intOf(root, 'NumOrderInfos'),
+    transactions: childrenOf(root, EBICS_NS, 'OrderInfo').map((info) => {
+        const amount = at(info, EBICS_NS, 'Amount');
+        const isCredit = amount === null ? null : attrOf(amount, 'isCredit');
+        return {
+          accounts: childrenOf(info, EBICS_NS, 'AccountInfo').map(readAccount),
+          amount: textOf(amount).trim(),
+          currency: amount === null ? null : (attrOf(amount, 'Currency') ?? null),
+          isCredit: credit(isCredit),
+          executionDate: nullIfBlank(textOf(at(info, EBICS_NS, 'ExecutionDate'))),
+          descriptions: childrenOf(info, EBICS_NS, 'Description').map((d) => ({
+            type: attrOf(d, 'Type') ?? '',
+            text: textOf(d).trim(),
+          })),
+        };
+      }),
+  };
+}
+
+function readVeuOrder(details: XmlElement): VeuOrder {
+  const service = at(details, EBICS_NS, 'Service');
+  const signing = at(details, EBICS_NS, 'SigningInfo');
+  const originator = at(details, EBICS_NS, 'OriginatorInfo');
+  const digest = textOf(at(details, EBICS_NS, 'DataDigest')).replace(/\s+/g, '');
+  const container = service === null ? null : at(service, EBICS_NS, 'Container');
+
+  return {
+    orderId: textOf(at(details, EBICS_NS, 'OrderID')).trim(),
+    service: {
+      serviceName: textOf(service === null ? null : at(service, EBICS_NS, 'ServiceName')).trim(),
+      scope: service === null ? null : nullIfBlank(textOf(at(service, EBICS_NS, 'Scope'))),
+      option: service === null ? null : nullIfBlank(textOf(at(service, EBICS_NS, 'ServiceOption'))),
+      msgName: textOf(service === null ? null : at(service, EBICS_NS, 'MsgName')).trim(),
+      container: container === null ? null : (attrOf(container, 'containerType') ?? null),
+    },
+    orderDataSize: intOf(details, 'OrderDataSize'),
+    signing: {
+      required: Number(signing === null ? 0 : (attrOf(signing, 'NumSigRequired') ?? 0)),
+      done: Number(signing === null ? 0 : (attrOf(signing, 'NumSigDone') ?? 0)),
+      // Absent reads as false. This flag is the bank telling us whether OUR
+      // subscriber may sign — guessing "probably yes" would put a signature
+      // request on screen that the bank is going to refuse.
+      readyToBeSigned: (signing === null ? '' : attrOf(signing, 'readyToBeSigned')) === 'true',
+    },
+    originator: {
+      partnerId: textOf(originator === null ? null : at(originator, EBICS_NS, 'PartnerID')).trim(),
+      userId: textOf(originator === null ? null : at(originator, EBICS_NS, 'UserID')).trim(),
+      name: originator === null ? null : nullIfBlank(textOf(at(originator, EBICS_NS, 'Name'))),
+      timestamp: textOf(originator === null ? null : at(originator, EBICS_NS, 'Timestamp')).trim(),
+    },
+    signers: readSigners(details),
+    additionalOrderInfo: nullIfBlank(textOf(at(details, EBICS_NS, 'AdditionalOrderInfo'))),
+    dataDigest: digest === '' ? null : digest,
+    summary: readSummary(details),
+  };
+}
+
+function readSigners(scope: XmlElement): VeuOrder['signers'] {
+  return childrenOf(scope, EBICS_NS, 'SignerInfo').map((signer) => {
+      const permission = at(signer, EBICS_NS, 'Permission');
+      return {
+        partnerId: textOf(at(signer, EBICS_NS, 'PartnerID')).trim(),
+        userId: textOf(at(signer, EBICS_NS, 'UserID')).trim(),
+        name: nullIfBlank(textOf(at(signer, EBICS_NS, 'Name'))),
+        timestamp: textOf(at(signer, EBICS_NS, 'Timestamp')).trim(),
+        authorisationLevel: permission === null ? '' : (attrOf(permission, 'AuthorisationLevel') ?? ''),
+      };
+    });
+}
+
+/**
+ * The payment summary `HVZ` folds in and `HVU` does not.
+ *
+ * Every field is optional in the schema — the whole group is `minOccurs="0"`
+ * and so is each element inside it — so all of it is read defensively. A bank
+ * that sends the group but omits an element must produce a null, not an
+ * exception in the middle of an operator's overview.
+ *
+ * Note `Currency` is a SIBLING of `TotalAmount`, not an attribute on it. The
+ * amount's only attribute is `isCredit`. Reading it the other way produced a
+ * currency that was always null and an amount that looked fine, which is the
+ * quietest kind of wrong.
+ */
+function readSummary(details: XmlElement): VeuOrder['summary'] {
+  const totalOrders = at(details, EBICS_NS, 'TotalOrders');
+  const total = at(details, EBICS_NS, 'TotalAmount');
+  const currency = at(details, EBICS_NS, 'Currency');
+  const first = at(details, EBICS_NS, 'FirstOrderInfo');
+  if (totalOrders === null && total === null && currency === null && first === null) return null;
+
+  const account = first === null ? null : at(first, EBICS_NS, 'AccountInfo');
+  return {
+    totalOrders: totalOrders === null ? null : intOf(details, 'TotalOrders'),
+    totalAmount: total === null ? null : nullIfBlank(textOf(total)),
+    isCredit: total === null ? null : credit(attrOf(total, 'isCredit')),
+    currency: currency === null ? null : nullIfBlank(textOf(currency)),
+    orderPartyInfo: first === null ? null : nullIfBlank(textOf(at(first, EBICS_NS, 'OrderPartyInfo'))),
+    firstAccount: account === null ? null : readAccount(account),
+  };
+}
+
+/**
+ * An `AccountInfo`, in either of the two shapes the schema allows for each of
+ * its parts: an international account number or a national one, an
+ * international bank code or a national one.
+ */
+function readAccount(account: XmlElement): VeuAccount {
+  const number =
+    at(account, EBICS_NS, 'AccountNumber') ?? at(account, EBICS_NS, 'NationalAccountNumber');
+  const bankCode = at(account, EBICS_NS, 'BankCode') ?? at(account, EBICS_NS, 'NationalBankCode');
+  const holder = at(account, EBICS_NS, 'AccountHolder');
+  return {
+    // Required by the schema on whichever element is present, so an empty
+    // string here means the bank sent something the schema forbids.
+    role: number === null ? '' : (attrOf(number, 'Role') ?? ''),
+    number: number === null ? null : nullIfBlank(textOf(number)),
+    international: number !== null && attrOf(number, 'international') === 'true',
+    bankCode: bankCode === null ? null : nullIfBlank(textOf(bankCode)),
+    holder: holder === null ? null : nullIfBlank(textOf(holder)),
+    description: number === null ? null : nullIfBlank(attrOf(number, 'Description') ?? ''),
+  };
+}
+
+function credit(value: string | null | undefined): boolean | null {
+  return value === undefined || value === null ? null : value === 'true';
+}
+
+function boolOf(scope: XmlElement, name: string): boolean {
+  return textOf(at(scope, EBICS_NS, name)).trim() === 'true';
+}
+
+function intOf(scope: XmlElement, name: string): number {
+  const value = Number.parseInt(textOf(at(scope, EBICS_NS, name)).trim(), 10);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function nullIfBlank(value: string): string | null {
+  return value.trim() === '' ? null : value.trim();
+}
