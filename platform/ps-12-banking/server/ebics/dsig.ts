@@ -24,6 +24,13 @@ import { sha256, signAuth, verifyAuth } from './crypto.js';
  */
 
 export const DS_NS = 'http://www.w3.org/2000/09/xmldsig#';
+
+/**
+ * The EBICS namespace, declared here rather than in `envelopes.ts` because
+ * that module imports this one — and `AuthSignature` is an EBICS element, so
+ * this file needs it. `envelopes.ts` re-exports it, keeping one source.
+ */
+export const EBICS_NS = 'urn:org:ebics:H005';
 export const C14N_ALGORITHM = 'http://www.w3.org/2001/10/xml-exc-c14n#';
 export const DIGEST_ALGORITHM = 'http://www.w3.org/2001/04/xmlenc#sha256';
 export const SIGNATURE_ALGORITHM = 'http://www.w3.org/2001/04/xmldsig-more#rsa-sha256';
@@ -61,12 +68,27 @@ export function authenticatedBytesOfBuilt(root: XmlElement, ns: NsMap): string {
 }
 
 /**
- * Build the `ds:AuthSignature` element for a request under construction.
+ * Build the `AuthSignature` element for a request under construction.
  *
  * The signature is over the DIGEST of the authenticated bytes — SignedInfo
  * carries that digest, and the RSA signature is over SignedInfo's own canonical
  * form. Two levels, and getting them the wrong way round produces a signature
  * the bank rejects with a message about the reference rather than about the key.
+ *
+ * ## The wrapper is an EBICS element, not a dsig one
+ *
+ * `ebics_types_H005.xsd` declares `<element name="AuthSignature"
+ * type="ds:SignatureType">` in `urn:org:ebics:H005`. Only the TYPE comes from
+ * XML Signature, so the wrapper is `ebics:AuthSignature` while its children —
+ * `SignedInfo`, `SignatureValue` — stay in the dsig namespace.
+ *
+ * This was written as `ds:AuthSignature` for a long time, and every test
+ * passed: the mock bank looked for it in the same wrong place. A real bank
+ * rejects the message outright, and `verifyAuthSignature` could not have found
+ * a real bank's signature either. Neither direction worked.
+ *
+ * Moving it does not disturb the digest: the authenticated node set is
+ * `//*[@authenticate='true']`, and this element carries no such attribute.
  */
 export function buildAuthSignature(params: {
   root: XmlElement;
@@ -88,7 +110,7 @@ export function buildAuthSignature(params: {
 
   const signature = signAuth(params.authPrivatePem, render(signedInfo, params.ns));
 
-  return el('ds:AuthSignature', {}, [
+  return el('e:AuthSignature', {}, [
     signedInfo,
     el('ds:SignatureValue', {}, [signature.toString('base64')]),
   ]);
@@ -124,7 +146,8 @@ export function verifyAuthSignature(params: {
 }): VerifyResult {
   const { root, bankAuthPublicPem } = params;
 
-  const signatureEl = findAll(root, (n) => n.uri === DS_NS && n.local === 'AuthSignature')[0];
+  // In the EBICS namespace, not the dsig one — see `buildAuthSignature`.
+  const signatureEl = findAll(root, (n) => n.uri === EBICS_NS && n.local === 'AuthSignature')[0];
   if (signatureEl === undefined) return { ok: false, reason: 'the response carries no AuthSignature' };
 
   const signedInfo = findAll(signatureEl, (n) => n.uri === DS_NS && n.local === 'SignedInfo')[0];

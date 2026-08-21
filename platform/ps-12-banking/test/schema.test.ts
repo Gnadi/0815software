@@ -1,0 +1,251 @@
+import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { inflateSync } from 'node:zlib';
+import {
+  buildHev,
+  buildIni,
+  buildHia,
+  buildHpb,
+  buildUploadInit,
+  buildTransfer,
+  buildReceipt,
+  buildDownloadInit,
+  buildDownloadSegment,
+  EBICS_NS,
+} from '../server/ebics/envelopes.js';
+import { unpackOrderData } from '../server/ebics/crypto.js';
+import { at, parse, textOf } from '../server/ebics/xml.js';
+import { AUTH, BANK_AUTH, BANK_ENC, ENC, ES } from './fixtures/keys.js';
+import { selfSignedCertificate } from '../server/ebics/x509.js';
+
+/**
+ * Validation against the OFFICIAL EBICS 3.0 schemas.
+ *
+ * This is the only test in the package whose expected answer does not come
+ * from this repository. Everything else — including the mock bank — encodes
+ * one reading of the specification, so it can confirm that the client and the
+ * counterparty agree and cannot tell whether they are both wrong. They were:
+ * a double-hashed payment signature, an `AuthSignature` in the xmldsig
+ * namespace instead of the EBICS one, a `UserSignatureData` whose shape was
+ * invented, and a key representation H005 does not define. All of it green.
+ *
+ * Two things this suite does that validating the request alone would not:
+ *
+ * 1. **It validates the PAYLOADS.** Order data travels deflated and base64'd
+ *    inside `OrderData`, so a schema check on the envelope says nothing about
+ *    what is in it. Three of the four errors above were in there.
+ * 2. **It covers every builder**, so a new message cannot be added without
+ *    the schema seeing it.
+ */
+
+const SCHEMA_DIR = new URL('./schema/', import.meta.url).pathname;
+const HAVE_SCHEMAS = existsSync(join(SCHEMA_DIR, 'ebics_request_H005.xsd'));
+let HAVE_XMLLINT = false;
+try {
+  execFileSync('xmllint', ['--version'], { stdio: 'ignore' });
+  HAVE_XMLLINT = true;
+} catch {
+  HAVE_XMLLINT = false;
+}
+
+const workdir = mkdtempSync(join(tmpdir(), 'ebics-schema-'));
+
+/**
+ * Validate one document, returning xmllint's complaint or null.
+ *
+ * Shelling out rather than parsing XSD ourselves is the point: a validator we
+ * wrote would share our misreadings, which is the whole failure mode this
+ * suite exists to break.
+ */
+function validate(xml: string, schema: string): string | null {
+  const file = join(workdir, `${Math.random().toString(36).slice(2)}.xml`);
+  writeFileSync(file, xml);
+  try {
+    execFileSync('xmllint', ['--noout', '--schema', join(SCHEMA_DIR, schema), file], { stdio: 'pipe' });
+    return null;
+  } catch (err) {
+    const stderr = (err as { stderr?: Buffer }).stderr?.toString() ?? String(err);
+    return stderr
+      .split('\n')
+      .filter((line) => line.includes('Schemas validity'))
+      .map((line) => line.replace(/^.*Schemas validity error : /, ''))
+      .join('; ');
+  }
+}
+
+const subscriber = { hostId: 'EBIXHOST', partnerId: 'PARTNER1', userId: 'USER1' };
+const keys = {
+  esPrivatePem: ES.privatePem,
+  esVersion: 'A005' as const,
+  authPrivatePem: AUTH.privatePem,
+  encPrivatePem: ENC.privatePem,
+};
+const bank = { authPublicPem: BANK_AUTH.publicPem, encPublicPem: BANK_ENC.publicPem };
+const btf = {
+  serviceName: 'SCT',
+  msgName: 'pain.001',
+  msgVersion: '03',
+  msgVariant: '001',
+};
+const TIMESTAMP = '2026-08-21T10:00:00Z';
+
+/** Certificates over the fixture keys — fixed dates, so output is stable. */
+const certify = (privatePem: string, purpose: 'ES' | 'AUTH' | 'ENC'): string =>
+  selfSignedCertificate({
+    privatePem,
+    purpose,
+    subject: { commonName: 'USER1', organizationName: 'PARTNER1' },
+    notBefore: new Date('2026-01-01T00:00:00Z'),
+    notAfter: new Date('2036-01-01T00:00:00Z'),
+    serial: Buffer.from([0x01]),
+  });
+const CERT = { es: certify(ES.privatePem, 'ES'), auth: certify(AUTH.privatePem, 'AUTH'), enc: certify(ENC.privatePem, 'ENC') };
+const TX_ID = 'A1B2C3D4E5F60718293A4B5C6D7E8F90';
+const transactionKey = Buffer.alloc(16, 7);
+const orderData = Buffer.from('<?xml version="1.0"?><Document xmlns="urn:x"/>', 'utf8');
+
+/** Every message this service can put on the wire, and its schema. */
+function everyMessage(): { name: string; xml: string; schema: string }[] {
+  return [
+    { name: 'HEV', xml: buildHev(subscriber.hostId), schema: 'ebics_hev.xsd' },
+    {
+      name: 'INI',
+      xml: buildIni({ subscriber, esCertificatePem: CERT.es, esVersion: 'A005', timestamp: TIMESTAMP }),
+      schema: 'ebics_keymgmt_request_H005.xsd',
+    },
+    {
+      name: 'HIA',
+      xml: buildHia({ subscriber, authCertificatePem: CERT.auth, encCertificatePem: CERT.enc, timestamp: TIMESTAMP }),
+      schema: 'ebics_keymgmt_request_H005.xsd',
+    },
+    { name: 'HPB', xml: buildHpb({ subscriber, keys, timestamp: TIMESTAMP }), schema: 'ebics_keymgmt_request_H005.xsd' },
+    {
+      name: 'BTU initialisation',
+      xml: buildUploadInit({ subscriber, keys, bank, btf, orderData, transactionKey, timestamp: TIMESTAMP, segments: 1 }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'BTU transfer',
+      xml: buildTransfer({ subscriber, keys, transactionId: TX_ID, segmentNumber: 1, lastSegment: true, segment: 'AAAA' }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'BTD initialisation',
+      xml: buildDownloadInit({
+        subscriber,
+        keys,
+        bank,
+        btf: { serviceName: 'EOP', scope: 'DE', msgName: 'camt.053', container: 'ZIP' },
+        timestamp: TIMESTAMP,
+      }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'BTD initialisation with a date range',
+      xml: buildDownloadInit({
+        subscriber,
+        keys,
+        bank,
+        btf: { serviceName: 'EOP', scope: 'DE', msgName: 'camt.053', container: 'ZIP' },
+        timestamp: TIMESTAMP,
+        dateRange: { from: '2026-08-01', to: '2026-08-21' },
+      }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'BTD segment request',
+      xml: buildDownloadSegment({ subscriber, keys, transactionId: TX_ID, segmentNumber: 2 }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'receipt',
+      xml: buildReceipt({ subscriber, keys, transactionId: TX_ID, positive: true }),
+      schema: 'ebics_request_H005.xsd',
+    },
+  ];
+}
+
+/**
+ * The deflated, base64'd documents inside `OrderData` and `SignatureData`.
+ *
+ * Invisible to a check on the envelope, and where the worst errors hid.
+ */
+function everyPayload(): { name: string; xml: string; schema: string }[] {
+  const orderDataOf = (envelope: string): string => {
+    const packed = textOf(at(parse(envelope), EBICS_NS, 'body', 'DataTransfer', 'OrderData')).replace(/\s+/g, '');
+    return inflateSync(Buffer.from(packed, 'base64')).toString('utf8');
+  };
+
+  const upload = buildUploadInit({
+    subscriber,
+    keys,
+    bank,
+    btf,
+    orderData,
+    transactionKey,
+    timestamp: TIMESTAMP,
+    segments: 1,
+  });
+  const signatureData = textOf(at(parse(upload), EBICS_NS, 'body', 'DataTransfer', 'SignatureData')).replace(/\s+/g, '');
+
+  return [
+    {
+      name: 'INI order data (SignaturePubKeyOrderData)',
+      xml: orderDataOf(buildIni({ subscriber, esCertificatePem: CERT.es, esVersion: 'A005', timestamp: TIMESTAMP })),
+      schema: 'ebics_signature_S002.xsd',
+    },
+    {
+      name: 'HIA order data (HIARequestOrderData)',
+      xml: orderDataOf(
+        buildHia({ subscriber, authCertificatePem: CERT.auth, encCertificatePem: CERT.enc, timestamp: TIMESTAMP }),
+      ),
+      schema: 'ebics_orders_H005.xsd',
+    },
+    {
+      name: 'the bank-technical signature (UserSignatureData)',
+      xml: unpackOrderData(transactionKey, signatureData).toString('utf8'),
+      schema: 'ebics_signature_S002.xsd',
+    },
+  ];
+}
+
+const describeIf = HAVE_SCHEMAS && HAVE_XMLLINT ? describe : describe.skip;
+
+if (!HAVE_SCHEMAS) {
+  // Deliberately loud rather than a silent skip: a validation suite that
+  // quietly stops running is worse than one that was never written.
+  console.warn(
+    '[ps-12] schema.test.ts SKIPPED — no XSDs in test/schema/. ' +
+      'Put the official EBICS 3.0 H005 schema set there to enable it (see test/schema/README.md).',
+  );
+} else if (!HAVE_XMLLINT) {
+  console.warn('[ps-12] schema.test.ts SKIPPED — xmllint is not installed (apt-get install libxml2-utils).');
+}
+
+describeIf('every message validates against the published EBICS 3.0 schema', () => {
+  it.each(everyMessage().map((m) => [m.name, m] as const))('%s', (_name, message) => {
+    expect(validate(message.xml, message.schema)).toBeNull();
+  });
+});
+
+describeIf('every payload inside OrderData validates too', () => {
+  it.each(everyPayload().map((p) => [p.name, p] as const))('%s', (_name, payload) => {
+    expect(validate(payload.xml, payload.schema)).toBeNull();
+  });
+});
+
+describeIf('the validator is actually validating', () => {
+  it('rejects a document the schema forbids', () => {
+    // Guards against the check silently passing everything — a validator that
+    // never fails proves nothing, and this suite exists precisely because a
+    // green suite proved nothing once already.
+    const broken = buildReceipt({ subscriber, keys, transactionId: TX_ID, positive: true }).replace(
+      '<e:TransactionPhase>Receipt</e:TransactionPhase>',
+      '<e:TransactionPhase>Nonsense</e:TransactionPhase>',
+    );
+    expect(validate(broken, 'ebics_request_H005.xsd')).not.toBeNull();
+  });
+});

@@ -3,32 +3,34 @@ import type { BtfInput } from '../shared/types.js';
 /**
  * Bank profiles, as config-as-code — the PS-05 `provider-registry.ts` pattern.
  *
+ * ## Where these values come from
+ *
+ * The German entries are transcribed from **"Mappingtabelle BTF-Struktur auf
+ * die Standard-Auftragsartenkennungen"**, the official table published at
+ * `ebics.de`, final version of 27 February 2026. They are marked `confirmed`
+ * because that document is the source of truth for the German market, not
+ * because anyone has run them past a bank.
+ *
+ * Everything else is `confirmed: false` and deliberately minimal. An earlier
+ * version of this file shipped invented values for four countries — a `PSR`
+ * service name that does not exist, and a scope-plus-container combination
+ * that names a different order type than intended. They were plausible, which
+ * is exactly what made them dangerous, and only the published table showed it.
+ *
  * ## What is deliberately NOT here
  *
  * **No URLs, and no host ids.** Those arrive on the EBICS contract the bank
- * sends a customer, together with the partner and user ids, and they differ per
- * customer and per environment. A registry that shipped a guessed URL would be
- * a plausible-looking value pointing at nothing, and the failure would surface
- * as a connection timeout rather than as "you have not entered your bank's
- * details". So the operator supplies them, always.
- *
- * **No named banks.** The same reasoning as the return-code table in
- * `ebics/codes.ts`: a confidently-worded wrong value next to a payment is worse
- * than no value. What a profile encodes instead is the part that is genuinely
- * standardised — the shape of a Business Transaction Format for a given scheme
- * and country.
+ * sends a customer and differ per customer and per environment. A registry
+ * that shipped a guessed URL would fail as a connection timeout rather than as
+ * "you have not entered your bank's details".
  *
  * ## What a profile is for
  *
- * BTF is EBICS 3.0's replacement for the old order types, and a wrong BTF is
- * the most common reason a technically perfect upload is refused. The service
- * itself does not care: `submitOrder` takes whatever BTF the caller hands it.
- * A profile is a *starting point* for an operator setting a connection up, and
- * `previewOrder` is how it gets checked without money moving.
- *
- * Every profile is therefore marked `confirmed: false` until someone has
- * checked it against a bank's own EBICS documentation. Nothing in this repo
- * can do that check.
+ * A wrong BTF is the most common reason a technically perfect upload is
+ * refused. The service itself does not care — `submitOrder` takes whatever BTF
+ * the caller hands it, or falls back to the connection's profile — so this is
+ * a starting point for an operator, and `?validate=1` is how it gets checked
+ * without money moving.
  */
 
 export interface BankProfile {
@@ -36,59 +38,97 @@ export interface BankProfile {
   name: string;
   /** Uploading a SEPA credit transfer — what MOD-04 produces. */
   creditTransfer: BtfInput;
-  /** Downloading an account statement (phase 6). */
+  /** Downloading an account statement. */
   statement: BtfInput;
-  /** Downloading a payment status report (phase 6). */
+  /** Downloading a payment status report. */
   paymentStatus: BtfInput;
+  /**
+   * The EBICS 2.5 order types these replace. Not sent anywhere — banks still
+   * talk in them ("we've enabled CCT and C53 for you"), and an operator on the
+   * phone needs the translation.
+   */
+  legacyOrderTypes: { creditTransfer: string; statement: string; paymentStatus: string };
   /**
    * Segment size in base64 characters. The protocol's own maximum is 1 MB;
    * a bank may publish less, and a profile is where that goes.
    */
   segmentLimit: number;
-  /**
-   * True only once a human has checked these values against the bank's own
-   * documentation. Nothing here ships as `true`.
-   */
+  /** True when the values come from a published mapping table, not a guess. */
   confirmed: boolean;
+  /** Where the values came from, so the next person can check them. */
+  source: string;
   notes: string;
 }
 
 /** The protocol's maximum, and every profile's default. */
 export const PROTOCOL_SEGMENT_LIMIT = 1_000_000;
 
-const SEPA_NOTE =
-  'Scope is the country code of the bank, per the BTF catalogue. Confirm the service names and message ' +
-  'versions against the bank’s own EBICS documentation before the first live order — a preview (POST ' +
-  '/api/orders?validate=1) shows what would be sent without signing anything.';
-
-/** A SEPA profile differs from its neighbours only in `scope`. */
-function sepa(key: string, name: string, scope: string | undefined, notes = SEPA_NOTE): BankProfile {
-  const scoped = scope === undefined ? {} : { scope };
-  return {
-    key,
-    name,
-    creditTransfer: { service_name: 'SCT', ...scoped, msg_name: 'pain.001', msg_version: '03', container: 'XML' },
-    statement: { service_name: 'EOP', ...scoped, msg_name: 'camt.053', msg_version: '04', container: 'ZIP' },
-    paymentStatus: { service_name: 'PSR', ...scoped, msg_name: 'pain.002', msg_version: '03', container: 'ZIP' },
-    segmentLimit: PROTOCOL_SEGMENT_LIMIT,
-    confirmed: false,
-    notes,
-  };
-}
+const DE_SOURCE =
+  'Mappingtabelle BTF-Struktur auf die Standard-Auftragsartenkennungen, ebics.de, Endfassung 27.02.2026';
 
 export const REGISTRY: readonly BankProfile[] = [
-  sepa(
-    'generic',
-    'Generic SEPA (no scope)',
-    undefined,
-    'No scope element at all. Some banks want the country code, some want it omitted, and a few want "BIL" ' +
-      'for a bilaterally agreed service. Start here only if the bank’s documentation does not say. ' +
-      SEPA_NOTE,
-  ),
-  sepa('sepa-at', 'SEPA · Austria', 'AT'),
-  sepa('sepa-de', 'SEPA · Germany', 'DE'),
-  sepa('sepa-ch', 'SEPA · Switzerland', 'CH'),
-  sepa('sepa-fr', 'SEPA · France', 'FR'),
+  {
+    key: 'de-sepa',
+    name: 'SEPA · Germany (GBIC/DK)',
+    // CCT: no Scope and no Container. The table is explicit that adding both
+    // makes it CCC — the variant for several files in an XML container, which
+    // is NOT what a single pain.001 is. ServiceOption left empty, which the
+    // table's footnote says is read as VOO (Verification of Payee opt-out).
+    creditTransfer: { service_name: 'SCT', msg_name: 'pain.001', msg_variant: '001', msg_version: '03' },
+    // C53.
+    statement: { service_name: 'EOP', scope: 'DE', msg_name: 'camt.053', container: 'ZIP' },
+    // CRZ. The ServiceOption is what says WHICH scheme the report is about:
+    // SCT for credit transfers, SDD for direct debits.
+    paymentStatus: {
+      service_name: 'REP',
+      scope: 'DE',
+      option: 'SCT',
+      msg_name: 'pain.002',
+      container: 'ZIP',
+    },
+    legacyOrderTypes: { creditTransfer: 'CCT', statement: 'C53', paymentStatus: 'CRZ' },
+    segmentLimit: PROTOCOL_SEGMENT_LIMIT,
+    confirmed: true,
+    source: DE_SOURCE,
+    notes:
+      'From 11/2026 the German table permits only pain.001.001.09 for SEPA credit transfers (GBIC 4/5), and only ' +
+      'pain.002.001.10 for status reports. MOD-04 still produces pain.001.001.03, so set msg_version explicitly ' +
+      'once that changes. ServiceOption VOO/VOI selects Verification of Payee opt-out/opt-in; empty reads as VOO.',
+  },
+  {
+    key: 'at-sepa',
+    name: 'SEPA · Austria (unconfirmed)',
+    // Shaped like the German entries but with the Austrian scope, and marked
+    // unconfirmed because the Austrian mapping (ebics.psa.at) has not been
+    // read. Do not trust the scope or the ServiceOption without checking it.
+    creditTransfer: { service_name: 'SCT', msg_name: 'pain.001', msg_variant: '001', msg_version: '03' },
+    statement: { service_name: 'EOP', scope: 'AT', msg_name: 'camt.053', container: 'ZIP' },
+    paymentStatus: { service_name: 'REP', scope: 'AT', option: 'SCT', msg_name: 'pain.002', container: 'ZIP' },
+    legacyOrderTypes: { creditTransfer: 'CCT', statement: 'C53', paymentStatus: 'CRZ' },
+    segmentLimit: PROTOCOL_SEGMENT_LIMIT,
+    confirmed: false,
+    source: 'shaped after the German table; the Austrian mapping at ebics.psa.at has NOT been checked',
+    notes:
+      'Austria publishes its own BTF mapping. Until it has been read, treat the scope and the service option here ' +
+      'as guesses: check them against your bank’s documentation and confirm with POST /api/orders?validate=1.',
+  },
+  {
+    key: 'generic',
+    name: 'Generic SEPA (no scope)',
+    // No Scope at all, which the German table calls "globale Verwendung" and
+    // uses for the plain credit transfer. The right starting point when a
+    // bank's documentation says nothing about scope.
+    creditTransfer: { service_name: 'SCT', msg_name: 'pain.001' },
+    statement: { service_name: 'EOP', msg_name: 'camt.053', container: 'ZIP' },
+    paymentStatus: { service_name: 'REP', option: 'SCT', msg_name: 'pain.002', container: 'ZIP' },
+    legacyOrderTypes: { creditTransfer: 'CCT', statement: 'C53', paymentStatus: 'CRZ' },
+    segmentLimit: PROTOCOL_SEGMENT_LIMIT,
+    confirmed: false,
+    source: 'the shape every market shares; scopes and options deliberately omitted',
+    notes:
+      'Start here when the bank’s documentation does not mention a scope. Some banks want the country code, some ' +
+      'want it omitted, and a few want "BIL" for a bilaterally agreed service.',
+  },
 ];
 
 export function bankProfile(key: string): BankProfile | undefined {
@@ -110,6 +150,7 @@ export function publicRegistry(): BankProfile[] {
     if (keys.has(entry.key)) throw new Error(`bank-registry: duplicate key "${entry.key}"`);
     keys.add(entry.key);
     if (entry.name.trim() === '') throw new Error(`bank-registry: "${entry.key}" has no name`);
+    if (entry.source.trim() === '') throw new Error(`bank-registry: "${entry.key}" does not say where it came from`);
     if (entry.segmentLimit < 1 || entry.segmentLimit > PROTOCOL_SEGMENT_LIMIT) {
       throw new Error(`bank-registry: "${entry.key}" has a segment limit outside 1..${PROTOCOL_SEGMENT_LIMIT}`);
     }
@@ -122,6 +163,9 @@ export function publicRegistry(): BankProfile[] {
       if (btf.msg_name.trim() === '') throw new Error(`bank-registry: "${entry.key}".${label} has no message name`);
       if (btf.scope !== undefined && !/^([A-Z]{2}|BIL)$/.test(btf.scope)) {
         throw new Error(`bank-registry: "${entry.key}".${label} scope must be a country code or "BIL"`);
+      }
+      if (btf.container !== undefined && !/^[A-Z]{3}$/.test(btf.container)) {
+        throw new Error(`bank-registry: "${entry.key}".${label} container must be a 3-letter code (XML, ZIP, SVC)`);
       }
     }
   }

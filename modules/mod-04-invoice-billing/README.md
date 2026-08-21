@@ -525,7 +525,16 @@ here has to be certified against any bank's API, and an outage at the bank
 cannot break bookkeeping.
 
 The file is a valid pain.001.001.03 per the ISO 20022 schema (the shipped
-example output is validated against the official XSD). Banks still differ in
+example output is validated against the official XSD).
+
+> **A deadline worth knowing about.** The German BTF mapping table (`ebics.de`,
+> 27 February 2026) says that from **11/2026 only pain.001.001.09** is usable
+> for SEPA credit transfers under GBIC 4/5, and only pain.002.001.10 for status
+> reports. This module still produces **.03**. Moving is not a version bump —
+> .09 is the ISO 2019 schema, with structured creditor addresses among other
+> changes — so it wants its own pass, and this note is here so it does not
+> arrive as a surprise.
+ Banks still differ in
 what they accept — some insist on a BIC, some cap the number of transfers,
 some want a lead time on the execution date. **Run one file through your
 bank's file check before the first live upload**, the same way MOD-06's ERP

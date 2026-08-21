@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { generateRsaKeyPair, publicKeyDigest, publicKeyParts, type EsVersion } from './ebics/crypto.js';
+import { selfSignedCertificate } from './ebics/x509.js';
 
 /**
  * The key store — the most sensitive thing in this repository.
@@ -85,7 +86,14 @@ interface KeyRow {
  */
 export function generateSubscriberKeys(
   db: Database.Database,
-  params: { connectionId: number; keySecret: Buffer; esVersion?: EsVersion; now: string },
+  params: {
+    connectionId: number;
+    keySecret: Buffer;
+    esVersion?: EsVersion;
+    now: string;
+    /** Goes into the certificate's subject — the EBICS ids, nothing invented. */
+    subject: { partnerId: string; userId: string };
+  },
 ): PublicKeyRecord[] {
   const existing = db
     .prepare('SELECT COUNT(*) AS n FROM subscriber_keys WHERE connection_id = ? AND retired_at IS NULL')
@@ -103,21 +111,39 @@ export function generateSubscriberKeys(
 
   const insert = db.prepare(
     `INSERT INTO subscriber_keys
-       (connection_id, purpose, version, private_pem_enc, public_pem, modulus, exponent, digest, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (connection_id, purpose, version, private_pem_enc, public_pem, certificate_pem,
+        modulus, exponent, digest, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
+
+  const notBefore = new Date(params.now);
+  // Ten years. EBICS subscriber certificates are self-signed containers, not
+  // trust anchors — the INI letter is what binds a key to a customer — so a
+  // short life buys nothing and an expiry mid-relationship costs a re-run of
+  // the whole paper exchange.
+  const notAfter = new Date(notBefore);
+  notAfter.setUTCFullYear(notAfter.getUTCFullYear() + 10);
 
   return db.transaction((): PublicKeyRecord[] =>
     specs.map((spec) => {
       const pair = generateRsaKeyPair();
       const { modulus, exponent } = publicKeyParts(pair.publicPem);
       const digest = publicKeyDigest(pair.publicPem).toString('base64');
+      const certificatePem = selfSignedCertificate({
+        privatePem: pair.privatePem,
+        purpose: spec.purpose,
+        subject: { commonName: params.subject.userId, organizationName: params.subject.partnerId },
+        notBefore,
+        notAfter,
+        serial: randomBytes(16),
+      });
       insert.run(
         params.connectionId,
         spec.purpose,
         spec.version,
         encryptSecret(params.keySecret, pair.privatePem),
         pair.publicPem,
+        certificatePem,
         modulus.toString('base64'),
         exponent.toString('base64'),
         digest,
@@ -160,6 +186,32 @@ export function privatePemFor(
     throw new KeyStoreError(`this connection has no ${params.purpose} key — generate keys first`);
   }
   return { pem: decryptSecret(params.keySecret, row.private_pem_enc), version: row.version };
+}
+
+/**
+ * The X.509 certificate for one purpose.
+ *
+ * EBICS 3.0 sends keys only as certificates, so INI and HIA read from here.
+ * Empty for a connection whose keys predate migration 4: those cannot produce
+ * a valid H005 key exchange and have to be re-initialised with the bank.
+ */
+export function certificatePemFor(
+  db: Database.Database,
+  params: { connectionId: number; purpose: KeyPurpose },
+): string {
+  const row = db
+    .prepare(
+      'SELECT certificate_pem FROM subscriber_keys WHERE connection_id = ? AND purpose = ? AND retired_at IS NULL',
+    )
+    .get(params.connectionId, params.purpose) as { certificate_pem: string | null } | undefined;
+  if (row === undefined) throw new KeyStoreError(`this connection has no ${params.purpose} key`);
+  if (row.certificate_pem === null || row.certificate_pem === '') {
+    throw new KeyStoreError(
+      `this connection's ${params.purpose} key has no X.509 certificate. It was generated before EBICS 3.0 ` +
+        'certificate support existed; generate a new connection and re-initialise with the bank on paper.',
+    );
+  }
+  return row.certificate_pem;
 }
 
 /** The public PEM for one purpose — safe to hand around inside the service. */

@@ -26,6 +26,11 @@ createServer((req, res) => {
     });
     return;
   }
+  if (req.url === '/requests') {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify(bank.requests));
+    return;
+  }
   if (req.url === '/received') {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify(bank.received.map((o) => ({ ...o, orderData: o.orderData.toString('utf8') }))));

@@ -145,7 +145,13 @@ export interface BtfInput {
   scope?: string;
   option?: string;
   msg_name: string;
+  /** For pain.001.001.09: version "09". */
   msg_version?: string;
+  /** For pain.001.001.09: variant "001". */
+  msg_variant?: string;
+  /** Encoding format, e.g. "XML". Rarely needed. */
+  msg_format?: string;
+  /** Container type, e.g. "XML" or "ZIP" — sent as `<Container containerType>`. */
   container?: string;
 }
 

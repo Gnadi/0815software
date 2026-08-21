@@ -64,7 +64,7 @@ async function bringUp(key = 'main', overrides: Record<string, unknown> = {}): P
     .send({
       key,
       display_name: 'Test Bank',
-      bank_key: 'sepa-at',
+      bank_key: 'at-sepa',
       url: 'https://bank.example/ebics',
       host_id: bank.hostId,
       partner_id: 'PARTNER1',
@@ -157,13 +157,27 @@ describe('who may do what', () => {
 // ── The bank profile registry ─────────────────────────────────────────
 
 describe('GET /api/banks', () => {
-  it('lists profiles, every one of them marked unconfirmed', async () => {
+  it('says of every profile where its values came from', async () => {
     const res = await request(app).get('/api/banks').set(SERVICE).expect(200);
     expect(res.body.banks.length).toBeGreaterThan(0);
-    // Nothing in this repo can check a BTF against a bank's documentation, so
-    // nothing here may claim to have been checked.
-    for (const profile of res.body.banks) expect(profile.confirmed).toBe(false);
-    expect(res.body.banks.map((b: { key: string }) => b.key)).toContain('sepa-at');
+    for (const profile of res.body.banks) expect(profile.source).toBeTruthy();
+
+    // Only the German values are confirmed, and only because they are
+    // transcribed from the published mapping table. Anything shaped by
+    // analogy — Austria, the generic profile — must say it is a guess.
+    const byKey = Object.fromEntries(res.body.banks.map((b: { key: string }) => [b.key, b]));
+    expect(byKey['de-sepa'].confirmed).toBe(true);
+    expect(byKey['de-sepa'].source).toMatch(/ebics\.de/);
+    expect(byKey['at-sepa'].confirmed).toBe(false);
+    expect(byKey['generic'].confirmed).toBe(false);
+  });
+
+  it('carries the EBICS 2.5 order types, because banks still talk in them', async () => {
+    const res = await request(app).get('/api/banks').set(SERVICE).expect(200);
+    const de = res.body.banks.find((b: { key: string }) => b.key === 'de-sepa');
+    // "We've enabled CCT and C53 for you" is what an operator hears on the
+    // phone; nothing sends these, but somebody has to be able to translate.
+    expect(de.legacyOrderTypes).toEqual({ creditTransfer: 'CCT', statement: 'C53', paymentStatus: 'CRZ' });
   });
 
   it('carries no URLs and no host ids — those come from the contract', async () => {
@@ -226,7 +240,7 @@ describe('bringing a connection up', () => {
       .send({
         key: 'typo',
         display_name: 'Test',
-        bank_key: 'sepa-atx',
+        bank_key: 'at-sepax',
         url: 'https://bank.example/ebics',
         host_id: 'H',
         partner_id: 'P',
@@ -254,7 +268,7 @@ describe('the INI letter', () => {
       .send({
         key: 'main',
         display_name: 'Test Bank',
-        bank_key: 'sepa-at',
+        bank_key: 'at-sepa',
         url: 'https://bank.example/ebics',
         host_id: 'MOCKHOST',
         partner_id: 'PARTNER1',
@@ -381,14 +395,16 @@ describe('POST /api/orders', () => {
       .expect(201);
 
     expect(res.body.status).toBe('accepted');
+    // No scope and no container: the published table is explicit that adding
+    // both names a DIFFERENT order type (CCC, the multi-file container
+    // variant) than the single pain.001 MOD-04 produces.
     expect(res.body.btf).toEqual({
       service_name: 'SCT',
-      scope: 'AT',
       msg_name: 'pain.001',
+      msg_variant: '001',
       msg_version: '03',
-      container: 'XML',
     });
-    expect(bank.received[0]!.btf.scope).toBe('AT');
+    expect(bank.received[0]!.btf.scope).toBeNull();
   });
 
   it('lets a caller override the profile’s BTF', async () => {

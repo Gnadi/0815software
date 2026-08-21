@@ -2,7 +2,9 @@ import { at, attrOf, childrenOf, findAll, parse, textOf, type XmlElement } from 
 import { EBICS_NS, HEV_NS } from './envelopes.js';
 import { verdictOf, type Verdict } from './codes.js';
 import { verifyAuthSignature } from './dsig.js';
-import { publicKeyDigest } from './crypto.js';
+import { publicKeyDigest, publicKeyParts } from './crypto.js';
+import { certificateFromBase64, publicPemFromCertificate } from './x509.js';
+import { DS_NS } from './dsig.js';
 
 /**
  * Reading what the bank said.
@@ -143,8 +145,10 @@ export interface BankPublicKey {
   version: string;
   modulus: Buffer;
   exponent: Buffer;
-  /** SPKI PEM, rebuilt from modulus and exponent for use with node:crypto. */
+  /** SPKI PEM — from the certificate, for use with node:crypto. */
   pem: string;
+  /** The certificate as sent, when the bank sent one. Kept as the record. */
+  certificatePem: string | null;
   /** The digest an operator compares against the bank's published letter. */
   digest: Buffer;
 }
@@ -168,18 +172,27 @@ export function parseHpbOrderData(xml: string): HpbResult {
   const read = (container: string, versionElement: string): BankPublicKey => {
     const info = at(root, EBICS_NS, container);
     if (info === null) throw new ResponseError(`the HPB response has no ${container}`);
-    const value = at(info, EBICS_NS, 'PubKeyValue');
-    const rsa = value === null ? null : firstRsaKeyValue(value);
-    if (rsa === null) throw new ResponseError(`the HPB response has no RSA key in ${container}`);
 
-    const modulus = base64Buffer(textOf(rsa.modulus));
-    const exponent = base64Buffer(textOf(rsa.exponent));
-    const pem = spkiPemFromParts(modulus, exponent);
+    // EBICS 3.0 sends the bank's keys as X.509 certificates: `PubKeyInfoType`
+    // requires `<ds:X509Data>` and `PubKeyValue` is not in the H005 schema at
+    // all. The modulus-and-exponent form is still read as a fallback, because
+    // a bank running an H004-era implementation behind an H005 endpoint is
+    // exactly the sort of thing a first connection turns up, and accepting it
+    // costs nothing — the digest a human confirms is computed the same way
+    // either way.
+    const certificate = findAll(info, (n) => n.uri === DS_NS && n.local === 'X509Certificate')[0];
+    const pem =
+      certificate !== undefined
+        ? publicPemFromCertificate(certificateFromBase64(textOf(certificate)))
+        : legacyPubKeyValuePem(info, container);
+
+    const { modulus, exponent } = publicKeyParts(pem);
     return {
       version: textOf(at(info, EBICS_NS, versionElement)).trim(),
       modulus,
       exponent,
       pem,
+      certificatePem: certificate === undefined ? null : certificateFromBase64(textOf(certificate)),
       digest: publicKeyDigest(pem),
     };
   };
@@ -188,6 +201,16 @@ export function parseHpbOrderData(xml: string): HpbResult {
     authentication: read('AuthenticationPubKeyInfo', 'AuthenticationVersion'),
     encryption: read('EncryptionPubKeyInfo', 'EncryptionVersion'),
   };
+}
+
+/** The H004-era shape, kept as a fallback. See `parseHpbOrderData`. */
+function legacyPubKeyValuePem(info: XmlElement, container: string): string {
+  const value = at(info, EBICS_NS, 'PubKeyValue');
+  const rsa = value === null ? null : firstRsaKeyValue(value);
+  if (rsa === null) {
+    throw new ResponseError(`the HPB response has neither an X.509 certificate nor an RSA key in ${container}`);
+  }
+  return spkiPemFromParts(base64Buffer(textOf(rsa.modulus)), base64Buffer(textOf(rsa.exponent)));
 }
 
 function firstRsaKeyValue(value: XmlElement): { modulus: XmlElement; exponent: XmlElement } | null {

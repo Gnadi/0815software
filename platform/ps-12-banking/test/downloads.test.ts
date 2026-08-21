@@ -49,7 +49,9 @@ import type { BtfInput } from '../shared/types.js';
 const KEY_SECRET = loadKeySecret('66'.repeat(32));
 
 const SCT: BtfInput = { service_name: 'SCT', scope: 'AT', msg_name: 'pain.001', msg_version: '03', container: 'XML' };
-const PSR: BtfInput = { service_name: 'PSR', scope: 'AT', msg_name: 'pain.002', msg_version: '03', container: 'ZIP' };
+// REP with ServiceOption SCT, per the published mapping table — this was
+// `PSR`, a service name that does not exist anywhere in it.
+const PSR: BtfInput = { service_name: 'REP', scope: 'AT', option: 'SCT', msg_name: 'pain.002', container: 'ZIP' };
 const EOP: BtfInput = { service_name: 'EOP', scope: 'AT', msg_name: 'camt.053', msg_version: '04', container: 'ZIP' };
 
 let db: Database.Database;
@@ -145,7 +147,7 @@ async function bringUp(key = 'main'): Promise<void> {
     {
       key,
       displayName: 'Test Bank',
-      bankKey: 'sepa-at',
+      bankKey: 'at-sepa',
       url: 'https://bank.example/ebics',
       hostId: bank.hostId,
       partnerId: `P-${key}`,
@@ -219,7 +221,7 @@ describe('fetching what the bank has', () => {
       {
         key: 'raw',
         displayName: 'Unverified',
-        bankKey: 'sepa-at',
+        bankKey: 'at-sepa',
         url: 'https://bank.example/ebics',
         hostId: bank.hostId,
         partnerId: 'P1',
@@ -346,7 +348,7 @@ describe('folding a report back into its order', () => {
   it('settles an order the bank reports as ACSC', async () => {
     await bringUp();
     const id = await submitted('MOD04-1');
-    bank.enqueue({ serviceName: 'PSR', msgName: 'pain.002' }, pain002('MOD04-1', 'ACSC'));
+    bank.enqueue({ serviceName: 'REP', msgName: 'pain.002' }, pain002('MOD04-1', 'ACSC'));
 
     await fetchOne(ctx, 'main', PSR);
     expect(applyReports(db, ctx.now!)).toBe(1);
@@ -362,7 +364,7 @@ describe('folding a report back into its order', () => {
     expect(orderDetail(db, id).status).toBe('accepted');
 
     bank.enqueue(
-      { serviceName: 'PSR', msgName: 'pain.002' },
+      { serviceName: 'REP', msgName: 'pain.002' },
       pain002('MOD04-2', 'RJCT', { reasonCode: 'AC04', reason: 'creditor account closed' }),
     );
     await fetchOne(ctx, 'main', PSR);
@@ -379,7 +381,7 @@ describe('folding a report back into its order', () => {
   it('ignores a report about a file this service never sent', async () => {
     await bringUp();
     await submitted('MOD04-3');
-    bank.enqueue({ serviceName: 'PSR', msgName: 'pain.002' }, pain002('SOMEONE-ELSE', 'RJCT'));
+    bank.enqueue({ serviceName: 'REP', msgName: 'pain.002' }, pain002('SOMEONE-ELSE', 'RJCT'));
 
     await fetchOne(ctx, 'main', PSR);
     expect(applyReports(db, ctx.now!)).toBe(0);
@@ -390,7 +392,7 @@ describe('folding a report back into its order', () => {
   it('does not repeat itself when the same download is processed again', async () => {
     await bringUp();
     const id = await submitted('MOD04-4');
-    bank.enqueue({ serviceName: 'PSR', msgName: 'pain.002' }, pain002('MOD04-4', 'RJCT'));
+    bank.enqueue({ serviceName: 'REP', msgName: 'pain.002' }, pain002('MOD04-4', 'RJCT'));
     await fetchOne(ctx, 'main', PSR);
     applyReports(db, ctx.now!);
     const before = orderDetail(db, id).events.length;
@@ -402,7 +404,7 @@ describe('folding a report back into its order', () => {
 
   it('marks a status download processed even when it changes nothing', async () => {
     await bringUp();
-    bank.enqueue({ serviceName: 'PSR', msgName: 'pain.002' }, pain002('UNKNOWN', 'ACCP'));
+    bank.enqueue({ serviceName: 'REP', msgName: 'pain.002' }, pain002('UNKNOWN', 'ACCP'));
     await fetchOne(ctx, 'main', PSR);
     applyReports(db, ctx.now!);
     expect(listDownloads(db, { kind: 'status' })[0]!.processed_at).not.toBeNull();
@@ -424,7 +426,7 @@ describe('a report inside a ZIP container — how banks actually send them', () 
     // this stored the archive, parsed zero reports, stamped it processed and
     // left the run sitting at `submitted` forever.
     bank.enqueue(
-      { serviceName: 'PSR', msgName: 'pain.002' },
+      { serviceName: 'REP', msgName: 'pain.002' },
       zipped([{ name: 'psr-20260822-1.xml', content: pain002('MOD04-Z1', 'ACSC') }]),
     );
 
@@ -438,7 +440,7 @@ describe('a report inside a ZIP container — how banks actually send them', () 
     const first = await submitted('MOD04-Z2');
     const second = await submitted('MOD04-Z3');
     bank.enqueue(
-      { serviceName: 'PSR', msgName: 'pain.002' },
+      { serviceName: 'REP', msgName: 'pain.002' },
       zipped([
         { name: 'a.xml', content: pain002('MOD04-Z2', 'ACSC') },
         { name: 'b.xml', content: pain002('MOD04-Z3', 'RJCT', { reasonCode: 'AC01' }) },
@@ -454,7 +456,7 @@ describe('a report inside a ZIP container — how banks actually send them', () 
   it('stores the archive as the bank sent it, not the documents inside', async () => {
     await bringUp();
     const archive = zipped([{ name: 'a.xml', content: pain002('MOD04-Z4', 'ACSC') }]);
-    bank.enqueue({ serviceName: 'PSR', msgName: 'pain.002' }, archive);
+    bank.enqueue({ serviceName: 'REP', msgName: 'pain.002' }, archive);
 
     const result = await fetchOne(ctx, 'main', PSR);
     // The file of record is what arrived. Keeping the archive is what makes a
@@ -466,7 +468,7 @@ describe('a report inside a ZIP container — how banks actually send them', () 
     await bringUp();
     // Truncated: the reader refuses it. The bytes still have to be stored,
     // because the receipt has not gone out and this is the only copy offered.
-    bank.enqueue({ serviceName: 'PSR', msgName: 'pain.002' }, Buffer.concat([Buffer.from('PK\u0003\u0004'), Buffer.alloc(40)]));
+    bank.enqueue({ serviceName: 'REP', msgName: 'pain.002' }, Buffer.concat([Buffer.from('PK\u0003\u0004'), Buffer.alloc(40)]));
 
     const result = await fetchOne(ctx, 'main', PSR);
     expect(result.download).not.toBeNull();
@@ -478,7 +480,7 @@ describe('the tick', () => {
   it('fetches for every ready connection and applies what it finds', async () => {
     await bringUp();
     const { order } = await submitOrder(ctx, { connection: 'main', btf: SCT, payload: pain001('MOD04-9') });
-    bank.enqueue({ serviceName: 'PSR', msgName: 'pain.002' }, pain002('MOD04-9', 'ACSC'));
+    bank.enqueue({ serviceName: 'REP', msgName: 'pain.002' }, pain002('MOD04-9', 'ACSC'));
     bank.enqueue({ serviceName: 'EOP', msgName: 'camt.053' }, '<camt/>');
 
     const result = await tick(ctx);
@@ -540,7 +542,7 @@ describe('a report that names no original file', () => {
     // with any order and on a collision would have applied a stranger's
     // verdict to a real payment.
     bank.enqueue(
-      { serviceName: 'PSR', msgName: 'pain.002' },
+      { serviceName: 'REP', msgName: 'pain.002' },
       '<?xml version="1.0"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.002.001.03">' +
         '<CstmrPmtStsRpt><GrpHdr><MsgId>MOD04-X</MsgId></GrpHdr>' +
         '<OrgnlGrpInfAndSts><GrpSts>RJCT</GrpSts></OrgnlGrpInfAndSts></CstmrPmtStsRpt></Document>',

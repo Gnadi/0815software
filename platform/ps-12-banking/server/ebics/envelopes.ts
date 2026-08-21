@@ -1,15 +1,15 @@
 import { deflateSync } from 'node:zlib';
 import { document, el, type NsMap, type XmlElement } from './xml.js';
-import { buildAuthSignature } from './dsig.js';
+import { buildAuthSignature, DS_NS, EBICS_NS } from './dsig.js';
 import {
   encryptTransactionKey,
   packOrderData,
   publicKeyDigest,
-  publicKeyParts,
   sha256,
   signOrderData,
   type EsVersion,
 } from './crypto.js';
+import { certificateDer } from './x509.js';
 
 /**
  * The EBICS 3.0 (H005) messages this service sends.
@@ -31,11 +31,20 @@ import {
  * be rebuilt identically when a transfer is resumed.
  */
 
-export const EBICS_NS = 'urn:org:ebics:H005';
-export const DS_NS = 'http://www.w3.org/2000/09/xmldsig#';
+export { EBICS_NS, DS_NS } from './dsig.js';
+
+/**
+ * The signature namespace — a SEPARATE one from the request namespace.
+ *
+ * `UserSignatureData` and `SignaturePubKeyOrderData` are declared in
+ * `ebics_signature_S002.xsd`, whose target namespace is this. Both were built
+ * in the H005 namespace for a long time and every test passed, because the
+ * mock bank read them back out of the same wrong place.
+ */
+export const ESIG_NS = 'http://www.ebics.org/S002';
 
 /** The prefixes every message here is written with. */
-export const NS: NsMap = { e: EBICS_NS, ds: DS_NS };
+export const NS: NsMap = { e: EBICS_NS, ds: DS_NS, esig: ESIG_NS };
 
 export const H005 = 'H005';
 
@@ -85,8 +94,10 @@ export interface Btf {
   msgName: string;
   /** Message version, e.g. "09". */
   msgVersion?: string;
-  /** Message variant, when the bank defines one. */
+  /** Message variant, when the bank defines one. For pain.001.001.09: "001". */
   msgVariant?: string;
+  /** Encoding format of the message, e.g. "XML", "JSON", "PDF". Rarely needed. */
+  msgFormat?: string;
   /** Container type, e.g. "XML" or "ZIP". */
   container?: string;
 }
@@ -108,14 +119,19 @@ function staticHeader(subscriber: Subscriber, children: (XmlElement | null)[]): 
 }
 
 /** The `PubKeyValue` shape used wherever a public key goes on the wire. */
-function pubKeyValue(publicPem: string, timestamp: string): XmlElement {
-  const { modulus, exponent } = publicKeyParts(publicPem);
-  return el('e:PubKeyValue', {}, [
-    el('ds:RSAKeyValue', {}, [
-      el('ds:Modulus', {}, [modulus.toString('base64')]),
-      el('ds:Exponent', {}, [exponent.toString('base64')]),
-    ]),
-    el('e:TimeStamp', {}, [timestamp]),
+/**
+ * A public key on the wire — as an X.509 certificate, which is the only form
+ * EBICS 3.0 defines.
+ *
+ * `PubKeyValue`, the modulus-and-exponent element this used to emit, appears
+ * nowhere in the H005 schema set: `PubKeyInfoType` requires `<ds:X509Data>` in
+ * both the EBICS and the S002 namespace. Every INI and HIA this service sent
+ * was therefore a shape no H005 bank defines — and the tests passed, because
+ * the mock bank read the same invented shape back out.
+ */
+function x509Data(certificatePem: string): XmlElement {
+  return el('ds:X509Data', {}, [
+    el('ds:X509Certificate', {}, [certificateDer(certificatePem).toString('base64')]),
   ]);
 }
 
@@ -144,18 +160,21 @@ export function buildHev(hostId: string): string {
  */
 export function buildIni(params: {
   subscriber: Subscriber;
-  esPublicPem: string;
+  /** The X.509 certificate over the A005/A006 key. */
+  esCertificatePem: string;
   esVersion: EsVersion;
   timestamp: string;
 }): string {
+  // In the S002 namespace, not H005 — `SignaturePubKeyOrderData` is declared
+  // in `ebics_signature_S002.xsd`, and so are all of its children.
   const orderData = document(
-    el('e:SignaturePubKeyOrderData', {}, [
-      el('e:SignaturePubKeyInfo', {}, [
-        pubKeyValue(params.esPublicPem, params.timestamp),
-        el('e:SignatureVersion', {}, [params.esVersion]),
+    el('esig:SignaturePubKeyOrderData', {}, [
+      el('esig:SignaturePubKeyInfo', {}, [
+        x509Data(params.esCertificatePem),
+        el('esig:SignatureVersion', {}, [params.esVersion]),
       ]),
-      el('e:PartnerID', {}, [params.subscriber.partnerId]),
-      el('e:UserID', {}, [params.subscriber.userId]),
+      el('esig:PartnerID', {}, [params.subscriber.partnerId]),
+      el('esig:UserID', {}, [params.subscriber.userId]),
     ]),
     NS,
   );
@@ -169,18 +188,20 @@ export function buildIni(params: {
  */
 export function buildHia(params: {
   subscriber: Subscriber;
-  authPublicPem: string;
-  encPublicPem: string;
+  /** The X.509 certificate over the X002 key. */
+  authCertificatePem: string;
+  /** The X.509 certificate over the E002 key. */
+  encCertificatePem: string;
   timestamp: string;
 }): string {
   const orderData = document(
     el('e:HIARequestOrderData', {}, [
       el('e:AuthenticationPubKeyInfo', {}, [
-        pubKeyValue(params.authPublicPem, params.timestamp),
+        x509Data(params.authCertificatePem),
         el('e:AuthenticationVersion', {}, ['X002']),
       ]),
       el('e:EncryptionPubKeyInfo', {}, [
-        pubKeyValue(params.encPublicPem, params.timestamp),
+        x509Data(params.encCertificatePem),
         el('e:EncryptionVersion', {}, ['E002']),
       ]),
       el('e:PartnerID', {}, [params.subscriber.partnerId]),
@@ -296,13 +317,19 @@ export interface UploadInit {
 export function buildUploadInit(params: UploadInit): string {
   const { subscriber, keys, bank, btf } = params;
 
+  // esig:UserSignatureData → esig:OrderSignatureData, and the sequence is
+  // SignatureVersion, SignatureValue, PartnerID, UserID — all ELEMENTS. This
+  // was `e:OrderSignature` with the ids as attributes, which is not a shape
+  // the schema defines anywhere.
   const userSignature = document(
-    el('e:UserSignatureData', {}, [
-      el('e:OrderSignature', { PartnerID: subscriber.partnerId, UserID: subscriber.userId }, [
-        el('e:SignatureVersion', {}, [keys.esVersion]),
-        el('e:SignatureValue', {}, [
+    el('esig:UserSignatureData', {}, [
+      el('esig:OrderSignatureData', {}, [
+        el('esig:SignatureVersion', {}, [keys.esVersion]),
+        el('esig:SignatureValue', {}, [
           signOrderData(keys.esPrivatePem, params.orderData, keys.esVersion).toString('base64'),
         ]),
+        el('esig:PartnerID', {}, [subscriber.partnerId]),
+        el('esig:UserID', {}, [subscriber.userId]),
       ]),
     ]),
     NS,
@@ -355,12 +382,34 @@ export function buildUploadInit(params: UploadInit): string {
   return signed(root, keys.authPrivatePem);
 }
 
+/**
+ * The `Service` element — the BTF itself.
+ *
+ * The order is the schema's (`RestrictedServiceType`): ServiceName, Scope,
+ * ServiceOption, Container, MsgName. Two things here were wrong for a long
+ * time and only a schema check could have said so:
+ *
+ * - **`Container` is a flag element, not a text value**, and it sits BEFORE
+ *   `MsgName`. It used to be dropped entirely: the API took a `container`,
+ *   stored it, showed it, and never put it on the wire. For a download that
+ *   silently asks for the wrong thing.
+ * - **`MsgName` carries `variant` and `format` as well as `version`.** An
+ *   ISO 20022 name decomposes: pain.001.001.09 is MsgName `pain.001`,
+ *   variant `001`, version `09`. Sending only the version says less than the
+ *   bank asked for.
+ */
 function btfElement(btf: Btf): XmlElement {
+  const msgAttrs: Record<string, string> = {};
+  if (btf.msgVariant !== undefined) msgAttrs.variant = btf.msgVariant;
+  if (btf.msgVersion !== undefined) msgAttrs.version = btf.msgVersion;
+  if (btf.msgFormat !== undefined) msgAttrs.format = btf.msgFormat;
+
   return el('e:Service', {}, [
     el('e:ServiceName', {}, [btf.serviceName]),
     btf.scope !== undefined ? el('e:Scope', {}, [btf.scope]) : null,
     btf.option !== undefined ? el('e:ServiceOption', {}, [btf.option]) : null,
-    el('e:MsgName', btf.msgVersion !== undefined ? { version: btf.msgVersion } : {}, [btf.msgName]),
+    btf.container !== undefined ? el('e:Container', { containerType: btf.container }) : null,
+    el('e:MsgName', msgAttrs, [btf.msgName]),
   ]);
 }
 
@@ -476,6 +525,12 @@ export function buildDownloadSegment(params: {
   keys: SubscriberKeys;
   transactionId: string;
   segmentNumber: number;
+  /**
+   * Whether this is the last segment being asked for. REQUIRED by the schema —
+   * `lastSegment` has no default — and the client does know: the
+   * initialisation response said how many segments there are.
+   */
+  lastSegment: boolean;
 }): string {
   const root = el('e:ebicsRequest', { Version: H005, Revision: '1' }, [
     el('e:header', { authenticate: 'true' }, [
@@ -485,7 +540,9 @@ export function buildDownloadSegment(params: {
       ]),
       el('e:mutable', {}, [
         el('e:TransactionPhase', {}, ['Transfer']),
-        el('e:SegmentNumber', {}, [String(params.segmentNumber)]),
+        el('e:SegmentNumber', { lastSegment: params.lastSegment ? 'true' : 'false' }, [
+          String(params.segmentNumber),
+        ]),
       ]),
     ]),
     el('e:body', {}, []),

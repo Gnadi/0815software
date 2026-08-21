@@ -4,10 +4,10 @@ import { DomainError } from './errors.js';
 import { bankProfile } from './bank-registry.js';
 import {
   assertKeyStoreReadable,
+  certificatePemFor,
   generateSubscriberKeys,
   formatForLetter,
   privatePemFor,
-  publicPemFor,
   publicRecords,
 } from './keystore.js';
 import { Transport } from './transport.js';
@@ -296,6 +296,7 @@ export function generateKeys(ctx: ExchangeContext, key: string): ConnectionDetai
     keySecret: ctx.keySecret,
     esVersion: row.es_version as EsVersion,
     now: at,
+    subject: { partnerId: row.partner_id, userId: row.user_id },
   });
   recordEvent(ctx.db, { connectionId: row.id, type: 'keys_generated', actor: ctx.actor, at });
   return connectionDetail(ctx.db, key);
@@ -327,7 +328,7 @@ export async function sendIni(ctx: ExchangeContext, key: string): Promise<Connec
   const at = (ctx.now ?? nowIso)();
   const body = buildIni({
     subscriber: subscriberOf(row),
-    esPublicPem: publicPemFor(ctx.db, { connectionId: row.id, purpose: 'ES' }),
+    esCertificatePem: certificatePemFor(ctx.db, { connectionId: row.id, purpose: 'ES' }),
     esVersion: row.es_version as EsVersion,
     timestamp: at,
   });
@@ -344,8 +345,8 @@ export async function sendHia(ctx: ExchangeContext, key: string): Promise<Connec
   const at = (ctx.now ?? nowIso)();
   const body = buildHia({
     subscriber: subscriberOf(row),
-    authPublicPem: publicPemFor(ctx.db, { connectionId: row.id, purpose: 'AUTH' }),
-    encPublicPem: publicPemFor(ctx.db, { connectionId: row.id, purpose: 'ENC' }),
+    authCertificatePem: certificatePemFor(ctx.db, { connectionId: row.id, purpose: 'AUTH' }),
+    encCertificatePem: certificatePemFor(ctx.db, { connectionId: row.id, purpose: 'ENC' }),
     timestamp: at,
   });
   await exchange(ctx, row, body, 'hia_sent', at);

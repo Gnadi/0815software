@@ -5,11 +5,10 @@ exchange, and signed ISO 20022 uploads over the customer's own bank
 connection. Part of the [Platform Services catalog](../README.md). Backend
 service, MIT-licensed, self-contained.
 
-> **Status: feature-complete against a mock bank.** All six phases are built:
-> the protocol core, the encrypted key store, the connection lifecycle, signed
-> BTU uploads, the HTTP API, the MOD-04 integration, and BTD downloads with
-> reconciliation back into the payment runs. Everything is tested against a
-> mock bank that verifies what it is sent — and **nothing here has talked to a
+> **Status: feature-complete, and validated against the official EBICS 3.0
+> schemas.** All six phases are built, and every message this service sends —
+> envelopes *and* the deflated payloads inside them — is checked against the
+> XSD set published by the EBICS Working Group. **Nothing here has talked to a
 > real bank.** See [Honesty about what is proven](#honesty-about-what-is-proven).
 
 ## What this service is for
@@ -55,6 +54,31 @@ Beside them, `server/zip.ts` opens the archives downloads arrive in — see
 Every file here is **pure**: no database, no clock, no network. Timestamps and
 transaction keys are passed in, which is what lets the tests assert exact bytes
 and what lets a request be rebuilt identically when a transfer is resumed.
+
+### Keys travel as X.509 certificates, and there is no alternative
+
+EBICS 3.0 does not carry raw public keys. `PubKeyValue` — the
+exponent-and-modulus element H004 used — **does not appear anywhere in the H005
+schema set**: `PubKeyInfoType` requires `<ds:X509Data>` in both the EBICS and
+the S002 namespace, and `H3KRequestOrderData` is built from three
+`*CertificateInfo` elements. The German annotation in the schema still says
+"exponent-modulus combination **or** X509 certificate", which is a leftover
+from H004 that the schema itself no longer permits.
+
+`node:crypto` parses certificates and cannot issue them, so `ebics/x509.ts`
+issues them — an ASN.1/DER certificate builder, keeping the zero-dependency
+invariant. They are **self-signed**, and that is not a weakness here: no CA
+vouches for them and none needs to, because what binds a key to a customer in
+EBICS is the same thing it always was — the INI letter, signed by hand and
+posted. The certificate is a container the protocol requires, not the trust
+anchor. A bank insisting on a CA-issued certificate needs an operator-supplied
+one, which stays out of scope.
+
+Every certificate this builds is read back with `node:crypto`'s own X.509
+parser in the tests. DER fails silently — a length byte wrong by one yields a
+structure that parses as something else — and it duly caught one: DER integers
+must be *minimal*, so a serial beginning `0x00` produced a certificate OpenSSL
+rejected outright. It failed about one run in three.
 
 ### The three key pairs, and why they are not interchangeable
 
@@ -259,15 +283,36 @@ set the connection up with the bank's documentation in front of them.
 A caller-supplied BTF always wins, so a bank that needs a different one for a
 particular message stays reachable without editing the registry.
 
-### Bank profiles carry no URLs
+### Bank profiles say where their values came from
 
-`bank-registry.ts` ships BTF conventions per scheme and country — and no URLs,
-no host ids and no named banks. Those come from the EBICS contract the bank
-sends the customer, and a guessed one fails as a connection timeout rather than
-as "you have not entered your bank's details". Every profile is marked
-`confirmed: false`, because nothing in this repository can check a BTF against
-a bank's own documentation. `?validate=1` is how an operator checks one without
-money moving.
+`bank-registry.ts` ships BTF conventions — and no URLs, no host ids and no
+named banks. Those come from the EBICS contract the bank sends the customer,
+and a guessed one fails as a connection timeout rather than as "you have not
+entered your bank's details".
+
+The German profile is transcribed from the official **"Mappingtabelle
+BTF-Struktur auf die Standard-Auftragsartenkennungen"** (`ebics.de`, 27
+February 2026) and is the only one marked `confirmed`. Everything else is
+shaped by analogy and says so. That distinction is not decoration: the previous
+version of this file invented values for four countries, and the published
+table showed two of them to be wrong in ways that would have been refused at
+the bank —
+
+| | invented | published (DE) |
+| --- | --- | --- |
+| credit transfer | `SCT` / `AT` / pain.001 / **XML** | `SCT` / — / pain.001 / — |
+| status report | **`PSR`** / `AT` / pain.002 / ZIP | **`REP`** / `DE` / **option `SCT`** / pain.002 / ZIP |
+| statement | `EOP` / `AT` / camt.053 / ZIP | `EOP` / `DE` / camt.053 / ZIP ✓ |
+
+`PSR` is a service name that appears nowhere in the table. And the scope and
+container on the credit transfer were not merely redundant — with both present
+the BTF names **CCC**, the variant for several files inside an XML container,
+rather than **CCT**, a single pain.001. The table is explicit: *"Scope DE wegen
+Verwendung eines Containers."*
+
+Each profile also carries the EBICS 2.5 order types it replaces. Nothing sends
+them, but a bank on the telephone says "we've enabled CCT and C53 for you", and
+somebody has to be able to translate.
 
 ## Downloads, and the one rule that matters
 
@@ -362,7 +407,8 @@ produces a plausible value that never matches the bank's letter.
 | 4 | HTTP API, bank profiles, INI letter, catalogue wiring, client | **Done** |
 | 5 | MOD-04 integration — "Send via EBICS" beside "Download XML" | **Done** |
 | 6 | Downloads: camt.053 and pain.002, and reconciliation back into MOD-04 | **Done** |
-| — | Review pass: ten findings, three of them bank-blockers | **Done** — 365 tests |
+| — | Review pass: ten findings, three of them bank-blockers | **Done** |
+| — | Validation against the official H005 schemas: six more findings | **Done** — 397 tests |
 
 What is left is not code: a first connection to a real bank, with that bank's
 own example messages and file check in hand.
@@ -378,9 +424,12 @@ own example messages and file check in hand.
 
 - **EBICS 2.5 (H004).** The envelope layer is shaped so a second version can be
   added behind the same interface; it is not implemented.
-- **X.509 certificate issuance.** `node:crypto` parses certificates but cannot
-  issue them. Banks that require a certificate instead of a raw
-  `PubKeyValue/RSAKeyValue` will need an operator-supplied PEM.
+- **CA-issued certificates.** Subscriber certificates are issued here and
+  self-signed, which is what the protocol needs (see
+  [Keys travel as X.509 certificates](#keys-travel-as-x509-certificates-and-there-is-no-alternative)).
+  A bank that insists on one signed by a certificate authority needs an
+  operator-supplied certificate and key; requesting one from a CA is not
+  something this service does.
 - **Distributed signature (VEU) management.** Signature class E means an upload
   is already authorised; managing multi-signature release queues is a different
   feature.
@@ -399,6 +448,29 @@ specification, and — where an independent implementation existed offline —
 cross-checked against it. **No part of it has spoken to a real bank.** The
 first live connection should be treated as a debugging exercise, with the
 bank's own example messages and file check in hand, not as a rollout.
+
+### The schema is now the referee
+
+Since the official H005 XSD set arrived, `test/schema.test.ts` validates every
+message this service builds — envelopes **and** the deflated payloads inside
+`OrderData`, which a check on the envelope alone never sees. That second part
+mattered: three of the six errors it found were in there.
+
+What it found, all of it green beforehand:
+
+| | was | is |
+| --- | --- | --- |
+| `AuthSignature` | `ds:` (xmldsig) | `ebics:` — only its *type* is dsig |
+| `UserSignatureData` | H005 ns, `OrderSignature` with ids as attributes | S002 ns, `OrderSignatureData` with ids as elements |
+| `SignaturePubKeyOrderData` | H005 namespace | S002 namespace |
+| subscriber keys | `PubKeyValue` (modulus + exponent) | `ds:X509Data` — the only form H005 defines |
+| `Container` | never sent | `<Container containerType="ZIP"/>`, before `MsgName` |
+| `SegmentNumber` | no `lastSegment` | `lastSegment` is required |
+
+The `AuthSignature` one is worth dwelling on: it was wrong in *both*
+directions. Outgoing messages put it where no bank would look, and
+`verifyAuthSignature` looked where no bank would put it. The two errors
+cancelled perfectly against our own mock.
 
 ### The mock bank cannot find a mistake it shares
 
@@ -424,9 +496,14 @@ The same review found five more defects that the tests could not see because
 nothing exercised the path: a `queued` order that locked its own MsgId for
 ever, a connection permanently bricked by one transient bank error, an
 idempotency key that collided across connections, a `container: ZIP` nobody
-could open, and a status report matched on the wrong id. All are fixed and
-covered; the point of listing them is that they were all found by reading, not
-by running.
+could open, and a status report matched on the wrong id.
+
+Then the published schemas found six more, and the BTF mapping table found two
+wrong service definitions. All are fixed and covered. The pattern across all
+three rounds is the same and is the useful thing to carry forward: **every
+defect was found by comparing against something outside this repository —
+openssl, Python, the XSDs, the mapping table — and none by adding another test
+of the kind already there.**
 
 ## License
 

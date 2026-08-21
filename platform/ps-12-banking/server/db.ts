@@ -254,6 +254,31 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    id: 4,
+    name: 'subscriber-and-bank-certificates',
+    up(db) {
+      // EBICS 3.0 carries public keys as X.509 certificates and nothing else:
+      // `PubKeyValue` does not exist in the H005 schema set, and
+      // `PubKeyInfoType` requires `<ds:X509Data>`. So both our own keys and the
+      // bank's now have a certificate beside them.
+      //
+      // Nullable rather than NOT NULL because a database written before this
+      // migration has keys with no certificate. Those connections cannot send
+      // a valid INI or HIA and must be re-initialised with the bank — which is
+      // a conversation, not something a migration can do — so the column is
+      // left empty and `generateKeys` refuses to overwrite live keys.
+      // Guarded, because the upgrade test replays every migration over a
+      // database that has already had them — which is what an old
+      // installation meeting a new build looks like.
+      const hasColumn = (table: string): boolean =>
+        (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(
+          (c) => c.name === 'certificate_pem',
+        );
+      if (!hasColumn('subscriber_keys')) db.exec('ALTER TABLE subscriber_keys ADD COLUMN certificate_pem TEXT');
+      if (!hasColumn('bank_keys')) db.exec('ALTER TABLE bank_keys ADD COLUMN certificate_pem TEXT');
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {

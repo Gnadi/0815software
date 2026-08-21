@@ -179,6 +179,8 @@ function toBtf(btf: BtfInput): Btf {
     option: btf.option,
     msgName: btf.msg_name,
     msgVersion: btf.msg_version,
+    msgVariant: btf.msg_variant,
+    msgFormat: btf.msg_format,
     container: btf.container,
   };
 }
@@ -238,7 +240,13 @@ export async function fetchOne(
     const next = parseResponse(
       await ctx.transport.send(
         connection.url,
-        buildDownloadSegment({ subscriber, keys, transactionId: init.transactionId, segmentNumber: number }),
+        buildDownloadSegment({
+          subscriber,
+          keys,
+          transactionId: init.transactionId,
+          segmentNumber: number,
+          lastSegment: number === total,
+        }),
       ),
       bank.authPublicPem,
     );

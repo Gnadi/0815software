@@ -126,6 +126,8 @@ function btfFrom(source: Record<string, unknown>): BtfInput | undefined {
     option: optionalText(btf, 'option'),
     msg_name: reqText(btf, 'msg_name', 40),
     msg_version: optionalText(btf, 'msg_version'),
+    msg_variant: optionalText(btf, 'msg_variant'),
+    msg_format: optionalText(btf, 'msg_format'),
     container: optionalText(btf, 'container'),
   };
 }

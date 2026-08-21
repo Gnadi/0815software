@@ -10,7 +10,8 @@ import {
   type XmlElement,
 } from '../server/ebics/xml.js';
 import { buildAuthSignature, verifyAuthSignature } from '../server/ebics/dsig.js';
-import { EBICS_NS, HEV_NS, NS } from '../server/ebics/envelopes.js';
+import { EBICS_NS, ESIG_NS, HEV_NS, NS } from '../server/ebics/envelopes.js';
+import { certificateDer, certificateFromBase64, publicPemFromCertificate, selfSignedCertificate } from '../server/ebics/x509.js';
 import {
   decryptTransactionKey,
   encryptTransactionKey,
@@ -118,10 +119,18 @@ export interface ReceivedOrder {
   signatureValid: boolean;
 }
 
+const BANK_AUTH_CERT = bankCertificate(BANK_AUTH.privatePem, 'AUTH');
+const BANK_ENC_CERT = bankCertificate(BANK_ENC.privatePem, 'ENC');
+
 export class MockBank {
   readonly hostId: string;
   readonly authPublicPem = BANK_AUTH.publicPem;
   readonly encPublicPem = BANK_ENC.publicPem;
+  /** The bank's own certificates — module-level, so HPB is both reproducible
+   *  and free: issuing one means an RSA signature, and a suite that builds a
+   *  bank per test was paying for it every time. */
+  private readonly authCertificatePem = BANK_AUTH_CERT;
+  private readonly encCertificatePem = BANK_ENC_CERT;
 
   /** Every file the bank accepted, in order — what a test asserts against. */
   readonly received: ReceivedOrder[] = [];
@@ -229,9 +238,13 @@ export class MockBank {
     const subscriber = this.subscribers.get(key) ?? { partnerId, userId };
 
     if (orderType === 'INI') {
-      const info = at(orderData, EBICS_NS, 'SignaturePubKeyInfo');
-      subscriber.esPublicPem = this.pemFrom(info!);
-      subscriber.esVersion = textOf(at(info!, EBICS_NS, 'SignatureVersion')).trim();
+      // The INI payload is in the S002 namespace, not H005 — see envelopes.ts.
+      const info = at(orderData, ESIG_NS, 'SignaturePubKeyInfo');
+      if (info === null) {
+        return this.response({ technical: '091117', reportText: 'INI order data is not in the S002 namespace' });
+      }
+      subscriber.esPublicPem = this.pemFrom(info);
+      subscriber.esVersion = textOf(at(info, ESIG_NS, 'SignatureVersion')).trim();
     } else if (orderType === 'HIA') {
       subscriber.authPublicPem = this.pemFrom(at(orderData, EBICS_NS, 'AuthenticationPubKeyInfo')!);
       subscriber.encPublicPem = this.pemFrom(at(orderData, EBICS_NS, 'EncryptionPubKeyInfo')!);
@@ -243,14 +256,21 @@ export class MockBank {
     return this.response({});
   }
 
-  /** Rebuild a PEM from the modulus and exponent inside a PubKeyInfo. */
+  /**
+   * Read a public key out of a PubKeyInfo.
+   *
+   * EBICS 3.0 carries it as an X.509 certificate — `PubKeyValue` does not
+   * exist in the H005 schema — so that is what this expects. It refuses the
+   * old modulus/exponent shape ON PURPOSE: a mock that accepted both would go
+   * on passing if the client regressed, which is exactly how the wrong shape
+   * survived three hundred tests in the first place.
+   */
   private pemFrom(info: XmlElement): string {
-    const modulus = Buffer.from(textOf(findAll(info, (n) => n.local === 'Modulus')[0]!).replace(/\s+/g, ''), 'base64');
-    const exponent = Buffer.from(
-      textOf(findAll(info, (n) => n.local === 'Exponent')[0]!).replace(/\s+/g, ''),
-      'base64',
-    );
-    return spkiPemFromParts(modulus, exponent);
+    const certificate = findAll(info, (n) => n.local === 'X509Certificate')[0];
+    if (certificate === undefined) {
+      throw new Error('no X509Certificate in this PubKeyInfo — EBICS 3.0 does not carry raw keys');
+    }
+    return publicPemFromCertificate(certificateFromBase64(textOf(certificate)));
   }
 
   // ── HPB ─────────────────────────────────────────────────────────────
@@ -274,8 +294,8 @@ export class MockBank {
 
     const orderData = document(
       el('e:HPBResponseOrderData', {}, [
-        this.keyInfo('AuthenticationPubKeyInfo', 'AuthenticationVersion', 'X002', this.authPublicPem),
-        this.keyInfo('EncryptionPubKeyInfo', 'EncryptionVersion', 'E002', this.encPublicPem),
+        this.keyInfo('AuthenticationPubKeyInfo', 'AuthenticationVersion', 'X002', this.authCertificatePem),
+        this.keyInfo('EncryptionPubKeyInfo', 'EncryptionVersion', 'E002', this.encCertificatePem),
       ]),
       NS,
     );
@@ -286,14 +306,11 @@ export class MockBank {
     return this.response({ orderData: Buffer.from(orderData, 'utf8').toString('base64') });
   }
 
-  private keyInfo(container: string, versionEl: string, version: string, pem: string): XmlElement {
-    const { modulus, exponent } = publicKeyParts(pem);
+  /** The bank's own key, as a certificate — the only form H005 defines. */
+  private keyInfo(container: string, versionEl: string, version: string, certificatePem: string): XmlElement {
     return el(`e:${container}`, {}, [
-      el('e:PubKeyValue', {}, [
-        el('ds:RSAKeyValue', {}, [
-          el('ds:Modulus', {}, [modulus.toString('base64')]),
-          el('ds:Exponent', {}, [exponent.toString('base64')]),
-        ]),
+      el('ds:X509Data', {}, [
+        el('ds:X509Certificate', {}, [certificateDer(certificatePem).toString('base64')]),
       ]),
       el(`e:${versionEl}`, {}, [version]),
     ]);
@@ -344,9 +361,11 @@ export class MockBank {
     let esVersion: string;
     try {
       const signatureDoc = parse(unpackOrderData(transactionKey, signaturePacked).toString('utf8'));
-      const orderSignature = at(signatureDoc, EBICS_NS, 'OrderSignature')!;
-      esVersion = textOf(at(orderSignature, EBICS_NS, 'SignatureVersion')).trim();
-      signatureValue = Buffer.from(textOf(at(orderSignature, EBICS_NS, 'SignatureValue')), 'base64');
+      // esig:UserSignatureData → esig:OrderSignatureData, in the S002
+      // namespace. Looked for in H005 for a long time, on both sides at once.
+      const orderSignature = at(signatureDoc, ESIG_NS, 'OrderSignatureData')!;
+      esVersion = textOf(at(orderSignature, ESIG_NS, 'SignatureVersion')).trim();
+      signatureValue = Buffer.from(textOf(at(orderSignature, ESIG_NS, 'SignatureValue')), 'base64');
     } catch {
       return this.response({ technical: '091104', reportText: 'the signature data could not be decrypted' });
     }
@@ -607,4 +626,16 @@ export class MockBank {
 
 function nullIfEmpty(value: string): string | null {
   return value === '' ? null : value;
+}
+
+/** A fixed certificate for one of the bank's keys — no clock, no randomness. */
+function bankCertificate(privatePem: string, purpose: 'AUTH' | 'ENC'): string {
+  return selfSignedCertificate({
+    privatePem,
+    purpose,
+    subject: { commonName: `MOCKBANK-${purpose}`, organizationName: 'Mock Bank' },
+    notBefore: new Date('2026-01-01T00:00:00Z'),
+    notAfter: new Date('2036-01-01T00:00:00Z'),
+    serial: Buffer.from([0x01, 0x02]),
+  });
 }

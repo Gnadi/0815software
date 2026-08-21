@@ -10,6 +10,7 @@ import {
   buildTransfer,
   buildUploadInit,
   EBICS_NS,
+  ESIG_NS,
   NS,
   type BankKeys,
   type Btf,
@@ -26,6 +27,7 @@ import {
   verifyOrderData,
 } from '../server/ebics/crypto.js';
 import { AUTH, BANK_AUTH, BANK_ENC, ENC, ES } from './fixtures/keys.js';
+import { certificateFromBase64, publicPemFromCertificate, selfSignedCertificate } from '../server/ebics/x509.js';
 
 /**
  * The H005 envelopes.
@@ -56,6 +58,22 @@ const btf: Btf = { serviceName: 'SCT', scope: 'DE', msgName: 'pain.001', msgVers
 const transactionKey = Buffer.from('000102030405060708090a0b0c0d0e0f', 'hex');
 const TIMESTAMP = '2026-08-19T09:30:00Z';
 
+/** Certificates over the fixture keys, with fixed dates so bytes are stable. */
+const certify = (privatePem: string, purpose: 'ES' | 'AUTH' | 'ENC'): string =>
+  selfSignedCertificate({
+    privatePem,
+    purpose,
+    subject: { commonName: 'USER1', organizationName: 'PARTNER1' },
+    notBefore: new Date('2026-01-01T00:00:00Z'),
+    notAfter: new Date('2036-01-01T00:00:00Z'),
+    serial: Buffer.from([0x01]),
+  });
+const CERT = {
+  es: certify(ES.privatePem, 'ES'),
+  auth: certify(AUTH.privatePem, 'AUTH'),
+  enc: certify(ENC.privatePem, 'ENC'),
+};
+
 /** Local names of an element's children, in document order. */
 function shapeOf(node: ReturnType<typeof parse> | null): string[] {
   return node === null ? [] : node.children.filter((c) => c.kind === 'element').map((c) => (c as { local: string }).local);
@@ -80,9 +98,9 @@ describe('HEV — asked before anything is set up', () => {
 });
 
 describe('INI and HIA — unsecured, and necessarily so', () => {
-  const ini = parse(buildIni({ subscriber, esPublicPem: ES.publicPem, esVersion: 'A005', timestamp: TIMESTAMP }));
+  const ini = parse(buildIni({ subscriber, esCertificatePem: CERT.es, esVersion: 'A005', timestamp: TIMESTAMP }));
   const hia = parse(
-    buildHia({ subscriber, authPublicPem: AUTH.publicPem, encPublicPem: ENC.publicPem, timestamp: TIMESTAMP }),
+    buildHia({ subscriber, authCertificatePem: CERT.auth, encCertificatePem: CERT.enc, timestamp: TIMESTAMP }),
   );
 
   it('carries NO signature — there is no key the bank could check it with', () => {
@@ -99,8 +117,23 @@ describe('INI and HIA — unsecured, and necessarily so', () => {
     const packed = textOf(at(ini, EBICS_NS, 'body', 'DataTransfer', 'OrderData'));
     const orderData = parse(inflateSync(Buffer.from(packed, 'base64')).toString('utf8'));
     expect(orderData.local).toBe('SignaturePubKeyOrderData');
-    expect(textOf(at(orderData, EBICS_NS, 'SignaturePubKeyInfo', 'SignatureVersion'))).toBe('A005');
-    expect(textOf(at(orderData, EBICS_NS, 'PartnerID'))).toBe('PARTNER1');
+    // In the S002 namespace, not H005 — `ebics_signature_S002.xsd` declares it.
+    expect(orderData.uri).toBe(ESIG_NS);
+    expect(textOf(at(orderData, ESIG_NS, 'SignaturePubKeyInfo', 'SignatureVersion'))).toBe('A005');
+    expect(textOf(at(orderData, ESIG_NS, 'PartnerID'))).toBe('PARTNER1');
+  });
+
+  it('carries the key as an X.509 certificate — the only form EBICS 3.0 defines', () => {
+    // `PubKeyValue` (modulus + exponent) is the H004 shape and appears nowhere
+    // in the H005 schema set. Sending it produced an INI no bank could accept.
+    const packed = textOf(at(ini, EBICS_NS, 'body', 'DataTransfer', 'OrderData'));
+    const orderData = parse(inflateSync(Buffer.from(packed, 'base64')).toString('utf8'));
+    expect(findAll(orderData, (n) => n.local === 'PubKeyValue')).toHaveLength(0);
+
+    const certificate = findAll(orderData, (n) => n.local === 'X509Certificate')[0];
+    expect(certificate).toBeDefined();
+    // And it really is our key inside it.
+    expect(publicPemFromCertificate(certificateFromBase64(textOf(certificate!))).trim()).toBe(ES.publicPem.trim());
   });
 
   it('sends HIA’s two keys with the versions that identify their purpose', () => {
@@ -108,11 +141,16 @@ describe('INI and HIA — unsecured, and necessarily so', () => {
     const orderData = parse(inflateSync(Buffer.from(packed, 'base64')).toString('utf8'));
     expect(textOf(at(orderData, EBICS_NS, 'AuthenticationPubKeyInfo', 'AuthenticationVersion'))).toBe('X002');
     expect(textOf(at(orderData, EBICS_NS, 'EncryptionPubKeyInfo', 'EncryptionVersion'))).toBe('E002');
+    // Two certificates, one per key, and each holds the key it claims to.
+    const certs = findAll(orderData, (n) => n.local === 'X509Certificate');
+    expect(certs).toHaveLength(2);
+    expect(publicPemFromCertificate(certificateFromBase64(textOf(certs[0]!))).trim()).toBe(AUTH.publicPem.trim());
+    expect(publicPemFromCertificate(certificateFromBase64(textOf(certs[1]!))).trim()).toBe(ENC.publicPem.trim());
   });
 
   it('is reproducible: the same inputs give the same bytes', () => {
-    expect(buildIni({ subscriber, esPublicPem: ES.publicPem, esVersion: 'A005', timestamp: TIMESTAMP })).toBe(
-      buildIni({ subscriber, esPublicPem: ES.publicPem, esVersion: 'A005', timestamp: TIMESTAMP }),
+    expect(buildIni({ subscriber, esCertificatePem: CERT.es, esVersion: 'A005', timestamp: TIMESTAMP })).toBe(
+      buildIni({ subscriber, esCertificatePem: CERT.es, esVersion: 'A005', timestamp: TIMESTAMP }),
     );
   });
 });
@@ -195,11 +233,15 @@ describe('BTU upload — the message that moves money', () => {
     const signatureDoc = parse(signatureXml);
     expect(signatureDoc.local).toBe('UserSignatureData');
 
-    const orderSignature = at(signatureDoc, EBICS_NS, 'OrderSignature');
-    expect(attrOf(orderSignature!, 'PartnerID')).toBe('PARTNER1');
-    expect(textOf(at(orderSignature!, EBICS_NS, 'SignatureVersion'))).toBe('A005');
+    // esig:OrderSignatureData, with the ids as ELEMENTS — the shape the S002
+    // schema defines. This was `e:OrderSignature` with them as attributes.
+    expect(signatureDoc.uri).toBe(ESIG_NS);
+    const orderSignature = at(signatureDoc, ESIG_NS, 'OrderSignatureData');
+    expect(textOf(at(orderSignature!, ESIG_NS, 'PartnerID'))).toBe('PARTNER1');
+    expect(textOf(at(orderSignature!, ESIG_NS, 'UserID'))).toBe('USER1');
+    expect(textOf(at(orderSignature!, ESIG_NS, 'SignatureVersion'))).toBe('A005');
 
-    const value = Buffer.from(textOf(at(orderSignature!, EBICS_NS, 'SignatureValue')), 'base64');
+    const value = Buffer.from(textOf(at(orderSignature!, ESIG_NS, 'SignatureValue')), 'base64');
     const payload = Buffer.from('<Document>pain.001 here</Document>', 'utf8');
     expect(verifyOrderData(ES.publicPem, payload, value, 'A005')).toBe(true);
     // And it is a signature over THIS file, not any file.
