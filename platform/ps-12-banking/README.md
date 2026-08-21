@@ -364,6 +364,40 @@ you that queue** — the management order types (`HVU`, `HVZ`, `HVD`, `HVT`,
 `HVE`, `HVS`) are not implemented, so a spooled order is out of sight here
 until a `pain.002` comes back for it.
 
+### Stopping a key that can pay
+
+At signature class E the ES private key moves money on its own. So "how do I
+stop it right now" needs an answer that is not "telephone the bank and hope
+somebody picks up". `POST /api/connections/:key/lock` sends **SPR**, the order
+type that revokes the subscriber at the bank; Austrian institutes support it
+explicitly.
+
+It is deliberately not the same thing as `/suspend`:
+
+| | `/suspend` | `/lock` (SPR) |
+| --- | --- | --- |
+| who stops it | this service | the bank |
+| orders after | refused here | refused everywhere |
+| undo | `/resume` | none — new keys, new INI letter |
+
+`locked` is therefore a state nothing steps out of: `resume`, `clearFailure`
+and `suspend` all refuse it, because the authority that ended the subscriber's
+authorisation is not this service.
+
+**The connection only moves to `locked` when the bank answered `EBICS_OK`.** A
+refusal is recorded as `failed` with the bank's own code and the route answers
+502 saying the subscriber is *not* locked. A green tick over nothing is the one
+outcome that would be worse than having no lock button at all.
+
+One caveat, stated plainly because the rest of this service is derived from
+published documents and this byte is not: **the order data an SPR carries — a
+single blank — is the one thing here not taken from the H005 schema.** The
+schema forces the shape (an upload initialisation must carry `SignatureData`,
+`DataDigest` and `NumSegments`, so SPR must sign *something*) but cannot say
+what. Until a real bank has accepted one, treat it as unconfirmed — and note
+that the failure mode is a refusal you can see, not a lock you only think
+happened.
+
 ### Verification of Payee
 
 Since 09.10.2025 the ServiceOption on a SEPA credit transfer says whether the

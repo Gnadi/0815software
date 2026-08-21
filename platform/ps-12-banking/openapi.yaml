@@ -222,6 +222,24 @@ paths:
       responses:
         '200': { description: The connection is now ready }
         '422': { description: The digests do not match what was fetched }
+  /api/connections/{key}/lock:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Lock the subscriber at the bank (SPR)
+      description: >-
+        Revokes this subscriber's authorisation AT THE BANK. Unlike /suspend this cannot be undone from
+        here: the way back is new keys and a fresh INI/HIA. The connection moves to "locked" only when the
+        bank answered EBICS_OK; a refusal is recorded as failed and answered 502. Body: {reason}.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Locked }
+        '409': { description: Already locked, or the bank keys have not been fetched yet }
+        '502': { description: The bank refused — the subscriber is NOT locked }
   /api/connections/{key}/suspend:
     parameters:
       - name: key

@@ -393,7 +393,35 @@ function signatureFlag(requestEDS: boolean): XmlElement {
  * the plaintext before anything is packed.
  */
 export function buildUploadInit(params: UploadInit): string {
-  const { subscriber, keys, bank, btf } = params;
+  return uploadInitialisation({
+    ...params,
+    orderDetails: [
+      el('e:AdminOrderType', {}, ['BTU']),
+      el('e:BTUOrderParams', {}, [btfElement(params.btf), signatureFlag(params.requestEDS === true)]),
+    ],
+  });
+}
+
+/**
+ * The initialisation phase every signed upload shares — BTU, SPR, HVE.
+ *
+ * They differ only in `OrderDetails`: which admin order type, and which
+ * `OrderParams` substitution goes with it. Everything else — the ES over the
+ * order data, the transaction key encrypted to the bank, the digest the bank
+ * checks the reassembled file against — is identical, and was worth having in
+ * one place the moment a second order type needed it.
+ */
+function uploadInitialisation(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  orderData: Buffer;
+  transactionKey: Buffer;
+  timestamp: string;
+  segments: number;
+  orderDetails: (XmlElement | null)[];
+}): string {
+  const { subscriber, keys, bank } = params;
 
   // esig:UserSignatureData → esig:OrderSignatureData, and the sequence is
   // SignatureVersion, SignatureValue, PartnerID, UserID — all ELEMENTS. This
@@ -421,10 +449,7 @@ export function buildUploadInit(params: UploadInit): string {
         el('e:PartnerID', {}, [subscriber.partnerId]),
         el('e:UserID', {}, [subscriber.userId]),
         productElement(subscriber),
-        el('e:OrderDetails', {}, [
-          el('e:AdminOrderType', {}, ['BTU']),
-          el('e:BTUOrderParams', {}, [btfElement(btf), signatureFlag(params.requestEDS === true)]),
-        ]),
+        el('e:OrderDetails', {}, params.orderDetails),
         el('e:BankPubKeyDigests', {}, [
           el('e:Authentication', { Version: 'X002', Algorithm: 'http://www.w3.org/2001/04/xmlenc#sha256' }, [
             publicKeyDigest(bank.authPublicPem).toString('base64'),
@@ -459,6 +484,51 @@ export function buildUploadInit(params: UploadInit): string {
   ]);
 
   return signed(root, keys.authPrivatePem);
+}
+
+/**
+ * The order data an `SPR` carries: a single space.
+ *
+ * **This byte is the one thing here not derived from the published schema.**
+ * The schema forces the shape — an `ebicsRequest` upload initialisation must
+ * carry `SignatureData`, `DataDigest` and `NumSegments`, so SPR must sign
+ * *something* — but it cannot say what, and the EBICS specification text that
+ * does is not in this repository. A single blank is what the specification
+ * prescribes as far as this was written from; treat it as unconfirmed until a
+ * real bank accepts one.
+ *
+ * The failure mode is at least honest: a bank that disagrees rejects the
+ * request with a return code, `sendSpr` records that code and does NOT move
+ * the connection to `locked`. An operator locking a compromised key sees the
+ * refusal rather than a green tick over nothing.
+ */
+export const SPR_ORDER_DATA = Buffer.from(' ', 'utf8');
+
+/**
+ * SPR — lock this subscriber at the bank.
+ *
+ * The Austrian implementation guideline says plainly that Austrian institutes
+ * support it ("Die österreichischen Institute unterstützen die Sperre des
+ * Anwenders mittels Auftragsart SPR"), and at signature class E it is the only
+ * way to stop a compromised key without telephoning the bank.
+ *
+ * It is an ordinary signed upload with `StandardOrderParams` — the catch-all
+ * the schema defines for admin order types that carry no BTF — and no date
+ * range, since it is about now.
+ */
+export function buildSpr(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  transactionKey: Buffer;
+  timestamp: string;
+}): string {
+  return uploadInitialisation({
+    ...params,
+    orderData: SPR_ORDER_DATA,
+    segments: 1,
+    orderDetails: [el('e:AdminOrderType', {}, ['SPR']), el('e:StandardOrderParams', {})],
+  });
 }
 
 /**

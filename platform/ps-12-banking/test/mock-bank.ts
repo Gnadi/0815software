@@ -61,6 +61,8 @@ export interface MockBankOptions {
   hostId?: string;
   /** Force a business-level rejection on the next upload, e.g. '091303'. */
   rejectUploadsWith?: string;
+  /** Refuse SPR, the way a bank that has not enabled it would. */
+  refuseSpr?: boolean;
   /** Refuse at the initialisation phase, before any segment is sent. */
   rejectInitWith?: string;
   /** Answer the initialisation without a TransactionID, which is nonsense. */
@@ -148,6 +150,8 @@ export class MockBank {
   readonly requests: string[] = [];
 
   private readonly subscribers = new Map<string, Subscriber>();
+  /** Subscribers this bank has locked after an SPR — a test can assert on it. */
+  readonly locked = new Set<string>();
   private readonly transactions = new Map<string, OpenTransaction>();
   /** Files waiting to be collected, in order. */
   private readonly queue: Queued[] = [];
@@ -331,7 +335,11 @@ export class MockBank {
   private request(root: XmlElement): string {
     const phase = textOf(at(root, EBICS_NS, 'header', 'mutable', 'TransactionPhase')).trim();
     const orderType = textOf(at(root, EBICS_NS, 'header', 'static', 'OrderDetails', 'AdminOrderType')).trim();
-    if (phase === 'Initialisation') return orderType === 'BTD' ? this.downloadInit(root) : this.uploadInit(root);
+    if (phase === 'Initialisation') {
+      if (orderType === 'BTD') return this.downloadInit(root);
+      if (orderType === 'SPR') return this.subscriberLock(root);
+      return this.uploadInit(root);
+    }
     if (phase === 'Transfer') {
       // A download transfer carries no body; an upload one carries a segment.
       return at(root, EBICS_NS, 'body', 'DataTransfer') === null
@@ -340,6 +348,35 @@ export class MockBank {
     }
     if (phase === 'Receipt') return this.receipt(root);
     return this.response({ technical: '061002', reportText: `unknown phase ${phase}` });
+  }
+
+  /**
+   * SPR — lock the subscriber.
+   *
+   * A single-shot upload: the bank verifies the authentication signature, then
+   * forgets the subscriber, which is what a locked subscriber looks like from
+   * here — every later request answers "unknown or not yet activated". No
+   * transaction is opened, so there is no transfer phase to follow.
+   */
+  private subscriberLock(root: XmlElement): string {
+    const statics = at(root, EBICS_NS, 'header', 'static')!;
+    const partnerId = textOf(at(statics, EBICS_NS, 'PartnerID')).trim();
+    const userId = textOf(at(statics, EBICS_NS, 'UserID')).trim();
+    const key = this.subscriberKey(partnerId, userId);
+    const subscriber = this.subscribers.get(key);
+    if (subscriber?.authPublicPem === undefined) {
+      return this.response({ technical: '091002', reportText: 'subscriber unknown or not yet activated' });
+    }
+    const verified = verifyAuthSignature({ root, bankAuthPublicPem: subscriber.authPublicPem });
+    if (!verified.ok) {
+      return this.response({ technical: '061001', reportText: `auth signature: ${verified.reason}` });
+    }
+    if (this.options.refuseSpr === true) {
+      return this.response({ technical: '091002', reportText: 'this bank will not accept SPR from you' });
+    }
+    this.locked.add(key);
+    this.subscribers.delete(key);
+    return this.response({});
   }
 
   private uploadInit(root: XmlElement): string {

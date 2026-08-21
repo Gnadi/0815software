@@ -36,6 +36,7 @@ import {
   resume,
   sendHia,
   sendIni,
+  sendSpr,
   suspend,
   verifyBankKeys,
   type ExchangeContext,
@@ -430,6 +431,17 @@ export function createApp(opts: AppOptions): express.Express {
         encDigest: reqText(b, 'enc_digest', 200),
       }),
     );
+  });
+
+  // SPR — ask the bank to lock the subscriber. Separate from /suspend on
+  // purpose: suspending stops orders HERE and is undone with /resume, this
+  // ends the subscriber's authorisation AT THE BANK and cannot be undone from
+  // this service at all.
+  app.post('/api/connections/:key/lock', requireAdmin, (req, res, next) => {
+    const b = body(req);
+    sendSpr(exchangeCtx(req), req.params.key as string, reqText(b, 'reason', 200))
+      .then((detail) => res.json(detail))
+      .catch(next);
   });
 
   app.post('/api/connections/:key/suspend', requireAdmin, (req, res) => {

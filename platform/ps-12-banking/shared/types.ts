@@ -30,8 +30,14 @@ export interface FieldError {
  *   hia_sent         the bank has our auth and encryption keys
  *   hpb_fetched      we have the bank's keys — NOT yet trusted
  *   ready            a human confirmed the bank's key digests; orders allowed
- *   suspended        deliberately stopped; orders refused
+ *   suspended        deliberately stopped HERE; orders refused, resumable
+ *   locked           the bank locked the subscriber after SPR; NOT resumable
  *   failed           the bank refused a setup step
+ *
+ * `suspended` and `locked` look alike and are not. Suspending is a local
+ * decision and `resume` undoes it. `locked` records that the BANK has revoked
+ * the subscriber's authorisation, which nothing in this service can undo: the
+ * way back is new keys and a fresh INI/HIA, on paper.
  *
  * `hpb_fetched` is not `ready` on purpose. The HPB response cannot prove it
  * came from the bank, so an operator has to compare the digests against what
@@ -46,6 +52,7 @@ export const CONNECTION_STATES = [
   'hpb_fetched',
   'ready',
   'suspended',
+  'locked',
   'failed',
 ] as const;
 export type ConnectionState = (typeof CONNECTION_STATES)[number];

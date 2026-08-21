@@ -10,6 +10,7 @@ import {
   buildHia,
   buildHpb,
   buildUploadInit,
+  buildSpr,
   buildTransfer,
   buildReceipt,
   buildDownloadInit,
@@ -158,6 +159,11 @@ function everyMessage(subscriber: Subscriber): { name: string; xml: string; sche
       schema: 'ebics_request_H005.xsd',
     },
     {
+      name: 'SPR subscriber lock',
+      xml: buildSpr({ subscriber, keys, bank, transactionKey, timestamp: TIMESTAMP }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
       name: 'BTU transfer',
       xml: buildTransfer({ subscriber, keys, transactionId: TX_ID, segmentNumber: 1, lastSegment: true, segment: 'AAAA' }),
       schema: 'ebics_request_H005.xsd',
@@ -276,6 +282,7 @@ describeIf('every message still validates when it names the client product', () 
       'HPB',
       'BTU initialisation',
       'BTU initialisation asking for distributed signature',
+      'SPR subscriber lock',
       'BTD initialisation',
       'BTD initialisation with a date range',
     ]);
