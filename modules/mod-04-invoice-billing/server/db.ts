@@ -187,6 +187,29 @@ export function openDb(path: string): Database.Database {
     );
   }
 
+  // Where a payment run went when PS-12 Banking is wired: the order's public
+  // id, when it was handed over, and what the bank said. Null everywhere in a
+  // standalone deployment, which is the whole point — the download is still
+  // the primary path and always will be.
+  //
+  // `bank_status` is PS-12's own word for the order and is stored rather than
+  // derived, because it is the *bank's* fact, not ours: nothing in this
+  // database can recompute "the bank refused it". The run's own status still
+  // derives from the timestamps beside it.
+  if (!columns('payment_runs').includes('banking_order_id')) {
+    db.exec('ALTER TABLE payment_runs ADD COLUMN banking_order_id TEXT');
+    db.exec('ALTER TABLE payment_runs ADD COLUMN submitted_at TEXT');
+    db.exec('ALTER TABLE payment_runs ADD COLUMN rejected_at TEXT');
+    db.exec('ALTER TABLE payment_runs ADD COLUMN bank_status TEXT');
+    db.exec('ALTER TABLE payment_runs ADD COLUMN bank_message TEXT');
+    // One run, one bank order. A second submission of the same run would be a
+    // second payment of the same bills, so it is refused by the schema and not
+    // only by the code path that happens to check.
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_banking_order ON payment_runs (banking_order_id)',
+    );
+  }
+
   ensureReportViews(db);
 
   return db;

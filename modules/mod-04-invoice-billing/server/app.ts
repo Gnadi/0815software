@@ -53,6 +53,8 @@ import {
   paymentRunDetail,
   paymentRunFilename,
   paymentRunXml,
+  assertRunSubmittable,
+  recordBankSubmission,
   updateBill,
   updateCreditor,
   type BillInput,
@@ -235,6 +237,13 @@ export interface AppOptions {
   staticDir?: string;
   /** Optional Platform Services integration; defaults to a no-op (standalone). */
   platform?: PlatformHooks;
+  /**
+   * Whether PS-12 Banking is wired, so the payables screens can offer to send
+   * a run instead of only downloading it. Passed rather than probed: a hook
+   * that returns null is indistinguishable from one that failed, and the UI
+   * must not offer a button that always errors.
+   */
+  bankingConfigured?: boolean;
   verifyLogin?: LoginVerifier;
   /**
    * The platform machine token (PLATFORM_SERVICE_TOKEN). When set, it is the
@@ -257,7 +266,7 @@ export interface AppOptions {
   loginMode?: LoginMode;
 }
 
-export function createApp({ db, hardening, auth, seller, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [] }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, seller, staticDir, platform = noopPlatform, bankingConfigured = false, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [] }: AppOptions): express.Express {
   const app = express();
   const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
 
@@ -656,7 +665,7 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
   // What the payment screens must know before offering to build a file: who
   // the debtor is, and whether this installation's own IBAN is usable at all.
   app.get('/api/payment-config', (_req, res) => {
-    res.json(paymentConfig(seller));
+    res.json(paymentConfig(seller, false, bankingConfigured));
   });
 
   app.get('/api/creditors', (req, res) => {
@@ -737,7 +746,7 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
   });
 
   app.get('/api/payment-runs', (_req, res) => {
-    res.json({ runs: listPaymentRuns(db), config: paymentConfig(seller) });
+    res.json({ runs: listPaymentRuns(db), config: paymentConfig(seller, false, bankingConfigured) });
   });
 
   app.post('/api/payment-runs', async (req, res) => {
@@ -768,7 +777,7 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
   });
 
   app.get('/api/payment-runs/:id', (req, res) => {
-    res.json(paymentRunDetail(db, Number(req.params.id)));
+    res.json({ ...paymentRunDetail(db, Number(req.params.id)), banking_configured: bankingConfigured });
   });
 
   // THE FILE. Rebuilt from the run's frozen snapshot, so downloading it twice
@@ -781,6 +790,71 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${paymentRunFilename(detail.message_id)}"`);
     res.send(xml);
+  });
+
+  /**
+   * Hand the run to the bank over EBICS, when PS-12 is wired.
+   *
+   * The download never goes away and this route never replaces it: a bank
+   * connection is optional, and the file is the fallback for every
+   * installation that does not have one.
+   *
+   * The bytes sent are `paymentRunXml` — the same function the download
+   * serves, rebuilt from the same frozen snapshot. So "what did I send?" and
+   * "what can I download?" cannot diverge, and an operator can hand the bank
+   * the identical file by hand if something goes wrong at the transport.
+   */
+  app.post('/api/payment-runs/:id/submit', async (req, res) => {
+    const runId = Number(req.params.id);
+    // Refuse locally first: a run that must not be sent should not reach the
+    // service that would sign it.
+    assertRunSubmittable(db, runId);
+
+    const detail = paymentRunDetail(db, runId);
+    const result = await platform.submitPaymentRun({
+      messageId: detail.message_id,
+      xml: paymentRunXml(db, runId),
+    });
+    if (result === null) {
+      throw new DomainError(
+        409,
+        'No bank connection is configured (BANKING_URL is unset) — download the file and upload it in online banking',
+      );
+    }
+
+    recordBankSubmission(db, runId, { orderId: result.orderId, status: result.status, message: result.message });
+    const updated = paymentRunDetail(db, runId);
+    await platform.paymentRunEvent({
+      event: updated.status === 'rejected' ? 'rejected' : 'submitted',
+      runId,
+      messageId: updated.message_id,
+      count: updated.item_count,
+      totalFormatted: fmtEur(updated.total_cents),
+      executionDate: updated.execution_date,
+      actor: actorOf(res, auth),
+    });
+    res.json(updated);
+  });
+
+  /**
+   * Re-read the bank's word on a run that was already sent.
+   *
+   * Cheap and safe to call whenever the screen opens: it asks PS-12 and folds
+   * the answer in, so a run that the bank later refused stops looking sent.
+   */
+  app.post('/api/payment-runs/:id/refresh', async (req, res) => {
+    const runId = Number(req.params.id);
+    const detail = paymentRunDetail(db, runId);
+    if (detail.banking_order_id === null) {
+      throw new DomainError(409, 'This payment run was never sent to a bank');
+    }
+
+    const result = await platform.bankOrderStatus(detail.banking_order_id);
+    if (result === null) {
+      throw new DomainError(409, 'No bank connection is configured (BANKING_URL is unset)');
+    }
+    recordBankSubmission(db, runId, { orderId: result.orderId, status: result.status, message: result.message });
+    res.json(paymentRunDetail(db, runId));
   });
 
   app.post('/api/payment-runs/:id/mark-executed', async (req, res) => {

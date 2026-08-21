@@ -135,8 +135,24 @@ export interface FieldError {
 export const BILL_STATUSES = ['open', 'scheduled', 'paid', 'cancelled'] as const;
 export type BillStatus = (typeof BILL_STATUSES)[number];
 
-/** DERIVED payment-run status, from `executed_at` / `discarded_at`. */
-export const RUN_STATUSES = ['created', 'executed', 'discarded'] as const;
+/**
+ * DERIVED payment-run status, from the timestamps on the row.
+ *
+ *   created    the file exists and is downloadable; nothing has been sent
+ *   submitted  handed to the bank over EBICS (PS-12). Its bills stay
+ *              `scheduled`: the bank accepting a FILE is not the bank having
+ *              PAID it, and pretending otherwise would mark bills settled that
+ *              may still bounce.
+ *   executed   the money moved — the bank confirmed it, or an operator did
+ *   rejected   the bank refused the file. Its bills are released back to
+ *              `open`, because a refused file is one nobody acted on.
+ *   discarded  we threw it away without sending it. Also releases the bills.
+ *
+ * `rejected` and `discarded` end in the same place and are still kept apart:
+ * one is the bank's decision and one is ours, and an operator chasing a
+ * missing payment needs to know which.
+ */
+export const RUN_STATUSES = ['created', 'submitted', 'executed', 'rejected', 'discarded'] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
 /** Someone we pay. The IBAN is stored normalized (no spaces, upper case). */
@@ -221,10 +237,26 @@ export interface PaymentRunRow {
   created_at: string;
   executed_at: string | null;
   discarded_at: string | null;
+  submitted_at: string | null;
+  rejected_at: string | null;
+  /** PS-12's id for the bank order, when this run was sent over EBICS. */
+  banking_order_id: string | null;
+  /**
+   * PS-12's own word for that order: `accepted`, `rejected`, or `failed`.
+   *
+   * `failed` is the one to read carefully — it means the conversation with the
+   * bank broke and whether the file arrived is UNKNOWN. The run shows as
+   * `submitted` and its bills stay scheduled, which is the safe direction: the
+   * money may have moved. It needs a human and a phone call, not a retry.
+   */
+  bank_status: string | null;
+  bank_message: string | null;
 }
 
 export interface PaymentRunDetail extends PaymentRunRow {
   items: PaymentRunItem[];
+  /** Set on the API response, not stored: whether PS-12 Banking is wired. */
+  banking_configured?: boolean;
 }
 
 /** What the payment screens need to know before offering to build a file. */
@@ -238,4 +270,10 @@ export interface PaymentConfig {
   problem: string | null;
   pain_version: string;
   batch_booking: boolean;
+  /**
+   * True when PS-12 Banking is wired (`BANKING_URL` set), so a run can be sent
+   * rather than downloaded. False is the standalone posture and not an error —
+   * the download is the primary path and the only one most installations need.
+   */
+  banking_configured: boolean;
 }

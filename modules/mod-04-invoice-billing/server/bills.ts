@@ -361,7 +361,11 @@ export function markBillPaid(db: Database.Database, id: number, at?: string): vo
 // ── Payment runs ──────────────────────────────────────────────────────
 
 /** How this installation's own account is doing as a debtor. */
-export function paymentConfig(seller: SellerConfig, batchBooking = false): PaymentConfig {
+export function paymentConfig(
+  seller: SellerConfig,
+  batchBooking = false,
+  bankingConfigured = false,
+): PaymentConfig {
   const iban = normalizeIban(seller.iban ?? '');
   const problem = ibanProblem(iban);
   const bic = seller.bic && isValidBic(seller.bic) ? normalizeBic(seller.bic) : null;
@@ -373,6 +377,7 @@ export function paymentConfig(seller: SellerConfig, batchBooking = false): Payme
     problem: problem === null ? null : `SELLER_IBAN is not a usable debtor account — ${problem}`,
     pain_version: PAIN_VERSION,
     batch_booking: batchBooking,
+    banking_configured: bankingConfigured,
   };
 }
 
@@ -421,11 +426,27 @@ interface RunStoredRow {
   executed_at: string | null;
   discarded_at: string | null;
   created_at: string;
+  submitted_at: string | null;
+  rejected_at: string | null;
+  banking_order_id: string | null;
+  bank_status: string | null;
+  bank_message: string | null;
 }
 
-function runStatus(row: { executed_at: string | null; discarded_at: string | null }): RunStatus {
+/**
+ * Fold the timestamps into a label. Order is the ladder, most final first:
+ * once the money moved or the file was thrown away, nothing earlier applies.
+ */
+function runStatus(row: {
+  executed_at: string | null;
+  discarded_at: string | null;
+  submitted_at?: string | null;
+  rejected_at?: string | null;
+}): RunStatus {
   if (row.discarded_at !== null) return 'discarded';
   if (row.executed_at !== null) return 'executed';
+  if ((row.rejected_at ?? null) !== null) return 'rejected';
+  if ((row.submitted_at ?? null) !== null) return 'submitted';
   return 'created';
 }
 
@@ -582,6 +603,11 @@ function runRow(db: Database.Database, row: RunStoredRow): PaymentRunRow {
     created_at: row.created_at,
     executed_at: row.executed_at,
     discarded_at: row.discarded_at,
+    submitted_at: row.submitted_at ?? null,
+    rejected_at: row.rejected_at ?? null,
+    banking_order_id: row.banking_order_id ?? null,
+    bank_status: row.bank_status ?? null,
+    bank_message: row.bank_message ?? null,
   };
 }
 
@@ -652,6 +678,79 @@ export function paymentRunFilename(messageId: string): string {
   return `sepa-${messageId.toLowerCase()}.xml`;
 }
 
+// ── Sending the file over EBICS (PS-12 Banking) ────────────────────────
+
+/** What PS-12 said about the order, as this module needs it. */
+export interface BankSubmission {
+  /** PS-12's own id for the order — the handle for every later question. */
+  orderId: string;
+  /** `accepted`, `rejected`, `failed`, or a mid-flight status. */
+  status: string;
+  message: string | null;
+}
+
+/**
+ * Record what the bank did with a run.
+ *
+ * The three outcomes are deliberately not collapsed, because the operator's
+ * next move differs completely:
+ *
+ * - **accepted** — the run is `submitted`. Its bills stay `scheduled`: the
+ *   bank taking the file is not the bank having paid it.
+ * - **rejected** — the bank refused it, so nobody acted on it: the run is
+ *   `rejected` and its items go inactive, releasing the bills back to `open`
+ *   so a corrected run can be built. That run gets a fresh `MsgId`, which is
+ *   what the bank's own duplicate check requires.
+ * - **failed** — the conversation broke and whether the bank has the file is
+ *   UNKNOWN. This is the dangerous one, so it behaves like `accepted`: the run
+ *   is `submitted` and the bills stay scheduled. Releasing bills whose file may
+ *   be in a bank's queue is how the same invoice gets paid twice. The stored
+ *   `bank_status` is what the screens use to say so out loud.
+ */
+export function recordBankSubmission(
+  db: Database.Database,
+  id: number,
+  submission: BankSubmission,
+  at?: string,
+): void {
+  const row = getRun(db, id);
+  const when = at ?? nowIso();
+  const rejected = submission.status === 'rejected';
+
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE payment_runs
+          SET banking_order_id = ?, bank_status = ?, bank_message = ?,
+              submitted_at = COALESCE(submitted_at, ?), rejected_at = ?
+        WHERE id = ?`,
+    ).run(submission.orderId, submission.status, submission.message, when, rejected ? when : null, id);
+
+    if (rejected) {
+      db.prepare('UPDATE payment_run_items SET active = 0 WHERE run_id = ?').run(row.id);
+    }
+  })();
+}
+
+/**
+ * May this run be handed to the bank at all?
+ *
+ * Separate from `recordBankSubmission` so the check can run BEFORE the call
+ * that moves money, and so the route can refuse without a network round trip.
+ */
+export function assertRunSubmittable(db: Database.Database, id: number): PaymentRunRow {
+  const run = runRow(db, getRun(db, id));
+  if (run.status !== 'created') {
+    throw new DomainError(
+      409,
+      run.status === 'submitted'
+        ? `This payment run was already sent to the bank as ${run.banking_order_id ?? 'an order'}`
+        : `This payment run is ${run.status} — only a run that has not been sent can be submitted`,
+    );
+  }
+  if (run.item_count === 0) throw new DomainError(409, 'This payment run has no transfers');
+  return run;
+}
+
 /**
  * The bank executed the file: every bill in the run is settled, in one
  * transaction. The run stays live (its items keep `active = 1`), so its bills
@@ -660,7 +759,10 @@ export function paymentRunFilename(messageId: string): string {
 export function markRunExecuted(db: Database.Database, id: number, at?: string): void {
   const row = getRun(db, id);
   const status = runStatus(row);
-  if (status !== 'created') {
+  // `submitted` is allowed as well as `created`: sending the file over EBICS
+  // and confirming the bank actually paid it are two different facts, and the
+  // second one still arrives by hand until phase 6 reads camt.053.
+  if (status !== 'created' && status !== 'submitted') {
     throw new DomainError(409, `This payment run is already ${status}`);
   }
   const when = at ?? nowIso();
@@ -687,6 +789,9 @@ export function markRunExecuted(db: Database.Database, id: number, at?: string):
 export function discardRun(db: Database.Database, id: number, at?: string): void {
   const row = getRun(db, id);
   const status = runStatus(row);
+  // A run already handed to the bank cannot be discarded, and that is the
+  // point: discarding releases its bills, and releasing bills whose file may
+  // be sitting in a bank's queue is how the same invoice gets paid twice.
   if (status !== 'created') {
     throw new DomainError(409, `This payment run is ${status} — it cannot be discarded`);
   }

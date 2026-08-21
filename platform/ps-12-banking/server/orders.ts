@@ -63,9 +63,34 @@ export interface OrderContext {
 
 export interface SubmitInput {
   connection: string;
-  btf: BtfInput;
+  /**
+   * The Business Transaction Format. Optional: omitted, the connection's own
+   * bank profile supplies the credit-transfer BTF.
+   *
+   * That default is the point of the profile registry. A calling module knows
+   * it has produced a pain.001; it should not also have to know that this
+   * bank wants `SCT/AT/pain.001/XML` while the one next door wants no scope at
+   * all. An operator picks the profile once, when they set the connection up
+   * and have the bank's documentation in front of them.
+   */
+  btf?: BtfInput;
   payload: Buffer;
   idempotencyKey?: string;
+}
+
+/**
+ * The BTF this order will actually be sent with.
+ *
+ * A caller-supplied one always wins — a bank that needs a different BTF for
+ * one message must stay reachable without editing the registry.
+ */
+export function resolveBtf(connection: { bank_key: string }, btf?: BtfInput): BtfInput {
+  if (btf !== undefined) return btf;
+  const profile = bankProfile(connection.bank_key);
+  if (profile === undefined) {
+    throw new DomainError(409, `this connection's bank profile "${connection.bank_key}" is not one this service knows`);
+  }
+  return profile.creditTransfer;
 }
 
 interface OrderRow {
@@ -206,13 +231,14 @@ export function previewOrder(
   input: SubmitInput,
 ): { msg_id: string; payload_sha256: string; amount_minor: number | null; tx_count: number | null; btf: BtfInput; problems: ReturnType<typeof checkCeilings> } {
   const connection = requireReady(db, input.connection);
-  const facts = inspectPayload(input.payload, input.btf);
+  const btf = resolveBtf(connection, input.btf);
+  const facts = inspectPayload(input.payload, btf);
   return {
     msg_id: facts.msgId,
     payload_sha256: facts.sha256,
     amount_minor: facts.amountMinor,
     tx_count: facts.txCount,
-    btf: input.btf,
+    btf,
     problems: checkCeilings(facts, {
       maxAmountMinor: connection.max_amount_minor,
       maxTransfers: connection.max_transfers,
@@ -238,6 +264,7 @@ export interface SubmitResult {
  */
 export async function submitOrder(ctx: OrderContext, input: SubmitInput): Promise<SubmitResult> {
   const connection = requireReady(ctx.db, input.connection);
+  const btf = resolveBtf(connection, input.btf);
   const at = (ctx.now ?? nowIso)();
 
   // 1. Replay, on the caller's key.
@@ -250,7 +277,7 @@ export async function submitOrder(ctx: OrderContext, input: SubmitInput): Promis
     }
   }
 
-  const facts = inspectPayload(input.payload, input.btf);
+  const facts = inspectPayload(input.payload, btf);
 
   // 2. Replay, on the file's own identity — the layer that catches a caller
   //    who forgot a key, or invented a new one for the same file.
@@ -294,7 +321,7 @@ export async function submitOrder(ctx: OrderContext, input: SubmitInput): Promis
         connection.id,
         publicId('ord'),
         facts.msgId,
-        JSON.stringify(input.btf),
+        JSON.stringify(btf),
         facts.sha256,
         facts.amountMinor,
         facts.txCount,
@@ -308,7 +335,7 @@ export async function submitOrder(ctx: OrderContext, input: SubmitInput): Promis
   })();
 
   const row = ctx.db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as OrderRow;
-  await transmit(ctx, connection, row, input, facts);
+  await transmit(ctx, connection, row, { payload: input.payload, btf }, facts);
   return { order: orderDetail(ctx.db, row.public_id), replayed: false };
 }
 
@@ -330,7 +357,7 @@ async function transmit(
   ctx: OrderContext,
   connection: ConnectionRow,
   order: OrderRow,
-  input: SubmitInput,
+  input: { payload: Buffer; btf: BtfInput },
   facts: PayloadFacts,
 ): Promise<void> {
   const at = (ctx.now ?? nowIso)();

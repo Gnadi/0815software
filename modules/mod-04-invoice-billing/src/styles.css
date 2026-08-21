@@ -673,8 +673,16 @@ textarea.field__input {
 }
 
 .badge--bill-scheduled,
-.badge--run-created {
+.badge--run-created,
+.badge--run-submitted {
   color: var(--fg);
+}
+
+/* Refused by the bank: the same red as an overdue receivable, because it is
+   the same kind of fact — something that needs a person, today. */
+.badge--run-rejected {
+  color: var(--danger);
+  border-color: rgba(217, 138, 122, 0.4);
 }
 
 .badge--bill-open {

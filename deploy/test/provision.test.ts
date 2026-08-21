@@ -111,6 +111,7 @@ describe('service resolution', () => {
       'ps-08-payments',
       'ps-10-number',
       'ps-11-customers',
+      'ps-12-banking',
     ]);
   });
 
@@ -193,8 +194,8 @@ describe('ticker inclusion', () => {
   it('runs a ticker when the stack contains a tick-driven service', () => {
     const plan = planStack(twoModules());
     expect(plan.needsTicker).toBe(true);
-    // PS-03 and PS-08 tick; PS-01/06/07/10 do not.
-    expect(plan.tickTargets.map((s: any) => s.n)).toEqual(['PS-03', 'PS-08']);
+    // PS-03, PS-08 and PS-12 tick; PS-01/06/07/10/11 do not.
+    expect(plan.tickTargets.map((s: any) => s.n)).toEqual(['PS-03', 'PS-08', 'PS-12']);
     expect(renderCompose(plan, '..')).toContain('ticker:');
   });
 
@@ -483,7 +484,7 @@ describe('rendered artifacts', () => {
       supportsSso: true,
       sourceDb: null,
     });
-    expect(manifest.services).toHaveLength(7);
+    expect(manifest.services).toHaveLength(8);
     expect(manifest.services[0]).toMatchObject({ id: 'ps-01-identity', internalUrl: 'http://ps01:4001' });
     expect(manifest.placeholders).toEqual(plan.placeholders);
     expect(Date.parse(manifest.generatedAt)).not.toBeNaN();

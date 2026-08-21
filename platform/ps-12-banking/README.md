@@ -5,10 +5,10 @@ exchange, and signed ISO 20022 uploads over the customer's own bank
 connection. Part of the [Platform Services catalog](../README.md). Backend
 service, MIT-licensed, self-contained.
 
-> **Status: phase 4 of 6 — wired into the catalogue.** The protocol core, the
-> encrypted key store, the connection lifecycle, signed BTU uploads and the
-> HTTP API are implemented and tested against a mock bank that verifies what it
-> is sent. Remaining: the MOD-04 button (phase 5) and downloads (phase 6). See
+> **Status: phase 5 of 6 — MOD-04 sends payment runs through it.** The protocol
+> core, the encrypted key store, the connection lifecycle, signed BTU uploads,
+> the HTTP API and the MOD-04 integration are implemented and tested against a
+> mock bank that verifies what it is sent. Remaining: downloads (phase 6). See
 > [Build order](#build-order). Nothing here has talked to a real bank.
 
 ## What this service is for
@@ -216,7 +216,20 @@ GET  /api/orders[/:public_id]                      folded status + events
 
 `platform/clients` exports `BankingClient`, so a module that can produce an ISO
 20022 file reaches the bank in three lines: add `BANKING_URL`, construct the
-client, call `submitOrder`.
+client, call `submitOrder`. MOD-04 Invoice & Billing is the first consumer and
+the proof — "Send via EBICS" beside "Download XML" — not a special case.
+
+### The BTF is optional, and usually omitted
+
+A caller hands over bytes and an idempotency key; the **connection's own bank
+profile** supplies the Business Transaction Format. That default is the point
+of the profile registry. A module knows it has produced a `pain.001`; it should
+not also have to know that this bank wants `SCT/AT/pain.001/XML` while the one
+next door wants no scope at all. An operator picks the profile once, when they
+set the connection up with the bank's documentation in front of them.
+
+A caller-supplied BTF always wins, so a bank that needs a different one for a
+particular message stays reachable without editing the registry.
 
 ### Bank profiles carry no URLs
 
@@ -253,9 +266,9 @@ produces a plausible value that never matches the bank's letter.
 | 1 | Protocol core: canonical XML, crypto, dsig, envelopes, codes | **Done** |
 | 2 | Key custody, the connection lifecycle, the mock bank | **Done** |
 | 3 | Orders: BTU upload, segmentation, receipts, idempotency, ceilings | **Done** |
-| 4 | HTTP API, bank profiles, INI letter, catalogue wiring, client | **Done** — 281 tests |
-| 5 | MOD-04 integration — "Send via EBICS" beside "Download XML" | Next |
-| 6 | Downloads: camt.053 and pain.002, and reconciliation back into MOD-04 | |
+| 4 | HTTP API, bank profiles, INI letter, catalogue wiring, client | **Done** |
+| 5 | MOD-04 integration — "Send via EBICS" beside "Download XML" | **Done** — 283 tests |
+| 6 | Downloads: camt.053 and pain.002, and reconciliation back into MOD-04 | Next |
 
 ## Scripts
 

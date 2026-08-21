@@ -370,11 +370,44 @@ describe('POST /api/orders', () => {
     expect(bank.received).toEqual([]);
   });
 
-  it('refuses a request with no BTF', async () => {
+  it('takes the BTF from the connection’s bank profile when none is given', async () => {
+    // The ordinary case. A module knows it produced a pain.001; which scope
+    // this particular bank wants is the operator's business, decided once when
+    // they picked the profile with the bank's documentation in front of them.
     const res = await request(app)
       .post('/api/orders')
       .set(SERVICE)
       .send({ connection: 'main', payload_base64: pain001('M1') })
+      .expect(201);
+
+    expect(res.body.status).toBe('accepted');
+    expect(res.body.btf).toEqual({
+      service_name: 'SCT',
+      scope: 'AT',
+      msg_name: 'pain.001',
+      msg_version: '03',
+      container: 'XML',
+    });
+    expect(bank.received[0]!.btf.scope).toBe('AT');
+  });
+
+  it('lets a caller override the profile’s BTF', async () => {
+    // A bank that needs something different for one message must stay
+    // reachable without editing the registry.
+    const res = await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'main', btf: { ...BTF, scope: 'BIL' }, payload_base64: pain001('M1') })
+      .expect(201);
+    expect(res.body.btf.scope).toBe('BIL');
+    expect(bank.received[0]!.btf.scope).toBe('BIL');
+  });
+
+  it('refuses a BTF that is present but not an object', async () => {
+    const res = await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'main', btf: 'SCT', payload_base64: pain001('M1') })
       .expect(422);
     expect(res.body.details[0].field).toBe('btf');
   });

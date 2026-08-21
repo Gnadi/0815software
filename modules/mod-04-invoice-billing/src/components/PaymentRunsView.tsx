@@ -6,11 +6,16 @@ import { fmtDateTime, fmtEur } from '../format';
 /**
  * PAYMENT RUNS — the files, and what happened to each of them.
  *
- * A run has exactly three ends: it is downloaded and uploaded to the bank and
- * then confirmed as executed, or it is discarded and its bills go back to
- * open. Both are one click, and the screen says which bills are affected
- * either way, because "which of these files did I actually upload?" is the
- * question this list exists to answer three weeks later.
+ * A run ends in one of a few places: it is downloaded and uploaded to the bank
+ * by hand and then confirmed as executed; or — when PS-12 Banking is wired —
+ * sent straight to the bank over EBICS; or it is discarded and its bills go
+ * back to open. Each is one click, and the screen says which bills are
+ * affected either way, because "which of these files did I actually upload?"
+ * is the question this list exists to answer three weeks later.
+ *
+ * **The download never goes away.** A bank connection is optional, and the
+ * file is the fallback for every installation without one — and for the day
+ * the connection is down.
  */
 
 interface ListProps {
@@ -20,7 +25,9 @@ interface ListProps {
 
 const STATUS_LABEL: Record<RunStatus, string> = {
   created: 'READY TO UPLOAD',
+  submitted: 'SENT TO BANK',
   executed: 'EXECUTED',
+  rejected: 'REFUSED BY BANK',
   discarded: 'DISCARDED',
 };
 
@@ -171,7 +178,36 @@ export function PaymentRunDetailView({ id, onBack, onAuthLost }: DetailProps) {
           <a className="btn btn--primary" href={paymentRunXmlUrl(run.id)} download>
             DOWNLOAD XML ↓
           </a>
-          {run.status === 'created' && (
+          {run.status === 'created' && run.banking_configured && (
+            <button
+              className="btn btn--primary"
+              disabled={busy}
+              title="Send this file to the bank over EBICS, signed"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Send ${run.message_id} to the bank? ${run.item_count} transfer(s), ` +
+                      `${fmtEur(run.total_cents)}. This authorises the payment — it cannot be taken back here.`,
+                  )
+                ) {
+                  void act(() => api.submitRun(run.id), 'Could not send the run to the bank');
+                }
+              }}
+            >
+              SEND VIA EBICS →
+            </button>
+          )}
+          {run.status === 'submitted' && (
+            <button
+              className="btn"
+              disabled={busy}
+              title="Ask the bank service for this order’s current status"
+              onClick={() => void act(() => api.refreshRun(run.id), 'Could not refresh the bank status')}
+            >
+              REFRESH STATUS
+            </button>
+          )}
+          {(run.status === 'created' || run.status === 'submitted') && (
             <>
               <button
                 className="btn"
@@ -181,21 +217,23 @@ export function PaymentRunDetailView({ id, onBack, onAuthLost }: DetailProps) {
               >
                 MARK EXECUTED
               </button>
-              <button
-                className="btn btn--ghost"
-                disabled={busy}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      'Discard this run? Its bills go back to open, and the file must not be uploaded.',
-                    )
-                  ) {
-                    void act(() => api.discardRun(run.id), 'Could not discard the run');
-                  }
-                }}
-              >
-                DISCARD
-              </button>
+              {run.status === 'created' && (
+                <button
+                  className="btn btn--ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        'Discard this run? Its bills go back to open, and the file must not be uploaded.',
+                      )
+                    ) {
+                      void act(() => api.discardRun(run.id), 'Could not discard the run');
+                    }
+                  }}
+                >
+                  DISCARD
+                </button>
+              )}
             </>
           )}
         </div>
@@ -226,8 +264,33 @@ export function PaymentRunDetailView({ id, onBack, onAuthLost }: DetailProps) {
 
       {run.status === 'created' && (
         <p className="resource__desc">
-          Upload the file in your online banking (SEPA credit transfer / file upload), authorise it there,
-          then mark the run executed here so its bills are settled.
+          {run.banking_configured
+            ? 'Send it over EBICS, or download the file and upload it in your online banking — either way, mark the run executed once the bank has paid it.'
+            : 'Upload the file in your online banking (SEPA credit transfer / file upload), authorise it there, then mark the run executed here so its bills are settled.'}
+        </p>
+      )}
+
+      {/* The bank's own word, when there is one. `failed` gets its own
+          treatment because it is the case that needs a person: the file may
+          or may not have reached the bank, and neither resending nor
+          forgetting it is safe. */}
+      {run.bank_status === 'failed' && (
+        <div className="resource__error mono">
+          THE CONVERSATION WITH THE BANK BROKE — WHETHER THE FILE ARRIVED IS UNKNOWN. CHECK IN YOUR ONLINE
+          BANKING BEFORE SENDING ANYTHING ELSE. {run.bank_message?.toUpperCase()}
+        </div>
+      )}
+      {run.status === 'rejected' && (
+        <div className="resource__error mono">
+          THE BANK REFUSED THIS FILE{run.bank_message ? ` — ${run.bank_message.toUpperCase()}` : ''}. ITS BILLS
+          ARE BACK TO OPEN; BUILD A NEW RUN, WHICH GETS A NEW MESSAGE ID.
+        </div>
+      )}
+      {run.banking_order_id !== null && (
+        <p className="resource__desc mono">
+          BANK ORDER {run.banking_order_id}
+          {run.bank_status ? ` · ${run.bank_status.toUpperCase()}` : ''}
+          {run.submitted_at ? ` · SENT ${fmtDateTime(run.submitted_at)}` : ''}
         </p>
       )}
 

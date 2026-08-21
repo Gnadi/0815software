@@ -97,11 +97,18 @@ function optionalInt(source: Record<string, unknown>, field: string, min: number
   return value;
 }
 
-/** Read a BTF off a request body, refusing one that would not route a file. */
-function btfFrom(source: Record<string, unknown>): BtfInput {
+/**
+ * Read a BTF off a request body, refusing one that would not route a file.
+ *
+ * Absent is fine and is the ordinary case: the connection's bank profile
+ * supplies one, so a module that has produced a pain.001 does not also have to
+ * know what a Business Transaction Format is. Present but malformed is not.
+ */
+function btfFrom(source: Record<string, unknown>): BtfInput | undefined {
   const raw = source.btf;
-  if (raw === null || typeof raw !== 'object') {
-    throw new DomainError(422, 'Validation failed', [{ field: 'btf', message: 'is required' }]);
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object') {
+    throw new DomainError(422, 'Validation failed', [{ field: 'btf', message: 'must be an object' }]);
   }
   const btf = raw as Record<string, unknown>;
   return {

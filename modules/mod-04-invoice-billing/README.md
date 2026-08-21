@@ -97,7 +97,9 @@ bills              creditor, reference, remittance, amount_cents (GROSS),
                    issue_date, due_date, note, paid_at, cancelled_at
                    UNIQUE (creditor, reference)
 payment_runs       message_id (the pain.001 MsgId), execution_date,
-                   FROZEN debtor name/IBAN/BIC, executed_at, discarded_at
+                   FROZEN debtor name/IBAN/BIC, executed_at, discarded_at,
+                   submitted_at, rejected_at, banking_order_id, bank_status
+                   (the last four only when PS-12 Banking is wired)
 payment_run_items  run, bill, position, end_to_end_id, amount_cents,
                    FROZEN creditor name/IBAN/BIC and remittance, active
                    UNIQUE (bill) WHERE active = 1   ← pay-once, in the schema
@@ -121,8 +123,16 @@ invoice whose payments cover the gross total, payment status
 The payables side follows the same rule: a bill has no status column
 either. `open` / `scheduled` / `paid` / `cancelled` is derived from
 `paid_at`, `cancelled_at` and whether a live payment-run item points at
-it, and a run's `created` / `executed` / `discarded` from its two
-timestamps.
+it, and a run's `created` / `submitted` / `executed` / `rejected` /
+`discarded` from its timestamps.
+
+One value beside them is **stored** rather than derived, and deliberately:
+`bank_status` is PS-12's own word for the order. Nothing in this database can
+recompute "the bank refused it" — that is the bank's fact, not ours. It also
+carries the distinction that matters most: `failed` means the conversation with
+the bank broke and whether the file arrived is **unknown**, so the run stays
+`submitted` and its bills stay scheduled. Releasing bills whose file may be
+sitting in a bank's queue is how the same invoice gets paid twice.
 
 ### Published reporting views (`report_*`)
 
@@ -313,6 +323,8 @@ GET    /api/payment-runs               the runs + the debtor config
 POST   /api/payment-runs               {bill_ids: [], execution_date?} → the run
 GET    /api/payment-runs/:id           the frozen transfers inside it
 GET    /api/payment-runs/:id/sepa.xml  THE FILE — pain.001.001.03, as a download
+POST   /api/payment-runs/:id/submit    send it to the bank via PS-12 (BANKING_URL)
+POST   /api/payment-runs/:id/refresh   re-read the bank's word on a sent run
 POST   /api/payment-runs/:id/mark-executed  the bank executed it → bills settled
 POST   /api/payment-runs/:id/discard   not uploaded → bills back to open
 ```
@@ -389,12 +401,25 @@ blind, so this module and MOD-13 Offers mean the same customer. The resolved
 party id is stored on the local customer row; unset, the module matches against
 its own `customers` table as it always has.
 
+With `BANKING_URL` set, a payment run can be **sent** to the bank over EBICS
+through **PS-12 Banking** instead of downloaded and uploaded by hand — see
+[Bills and the SEPA payment file](#bills-and-the-sepa-payment-file). This
+module still holds no keys and speaks no bank protocol; it hands PS-12 the same
+bytes the download serves, and PS-12 signs them. `BANK_CONNECTION` names which
+of its connections to submit against (default `main`). Unset, the download is
+the only path — which is the default and what most installations want.
+
+Unlike every other hook here, **this one is not best-effort**: an error
+propagates instead of becoming a warning, because a swallowed failure would
+leave an operator believing a payment was sent.
+
 With `AUDIT_URL` set, every payment-run event — `payment_run.created`,
-`payment_run.executed`, `payment_run.discarded`, with the message id, the
-transfer count and the total — is recorded on **PS-07 Audit Log**. Money
-leaving the company is what an audit log is for, and the file itself lives
-only in whoever downloaded it, so the trail has to be in the stack. Unset,
-nothing is sent and the runs are their own record.
+`payment_run.submitted`, `payment_run.rejected`, `payment_run.executed`,
+`payment_run.discarded`, with the message id, the transfer count and the
+total — is recorded on **PS-07 Audit Log**. Money leaving the company is what
+an audit log is for, and without a bank connection the file itself lives only
+in whoever downloaded it, so the trail has to be in the stack. Unset, nothing
+is sent and the runs are their own record.
 
 ### The seller letterhead
 
@@ -462,7 +487,7 @@ and mark the run executed.
 ```
 creditor (IBAN validated)
    └── bill  ── select ──▶ payment run ── download ──▶ your online banking
-        │                     │   │                          │
+        │                     │   │  └── send ──▶ PS-12 ──▶ the bank (optional)
         │              discard│   │mark executed ◀── the bank executes it
         ▼                     ▼   ▼
    mark paid / cancel     bills open again / bills paid
@@ -471,16 +496,26 @@ creditor (IBAN validated)
 ### What it does not do — and why
 
 **This module holds no bank credentials and speaks no bank protocol.** It
-writes a file; you upload it in the online banking you already have, and your
-bank's own authorisation (TAN, signature card, EBICS subscriber key) is what
-releases the money. That boundary is deliberate:
+writes a file. That boundary has not moved: an EBICS client means subscriber
+keys, certificates and INI/HIA/HPB onboarding per bank and per customer, and a
+key that can move money has no business sitting in a CRUD app beside the
+invoice table.
 
-- an EBICS client means subscriber keys, certificates, INI/HIA/HPB
-  onboarding per bank and per customer, and a signing key sitting in an
-  MIT-licensed CRUD app — a different product, and commissioned work;
-- the file is the standardised part. Every bank takes it. Nothing here has
-  to be certified against any bank's API, and an outage at the bank cannot
-  break bookkeeping.
+What changed is where that work lives. **PS-12 Banking** is a Platform Service
+that does hold those keys, in one guarded place, and MOD-04 reaches it over an
+API like any other service:
+
+- `BANKING_URL` **unset** — the default, and what most installations want — and
+  this module behaves exactly as described above. Download, upload, mark
+  executed. No outbound calls, no keys, nothing to certify.
+- `BANKING_URL` **set** — a "Send via EBICS" button appears beside "Download
+  XML" and hands the same bytes to PS-12, which signs them and talks to the
+  bank. **The download never goes away**, because a bank connection is optional
+  and the file is the fallback for the day the connection is down.
+
+The file stays the standardised part either way. Every bank takes it, nothing
+here has to be certified against any bank's API, and an outage at the bank
+cannot break bookkeeping.
 
 The file is a valid pain.001.001.03 per the ISO 20022 schema (the shipped
 example output is validated against the official XSD). Banks still differ in
@@ -489,7 +524,7 @@ some want a lead time on the execution date. **Run one file through your
 bank's file check before the first live upload**, the same way MOD-06's ERP
 export profiles are examples rather than certifications.
 
-### The four rules the tests pin
+### The five rules the tests pin
 
 1. **A bill is paid once.** A bill enters at most one *live* payment run.
    `server/bills.ts` checks it and answers 409; a partial unique index
@@ -514,6 +549,14 @@ export profiles are examples rather than certifications.
    becomes "Mueller + Soehne" deterministically (`shared/sepa.ts`), accents
    are dropped to their base letter, and anything else becomes a space —
    never a rejected file, and never a silently mangled payee.
+5. **A run reaches the bank at most once, and the bytes are the bytes.**
+   With PS-12 wired, a run already sent is refused locally before it reaches
+   the service that would sign it, and cannot be discarded — releasing bills
+   whose file may be in a bank's queue is rule 1 all over again. What is sent
+   is `paymentRunXml`, the same function the download serves, so an operator
+   falling back to uploading by hand uploads the identical file. Rule 1 still
+   holds across the boundary: PS-12 deduplicates on the run's own `MsgId`, so
+   even a lost idempotency key cannot pay twice.
 
 ### Money, and what a bill is not
 
@@ -566,6 +609,16 @@ Validate the result against the schema if you want to see it for yourself:
 ```sh
 xmllint --noout --schema pain.001.001.03.xsd sepa-mod04-….xml
 ```
+
+With `BANKING_URL` pointed at a PS-12 with a live connection, the same run has
+a **Send via EBICS** button beside the download, and:
+
+```sh
+curl -s -b cookie.txt -X POST localhost:3004/api/payment-runs/1/submit
+```
+
+answers with the run carrying `status: "submitted"`, the bank's order id and
+its verdict.
 
 ## Out of scope
 

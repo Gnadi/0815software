@@ -289,7 +289,8 @@
           "ps-07-audit-log",
           "ps-08-payments",
           "ps-10-number",
-          "ps-11-customers"
+          "ps-11-customers",
+          "ps-12-banking"
         ]
       },
       "peers": {
@@ -307,6 +308,7 @@
           "SELLER_VAT_ID"
         ],
         "optional": [
+          "BANK_CONNECTION",
           "NOTIFICATION_INVOICE_CHANNEL",
           "SELLER_BIC",
           "SELLER_IBAN",

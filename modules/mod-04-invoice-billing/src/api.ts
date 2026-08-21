@@ -129,6 +129,8 @@ export const api = {
   /** Produce the file. The bills in it become `scheduled` — see shared/sepa.ts. */
   createPaymentRun: (billIds: number[], executionDate: string | null) =>
     request<PaymentRunDetail>('/api/payment-runs', post({ bill_ids: billIds, execution_date: executionDate })),
+  submitRun: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}/submit`, post()),
+  refreshRun: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}/refresh`, post()),
   markRunExecuted: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}/mark-executed`, post()),
   discardRun: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}/discard`, post()),
 };

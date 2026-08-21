@@ -74,7 +74,13 @@ export interface Btf {
 export interface SubmitOrderInput {
   /** The connection key an operator created, e.g. "main". */
   connection: string;
-  btf: Btf;
+  /**
+   * Optional. Omitted — the ordinary case — the connection's own bank profile
+   * supplies it, so a module that has produced a pain.001 does not also have
+   * to know that this bank wants `SCT/AT/pain.001/XML` and the one next door
+   * wants no scope at all. Pass one only to override that.
+   */
+  btf?: Btf;
   /** The file itself. Opaque to the service. */
   payload: Buffer;
   /** Stable per file — MOD-04 uses `payment-run:<MsgId>`. */
