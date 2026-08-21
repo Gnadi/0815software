@@ -98,7 +98,7 @@ describe('HVU — what is waiting for a signature', () => {
 describe('HVZ — the same queue, with the payment details', () => {
   it('reads the digest a co-signature will be computed over', () => {
     const [order] = parseVeuOverview(fixture('hvz-response'));
-    expect(order!.dataDigest).toBe('2jmj7l5rSw0yVb/vlWAYkK/YBwk=');
+    expect(order!.dataDigest).toBe('yeee4C+0xZjU0Ex6aQt+Zm7FCo61GQtftMTqmYcSffc=');
   });
 
   it('reads the amount and the currency, which live in different elements', () => {
@@ -132,7 +132,7 @@ describe('HVZ — the same queue, with the payment details', () => {
 describe('HVD — one order, and the digest to sign', () => {
   it('reads the digest, the display file and the availability flags', () => {
     const detail = parseVeuDetail(fixture('hvd-response'));
-    expect(detail.dataDigest).toBe('2jmj7l5rSw0yVb/vlWAYkK/YBwk=');
+    expect(detail.dataDigest).toBe('yeee4C+0xZjU0Ex6aQt+Zm7FCo61GQtftMTqmYcSffc=');
     expect(detail.displayFile?.toString('utf8')).toBe('Zahllauf August');
     expect(detail.orderDataAvailable).toBe(true);
     expect(detail.orderDetailsAvailable).toBe(true);

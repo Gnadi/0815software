@@ -14,6 +14,8 @@ import {
   buildVeuOverview,
   buildVeuDetail,
   buildVeuTransactions,
+  buildVeuSignature,
+  buildVeuCancel,
   buildTransfer,
   buildReceipt,
   buildDownloadInit,
@@ -124,6 +126,7 @@ const certify = (privatePem: string, purpose: 'ES' | 'AUTH' | 'ENC'): string =>
 const CERT = { es: certify(ES.privatePem, 'ES'), auth: certify(AUTH.privatePem, 'AUTH'), enc: certify(ENC.privatePem, 'ENC') };
 const TX_ID = 'A1B2C3D4E5F60718293A4B5C6D7E8F90';
 const transactionKey = Buffer.alloc(16, 7);
+const DATA_DIGEST = 'yeee4C+0xZjU0Ex6aQt+Zm7FCo61GQtftMTqmYcSffc=';
 const VEU_ORDER = { partnerId: 'PARTNER1', btf: { serviceName: 'SCT', scope: 'AT', msgName: 'pain.001' }, orderId: 'A1B2' };
 const orderData = Buffer.from('<?xml version="1.0"?><Document xmlns="urn:x"/>', 'utf8');
 
@@ -229,6 +232,32 @@ function everyMessage(subscriber: Subscriber): { name: string; xml: string; sche
         fetchLimit: 50,
         fetchOffset: 10,
       }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HVE co-signature',
+      xml: buildVeuSignature({
+        subscriber,
+        keys,
+        bank,
+        timestamp: TIMESTAMP,
+        transactionKey,
+        order: VEU_ORDER,
+        dataDigest: DATA_DIGEST,
+      }).init,
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HVS cancellation',
+      xml: buildVeuCancel({
+        subscriber,
+        keys,
+        bank,
+        timestamp: TIMESTAMP,
+        transactionKey,
+        order: VEU_ORDER,
+        dataDigest: DATA_DIGEST,
+      }).init,
       schema: 'ebics_request_H005.xsd',
     },
     {

@@ -58,6 +58,15 @@ import {
   type DownloadContext,
 } from './downloads.js';
 import type { Product } from './ebics/envelopes.js';
+import {
+  cancel as veuCancel,
+  detail as veuDetail,
+  overview as veuOverview,
+  sign as veuSign,
+  transactions as veuTransactions,
+  type VeuContext,
+  type VeuOrderInput,
+} from './veu.js';
 import type { BtfInput } from '../shared/types.js';
 
 /**
@@ -113,6 +122,25 @@ function optionalInt(source: Record<string, unknown>, field: string, min: number
     ]);
   }
   return value;
+}
+
+/** Which queued order a VEU request names. */
+function veuOrderInput(source: Record<string, unknown>): VeuOrderInput {
+  const partnerId = optionalText(source, 'partner_id');
+  const btf = btfFrom(source);
+  // Required here, unlike on an order: the queue is indexed by service, and
+  // the connection's own profile says nothing about an order somebody else
+  // submitted under a different one.
+  if (btf === undefined) {
+    throw new DomainError(422, 'Validation failed', [
+      { field: 'btf', message: 'required — name the service the queued order was submitted under' },
+    ]);
+  }
+  return {
+    btf,
+    orderId: reqText(source, 'order_id', 40),
+    ...(partnerId === undefined ? {} : { partnerId }),
+  };
 }
 
 /**
@@ -267,7 +295,7 @@ export function createApp(opts: AppOptions): express.Express {
 
   const actorOf = (req: Request): string => (sessionOk(req) ? auth.username : 'service');
 
-  const exchangeCtx = (req: Request): ExchangeContext & OrderContext & DownloadContext => ({
+  const exchangeCtx = (req: Request): ExchangeContext & OrderContext & DownloadContext & VeuContext => ({
     db,
     keySecret,
     transport,
@@ -441,6 +469,49 @@ export function createApp(opts: AppOptions): express.Express {
     const b = body(req);
     sendSpr(exchangeCtx(req), req.params.key as string, reqText(b, 'reason', 200))
       .then((detail) => res.json(detail))
+      .catch(next);
+  });
+
+  // ── VEU: the distributed-signature queue ───────────────────────────
+  //
+  // Admin session only, never a service token. A module submitting a payment
+  // is one thing; a second human approving one is exactly the step VEU exists
+  // to require, and handing it to a machine credential would undo the point.
+  app.get('/api/connections/:key/veu', requireAdmin, (req, res, next) => {
+    const withDetails = req.query.details === '1' || req.query.details === 'true';
+    veuOverview(exchangeCtx(req), req.params.key as string, { orderType: withDetails ? 'HVZ' : 'HVU' })
+      .then((orders) => res.json({ orders }))
+      .catch(next);
+  });
+
+  app.post('/api/connections/:key/veu/detail', requireAdmin, (req, res, next) => {
+    veuDetail(exchangeCtx(req), req.params.key as string, veuOrderInput(body(req)))
+      .then((detail) => res.json(detail))
+      .catch(next);
+  });
+
+  app.post('/api/connections/:key/veu/transactions', requireAdmin, (req, res, next) => {
+    const b = body(req);
+    veuTransactions(exchangeCtx(req), req.params.key as string, veuOrderInput(b), {
+      completeOrderData: b.complete_order_data === true,
+      fetchLimit: optionalInt(b, 'limit', 1, 10_000) ?? 100,
+      fetchOffset: optionalInt(b, 'offset', 0, 1_000_000) ?? 0,
+    })
+      .then((result) => res.json(result))
+      .catch(next);
+  });
+
+  // The two that move money. The digest signed is fetched from the bank by
+  // `veu.ts`, never taken from this body — see the note in that file.
+  app.post('/api/connections/:key/veu/sign', requireAdmin, (req, res, next) => {
+    veuSign(exchangeCtx(req), req.params.key as string, veuOrderInput(body(req)))
+      .then((result) => res.json(result))
+      .catch(next);
+  });
+
+  app.post('/api/connections/:key/veu/cancel', requireAdmin, (req, res, next) => {
+    veuCancel(exchangeCtx(req), req.params.key as string, veuOrderInput(body(req)))
+      .then((result) => res.json(result))
       .catch(next);
   });
 

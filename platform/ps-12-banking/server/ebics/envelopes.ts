@@ -6,6 +6,7 @@ import {
   packOrderData,
   publicKeyDigest,
   sha256,
+  signDigest,
   signOrderData,
   type EsVersion,
 } from './crypto.js';
@@ -802,6 +803,123 @@ export function buildVeuTransactions(params: {
       ]),
     ],
   });
+}
+
+/**
+ * A VEU upload: the initialisation envelope and the bytes its transfer phase
+ * must carry.
+ *
+ * Both are returned together because the caller cannot rebuild the order data
+ * itself — it contains a signature, and re-deriving it would mean signing
+ * twice and hoping the two agree. The `DataDigest` in the envelope is over
+ * exactly these bytes.
+ */
+export interface VeuUpload {
+  init: string;
+  orderData: Buffer;
+}
+
+/**
+ * `HVE` — add our signature to an order already in the queue.
+ *
+ * The order data this uploads is a `UserSignatureData` document carrying one
+ * `OrderSignatureData`: our ES over the **`DataDigest` that `HVD` returned**,
+ * not over anything we hashed ourselves. A co-signatory may not have the order
+ * data at all — `OrderDataAvailable` is a flag in that same HVD response — so
+ * the digest is the only thing there is to sign, and `signDigest` is the one
+ * function in this service that takes a hash from outside.
+ *
+ * The envelope around it is an ordinary signed upload, because the schema
+ * leaves no alternative: an upload initialisation must carry `SignatureData`,
+ * `DataDigest` and `NumSegments`. So the outer ES signs the signature document
+ * and the inner one signs the order — which reads oddly until you notice that
+ * the outer one is the transport's own integrity check and the inner one is
+ * the authorisation.
+ *
+ * **Unconfirmed against a real bank**, like SPR: the shape is forced by the
+ * schema, but no published document in this repository says HVE's order data
+ * is exactly this. A bank that disagrees refuses the request with a code.
+ */
+export function buildVeuSignature(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  transactionKey: Buffer;
+  order: VeuOrderRef;
+  /** Base64, exactly as `HVD` sent it. */
+  dataDigest: string;
+}): VeuUpload {
+  const signature = signDigest(params.keys.esPrivatePem, Buffer.from(params.dataDigest, 'base64'), params.keys.esVersion);
+  const orderData = Buffer.from(
+    document(
+      el('esig:UserSignatureData', {}, [
+        el('esig:OrderSignatureData', {}, [
+          el('esig:SignatureVersion', {}, [params.keys.esVersion]),
+          el('esig:SignatureValue', {}, [signature.toString('base64')]),
+          el('esig:PartnerID', {}, [params.subscriber.partnerId]),
+          el('esig:UserID', {}, [params.subscriber.userId]),
+        ]),
+      ]),
+      NS,
+    ),
+    'utf8',
+  );
+
+  return {
+    orderData,
+    init: uploadInitialisation({
+      ...params,
+      orderData,
+      segments: 1,
+      orderDetails: [
+        el('e:AdminOrderType', {}, ['HVE']),
+        el('e:HVEOrderParams', {}, veuRequestStructure(params.order)),
+      ],
+    }),
+  };
+}
+
+/**
+ * `HVS` — cancel an order waiting in the queue.
+ *
+ * The order data is an `HVSRequestOrderData` naming the digest of the order
+ * being cancelled, which is the schema's way of making sure a cancellation
+ * cannot be aimed at an order the sender has not actually looked at: the
+ * digest comes from `HVD`.
+ */
+export function buildVeuCancel(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  transactionKey: Buffer;
+  order: VeuOrderRef;
+  /** Base64, exactly as `HVD` sent it. */
+  dataDigest: string;
+}): VeuUpload {
+  const orderData = Buffer.from(
+    document(
+      el('e:HVSRequestOrderData', {}, [
+        el('e:CancelledDataDigest', { SignatureVersion: params.keys.esVersion }, [params.dataDigest]),
+      ]),
+      NS,
+    ),
+    'utf8',
+  );
+
+  return {
+    orderData,
+    init: uploadInitialisation({
+      ...params,
+      orderData,
+      segments: 1,
+      orderDetails: [
+        el('e:AdminOrderType', {}, ['HVS']),
+        el('e:HVSOrderParams', {}, veuRequestStructure(params.order)),
+      ],
+    }),
+  };
 }
 
 /**

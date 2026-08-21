@@ -91,8 +91,25 @@ interface Queued {
 /** A download the client has started but not yet acknowledged. */
 interface OpenDownload {
   id: string;
-  queued: Queued;
+  /** Absent for a VEU queue view — there is no stored file to acknowledge. */
+  queued?: Queued;
   segments: string[];
+}
+
+/** One order sitting in this bank's distributed-signature queue. */
+export interface QueuedForSignature {
+  orderId: string;
+  service: { serviceName: string; scope?: string; option?: string; msgName: string };
+  /** The order data whose digest a co-signature is computed over. */
+  content: Buffer;
+  signaturesRequired: number;
+  signaturesDone: number;
+  readyToBeSigned: boolean;
+  originator: { partnerId: string; userId: string };
+  /** Set once HVS has cancelled it. */
+  cancelled?: boolean;
+  /** Every co-signature the bank accepted, in order. */
+  signatures: { partnerId: string; userId: string; valid: boolean }[];
 }
 
 interface OpenTransaction {
@@ -105,6 +122,8 @@ interface OpenTransaction {
   promisedDigest: string;
   esVersion: string;
   signatureValue: Buffer;
+  /** Set for an HVE or HVS transaction, so the transfer phase knows what it is. */
+  veu?: { orderType: 'HVE' | 'HVS'; orderId: string };
   /** The ES key this transaction's signature must verify against. */
   esPublicPem: string;
   btf: ReceivedOrder['btf'];
@@ -131,6 +150,9 @@ export interface ReceivedOrder {
   signature: { flagPresent: boolean; requestEDS: boolean };
 }
 
+/** The four order types that only READ the queue. */
+const VEU_READS = new Set(['HVU', 'HVZ', 'HVD', 'HVT']);
+
 const BANK_AUTH_CERT = bankCertificate(BANK_AUTH.privatePem, 'AUTH');
 const BANK_ENC_CERT = bankCertificate(BANK_ENC.privatePem, 'ENC');
 
@@ -152,6 +174,8 @@ export class MockBank {
   private readonly subscribers = new Map<string, Subscriber>();
   /** Subscribers this bank has locked after an SPR — a test can assert on it. */
   readonly locked = new Set<string>();
+  /** Orders waiting for a second signature. A test seeds this directly. */
+  readonly veuQueue: QueuedForSignature[] = [];
   private readonly transactions = new Map<string, OpenTransaction>();
   /** Files waiting to be collected, in order. */
   private readonly queue: Queued[] = [];
@@ -338,6 +362,8 @@ export class MockBank {
     if (phase === 'Initialisation') {
       if (orderType === 'BTD') return this.downloadInit(root);
       if (orderType === 'SPR') return this.subscriberLock(root);
+      if (VEU_READS.has(orderType)) return this.veuRead(root, orderType);
+      if (orderType === 'HVE' || orderType === 'HVS') return this.veuWriteInit(root, orderType);
       return this.uploadInit(root);
     }
     if (phase === 'Transfer') {
@@ -523,6 +549,8 @@ export class MockBank {
       return this.response({ technical: '000000', business: '091105', reportText: 'DataDigest does not match the file' });
     }
 
+    if (open.veu !== undefined) return this.veuWriteFinish(id, open, orderData);
+
     const signatureValid = verifyOrderData(
       open.esPublicPem,
       orderData,
@@ -554,6 +582,176 @@ export class MockBank {
 
   // ── BTD: handing a file over ─────────────────────────────────────────
 
+  /**
+   * HVU / HVZ / HVD / HVT — answer from the queue.
+   *
+   * Built as a real download so the client's segment loop, decryption and
+   * receipt all run: a VEU read that skipped that machinery would prove only
+   * that the request was well formed.
+   */
+  private veuRead(root: XmlElement, orderType: string): string {
+    const statics = at(root, EBICS_NS, 'header', 'static')!;
+    const subscriber = this.authenticated(root, statics);
+    if (typeof subscriber === 'string') return subscriber;
+
+    const params = at(statics, EBICS_NS, 'OrderDetails', `${orderType}OrderParams`);
+    const orderId = params === null ? '' : textOf(at(params, EBICS_NS, 'OrderID')).trim();
+    const body = this.veuDocument(orderType, orderId);
+    if (body === null) return this.response({ technical: '090005', reportText: 'nothing in the signature queue' });
+    return this.serveDownload(subscriber, Buffer.from(body, 'utf8'));
+  }
+
+  /**
+   * HVE / HVS — accept a co-signature or a cancellation.
+   *
+   * The bank checks the ES the same way it checks an upload's, which is the
+   * point of exercising it: a co-signature computed over the wrong bytes is
+   * caught here rather than admired in a golden envelope.
+   */
+  private veuWriteInit(root: XmlElement, orderType: 'HVE' | 'HVS'): string {
+    const statics = at(root, EBICS_NS, 'header', 'static')!;
+    const subscriber = this.authenticated(root, statics);
+    if (typeof subscriber === 'string') return subscriber;
+
+    const params = at(statics, EBICS_NS, 'OrderDetails', `${orderType}OrderParams`);
+    const orderId = params === null ? '' : textOf(at(params, EBICS_NS, 'OrderID')).trim();
+    const queued = this.veuQueue.find((q) => q.orderId === orderId);
+    if (queued === undefined) {
+      return this.response({ technical: '091112', reportText: `no queued order ${orderId}` });
+    }
+
+    const dataTransfer = at(root, EBICS_NS, 'body', 'DataTransfer')!;
+    const transactionKey = decryptTransactionKey(
+      BANK_ENC.privatePem,
+      Buffer.from(
+        textOf(at(dataTransfer, EBICS_NS, 'DataEncryptionInfo', 'TransactionKey')).replace(/\s+/g, ''),
+        'base64',
+      ),
+    );
+    const id = `MOCKVEU-${++this.counter}`;
+    this.transactions.set(id, {
+      id,
+      segmentsExpected: 1,
+      segmentsReceived: 0,
+      transactionKey,
+      orderDataParts: [],
+      promisedDigest: textOf(at(dataTransfer, EBICS_NS, 'DataDigest')).replace(/\s+/g, ''),
+      esVersion: 'A005',
+      signatureValue: Buffer.alloc(0),
+      esPublicPem: subscriber.esPublicPem!,
+      btf: { serviceName: orderType, scope: null, option: null, msgName: '', msgVersion: null },
+      signature: { flagPresent: true, requestEDS: false },
+      veu: { orderType, orderId },
+    });
+    return this.response({ transactionId: id, segments: 1 });
+  }
+
+  /**
+   * The order data for a queue read, built from `veuQueue`.
+   *
+   * Written with the same canonical writer the client uses, so these documents
+   * are the shapes `schema.test.ts` and `veu-parse.test.ts` validate — a mock
+   * that emitted its own dialect would agree with a parser that reads it and
+   * with nothing else.
+   */
+  private veuDocument(orderType: string, orderId: string): string | null {
+    const live = this.veuQueue.filter((q) => q.cancelled !== true);
+    if (orderType === 'HVU' || orderType === 'HVZ') {
+      if (live.length === 0) return null;
+      return document(
+        el(`e:${orderType}ResponseOrderData`, {}, live.map((q) => this.veuOrderDetails(q, orderType === 'HVZ'))),
+        { e: EBICS_NS },
+      );
+    }
+
+    const order = live.find((q) => q.orderId === orderId);
+    if (order === undefined) return null;
+
+    if (orderType === 'HVD') {
+      return document(
+        el('e:HVDResponseOrderData', {}, [
+          el('e:DataDigest', { SignatureVersion: 'A005' }, [sha256(order.content).toString('base64')]),
+          el('e:DisplayFile', {}, [Buffer.from(`order ${order.orderId}`, 'utf8').toString('base64')]),
+          el('e:OrderDataAvailable', {}, ['true']),
+          el('e:OrderDataSize', {}, [String(order.content.byteLength)]),
+          el('e:OrderDetailsAvailable', {}, ['true']),
+          ...order.signatures.map((sig) =>
+            el('e:SignerInfo', {}, [
+              el('e:PartnerID', {}, [sig.partnerId]),
+              el('e:UserID', {}, [sig.userId]),
+              el('e:Timestamp', {}, ['2026-08-21T10:00:00Z']),
+              el('e:Permission', { AuthorisationLevel: 'E' }),
+            ]),
+          ),
+        ]),
+        { e: EBICS_NS },
+      );
+    }
+
+    // HVT.
+    return document(
+      el('e:HVTResponseOrderData', {}, [
+        el('e:NumOrderInfos', {}, ['1']),
+        el('e:OrderInfo', {}, [
+          el('e:AccountInfo', {}, [
+            el('e:AccountNumber', { Role: 'Originator', international: 'true' }, ['AT611904300234573201']),
+            el('e:AccountHolder', { Role: 'Originator' }, ['0815software GmbH']),
+          ]),
+          el('e:AccountInfo', {}, [
+            el('e:AccountNumber', { Role: 'Recipient', international: 'true' }, ['AT483200000012345864']),
+            el('e:AccountHolder', { Role: 'Recipient' }, ['Stadtwerke Wien Energie GmbH']),
+          ]),
+          el('e:Amount', { isCredit: 'false', Currency: 'EUR' }, ['421.80']),
+          el('e:Description', { Type: 'Purpose' }, ['Stromabrechnung']),
+        ]),
+      ]),
+      { e: EBICS_NS },
+    );
+  }
+
+  private veuOrderDetails(order: QueuedForSignature, withPayment: boolean): XmlElement {
+    return el('e:OrderDetails', {}, [
+      el('e:Service', {}, [
+        el('e:ServiceName', {}, [order.service.serviceName]),
+        order.service.scope === undefined ? null : el('e:Scope', {}, [order.service.scope]),
+        order.service.option === undefined ? null : el('e:ServiceOption', {}, [order.service.option]),
+        el('e:MsgName', {}, [order.service.msgName]),
+      ]),
+      el('e:OrderID', {}, [order.orderId]),
+      // HVZ carries the digest and the payment summary; HVU carries neither,
+      // and the element order below is the schema's, not a convenience.
+      ...(withPayment
+        ? [
+            el('e:DataDigest', { SignatureVersion: 'A005' }, [sha256(order.content).toString('base64')]),
+            el('e:OrderDataAvailable', {}, ['true']),
+            el('e:OrderDataSize', {}, [String(order.content.byteLength)]),
+            el('e:OrderDetailsAvailable', {}, ['true']),
+            el('e:TotalOrders', {}, ['3']),
+            el('e:TotalAmount', { isCredit: 'false' }, ['2214.80']),
+            el('e:Currency', {}, ['EUR']),
+          ]
+        : [el('e:OrderDataSize', {}, [String(order.content.byteLength)])]),
+      el('e:SigningInfo', {
+        readyToBeSigned: order.readyToBeSigned ? 'true' : 'false',
+        NumSigRequired: String(order.signaturesRequired),
+        NumSigDone: String(order.signatures.length),
+      }),
+      ...order.signatures.map((sig) =>
+        el('e:SignerInfo', {}, [
+          el('e:PartnerID', {}, [sig.partnerId]),
+          el('e:UserID', {}, [sig.userId]),
+          el('e:Timestamp', {}, ['2026-08-21T10:00:00Z']),
+          el('e:Permission', { AuthorisationLevel: 'E' }),
+        ]),
+      ),
+      el('e:OriginatorInfo', {}, [
+        el('e:PartnerID', {}, [order.originator.partnerId]),
+        el('e:UserID', {}, [order.originator.userId]),
+        el('e:Timestamp', {}, ['2026-08-21T09:59:00Z']),
+      ]),
+    ]);
+  }
+
   private downloadInit(root: XmlElement): string {
     const statics = at(root, EBICS_NS, 'header', 'static')!;
     const partnerId = textOf(at(statics, EBICS_NS, 'PartnerID')).trim();
@@ -584,10 +782,19 @@ export class MockBank {
       return this.response({ technical: '090005', reportText: 'no download data available' });
     }
 
-    // Encrypted to the SUBSCRIBER's key on the way down, which is the mirror
-    // of the upload and the reason E002 is a key pair rather than a secret.
+    return this.serveDownload(subscriber, queued.content, queued);
+  }
+
+  /**
+   * Everything a download has in common: encrypt to the SUBSCRIBER's key,
+   * segment, open a transaction, answer with the first segment.
+   *
+   * Encrypting downwards is the mirror of the upload, and the reason E002 is a
+   * key pair rather than a shared secret.
+   */
+  private serveDownload(subscriber: Subscriber, content: Buffer, queued?: Queued): string {
     const transactionKey = newTransactionKey();
-    const packed = packOrderData(transactionKey, queued.content);
+    const packed = packOrderData(transactionKey, content);
     const limit = this.options.downloadSegmentLimit ?? packed.length;
     const segments: string[] = [];
     for (let i = 0; i < packed.length; i += limit) segments.push(packed.slice(i, i + limit));
@@ -599,10 +806,81 @@ export class MockBank {
       transactionId: id,
       segments: segments.length,
       orderData: segments[0],
-      transactionKey: encryptTransactionKey(subscriber.encPublicPem, transactionKey).toString('base64'),
+      transactionKey: encryptTransactionKey(subscriber.encPublicPem!, transactionKey).toString('base64'),
       segmentNumber: 1,
       lastSegment: segments.length === 1,
     });
+  }
+
+  /**
+   * The two checks every protected request starts with, or the refusal to
+   * send back. A string means "answer with this and stop".
+   */
+  private authenticated(root: XmlElement, statics: XmlElement): Subscriber | string {
+    const partnerId = textOf(at(statics, EBICS_NS, 'PartnerID')).trim();
+    const userId = textOf(at(statics, EBICS_NS, 'UserID')).trim();
+    const subscriber = this.subscribers.get(this.subscriberKey(partnerId, userId));
+    if (subscriber?.authPublicPem === undefined || subscriber.encPublicPem === undefined) {
+      return this.response({ technical: '091002', reportText: 'subscriber unknown' });
+    }
+    const verified = verifyAuthSignature({ root, bankAuthPublicPem: subscriber.authPublicPem });
+    if (!verified.ok) {
+      return this.response({ technical: '061001', reportText: `auth signature: ${verified.reason}` });
+    }
+    return subscriber;
+  }
+
+  /**
+   * The end of an HVE or HVS transfer — where the bank decides whether the
+   * co-signature is real.
+   *
+   * For HVE it verifies the ES against the digest of the ORDER, not of the
+   * signature document: the co-signatory signed the queued order's data, which
+   * is the whole point and the thing a mock that just said "accepted" would
+   * never have checked. That verification is what makes `signDigest` testable
+   * against something other than itself.
+   */
+  private veuWriteFinish(id: string, open: OpenTransaction, orderData: Buffer): string {
+    const veu = open.veu!;
+    this.transactions.delete(id);
+    const order = this.veuQueue.find((q) => q.orderId === veu.orderId);
+    if (order === undefined) {
+      return this.response({ transactionId: id, technical: '091112', reportText: 'order gone from the queue' });
+    }
+
+    if (veu.orderType === 'HVS') {
+      const named = textOf(at(parse(orderData.toString('utf8')), EBICS_NS, 'CancelledDataDigest')).replace(/\s+/g, '');
+      if (named !== sha256(order.content).toString('base64')) {
+        // Cancelling by digest is what stops a client aiming HVS at an order
+        // it has never looked at.
+        return this.response({
+          transactionId: id,
+          business: '091105',
+          reportText: 'CancelledDataDigest does not match the queued order',
+        });
+      }
+      order.cancelled = true;
+      return this.response({ transactionId: id });
+    }
+
+    // HVE: the OrderSignatureData inside carries the ES over the ORDER's data.
+    const signature = at(parse(orderData.toString('utf8')), ESIG_NS, 'OrderSignatureData');
+    if (signature === null) {
+      return this.response({ transactionId: id, technical: '091113', reportText: 'no OrderSignatureData' });
+    }
+    const value = Buffer.from(textOf(at(signature, ESIG_NS, 'SignatureValue')).replace(/\s+/g, ''), 'base64');
+    const valid = verifyOrderData(open.esPublicPem, order.content, value, 'A005');
+    order.signatures.push({
+      partnerId: textOf(at(signature, ESIG_NS, 'PartnerID')).trim(),
+      userId: textOf(at(signature, ESIG_NS, 'UserID')).trim(),
+      valid,
+    });
+    if (!valid) {
+      return this.response({ transactionId: id, business: '091103', reportText: 'co-signature does not verify' });
+    }
+    order.signaturesDone = order.signatures.length;
+    if (order.signaturesDone >= order.signaturesRequired) order.readyToBeSigned = false;
+    return this.response({ transactionId: id });
   }
 
   private downloadSegment(root: XmlElement): string {

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <HVDResponseOrderData xmlns="urn:org:ebics:H005">
-  <DataDigest SignatureVersion="A005">2jmj7l5rSw0yVb/vlWAYkK/YBwk=</DataDigest>
+  <DataDigest SignatureVersion="A005">yeee4C+0xZjU0Ex6aQt+Zm7FCo61GQtftMTqmYcSffc=</DataDigest>
   <DisplayFile>WmFobGxhdWYgQXVndXN0</DisplayFile>
   <OrderDataAvailable>true</OrderDataAvailable>
   <OrderDataSize>3074</OrderDataSize>

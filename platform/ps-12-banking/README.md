@@ -359,10 +359,53 @@ upload that arrives without the flag.
 Set `request_eds` on a connection and the flag carries `requestEDS="true"`
 instead: the bank spools the order into its distributed-signature (VEU/EDS)
 queue and waits for the missing signatories rather than rejecting it. That is
-for accounts whose bank agreement needs a second person. **PS-12 cannot show
-you that queue** — the management order types (`HVU`, `HVZ`, `HVD`, `HVT`,
-`HVE`, `HVS`) are not implemented, so a spooled order is out of sight here
-until a `pain.002` comes back for it.
+for accounts whose bank agreement needs a second person — and PS-12 can now
+read and act on that queue.
+
+### The distributed-signature queue
+
+Six order types, all through the admin session and never a service token: a
+module submitting a payment is one thing, a second human approving one is
+exactly the step VEU exists to require.
+
+```
+GET  /api/connections/:key/veu[?details=1]   HVU, or HVZ with the payment summary
+POST /api/connections/:key/veu/detail        HVD — one order's digest and display file
+POST /api/connections/:key/veu/transactions  HVT — the payments inside it
+POST /api/connections/:key/veu/sign          HVE — add our signature
+POST /api/connections/:key/veu/cancel        HVS — withdraw the order
+```
+
+**A caller never supplies the digest that gets signed.** `sign` and `cancel`
+fetch the order's `DataDigest` themselves, with `HVD`, immediately before using
+it. Taking one from the request body would make this service a signing oracle:
+hand it any 32 bytes and it returns our ES over them, which is a signature over
+any document the caller cares to write — including a payment file. The extra
+round trip is the price of not being that.
+
+Nothing is stored. The queue lives at the bank; a copy here would be a second
+source of truth that goes stale the moment another signatory acts.
+
+Two things this turned up that are worth carrying forward. A co-signatory signs
+a hash they did not compute — `OrderDataAvailable` is a flag in the HVD
+response, so they may not have the order data at all — which is the exact shape
+of the double-hash bug from the first review round. `signDigest` therefore
+builds the PKCS#1 `DigestInfo` by hand and is pinned to an openssl vector; and
+it uses `privateEncrypt`, not `crypto.sign(null, …)`, because the latter looks
+like the raw primitive and is not. Over the same key and digest it produced
+neither openssl's answer nor anything else recognisable — and all three
+candidates return a signature-shaped 256 bytes, so only the vector noticed.
+
+The second: **A006 cannot co-sign.** RSASSA-PSS needs the hash function during
+encoding, not merely its output, and `node:crypto` exposes no way to supply
+one. An A006 subscriber gets a clear refusal rather than a signature that is
+quietly not one.
+
+Like SPR, the HVE and HVS request shapes are forced by the schema but not
+confirmed against a real bank: no published document here says HVE's order data
+is exactly a `UserSignatureData`. The mock bank verifies the co-signature
+against its own copy of the order data, so the cryptography is proven; the
+envelope around it is not.
 
 ### Stopping a key that can pay
 
