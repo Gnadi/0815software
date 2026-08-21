@@ -112,19 +112,28 @@ export interface ConnectionDetail extends Connection {
  *   queued       accepted by this service, not yet sent
  *   initialised  the bank assigned a transaction id
  *   transferred  every segment is with the bank
- *   accepted     the bank acknowledged the whole order
+ *   accepted     the bank took the FILE — not the same as having paid it
+ *   settled      a pain.002 said the money moved (ACSC)
  *   rejected     the bank refused it, with a code
  *   failed       the conversation broke; whether the bank has it is unknown
  *
- * `failed` and `rejected` are not the same thing and must not be merged: a
- * rejection is a decision, a failure is an unknown, and only one of them is
- * safe to resubmit.
+ * Three distinctions here are load-bearing:
+ *
+ * - `failed` and `rejected` must not be merged: a rejection is a decision, a
+ *   failure is an unknown, and only one of them is safe to resubmit.
+ * - `accepted` and `settled` must not be merged either. A bank accepting a
+ *   file says the file was well-formed and authorised; whether each transfer
+ *   in it reached its creditor is a later, separate answer that arrives in a
+ *   payment status report.
+ * - `accepted` is therefore NOT final. An order can be accepted on Monday and
+ *   rejected on Wednesday, and the fold lets the later word win.
  */
 export const ORDER_STATUSES = [
   'queued',
   'initialised',
   'transferred',
   'accepted',
+  'settled',
   'rejected',
   'failed',
 ] as const;
@@ -193,4 +202,53 @@ export interface OrderPreview {
   btf: BtfInput;
   /** Problems that would stop the submission, if any. */
   problems: FieldError[];
+}
+
+// ── Downloads (phase 6) ───────────────────────────────────────────────
+
+/**
+ * What kind of file the bank handed over.
+ *
+ *   statement  camt.053 — an account statement. Stored whole, never parsed
+ *              here: matching bookings to invoices is a module's business.
+ *   status     pain.002 — a payment status report. The answer to "did that
+ *              file go through?", so this one IS read.
+ *   other      anything else a BTF names. Kept, offered, not understood.
+ */
+export const DOWNLOAD_KINDS = ['statement', 'status', 'other'] as const;
+export type DownloadKind = (typeof DOWNLOAD_KINDS)[number];
+
+export interface DownloadRow {
+  public_id: string;
+  connection: string;
+  kind: DownloadKind;
+  btf: BtfInput;
+  sha256: string;
+  byte_length: number;
+  fetched_at: string;
+  /**
+   * When the positive receipt was sent. Null means the bank still believes we
+   * do not have this file and will offer it again — which is the safe
+   * direction, and why the receipt goes out only after the bytes are stored.
+   */
+  acknowledged_at: string | null;
+  processed_at: string | null;
+}
+
+export interface DownloadDetail extends DownloadRow {
+  reports: {
+    msg_id: string | null;
+    status_code: string;
+    reason_code: string | null;
+    reason: string | null;
+    created_at: string;
+  }[];
+}
+
+/** What one `POST /api/tick` did. */
+export interface TickResult {
+  downloads_fetched: number;
+  orders_updated: number;
+  /** Connections that could not be reached, with the reason. Not an error. */
+  problems: { connection: string; message: string }[];
 }

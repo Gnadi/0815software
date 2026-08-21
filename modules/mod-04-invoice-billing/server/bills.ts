@@ -697,6 +697,10 @@ export interface BankSubmission {
  *
  * - **accepted** — the run is `submitted`. Its bills stay `scheduled`: the
  *   bank taking the file is not the bank having paid it.
+ * - **settled** — a payment status report said the money moved (ISO 20022
+ *   `ACSC`). THIS is what settles the bills, and it is the whole point of the
+ *   download half: a run that used to need a human to come back and press
+ *   "mark executed" now closes itself on the bank's own word.
  * - **rejected** — the bank refused it, so nobody acted on it: the run is
  *   `rejected` and its items go inactive, releasing the bills back to `open`
  *   so a corrected run can be built. That run gets a fresh `MsgId`, which is
@@ -716,6 +720,7 @@ export function recordBankSubmission(
   const row = getRun(db, id);
   const when = at ?? nowIso();
   const rejected = submission.status === 'rejected';
+  const settled = submission.status === 'settled';
 
   db.transaction(() => {
     db.prepare(
@@ -727,6 +732,19 @@ export function recordBankSubmission(
 
     if (rejected) {
       db.prepare('UPDATE payment_run_items SET active = 0 WHERE run_id = ?').run(row.id);
+    }
+
+    if (settled && row.executed_at === null && row.discarded_at === null) {
+      // The same two writes `markRunExecuted` does, and for the same reason —
+      // only the trigger differs: the bank said so instead of a person. The
+      // run's items stay ACTIVE, so its bills can never be pulled into a
+      // second run.
+      db.prepare('UPDATE payment_runs SET executed_at = ? WHERE id = ?').run(when, id);
+      db.prepare(
+        `UPDATE bills SET paid_at = ?
+         WHERE paid_at IS NULL AND cancelled_at IS NULL
+           AND id IN (SELECT bill_id FROM payment_run_items WHERE run_id = ?)`,
+      ).run(when, id);
     }
   })();
 }

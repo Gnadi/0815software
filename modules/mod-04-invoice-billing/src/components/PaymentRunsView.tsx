@@ -133,6 +133,36 @@ export function PaymentRunDetailView({ id, onBack, onAuthLost }: DetailProps) {
     void load();
   }, [load]);
 
+  /**
+   * Ask the bank service for the current word when a sent run is opened.
+   *
+   * A payment status report can arrive hours after the file went out, so the
+   * run this screen loaded may be stale in exactly the way that matters: it
+   * says "sent" when the bank has since refused it. Done here rather than in
+   * the GET, so reading a run never makes a network call to a third party.
+   *
+   * Best-effort on purpose — a bank service that is down must not stop an
+   * operator from looking at their own payment run.
+   */
+  useEffect(() => {
+    if (run === null || run.status !== 'submitted' || run.banking_order_id === null) return;
+    let cancelled = false;
+    void api
+      .refreshRun(run.id)
+      .then((fresh) => {
+        if (!cancelled) setRun(fresh);
+      })
+      .catch(() => {
+        /* the run on screen is still the run; say nothing */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Only when the identity of the loaded run changes, never on every render:
+    // this fires a request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.id, run?.status === 'submitted']);
+
   async function act(action: () => Promise<PaymentRunDetail>, fallback: string): Promise<void> {
     setBusy(true);
     try {

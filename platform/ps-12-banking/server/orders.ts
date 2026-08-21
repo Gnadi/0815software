@@ -110,7 +110,7 @@ interface OrderRow {
 
 // ── Events and the status folded from them ────────────────────────────
 
-function recordOrderEvent(
+export function recordOrderEvent(
   db: Database.Database,
   params: { orderId: number; type: string; code?: string | null; meta?: Record<string, unknown>; at: string },
 ): void {
@@ -138,31 +138,31 @@ function eventsOf(db: Database.Database, orderId: number): OrderEvent[] {
 /**
  * Fold the stream into a status.
  *
- * `accepted`, `rejected` and `failed` are terminal and win over anything
- * earlier, so a late progress event cannot walk an order back out of a decision
- * the bank already made.
+ * Two rules, and the second is why this is not a simple last-write-wins:
+ *
+ * 1. **A progress event never walks an order back out of a decision.** Once
+ *    the bank has said something about this order, a late `initialised` — a
+ *    retry that raced, an event replayed out of order — must not turn it back
+ *    into work in progress.
+ * 2. **A later decision supersedes an earlier one.** An order accepted at
+ *    upload and rejected a day later by a payment status report is rejected.
+ *    The bank taking a file is not the bank having paid it, so `accepted` is
+ *    a decision that can still be overtaken.
  */
 export function foldStatus(events: OrderEvent[]): OrderStatus {
+  const DECISIONS = new Set(['accepted', 'settled', 'rejected', 'failed']);
   let status: OrderStatus = 'queued';
+  let decided = false;
+
   for (const event of events) {
-    switch (event.type) {
-      case 'queued':
-        status = 'queued';
-        break;
-      case 'initialised':
-        status = 'initialised';
-        break;
-      case 'transferred':
-        status = 'transferred';
-        break;
-      case 'accepted':
-        return 'accepted';
-      case 'rejected':
-        return 'rejected';
-      case 'failed':
-        return 'failed';
-      default:
-        break;
+    if (DECISIONS.has(event.type)) {
+      status = event.type as OrderStatus;
+      decided = true;
+      continue;
+    }
+    if (decided) continue;
+    if (event.type === 'queued' || event.type === 'initialised' || event.type === 'transferred') {
+      status = event.type;
     }
   }
   return status;

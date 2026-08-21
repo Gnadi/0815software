@@ -466,11 +466,62 @@ describe('POST /api/orders', () => {
 // ── The tick ──────────────────────────────────────────────────────────
 
 describe('POST /api/tick', () => {
-  it('says honestly that it has nothing to do yet', async () => {
+  it('is a quiet no-op on a stack with no connections', async () => {
     const res = await request(app).post('/api/tick').set(SERVICE).expect(200);
-    // The route exists because the registry declares this service tick-driven,
-    // and a scheduler POSTing to a 404 looks broken.
-    expect(res.body.downloads_fetched).toBe(0);
-    expect(res.body.note).toMatch(/phase 6/);
+    expect(res.body).toEqual({ downloads_fetched: 0, orders_updated: 0, problems: [] });
+  });
+
+  it('fetches what is waiting and reports what it did', async () => {
+    await bringUp();
+    bank.enqueue({ serviceName: 'EOP', msgName: 'camt.053' }, '<camt/>');
+
+    const res = await request(app).post('/api/tick').set(SERVICE).expect(200);
+    expect(res.body.downloads_fetched).toBe(1);
+    expect(res.body.problems).toEqual([]);
+
+    const list = await request(app).get('/api/downloads').set(SERVICE).expect(200);
+    expect(list.body.downloads).toHaveLength(1);
+    expect(list.body.downloads[0].kind).toBe('statement');
+  });
+});
+
+describe('downloads', () => {
+  beforeEach(async () => {
+    await bringUp();
+    bank.enqueue({ serviceName: 'EOP', msgName: 'camt.053' }, '<camt>hello</camt>');
+  });
+
+  it('serves the file itself on its own route, not in the listing', async () => {
+    await request(app).post('/api/tick').set(SERVICE).expect(200);
+    const list = await request(app).get('/api/downloads').set(SERVICE).expect(200);
+    const id = list.body.downloads[0].public_id as string;
+
+    // A listing must never carry megabytes of XML.
+    expect(JSON.stringify(list.body)).not.toContain('hello');
+
+    const content = await request(app).get(`/api/downloads/${id}/content`).set(SERVICE).expect(200);
+    expect(content.headers['content-type']).toContain('xml');
+    expect(content.text).toBe('<camt>hello</camt>');
+  });
+
+  it('lets an operator fetch one BTF now', async () => {
+    const res = await request(app)
+      .post('/api/connections/main/fetch')
+      .set('Authorization', `Bearer ${session}`)
+      .send({ btf: { service_name: 'EOP', scope: 'AT', msg_name: 'camt.053' } })
+      .expect(200);
+    expect(res.body.download.kind).toBe('statement');
+  });
+
+  it('keeps the fetch route away from a service token', async () => {
+    const res = await request(app)
+      .post('/api/connections/main/fetch')
+      .set(SERVICE)
+      .send({ btf: { service_name: 'EOP', msg_name: 'camt.053' } });
+    expect(res.status).toBe(403);
+  });
+
+  it('404s an unknown download', async () => {
+    await request(app).get('/api/downloads/dl_nope').set(SERVICE).expect(404);
   });
 });

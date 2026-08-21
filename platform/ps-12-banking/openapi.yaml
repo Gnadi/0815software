@@ -290,14 +290,88 @@ paths:
       responses:
         '200': { description: Success }
         '404': { description: No such order }
-  /api/tick:
+  /api/connections/{key}/fetch:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
     post:
-      summary: Run the periodic work
-      description: Reserved for phase 6 (statement and payment-status downloads); currently a no-op that says so.
+      summary: Fetch one BTF now
+      description: >-
+        An operator's button: ask the bank for one message type without waiting
+        for the tick. Optionally scoped to an inclusive `date_range`.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The download, or null when the bank had nothing waiting }
+        '409': { description: The connection is not ready }
+  /api/downloads:
+    get:
+      summary: List downloads
+      description: >-
+        Metadata only — the files themselves are on their own route, so a
+        listing never carries megabytes of XML. `acknowledged_at` null means
+        the bank has not been told we hold the file and will offer it again.
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - name: connection
+          in: query
+          schema: { type: string }
+        - name: kind
+          in: query
+          schema: { type: string, enum: [statement, status, other] }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000 }
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/downloads/{public_id}:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get download
+      description: The metadata plus, for a pain.002, the payment statuses read out of it.
       tags: [ps-12-banking]
       security: [{serviceToken: []}, {adminSession: []}]
       responses:
         '200': { description: Success }
+        '404': { description: No such download }
+  /api/downloads/{public_id}/content:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Download the file itself
+      description: >-
+        The bytes the bank sent, stored whole. A camt.053 is deliberately not
+        parsed by this service — matching bookings to invoices belongs to the
+        module that has the invoices.
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: The file }
+        '404': { description: No such download }
+  /api/tick:
+    post:
+      summary: Run the periodic work
+      description: >-
+        Fetch what every ready connection has waiting, and fold any payment
+        status reports back into the orders they are about. Answers 200 with
+        `problems` listed rather than failing: one bank being unreachable must
+        not stop the others being polled, and a scheduler calling this every
+        minute needs an answer it can log.
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: '{downloads_fetched, orders_updated, problems}' }
         '401': { description: Authentication required }
 components:
   securitySchemes:

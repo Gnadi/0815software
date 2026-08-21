@@ -149,6 +149,15 @@ describe('per-service client shapes', () => {
     expect(JSON.parse(calls[1]!.body!).idempotency_key).toBeUndefined();
   });
 
+  it('BankingClient.listDownloads filters by connection and kind', async () => {
+    const { fetch, calls } = recorder({ downloads: [] });
+    const client = new BankingClient({ baseUrl: 'http://bank', serviceToken: 's', fetch });
+    await client.listDownloads({ connection: 'main', kind: 'status' });
+    expect(calls[0]!.url).toBe('http://bank/api/downloads?connection=main&kind=status');
+    await client.listDownloads();
+    expect(calls[1]!.url).toBe('http://bank/api/downloads');
+  });
+
   it('SearchClient.search encodes facet filters as facet.<key> params', async () => {
     const { fetch, calls } = recorder({ total: 0, hits: [], facets: [] });
     const client = new SearchClient({ baseUrl: 'http://s', serviceToken: 's', fetch });

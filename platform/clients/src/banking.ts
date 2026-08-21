@@ -59,6 +59,78 @@ export class BankingClient extends BaseClient {
   listBanks(): Promise<{ banks: BankProfile[] }> {
     return this.apiGet('/api/banks');
   }
+
+  /**
+   * What the bank has handed over — statements and payment status reports.
+   *
+   * Metadata only: the files themselves are on their own route, so a listing
+   * never drags megabytes of XML through a module that only wanted to know
+   * whether anything arrived.
+   */
+  listDownloads(opts: { connection?: string; kind?: DownloadKind } = {}): Promise<{ downloads: BankDownload[] }> {
+    const query = new URLSearchParams();
+    if (opts.connection !== undefined) query.set('connection', opts.connection);
+    if (opts.kind !== undefined) query.set('kind', opts.kind);
+    const suffix = query.toString();
+    return this.apiGet(`/api/downloads${suffix === '' ? '' : `?${suffix}`}`);
+  }
+
+  getDownload(publicId: string): Promise<BankDownloadDetail> {
+    return this.apiGet(`/api/downloads/${encodeURIComponent(publicId)}`);
+  }
+
+  /**
+   * Run the periodic pass: fetch what is waiting, fold status reports into
+   * the orders they are about.
+   *
+   * Answers with what it did rather than throwing on an unreachable bank —
+   * one bank being down does not stop the others being polled.
+   */
+  tick(): Promise<TickResult> {
+    return this.apiPost<TickResult>('/api/tick', {});
+  }
+}
+
+/**
+ * What kind of file the bank handed over.
+ *
+ *   statement  camt.053 — an account statement, stored whole and not parsed
+ *              by the service: matching bookings to invoices is your business
+ *   status     pain.002 — a payment status report, which IS read, because it
+ *              is the answer to "did that payment file go through?"
+ *   other      anything else a BTF names
+ */
+export type DownloadKind = 'statement' | 'status' | 'other';
+
+export interface BankDownload {
+  public_id: string;
+  connection: string;
+  kind: DownloadKind;
+  btf: Btf;
+  sha256: string;
+  byte_length: number;
+  fetched_at: string;
+  /** Null means the bank has not been told we have it, and will offer again. */
+  acknowledged_at: string | null;
+  processed_at: string | null;
+}
+
+export interface BankDownloadDetail extends BankDownload {
+  reports: {
+    msg_id: string | null;
+    /** The ISO 20022 status, passed through: ACSC, RJCT, PDNG, … */
+    status_code: string;
+    reason_code: string | null;
+    reason: string | null;
+    created_at: string;
+  }[];
+}
+
+export interface TickResult {
+  downloads_fetched: number;
+  orders_updated: number;
+  /** Connections that could not be reached. Reported, not thrown. */
+  problems: { connection: string; message: string }[];
 }
 
 /** The Business Transaction Format, as a bank documents it. */

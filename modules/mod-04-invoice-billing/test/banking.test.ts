@@ -339,6 +339,51 @@ describe('when the conversation with the bank breaks', () => {
 // ── Refreshing ────────────────────────────────────────────────────────
 
 describe('refreshing a run’s bank status', () => {
+  it('settles the run and its bills when the bank reports the money moved', async () => {
+    const stub = stubBanking(accepted);
+    await boot({ hooks: stub.hooks });
+    const run = await makeRun();
+    const billId = run.items[0]!.bill_id;
+    await submit(run.id).expect(200);
+    expect((await billRow(billId)).status).toBe('scheduled');
+
+    // A pain.002 with ACSC arrived at PS-12 — the whole point of the download
+    // half. Nobody has to come back and press "mark executed".
+    stub.orders.set('ord_abc', { orderId: 'ord_abc', status: 'settled', message: null });
+    const res = await request(app)
+      .post(`/api/payment-runs/${run.id}/refresh`)
+      .set('Cookie', cookie)
+      .send({})
+      .expect(200);
+
+    expect(res.body.status).toBe('executed');
+    expect(res.body.bank_status).toBe('settled');
+    expect((await billRow(billId)).status).toBe('paid');
+  });
+
+  it('does not re-settle a run someone already marked executed', async () => {
+    const stub = stubBanking(accepted);
+    await boot({ hooks: stub.hooks });
+    const run = await makeRun();
+    await submit(run.id).expect(200);
+    const marked = await request(app)
+      .post(`/api/payment-runs/${run.id}/mark-executed`)
+      .set('Cookie', cookie)
+      .send({})
+      .expect(200);
+
+    stub.orders.set('ord_abc', { orderId: 'ord_abc', status: 'settled', message: null });
+    const res = await request(app)
+      .post(`/api/payment-runs/${run.id}/refresh`)
+      .set('Cookie', cookie)
+      .send({})
+      .expect(200);
+
+    // Same timestamp: the settlement is recorded, the execution is not redone.
+    expect(res.body.status).toBe('executed');
+    expect(res.body.executed_at).toBe(marked.body.executed_at);
+  });
+
   it('folds a later rejection in, and releases the bills', async () => {
     const stub = stubBanking(accepted);
     await boot({ hooks: stub.hooks });

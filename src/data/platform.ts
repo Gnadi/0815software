@@ -334,6 +334,7 @@ export const platform: PlatformService[] = [
       'A connection goes live only when a human confirms the bank’s key digests',
       'Signed BTU uploads of any ISO 20022 file, with segmentation and receipts',
       'A payment file is submitted at most once, and per-connection ceilings hold',
+      'Statement and status-report downloads, folded back into the payment runs',
     ],
     api: [
       'GET /api/banks · GET/POST /api/connections',
@@ -341,6 +342,7 @@ export const platform: PlatformService[] = [
       'GET /api/connections/:key/ini-letter.pdf',
       'POST /api/connections/:key/verify-bank-keys · /suspend · /resume',
       'POST /api/orders (?validate=1) · GET /api/orders[/:id]',
+      'GET /api/downloads[/:id][/content] · POST /api/tick',
     ],
     consumers: 'MOD-04 Invoice & Billing; any module that can produce an ISO 20022 file.',
   },

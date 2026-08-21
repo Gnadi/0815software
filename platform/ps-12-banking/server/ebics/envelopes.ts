@@ -402,6 +402,98 @@ export function buildTransfer(params: {
   return signed(root, params.keys.authPrivatePem);
 }
 
+// ── BTD: downloading what the bank has for us ─────────────────────────
+
+/**
+ * The initialisation phase of a download.
+ *
+ * Two things are absent that an upload carries, and their absence is the whole
+ * difference: there is no order data and **no bank-technical signature**. We
+ * are not authorising anything — we are asking. So the ES key never appears in
+ * a download, which is why `SubscriberKeys.esPrivatePem` is untouched here.
+ *
+ * The date range is optional and inclusive. Omitting it asks for whatever the
+ * bank has not yet handed over, which is the ordinary case: a positive receipt
+ * is what marks a file as collected, so "new since last time" is the bank's
+ * bookkeeping rather than ours.
+ */
+export function buildDownloadInit(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  btf: Btf;
+  timestamp: string;
+  /** Inclusive ISO dates. Both or neither — a half-open range is not a range. */
+  dateRange?: { from: string; to: string };
+}): string {
+  const { subscriber, keys, bank, btf } = params;
+
+  const root = el('e:ebicsRequest', { Version: H005, Revision: '1' }, [
+    el('e:header', { authenticate: 'true' }, [
+      staticHeader(subscriber, [
+        el('e:Nonce', {}, [nonceFrom(params.timestamp, subscriber)]),
+        el('e:Timestamp', {}, [params.timestamp]),
+        el('e:PartnerID', {}, [subscriber.partnerId]),
+        el('e:UserID', {}, [subscriber.userId]),
+        el('e:OrderDetails', {}, [
+          el('e:AdminOrderType', {}, ['BTD']),
+          el('e:BTDOrderParams', {}, [
+            btfElement(btf),
+            params.dateRange === undefined
+              ? null
+              : el('e:DateRange', {}, [
+                  el('e:Start', {}, [params.dateRange.from]),
+                  el('e:End', {}, [params.dateRange.to]),
+                ]),
+          ]),
+        ]),
+        el('e:BankPubKeyDigests', {}, [
+          el('e:Authentication', { Version: 'X002', Algorithm: 'http://www.w3.org/2001/04/xmlenc#sha256' }, [
+            publicKeyDigest(bank.authPublicPem).toString('base64'),
+          ]),
+          el('e:Encryption', { Version: 'E002', Algorithm: 'http://www.w3.org/2001/04/xmlenc#sha256' }, [
+            publicKeyDigest(bank.encPublicPem).toString('base64'),
+          ]),
+        ]),
+        el('e:SecurityMedium', {}, ['0000']),
+      ]),
+      el('e:mutable', {}, [el('e:TransactionPhase', {}, ['Initialisation'])]),
+    ]),
+    el('e:body', {}, []),
+  ]);
+
+  return signed(root, keys.authPrivatePem);
+}
+
+/**
+ * Ask for one more segment of a download in progress.
+ *
+ * The mirror of `buildTransfer`: there the segment number says what we are
+ * sending, here it says what we want next.
+ */
+export function buildDownloadSegment(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  transactionId: string;
+  segmentNumber: number;
+}): string {
+  const root = el('e:ebicsRequest', { Version: H005, Revision: '1' }, [
+    el('e:header', { authenticate: 'true' }, [
+      el('e:static', {}, [
+        el('e:HostID', {}, [params.subscriber.hostId]),
+        el('e:TransactionID', {}, [params.transactionId]),
+      ]),
+      el('e:mutable', {}, [
+        el('e:TransactionPhase', {}, ['Transfer']),
+        el('e:SegmentNumber', {}, [String(params.segmentNumber)]),
+      ]),
+    ]),
+    el('e:body', {}, []),
+  ]);
+
+  return signed(root, params.keys.authPrivatePem);
+}
+
 /**
  * The receipt phase, which closes a DOWNLOAD.
  *

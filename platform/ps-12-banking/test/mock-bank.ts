@@ -13,6 +13,9 @@ import { buildAuthSignature, verifyAuthSignature } from '../server/ebics/dsig.js
 import { EBICS_NS, HEV_NS, NS } from '../server/ebics/envelopes.js';
 import {
   decryptTransactionKey,
+  encryptTransactionKey,
+  newTransactionKey,
+  packOrderData,
   publicKeyParts,
   sha256,
   unpackOrderData,
@@ -45,6 +48,12 @@ import { BANK_AUTH, BANK_ENC } from './fixtures/keys.js';
  *   the order data the client actually sent;
  * - `DataDigest` matches those same bytes;
  * - segments arrive in order, and the count matches `NumSegments`.
+ *
+ * On the download side it also holds a queue per BTF, encrypts each file to
+ * the subscriber's own E002 key, and — the part worth having a counterparty
+ * for — **only drops a file from the queue when a positive receipt arrives**.
+ * A client that acknowledges before storing gets to lose a file here instead
+ * of in production.
  */
 
 export interface MockBankOptions {
@@ -57,6 +66,8 @@ export interface MockBankOptions {
   omitTransactionId?: boolean;
   /** Make HPB answer before INI/HIA, to test the client's ordering. */
   allowHpbBeforeInit?: boolean;
+  /** Base64 characters per download segment, to exercise reassembly. */
+  downloadSegmentLimit?: number;
 }
 
 interface Subscriber {
@@ -66,6 +77,19 @@ interface Subscriber {
   esVersion?: string;
   authPublicPem?: string;
   encPublicPem?: string;
+}
+
+/** A file waiting to be collected, keyed by the BTF that asks for it. */
+interface Queued {
+  btfKey: string;
+  content: Buffer;
+}
+
+/** A download the client has started but not yet acknowledged. */
+interface OpenDownload {
+  id: string;
+  queued: Queued;
+  segments: string[];
 }
 
 interface OpenTransaction {
@@ -106,6 +130,9 @@ export class MockBank {
 
   private readonly subscribers = new Map<string, Subscriber>();
   private readonly transactions = new Map<string, OpenTransaction>();
+  /** Files waiting to be collected, in order. */
+  private readonly queue: Queued[] = [];
+  private readonly openDownloads = new Map<string, OpenDownload>();
   private counter = 0;
   private options: MockBankOptions;
 
@@ -117,6 +144,25 @@ export class MockBank {
   /** Change the bank's behaviour mid-test (to force a rejection, say). */
   configure(options: Partial<MockBankOptions>): void {
     this.options = { ...this.options, ...options };
+  }
+
+  /**
+   * Put a file in the queue for a BTF, as a bank would when a statement is
+   * ready. It stays there until a POSITIVE RECEIPT arrives — a client that
+   * never acknowledges will be offered it again on the next poll, which is
+   * what real banks do and what makes the store-then-acknowledge order
+   * testable.
+   */
+  enqueue(btf: { serviceName: string; msgName: string }, content: Buffer | string): void {
+    this.queue.push({
+      btfKey: `${btf.serviceName}/${btf.msgName}`,
+      content: typeof content === 'string' ? Buffer.from(content, 'utf8') : content,
+    });
+  }
+
+  /** How many files are still waiting — i.e. never positively acknowledged. */
+  get pending(): number {
+    return this.queue.length;
   }
 
   /**
@@ -257,9 +303,15 @@ export class MockBank {
 
   private request(root: XmlElement): string {
     const phase = textOf(at(root, EBICS_NS, 'header', 'mutable', 'TransactionPhase')).trim();
-    if (phase === 'Initialisation') return this.uploadInit(root);
-    if (phase === 'Transfer') return this.uploadTransfer(root);
-    if (phase === 'Receipt') return this.response({});
+    const orderType = textOf(at(root, EBICS_NS, 'header', 'static', 'OrderDetails', 'AdminOrderType')).trim();
+    if (phase === 'Initialisation') return orderType === 'BTD' ? this.downloadInit(root) : this.uploadInit(root);
+    if (phase === 'Transfer') {
+      // A download transfer carries no body; an upload one carries a segment.
+      return at(root, EBICS_NS, 'body', 'DataTransfer') === null
+        ? this.downloadSegment(root)
+        : this.uploadTransfer(root);
+    }
+    if (phase === 'Receipt') return this.receipt(root);
     return this.response({ technical: '061002', reportText: `unknown phase ${phase}` });
   }
 
@@ -402,6 +454,99 @@ export class MockBank {
     return this.response({ transactionId: id });
   }
 
+  // ── BTD: handing a file over ─────────────────────────────────────────
+
+  private downloadInit(root: XmlElement): string {
+    const statics = at(root, EBICS_NS, 'header', 'static')!;
+    const partnerId = textOf(at(statics, EBICS_NS, 'PartnerID')).trim();
+    const userId = textOf(at(statics, EBICS_NS, 'UserID')).trim();
+    const subscriber = this.subscribers.get(this.subscriberKey(partnerId, userId));
+    if (subscriber?.authPublicPem === undefined || subscriber.encPublicPem === undefined) {
+      return this.response({ technical: '091002', reportText: 'subscriber unknown' });
+    }
+
+    const verified = verifyAuthSignature({ root, bankAuthPublicPem: subscriber.authPublicPem });
+    if (!verified.ok) {
+      return this.response({ technical: '061001', reportText: `auth signature: ${verified.reason}` });
+    }
+
+    // A download carries no bank-technical signature: the client is asking,
+    // not authorising. A client that sent one would be confusing its keys.
+    if (at(root, EBICS_NS, 'body', 'DataTransfer') !== null) {
+      return this.response({ technical: '061002', reportText: 'a download request carries no data' });
+    }
+
+    const service = at(statics, EBICS_NS, 'OrderDetails', 'BTDOrderParams', 'Service');
+    const btfKey = `${textOf(at(service, EBICS_NS, 'ServiceName')).trim()}/${textOf(
+      at(service, EBICS_NS, 'MsgName'),
+    ).trim()}`;
+    const queued = this.queue.find((item) => item.btfKey === btfKey);
+    if (queued === undefined) {
+      // Nothing waiting — the ordinary answer on most polls, and not an error.
+      return this.response({ technical: '090005', reportText: 'no download data available' });
+    }
+
+    // Encrypted to the SUBSCRIBER's key on the way down, which is the mirror
+    // of the upload and the reason E002 is a key pair rather than a secret.
+    const transactionKey = newTransactionKey();
+    const packed = packOrderData(transactionKey, queued.content);
+    const limit = this.options.downloadSegmentLimit ?? packed.length;
+    const segments: string[] = [];
+    for (let i = 0; i < packed.length; i += limit) segments.push(packed.slice(i, i + limit));
+
+    const id = `MOCKDL-${++this.counter}`;
+    this.openDownloads.set(id, { id, queued, segments });
+
+    return this.response({
+      transactionId: id,
+      segments: segments.length,
+      orderData: segments[0],
+      transactionKey: encryptTransactionKey(subscriber.encPublicPem, transactionKey).toString('base64'),
+      segmentNumber: 1,
+      lastSegment: segments.length === 1,
+    });
+  }
+
+  private downloadSegment(root: XmlElement): string {
+    const id = textOf(at(root, EBICS_NS, 'header', 'static', 'TransactionID')).trim();
+    const open = this.openDownloads.get(id);
+    if (open === undefined) return this.response({ technical: '091111', reportText: 'unknown transaction' });
+
+    const number = Number.parseInt(textOf(at(root, EBICS_NS, 'header', 'mutable', 'SegmentNumber')).trim(), 10);
+    const segment = open.segments[number - 1];
+    if (segment === undefined) {
+      return this.response({ technical: '091110', reportText: `no segment ${number}` });
+    }
+    return this.response({
+      transactionId: id,
+      orderData: segment,
+      segmentNumber: number,
+      lastSegment: number === open.segments.length,
+    });
+  }
+
+  /**
+   * The receipt. **This is where a file leaves the queue** — and only on a
+   * POSITIVE one.
+   *
+   * A client that acknowledges before storing the bytes loses the file here,
+   * exactly as it would at a real bank, which is the whole reason this mock
+   * keeps a queue rather than answering from a fixture.
+   */
+  private receipt(root: XmlElement): string {
+    const id = textOf(at(root, EBICS_NS, 'header', 'static', 'TransactionID')).trim();
+    const open = this.openDownloads.get(id);
+    if (open === undefined) return this.response({});
+
+    const code = textOf(at(root, EBICS_NS, 'body', 'TransferReceipt', 'ReceiptCode')).trim();
+    if (code === '0') {
+      const index = this.queue.indexOf(open.queued);
+      if (index >= 0) this.queue.splice(index, 1);
+    }
+    this.openDownloads.delete(id);
+    return this.response({});
+  }
+
   // ── Response building ───────────────────────────────────────────────
 
   private response(parts: {
@@ -411,6 +556,9 @@ export class MockBank {
     transactionId?: string;
     segments?: number;
     orderData?: string;
+    transactionKey?: string;
+    segmentNumber?: number;
+    lastSegment?: boolean;
   }): string {
     const root = el('e:ebicsResponse', { Version: 'H005', Revision: '1' }, [
       el('e:header', { authenticate: 'true' }, [
@@ -419,13 +567,27 @@ export class MockBank {
           parts.segments !== undefined ? el('e:NumSegments', {}, [String(parts.segments)]) : null,
         ]),
         el('e:mutable', {}, [
+          parts.segmentNumber === undefined
+            ? null
+            : el(
+                'e:SegmentNumber',
+                parts.lastSegment === true ? { lastSegment: 'true' } : {},
+                [String(parts.segmentNumber)],
+              ),
           el('e:ReturnCode', {}, [parts.technical ?? '000000']),
           el('e:ReportText', {}, [parts.reportText ?? 'OK']),
         ]),
       ]),
       el('e:body', {}, [
         parts.orderData !== undefined
-          ? el('e:DataTransfer', {}, [el('e:OrderData', {}, [parts.orderData])])
+          ? el('e:DataTransfer', {}, [
+              parts.transactionKey === undefined
+                ? null
+                : el('e:DataEncryptionInfo', { authenticate: 'true' }, [
+                    el('e:TransactionKey', {}, [parts.transactionKey]),
+                  ]),
+              el('e:OrderData', {}, [parts.orderData]),
+            ])
           : null,
         el('e:ReturnCode', {}, [parts.business ?? '000000']),
       ]),

@@ -130,6 +130,67 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    id: 2,
+    name: 'downloads',
+    up(db) {
+      db.exec(`
+      -- One file the bank handed us: a camt.053 statement, a pain.002 status
+      -- report, anything a BTF names. Stored whole and unparsed.
+      --
+      -- Two things are worth stating about this table.
+      --
+      -- The CONTENT is kept, not just what we made of it. A camt.053 is the
+      -- bank's own record of an account; re-fetching one is not always
+      -- possible (a positive receipt tells the bank we have it, and it stops
+      -- offering it), so throwing away the bytes after reading them once
+      -- means a parser bug is unrecoverable rather than a re-run.
+      --
+      -- \`acknowledged_at\` is when we sent the POSITIVE RECEIPT, and it is
+      -- deliberately set AFTER the row is committed. A receipt sent before
+      -- the file is safely stored is how a bank statement disappears: the
+      -- bank marks it collected and we crashed before writing it.
+      CREATE TABLE IF NOT EXISTS downloads (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        connection_id  INTEGER NOT NULL REFERENCES bank_connections(id),
+        public_id      TEXT    NOT NULL UNIQUE,      -- "dl_<hex>"
+        kind           TEXT    NOT NULL,             -- 'statement' | 'status' | 'other'
+        btf            TEXT    NOT NULL,             -- json, what was asked for
+        sha256         TEXT    NOT NULL,
+        byte_length    INTEGER NOT NULL,
+        content        BLOB    NOT NULL,
+        transaction_id TEXT,
+        fetched_at     TEXT    NOT NULL,
+        acknowledged_at TEXT,
+        -- Set once the file has been read into whatever a consumer needed.
+        processed_at   TEXT
+      );
+      -- THE INVARIANT: the same bytes are stored once per connection. Banks
+      -- re-offer a file whose receipt they never saw, which is correct of
+      -- them and would otherwise give us a duplicate every time a fetch was
+      -- interrupted between storing and acknowledging.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_downloads_sha
+        ON downloads (connection_id, sha256);
+      CREATE INDEX IF NOT EXISTS idx_downloads_unprocessed
+        ON downloads (connection_id, processed_at);
+
+      -- What a download told us about one payment. Append-only; the order's
+      -- own event stream is where this ends up mattering.
+      CREATE TABLE IF NOT EXISTS download_reports (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        download_id   INTEGER NOT NULL REFERENCES downloads(id) ON DELETE CASCADE,
+        -- The pain.001 MsgId this report is about, when it names one.
+        msg_id        TEXT,
+        -- 'ACCP' | 'ACSC' | 'RJCT' | … — the bank's own status code.
+        status_code   TEXT    NOT NULL,
+        reason_code   TEXT,
+        reason        TEXT,
+        created_at    TEXT    NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_download_reports_msg ON download_reports (msg_id);
+      `);
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {

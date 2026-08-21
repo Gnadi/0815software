@@ -79,8 +79,11 @@ through the shared [`clients`](./clients) package.
   Node built-in crypto only — the exclusive XML canonicaliser and the XML-DSig
   signature are implemented here rather than taken as dependencies. A
   connection carries no order until a human has confirmed the bank's key
-  digests, and a payment file is submitted at most once. Nothing in it has
-  spoken to a real bank yet.
+  digests, and a payment file is submitted at most once. Downloads come back
+  the other way — `camt.053` statements stored whole, `pain.002` status reports
+  read and folded into the orders they are about, so a MOD-04 payment run
+  settles itself on the bank's own word. Nothing in it has spoken to a real
+  bank yet.
 
 Modules consume these through the shared
 [`@0815software/platform-clients`](./clients) package — one typed client per

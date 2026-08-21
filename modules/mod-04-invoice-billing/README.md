@@ -513,6 +513,13 @@ API like any other service:
   bank. **The download never goes away**, because a bank connection is optional
   and the file is the fallback for the day the connection is down.
 
+And in the other direction: PS-12 collects the bank's **payment status
+reports** (`pain.002`) and folds them back, so a run settles itself. A report
+saying the money moved (`ACSC`) marks the run executed and its bills paid; one
+saying the bank refused it releases the bills back to `open` for a corrected
+run. Nobody has to come back and press "mark executed" — though the button
+stays, because a bank that sends no status reports is still a bank.
+
 The file stays the standardised part either way. Every bank takes it, nothing
 here has to be certified against any bank's API, and an outage at the bank
 cannot break bookkeeping.
@@ -556,7 +563,9 @@ export profiles are examples rather than certifications.
    is `paymentRunXml`, the same function the download serves, so an operator
    falling back to uploading by hand uploads the identical file. Rule 1 still
    holds across the boundary: PS-12 deduplicates on the run's own `MsgId`, so
-   even a lost idempotency key cannot pay twice.
+   even a lost idempotency key cannot pay twice. And what the bank later says
+   about it wins: a run accepted at upload and refused by a `pain.002` two days
+   later ends up `rejected`, with its bills released, not quietly "sent".
 
 ### Money, and what a bill is not
 

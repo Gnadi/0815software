@@ -5,11 +5,12 @@ exchange, and signed ISO 20022 uploads over the customer's own bank
 connection. Part of the [Platform Services catalog](../README.md). Backend
 service, MIT-licensed, self-contained.
 
-> **Status: phase 5 of 6 — MOD-04 sends payment runs through it.** The protocol
-> core, the encrypted key store, the connection lifecycle, signed BTU uploads,
-> the HTTP API and the MOD-04 integration are implemented and tested against a
-> mock bank that verifies what it is sent. Remaining: downloads (phase 6). See
-> [Build order](#build-order). Nothing here has talked to a real bank.
+> **Status: feature-complete against a mock bank.** All six phases are built:
+> the protocol core, the encrypted key store, the connection lifecycle, signed
+> BTU uploads, the HTTP API, the MOD-04 integration, and BTD downloads with
+> reconciliation back into the payment runs. Everything is tested against a
+> mock bank that verifies what it is sent — and **nothing here has talked to a
+> real bank.** See [Honesty about what is proven](#honesty-about-what-is-proven).
 
 ## What this service is for
 
@@ -209,9 +210,12 @@ POST /api/connections/:key/ini · /hia · /hpb
 GET  /api/connections/:key/ini-letter.pdf          digests to sign and post
 POST /api/connections/:key/verify-bank-keys        → ready
 POST /api/connections/:key/suspend · /resume
-POST /api/orders            {connection, btf, payload_base64, idempotency_key}
+POST /api/orders            {connection, btf?, payload_base64, idempotency_key}
                             ?validate=1 → a dry run that signs nothing
 GET  /api/orders[/:public_id]                      folded status + events
+POST /api/connections/:key/fetch                   fetch one BTF now
+GET  /api/downloads[/:public_id][/content]         what the bank sent
+POST /api/tick                                     fetch + reconcile
 ```
 
 `platform/clients` exports `BankingClient`, so a module that can produce an ISO
@@ -241,6 +245,50 @@ as "you have not entered your bank's details". Every profile is marked
 a bank's own documentation. `?validate=1` is how an operator checks one without
 money moving.
 
+## Downloads, and the one rule that matters
+
+```
+POST /api/tick  →  for each ready connection:
+                     BTD pain.002  →  store  →  ACK  →  fold into the orders
+                     BTD camt.053  →  store  →  ACK  →  hand over untouched
+```
+
+**The positive receipt goes out only after the bytes are committed.** A receipt
+is how the bank learns we hold a file; it then stops offering it. Sending one
+before the file is stored is how a bank statement disappears permanently — the
+bank marks it collected, the process dies, and there is no second copy
+anywhere.
+
+So the order is: fetch every segment, reassemble, decrypt, `INSERT`, commit,
+*then* acknowledge. Getting it wrong in the other direction costs a duplicate,
+which `UNIQUE (connection, sha256)` absorbs. Getting it wrong this way is
+unrecoverable, and the mock bank keeps a real queue so the mistake shows up in
+a test rather than in production.
+
+### What is read, and what is only kept
+
+| File | Treatment |
+| ---- | --------- |
+| **pain.002** payment status report | **Read.** It is the answer to "did that payment file go through?", and nothing else in the stack can answer it. |
+| **camt.053** account statement | **Stored whole, never parsed.** It is an account statement, and matching bookings to invoices belongs to the module that has the invoices. |
+
+Status codes are passed through, not translated — the same reasoning as the
+three EBICS codes in `codes.ts`. The one judgement made is conservative: **any**
+rejection makes the whole order rejected, even alongside acceptances. A file
+where three transfers went through and one bounced is not "accepted" to the
+person who has to go and pay that fourth supplier.
+
+### `accepted` is not final
+
+An order accepted at upload can be rejected two days later by a status report,
+so the fold lets a later decision overtake an earlier one — while still never
+letting a stray progress event walk an order back out of a decision. The bank
+taking a *file* and the bank having *paid* it are two different facts, and the
+status ladder keeps them apart: `accepted` then `settled`.
+
+MOD-04 is the consumer: a run whose order reaches `settled` settles its bills
+on the bank's own word, with nobody coming back to press "mark executed".
+
 ## Trust, and where it actually comes from
 
 INI and HIA are **unsecured messages** — they cannot be otherwise, because the
@@ -267,8 +315,11 @@ produces a plausible value that never matches the bank's letter.
 | 2 | Key custody, the connection lifecycle, the mock bank | **Done** |
 | 3 | Orders: BTU upload, segmentation, receipts, idempotency, ceilings | **Done** |
 | 4 | HTTP API, bank profiles, INI letter, catalogue wiring, client | **Done** |
-| 5 | MOD-04 integration — "Send via EBICS" beside "Download XML" | **Done** — 283 tests |
-| 6 | Downloads: camt.053 and pain.002, and reconciliation back into MOD-04 | Next |
+| 5 | MOD-04 integration — "Send via EBICS" beside "Download XML" | **Done** |
+| 6 | Downloads: camt.053 and pain.002, and reconciliation back into MOD-04 | **Done** — 308 tests |
+
+What is left is not code: a first connection to a real bank, with that bank's
+own example messages and file check in hand.
 
 ## Scripts
 
@@ -289,6 +340,11 @@ produces a plausible value that never matches the bank's letter.
   feature.
 - **SEPA direct debit collection** (`pain.008`), which needs mandates that no
   module currently holds.
+- **Parsing account statements.** A `camt.053` is downloaded, stored whole and
+  handed over; turning bookings into matched receivables is the consuming
+  module's job. Doing it here would be the cross-module read-model service this
+  repository decided not to build
+  ([`docs/PLATFORM-SERVICE-OPPORTUNITIES.md`](../../docs/PLATFORM-SERVICE-OPPORTUNITIES.md)).
 
 ## Honesty about what is proven
 

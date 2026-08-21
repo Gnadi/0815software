@@ -40,6 +40,14 @@ import {
   type ExchangeContext,
 } from './connections.js';
 import { listOrders, orderDetail, previewOrder, submitOrder, type OrderContext } from './orders.js';
+import {
+  downloadContent,
+  downloadDetail,
+  fetchOne,
+  listDownloads,
+  tick,
+  type DownloadContext,
+} from './downloads.js';
 import type { BtfInput } from '../shared/types.js';
 
 /**
@@ -193,7 +201,7 @@ export function createApp(opts: AppOptions): express.Express {
 
   const actorOf = (req: Request): string => (sessionOk(req) ? auth.username : 'service');
 
-  const exchangeCtx = (req: Request): ExchangeContext & OrderContext => ({
+  const exchangeCtx = (req: Request): ExchangeContext & OrderContext & DownloadContext => ({
     db,
     keySecret,
     transport,
@@ -401,15 +409,69 @@ export function createApp(opts: AppOptions): express.Express {
     res.json(orderDetail(db, req.params.public_id as string));
   });
 
+  // ── Downloads — what the bank has for us ───────────────────────────
+  app.get('/api/downloads', requireCaller, (req, res) => {
+    const query = req.query as Record<string, unknown>;
+    res.json({
+      downloads: listDownloads(db, {
+        connection: optionalText(query, 'connection'),
+        kind: optionalText(query, 'kind'),
+        limit: optionalInt(query, 'limit', 1, 1_000),
+      }),
+    });
+  });
+
+  app.get('/api/downloads/:public_id', requireCaller, (req, res) => {
+    res.json(downloadDetail(db, req.params.public_id as string));
+  });
+
   /**
-   * Nothing to do yet — downloads are phase 6.
+   * The file itself.
    *
-   * The route exists now because the registry entry declares this service
-   * tick-driven, and a stack whose scheduler POSTs to a 404 looks broken. It
-   * reports honestly rather than pretending to have worked.
+   * Separate from the metadata route so a listing never carries megabytes of
+   * XML, and so a module can stream a statement it wants to parse without
+   * this service having an opinion about what is in it.
    */
-  app.post('/api/tick', requireCaller, (_req, res) => {
-    res.json({ downloads_fetched: 0, note: 'downloads are not implemented yet (phase 6)' });
+  app.get('/api/downloads/:public_id/content', requireCaller, (req, res) => {
+    const detail = downloadDetail(db, req.params.public_id as string);
+    res.type('application/xml').setHeader(
+      'Content-Disposition',
+      `attachment; filename="${detail.public_id}-${detail.btf.msg_name}.xml"`,
+    );
+    res.send(downloadContent(db, detail.public_id));
+  });
+
+  /** Fetch one BTF now, without waiting for the tick. An operator's button. */
+  app.post('/api/connections/:key/fetch', requireAdmin, (req, res, next) => {
+    void (async () => {
+      const b = body(req);
+      const btf = btfFrom(b);
+      if (btf === undefined) {
+        throw new DomainError(422, 'Validation failed', [
+          { field: 'btf', message: 'is required — name what to fetch' },
+        ]);
+      }
+      const range = b.date_range as { from?: unknown; to?: unknown } | undefined;
+      const dateRange =
+        range !== undefined && typeof range.from === 'string' && typeof range.to === 'string'
+          ? { from: range.from, to: range.to }
+          : undefined;
+      res.json(await fetchOne(exchangeCtx(req), req.params.key as string, btf, dateRange));
+    })().catch(next);
+  });
+
+  /**
+   * The periodic pass: fetch what every ready connection has waiting, and fold
+   * any payment status reports back into the orders they are about.
+   *
+   * Answers 200 with the problems listed rather than failing: one bank being
+   * unreachable must not stop the others from being polled, and a scheduler
+   * calling this every minute needs an answer it can log, not a 500.
+   */
+  app.post('/api/tick', requireCaller, (req, res, next) => {
+    void (async () => {
+      res.json(await tick(exchangeCtx(req)));
+    })().catch(next);
   });
 
   // ── Terminal error middleware ──────────────────────────────────────

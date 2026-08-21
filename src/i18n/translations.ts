@@ -264,6 +264,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'svc.banking.resp.2':                            'A connection goes live only when a human confirms the bank’s key digests',
     'svc.banking.resp.3':                            'Signed BTU uploads of any ISO 20022 file, with segmentation and receipts',
     'svc.banking.resp.4':                            'A payment file is submitted at most once, and per-connection ceilings hold',
+    'svc.banking.resp.5':                            'Statement and status-report downloads, folded back into the payment runs',
     'svc.banking.consumers':                         'MOD-04 Invoice & Billing; any module that can produce an ISO 20022 file.',
 
     'mod.customer-portal.body':                      'Self-service access to orders, documents, and status. No account manager required.',
@@ -678,6 +679,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'svc.banking.resp.2':                            'Eine Verbindung geht erst live, wenn ein Mensch die Schlüssel-Prüfsummen der Bank bestätigt',
     'svc.banking.resp.3':                            'Signierte BTU-Uploads beliebiger ISO-20022-Dateien, mit Segmentierung und Quittungen',
     'svc.banking.resp.4':                            'Eine Zahlungsdatei wird höchstens einmal eingereicht, und die Limits je Verbindung halten',
+    'svc.banking.resp.5':                            'Download von Kontoauszügen und Statusberichten, zurückgespielt in die Zahlungsläufe',
     'svc.banking.consumers':                         'MOD-04 Rechnung & Abrechnung; jedes Modul, das eine ISO-20022-Datei erzeugen kann.',
 
     'mod.customer-portal.body':                      'Self-Service-Zugang zu Aufträgen, Dokumenten und Status. Kein Account-Manager nötig.',

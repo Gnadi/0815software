@@ -12,6 +12,20 @@ const bank = new MockBank({ hostId: process.env.HOST_ID ?? 'MOCKHOST' });
 const port = Number(process.env.PORT ?? 4999);
 
 createServer((req, res) => {
+  // Put a file in the download queue: POST /enqueue?service=PSR&msg=pain.002
+  if (req.url?.startsWith('/enqueue')) {
+    const url = new URL(req.url, 'http://localhost');
+    const chunks: Buffer[] = [];
+    req.on('data', (c: Buffer) => chunks.push(c));
+    req.on('end', () => {
+      bank.enqueue(
+        { serviceName: url.searchParams.get('service') ?? '', msgName: url.searchParams.get('msg') ?? '' },
+        Buffer.concat(chunks),
+      );
+      res.end(JSON.stringify({ pending: bank.pending }));
+    });
+    return;
+  }
   if (req.url === '/received') {
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify(bank.received.map((o) => ({ ...o, orderData: o.orderData.toString('utf8') }))));

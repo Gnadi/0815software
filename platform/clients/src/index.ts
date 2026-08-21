@@ -36,10 +36,14 @@ export type {
 
 export { BankingClient } from './banking.js';
 export type {
+  BankDownload,
+  BankDownloadDetail,
   BankOrder,
   BankOrderStatus,
   BankProfile,
   Btf,
+  DownloadKind,
   OrderPreview,
   SubmitOrderInput,
+  TickResult,
 } from './banking.js';
