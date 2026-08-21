@@ -25,6 +25,7 @@ import { publicRegistry } from './bank-registry.js';
 import { renderIniLetter } from './ini-letter.js';
 import { KeyStoreError, loadKeySecret } from './keystore.js';
 import {
+  clearFailure,
   connectionDetail,
   createConnection,
   fetchBankKeys,
@@ -371,6 +372,16 @@ export function createApp(opts: AppOptions): express.Express {
 
   app.post('/api/connections/:key/resume', requireAdmin, (req, res) => {
     res.json(resume(exchangeCtx(req), req.params.key as string));
+  });
+
+  /**
+   * Step a connection back out of `failed` so the setup can be retried.
+   *
+   * Backwards only, to the last step actually completed — clearing a failure
+   * is never a route to `ready` without a human confirming the bank's digests.
+   */
+  app.post('/api/connections/:key/clear-failure', requireAdmin, (req, res) => {
+    res.json(clearFailure(exchangeCtx(req), req.params.key as string));
   });
 
   // ── Orders — what a module reaches ─────────────────────────────────

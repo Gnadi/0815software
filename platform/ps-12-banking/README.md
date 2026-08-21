@@ -49,6 +49,9 @@ server/ebics/
   codes.ts       return codes: technical vs business, and what to do about each
 ```
 
+Beside them, `server/zip.ts` opens the archives downloads arrive in — see
+[The container](#the-container-and-why-there-is-a-zip-reader-in-here).
+
 Every file here is **pure**: no database, no clock, no network. Timestamps and
 transaction keys are passed in, which is what lets the tests assert exact bytes
 and what lets a request be rebuilt identically when a transfer is resumed.
@@ -72,11 +75,22 @@ when signing our own document there is nothing to canonicalise, and the digest
 is over bytes we already wrote. A bug in the parser therefore cannot produce a
 bad **outgoing** signature. Parsing exists only to verify what the bank sends.
 
-The canonicaliser's output was cross-checked against an independent
-implementation (Python's `xml.etree.ElementTree.canonicalize`) and agreed byte
-for byte on every case tried, including the `xmlns=""` undeclaration. The
-AES-128-CBC + ANSI X9.23 pipeline was cross-checked against `openssl enc`, and
-one of those vectors is pinned in the test suite.
+The canonicaliser is checked against an independent implementation — Python's
+`xml.etree.ElementTree.canonicalize` — on 27 committed vectors, and agrees on
+all of them.
+
+That sentence used to read "agreed byte for byte on every case tried", which
+was true and worth very little: the cases tried avoided the two things the
+parser got wrong. It normalised neither **line endings** (XML 1.0 §2.11) nor
+**attribute values** (§3.3.3), so a response from a bank that formats with
+CRLF — many do — canonicalised to `&#xD;` where the signer saw a newline, and
+every `AuthSignature` check failed. The vectors now lead with those cases, and
+a third bug fell out while fixing them: a superfluous `xmlns=""` on any element
+under an undeclared default namespace.
+
+The AES-128-CBC + ANSI X9.23 pipeline is cross-checked against `openssl enc`,
+and the A005 order-data signature against `openssl dgst -sha256 -sign`. Both
+vectors are pinned in the test suite.
 
 ### Order data goes deflate → encrypt → base64
 
@@ -116,9 +130,10 @@ a failing case.
 
 ```
 created → keys_generated → ini_sent → hia_sent → hpb_fetched → ready
-                                                      ↑            ↓
-                                          (an operator confirms  suspended
-                                           the bank's digests)
+                                ↑                     ↑            ↓
+                          clear-failure   (an operator confirms  suspended
+                                ↑          the bank's digests)
+                             failed
 ```
 
 Every step but one is protocol. **`hpb_fetched` → `ready` is a person.** The
@@ -126,7 +141,7 @@ state is folded from an append-only event stream at read time, so there is no
 status column that can disagree with what happened, and `requireReady` is the
 single gate every order passes.
 
-Two consequences worth stating, both covered by tests:
+Three consequences worth stating, all covered by tests:
 
 - **Re-fetching the bank's keys clears the confirmation.** A bank rotating its
   keys is normal; inheriting a human's tick for keys nobody looked at is how a
@@ -135,6 +150,15 @@ Two consequences worth stating, both covered by tests:
 - **A digest mismatch is recorded, not shrugged off.** It is what an attacker
   in the middle looks like, so it is an event on the connection and the
   connection stays unusable.
+- **A failure during setup can be cleared, and only backwards.** A bank
+  refusing a setup message is often transient — a host that was down, a
+  subscriber it had not activated yet — and `failed` used to be terminal, with
+  a UNIQUE key and no delete route, so one bad afternoon meant editing the
+  database by hand. `clear-failure` steps the connection back to the last step
+  it actually completed, never forward: it can never become a way to reach
+  `ready` without someone confirming the digests. A *timeout*, by contrast,
+  records nothing at all — nothing happened, so there is nothing to recover
+  from.
 
 ## Submitting a payment file
 
@@ -209,7 +233,7 @@ POST /api/connections/:key/keys                    the three pairs, once
 POST /api/connections/:key/ini · /hia · /hpb
 GET  /api/connections/:key/ini-letter.pdf          digests to sign and post
 POST /api/connections/:key/verify-bank-keys        → ready
-POST /api/connections/:key/suspend · /resume
+POST /api/connections/:key/suspend · /resume · /clear-failure
 POST /api/orders            {connection, btf?, payload_base64, idempotency_key}
                             ?validate=1 → a dry run that signs nothing
 GET  /api/orders[/:public_id]                      folded status + events
@@ -265,6 +289,27 @@ which `UNIQUE (connection, sha256)` absorbs. Getting it wrong this way is
 unrecoverable, and the mock bank keeps a real queue so the mistake shows up in
 a test rather than in production.
 
+### The container, and why there is a ZIP reader in here
+
+EBICS delivers both of those inside a **ZIP** — one download can carry several
+days or several accounts, and the BTF's `Container` element says so. Node has
+`zlib`, which does the compression a ZIP entry uses, but nothing that reads the
+archive format around it, so `server/zip.ts` is ~100 lines rather than a
+dependency: the `express` + `better-sqlite3` invariant that all twelve services
+hold is worth more than the lines.
+
+It reads sizes from the **central directory**, never from the local headers.
+That is not style: a streaming writer sets general-purpose bit 3 and leaves the
+local sizes at zero, and a reader that trusts them returns an empty file with
+no error — for a bank statement. ZIP64, encryption and any compression method
+beyond stored and deflate are refused by name rather than guessed at. The
+container is also *sniffed* rather than taken from the BTF, because a bank that
+publishes `Container=ZIP` may still send one bare document.
+
+The archive is stored exactly as it arrived. Keeping the bytes the bank sent,
+rather than only what we made of them, is what turns a parser bug into a re-run
+instead of an unrecoverable loss — the file is offered once.
+
 ### What is read, and what is only kept
 
 | File | Treatment |
@@ -316,7 +361,8 @@ produces a plausible value that never matches the bank's letter.
 | 3 | Orders: BTU upload, segmentation, receipts, idempotency, ceilings | **Done** |
 | 4 | HTTP API, bank profiles, INI letter, catalogue wiring, client | **Done** |
 | 5 | MOD-04 integration — "Send via EBICS" beside "Download XML" | **Done** |
-| 6 | Downloads: camt.053 and pain.002, and reconciliation back into MOD-04 | **Done** — 308 tests |
+| 6 | Downloads: camt.053 and pain.002, and reconciliation back into MOD-04 | **Done** |
+| — | Review pass: ten findings, three of them bank-blockers | **Done** — 365 tests |
 
 What is left is not code: a first connection to a real bank, with that bank's
 own example messages and file check in hand.
@@ -353,6 +399,34 @@ specification, and — where an independent implementation existed offline —
 cross-checked against it. **No part of it has spoken to a real bank.** The
 first live connection should be treated as a debugging exercise, with the
 bank's own example messages and file check in hand, not as a rollout.
+
+### The mock bank cannot find a mistake it shares
+
+A review after the sixth phase found that `signOrderData` hashed the order data
+and handed the DIGEST to a signer that hashes what it is given — so the
+signature authorising every payment was over SHA-256(SHA-256(orderData)). The
+suite was green. It could not have been otherwise: the mock bank verifies
+through `verifyOrderData`, the mirror of the broken function, so client and
+counterparty agreed with each other and were wrong together. No number of
+additional tests written the same way would have caught it.
+
+That is the concrete form of the risk this file has claimed from the start, and
+it changes what a test here is worth:
+
+- **A vector from outside is worth more than a hundred round trips.** The A005
+  signature, the AES pipeline and the canonicaliser are all now pinned against
+  `openssl` or Python. Those cannot agree with our misreading.
+- **Where no outside implementation exists** — the envelope shapes, the BTF
+  values, the return codes — the mock proves only internal consistency, and
+  should be read as documentation of our reading rather than as evidence.
+
+The same review found five more defects that the tests could not see because
+nothing exercised the path: a `queued` order that locked its own MsgId for
+ever, a connection permanently bricked by one transient bank error, an
+idempotency key that collided across connections, a `container: ZIP` nobody
+could open, and a status report matched on the wrong id. All are fixed and
+covered; the point of listing them is that they were all found by reading, not
+by running.
 
 ## License
 

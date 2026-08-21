@@ -76,11 +76,16 @@ export function readStatusReports(content: Buffer): StatusReport[] {
   const body = at(root, ns, 'CstmrPmtStsRpt');
   if (body === null) return [];
 
-  // The MsgId of the ORIGINAL file, not of this report — that is the handle
-  // an order was filed under.
-  const originalMsgId =
-    nullIfEmpty(textOf(at(body, ns, 'OrgnlGrpInfAndSts', 'OrgnlMsgId')).trim()) ??
-    nullIfEmpty(textOf(at(body, ns, 'GrpHdr', 'MsgId')).trim());
+  // The MsgId of the ORIGINAL file, and ONLY that — it is the handle an order
+  // was filed under.
+  //
+  // There used to be a fallback to this report's own `GrpHdr/MsgId`, which is
+  // the bank's id for the report and has nothing to do with any order. It
+  // matched nothing in the usual case, and on a collision would have applied a
+  // stranger's verdict to a real payment. A report that does not name the file
+  // it is about is better left unattached: it is still stored, and a human can
+  // read it.
+  const originalMsgId = nullIfEmpty(textOf(at(body, ns, 'OrgnlGrpInfAndSts', 'OrgnlMsgId')).trim());
 
   const reports: StatusReport[] = [];
   const push = (node: XmlElement, statusTag: string): void => {

@@ -119,8 +119,13 @@ export function text(value: string): XmlText {
  * the bytes that get hashed. In text: `&`, `<`, `>` and a literal CR. In
  * attribute values: `&`, `<`, `"` and the whitespace characters TAB, LF and CR
  * (an unescaped LF in an attribute is normalised away by any conformant parser,
- * so it has to survive as a reference). Apostrophes, and `>` inside attributes,
- * are left alone — escaping them would be valid XML and the wrong canonical form.
+ * so one that is still here arrived as a character reference and has to leave
+ * as one). Apostrophes, and `>` inside attributes, are left alone — escaping
+ * them would be valid XML and the wrong canonical form.
+ *
+ * The other half of that sentence lives in `parse`: this writer was correct
+ * all along, and the parser was the half that did not normalise, so the two
+ * disagreed on any document a bank had formatted with CRLF.
  */
 export function escapeText(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r/g, '&#xD;');
@@ -183,7 +188,11 @@ function renderAttrs(node: XmlElement, ns: NsMap, inherited: Map<string, string>
     // prefix to something else — then canonical form needs `xmlns=""` to
     // undeclare it, which is why the empty URI is a value and not an absence.
     if (uri === null) {
-      if (inherited.has(prefix)) declared.set(prefix, '');
+      // Undeclare only when a NON-EMPTY default is actually in scope in the
+      // OUTPUT. Two ways that is not true, and both used to emit a stray
+      // `xmlns=""`: an ancestor whose default declaration exclusive C14N
+      // dropped as unused, and an ancestor that already undeclared it.
+      if ((inherited.get(prefix) ?? '') !== '') declared.set(prefix, '');
       return null;
     }
     if (inherited.get(prefix) !== uri) declared.set(prefix, uri);
@@ -272,6 +281,24 @@ export function canonicalize(node: XmlElement): string {
 const NAME_START = /[A-Za-z_]/;
 const NAME_CHAR = /[A-Za-z0-9._:-]/;
 
+/**
+ * XML 1.0 §3.3.3: ATTRIBUTE-VALUE NORMALIZATION.
+ *
+ * In a CDATA attribute — which is every attribute here, since this parser
+ * reads no DTD — each literal whitespace character becomes a single space.
+ * Line endings are already LF by the time this runs, so TAB and LF are what
+ * is left to fold.
+ *
+ * The order matters and is the whole subtlety: this runs BEFORE entity
+ * resolution, so a literal tab becomes a space while `&#x9;` survives as a
+ * real tab and is written back out as `&#x9;`. Normalising after unescaping
+ * would flatten the character reference too, and the canonical form would
+ * disagree with every other implementation.
+ */
+function normalizeAttrValue(raw: string): string {
+  return raw.replace(/[\t\n]/g, ' ');
+}
+
 /** Resolve the five predefined entities and numeric character references. */
 function unescape(raw: string): string {
   return raw.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (match, body: string) => {
@@ -301,7 +328,23 @@ interface ParseFrame {
 }
 
 /** Parse a document into the same tree the writer consumes. */
-export function parse(xml: string): XmlElement {
+export function parse(source: string): XmlElement {
+  // ── XML 1.0 §2.11: END-OF-LINE HANDLING ─────────────────────────────
+  //
+  // Before anything else, a conformant parser turns every CRLF and every lone
+  // CR into a single LF. It is one line, it is easy to skip, and skipping it
+  // breaks EVERY signature check against a bank that formats its responses
+  // with CRLF — which many do, because they generate them on mainframes.
+  //
+  // The failure is silent and total: the canonical form comes out carrying
+  // `&#xD;` where the signer saw `\n`, so the digest differs, the
+  // AuthSignature does not verify, and `orders.ts` files a perfectly good
+  // response as `failed`. It cost nothing to get right and everything to get
+  // wrong, which is why it is the first statement in the function.
+  //
+  // A CR that survives here can only have come from a `&#xD;` character
+  // reference, which is exactly what canonical form re-escapes.
+  const xml = source.replace(/\r\n?/g, '\n');
   let i = 0;
   const stack: ParseFrame[] = [];
   let root: XmlElement | null = null;
@@ -387,7 +430,7 @@ export function parse(xml: string): XmlElement {
         i++;
         const end = xml.indexOf(quote, i);
         if (end === -1) fail('unterminated attribute value');
-        raw.push({ qname: attrName, value: unescape(xml.slice(i, end)) });
+        raw.push({ qname: attrName, value: unescape(normalizeAttrValue(xml.slice(i, end))) });
         i = end + 1;
       }
 
@@ -398,7 +441,12 @@ export function parse(xml: string): XmlElement {
       }
 
       const resolve = (p: string, isAttr: boolean): string | null => {
-        if (p === '') return isAttr ? null : (scope.get('') ?? null);
+        // `xmlns=""` undeclares the default namespace, so the element is in NO
+        // namespace — which this model spells `null`, not `''`. Keeping the
+        // empty string would make the renderer treat "no namespace" as a URI
+        // and emit a superfluous `xmlns=""` even where exclusive C14N drops
+        // the default declaration entirely.
+        if (p === '') return isAttr ? null : (scope.get('') || null);
         const uri = scope.get(p);
         if (uri === undefined) throw new XmlError(`undeclared namespace prefix "${p}"`);
         return uri;

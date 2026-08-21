@@ -167,7 +167,17 @@ export interface SubmitOrderInput {
  * a conversation that broke and whether the bank has the file is **unknown**.
  * Only one of the two is safe to resubmit.
  */
-export type BankOrderStatus = 'queued' | 'initialised' | 'transferred' | 'accepted' | 'rejected' | 'failed';
+export type BankOrderStatus =
+  | 'queued'
+  | 'initialised'
+  | 'transferred'
+  /** The bank took the FILE. Not the same as having paid it. */
+  | 'accepted'
+  /** A payment status report said the money moved (ISO 20022 `ACSC`). */
+  | 'settled'
+  | 'rejected'
+  /** The conversation broke; whether the bank holds the file is unknown. */
+  | 'failed';
 
 export interface BankOrder {
   public_id: string;

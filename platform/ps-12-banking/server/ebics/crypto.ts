@@ -136,12 +136,33 @@ export function sha256(data: Buffer | string): Buffer {
 
 /**
  * The ES over order data (A005 or A006) — the signature that authorises money
- * to move. EBICS signs the SHA-256 digest of the order data, so the digest is
- * computed here and handed to the signer, never the raw file.
+ * to move.
+ *
+ * **The order data is signed once.** A005 is RSASSA-PKCS1-v1_5 over
+ * SHA-256(orderData) and A006 is RSASSA-PSS over the same, which is exactly
+ * what `crypto.sign('sha256', orderData, …)` produces: Node hashes what it is
+ * given and wraps the digest in the DigestInfo the scheme requires.
+ *
+ * This function used to compute `sha256(orderData)` first and pass THAT to the
+ * signer, which hashed it a second time — so the signature was over
+ * SHA-256(SHA-256(orderData)). Every test passed, because the mock bank
+ * verified through the mirror-image function and agreed. A real bank would
+ * have refused every upload. Two rules came out of it, and they are why this
+ * comment is long:
+ *
+ * 1. **Never hand a digest to something whose name contains the hash.**
+ *    `sign('sha256', x)` hashes `x`. If a digest is already in hand, the
+ *    algorithm argument must be null and the DigestInfo built by hand — which
+ *    is why that path no longer exists here at all.
+ * 2. **A vector agreed with our own counterparty proves nothing.** The test
+ *    for this is pinned against `openssl dgst -sha256 -sign`, an
+ *    implementation that has never read this repository.
  */
 export function signOrderData(privatePem: string, orderData: Buffer, version: EsVersion = 'A005'): Buffer {
-  const digest = sha256(orderData);
-  return signDigest(privatePem, digest, version);
+  const key = privateKeyFromPem(privatePem);
+  return version === 'A006'
+    ? sign('sha256', orderData, { key, padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 })
+    : sign('sha256', orderData, { key, padding: constants.RSA_PKCS1_PADDING });
 }
 
 export function verifyOrderData(
@@ -150,31 +171,10 @@ export function verifyOrderData(
   signature: Buffer,
   version: EsVersion = 'A005',
 ): boolean {
-  return verifyDigest(publicPem, sha256(orderData), signature, version);
-}
-
-/**
- * Sign a digest that has already been computed. A005 is PKCS#1 v1.5, A006 is
- * PSS with a salt the length of the hash — the only difference between the two
- * versions, and the reason they are one function with a switch rather than two.
- */
-export function signDigest(privatePem: string, digest: Buffer, version: EsVersion = 'A005'): Buffer {
-  const key = privateKeyFromPem(privatePem);
-  return version === 'A006'
-    ? sign('sha256', digest, { key, padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 })
-    : sign('sha256', digest, { key, padding: constants.RSA_PKCS1_PADDING });
-}
-
-export function verifyDigest(
-  publicPem: string,
-  digest: Buffer,
-  signature: Buffer,
-  version: EsVersion = 'A005',
-): boolean {
   const key = publicKeyFromPem(publicPem);
   return version === 'A006'
-    ? verify('sha256', digest, { key, padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 }, signature)
-    : verify('sha256', digest, { key, padding: constants.RSA_PKCS1_PADDING }, signature);
+    ? verify('sha256', orderData, { key, padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 }, signature)
+    : verify('sha256', orderData, { key, padding: constants.RSA_PKCS1_PADDING }, signature);
 }
 
 /**

@@ -6,6 +6,7 @@ import { loadKeySecret, KeyStoreError, assertKeyStoreReadable } from '../server/
 import {
   connectionDetail,
   createConnection,
+  clearFailure,
   fetchBankKeys,
   generateKeys,
   listConnections,
@@ -83,6 +84,92 @@ beforeEach(() => {
     actor: 'admin',
     now: fixedClock(),
   };
+});
+
+describe('recovering from a failure during setup', () => {
+  /**
+   * Point the connection at a bank that has never seen our INI.
+   *
+   * Not contrived: this is what a bank looks like before it has processed the
+   * posted INI letter, and its answer is a real EBICS verdict (091002,
+   * "subscriber unknown or not yet activated") rather than a transport error.
+   * A verdict is what records a `failed` event — a timeout deliberately does
+   * not, because nothing happened.
+   */
+  function bankHasNotActivatedUsYet(): MockBank {
+    const stranger = new MockBank();
+    ctx.transport = new Transport({ post: async (_url, body) => stranger.post(body) });
+    return stranger;
+  }
+
+  it('records the failure rather than pretending the step worked', async () => {
+    connect();
+    generateKeys(ctx, 'main');
+    await sendIni(ctx, 'main');
+    await sendHia(ctx, 'main');
+    bankHasNotActivatedUsYet();
+
+    await expect(fetchBankKeys(ctx, 'main')).rejects.toThrow(/091002|subscriber/);
+    const detail = connectionDetail(db, 'main');
+    expect(detail.state).toBe('failed');
+    expect(detail.events.at(-1)).toMatchObject({ type: 'failed' });
+  });
+
+  it('leaves the state alone when the bank simply could not be reached', async () => {
+    connect();
+    generateKeys(ctx, 'main');
+    await sendIni(ctx, 'main');
+    await sendHia(ctx, 'main');
+    ctx.transport = new Transport({
+      post: async () => {
+        throw new Error('connect ETIMEDOUT');
+      },
+    });
+
+    // A timeout is not a refusal: nothing happened, so nothing is recorded and
+    // the operator can simply try again.
+    await expect(fetchBankKeys(ctx, 'main')).rejects.toThrow(/ETIMEDOUT/);
+    expect(connectionDetail(db, 'main').state).toBe('hia_sent');
+  });
+
+  it('can be cleared back to the last completed step, and retried', async () => {
+    connect();
+    generateKeys(ctx, 'main');
+    await sendIni(ctx, 'main');
+    await sendHia(ctx, 'main');
+    const honest = ctx.transport;
+    bankHasNotActivatedUsYet();
+    await expect(fetchBankKeys(ctx, 'main')).rejects.toThrow();
+
+    // Before this existed, a transient bank error ended the connection: every
+    // route answered 409, the key is UNIQUE and there is no delete, so the
+    // only way out was editing the database by hand.
+    const cleared = clearFailure(ctx, 'main');
+    expect(cleared.state).toBe('hia_sent');
+
+    ctx.transport = honest;
+    await fetchBankKeys(ctx, 'main');
+    expect(connectionDetail(db, 'main').state).toBe('hpb_fetched');
+  });
+
+  it('never clears FORWARD — a failure is not a route to `ready`', async () => {
+    connect();
+    generateKeys(ctx, 'main');
+    await sendIni(ctx, 'main');
+    await sendHia(ctx, 'main');
+    await fetchBankKeys(ctx, 'main');
+    bankHasNotActivatedUsYet();
+    // Fail from `hpb_fetched`, then clear.
+    await expect(fetchBankKeys(ctx, 'main')).rejects.toThrow();
+    expect(clearFailure(ctx, 'main').state).toBe('hpb_fetched');
+    // Still not usable: the human step has not happened.
+    expect(() => requireReady(db, 'main')).toThrow(/nobody has confirmed/);
+  });
+
+  it('refuses to clear a connection that has not failed', () => {
+    connect();
+    expect(() => clearFailure(ctx, 'main')).toThrow(/not failed/);
+  });
 });
 
 describe('creating a connection', () => {

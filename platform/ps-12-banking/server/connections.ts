@@ -114,6 +114,12 @@ function eventsOf(db: Database.Database, connectionId: number): ConnectionEvent[
  */
 export function foldState(events: ConnectionEvent[]): ConnectionState {
   let state: ConnectionState = 'created';
+  // The last state the connection reached under its own steam, so a `failed`
+  // event can be stepped back out of. Without this, one transient error from
+  // the bank during setup left a connection stuck at `failed` with no route
+  // out — and the key is UNIQUE with no delete, so the only remedy was
+  // editing the database by hand.
+  let lastGood: ConnectionState = 'created';
   for (const event of events) {
     switch (event.type) {
       case 'keys_generated':
@@ -140,9 +146,18 @@ export function foldState(events: ConnectionEvent[]): ConnectionState {
       case 'failed':
         state = 'failed';
         break;
+      case 'cleared':
+        // An operator acknowledged the failure. The connection goes back to
+        // the last step it actually completed — never forward, so a failure
+        // during HPB cannot be cleared into `ready`.
+        state = lastGood;
+        break;
       default:
         break;
     }
+    // Recorded AFTER the event is applied, so it is the state the connection
+    // actually reached — not the one it was in beforehand.
+    if (event.type !== 'failed') lastGood = state;
   }
   return state;
 }
@@ -499,6 +514,27 @@ export function suspend(ctx: ExchangeContext, key: string, reason: string): Conn
     meta: { reason },
     at: (ctx.now ?? nowIso)(),
   });
+  return connectionDetail(ctx.db, key);
+}
+
+/**
+ * Step a connection back out of `failed` so the setup can be retried.
+ *
+ * A `failed` event is recorded whenever the bank refuses a setup message, and
+ * plenty of those are transient — a host that was down, a subscriber the bank
+ * had not activated yet, a typo in the partner id since corrected. Before this
+ * existed, any one of them ended the connection permanently: every lifecycle
+ * route answered 409, `bank_connections.key` is UNIQUE, and there is no delete
+ * route, so the only way out was editing the database by hand.
+ *
+ * It moves BACKWARDS, to the last step actually completed. Clearing a failure
+ * can never be a way to reach `ready` without a human confirming the bank's
+ * digests, which is the one thing this whole service is built around.
+ */
+export function clearFailure(ctx: ExchangeContext, key: string): ConnectionDetail {
+  const { row, state } = loaded(ctx.db, key);
+  if (state !== 'failed') throw new DomainError(409, `this connection is ${state}, not failed`);
+  recordEvent(ctx.db, { connectionId: row.id, type: 'cleared', actor: ctx.actor, at: (ctx.now ?? nowIso)() });
   return connectionDetail(ctx.db, key);
 }
 

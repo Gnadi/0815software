@@ -37,6 +37,13 @@ export interface PayloadFacts {
   /** Number of transactions, when the file states one. */
   txCount: number | null;
   currency: string | null;
+  /**
+   * How many distinct currencies the file's amounts are in.
+   *
+   * More than one means `CtrlSum` is a sum of unlike things, so comparing it
+   * against a single-currency ceiling is meaningless — see `checkCeilings`.
+   */
+  currencyCount: number;
   /** True when this was read as an ISO 20022 message rather than as bytes. */
   inspected: boolean;
 }
@@ -63,6 +70,7 @@ export function inspectPayload(payload: Buffer, btf: BtfInput): PayloadFacts {
     amountMinor: null,
     txCount: null,
     currency: null,
+    currencyCount: 0,
     inspected: false,
   };
 
@@ -84,8 +92,10 @@ export function inspectPayload(payload: Buffer, btf: BtfInput): PayloadFacts {
   const nbOfTxs = textOf(at(header, ns, 'NbOfTxs')).trim();
   const ctrlSum = textOf(at(header, ns, 'CtrlSum')).trim();
 
-  // The currency is on the amounts, not the header — take the first, and let
-  // the ceiling check below refuse a file that mixes them.
+  // The currency is on the amounts, not the header. Both the value and the
+  // COUNT are carried out: `checkCeilings` refuses a file that mixes them,
+  // which needs to know there was more than one — a single `currency: null`
+  // cannot tell "mixed" from "none stated".
   const amounts = findAll(root, (node) => node.uri === ns && node.local === 'InstdAmt');
   const currencies = new Set(
     amounts.map((node) => node.attrs.find((a) => a.local === 'Ccy')?.value ?? '').filter((c) => c !== ''),
@@ -97,6 +107,7 @@ export function inspectPayload(payload: Buffer, btf: BtfInput): PayloadFacts {
     amountMinor: parseDecimalToMinor(ctrlSum),
     txCount: /^\d+$/.test(nbOfTxs) ? Number.parseInt(nbOfTxs, 10) : null,
     currency: currencies.size === 1 ? [...currencies][0]! : null,
+    currencyCount: currencies.size,
     inspected: true,
   };
 }
@@ -152,6 +163,19 @@ export function checkCeilings(facts: PayloadFacts, ceilings: Ceilings): FieldErr
     problems.push({
       field: 'payload_base64',
       message: `the file totals ${formatMinor(facts.amountMinor)} which is over this connection’s limit of ${formatMinor(ceilings.maxAmountMinor)}`,
+    });
+  }
+
+  // A control sum that adds euros to francs is not a number a ceiling can be
+  // compared against. The comment above `currency` used to promise this check
+  // and nothing performed it, so a mixed-currency file was measured against a
+  // single-currency limit.
+  if (facts.currencyCount > 1) {
+    problems.push({
+      field: 'payload_base64',
+      message:
+        'this file mixes currencies, so its control sum cannot be checked against a limit — ' +
+        'send one file per currency',
     });
   }
 

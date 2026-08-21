@@ -297,6 +297,65 @@ describe('a payment file is submitted at most once', () => {
     expect(bank.received).toHaveLength(2);
   });
 
+  it('scopes the caller’s key to its connection', async () => {
+    await bringUp();
+    await bringUp({ key: 'second', partnerId: 'PARTNER2', userId: 'USER2' });
+
+    const first = await submitOrder(ctx, {
+      connection: 'main',
+      btf: BTF,
+      payload: pain001({ msgId: 'M1', total: '10.00', count: 1 }),
+      idempotencyKey: 'payment-run:M1',
+    });
+    // The same run carried to a SECOND bank, under the same key — which is
+    // what MOD-04 would do, since it builds the key from the run's MsgId.
+    // Unscoped, this answered with the first bank's order and silently threw
+    // the file away.
+    const second = await submitOrder(ctx, {
+      connection: 'second',
+      btf: BTF,
+      payload: pain001({ msgId: 'M1', total: '10.00', count: 1 }),
+      idempotencyKey: 'payment-run:M1',
+    });
+
+    expect(second.replayed).toBe(false);
+    expect(second.order.public_id).not.toBe(first.order.public_id);
+    expect(second.order.connection).toBe('second');
+    expect(bank.received).toHaveLength(2);
+  });
+
+  it('replays only a FINISHED order, and names the state otherwise', async () => {
+    await bringUp();
+    const payload = pain001({ msgId: 'M1', total: '10.00', count: 1 });
+    await submitOrder(ctx, { connection: 'main', btf: BTF, payload });
+
+    // An order stuck at `queued` — the process died between recording it and
+    // the bank answering. The guard used to read "replay unless rejected or
+    // failed", which returned this as a cheerful success for ever, so the file
+    // could never be sent while MOD-04 reported the run as submitted.
+    db.prepare("DELETE FROM order_events WHERE type != 'queued'").run();
+    expect(orderDetail(db, listOrders(db)[0]!.public_id).status).toBe('queued');
+
+    await expect(submitOrder(ctx, { connection: 'main', btf: BTF, payload })).rejects.toThrow(/is queued/);
+  });
+
+  it('records a failure instead of a 500 when the key store cannot be opened', async () => {
+    await bringUp();
+    // A rotated EBICS_KEY_SECRET is the realistic way this happens. The order
+    // exists by then, so it has to carry an outcome rather than leaving a
+    // bare `queued` row and an exception.
+    ctx.keySecret = Buffer.alloc(32, 0xab);
+
+    const { order } = await submitOrder(ctx, {
+      connection: 'main',
+      btf: BTF,
+      payload: pain001({ msgId: 'M1', total: '10.00', count: 1 }),
+    });
+    expect(order.status).toBe('failed');
+    expect(order.message).toMatch(/could not prepare/);
+    expect(bank.received).toEqual([]);
+  });
+
   it('gives an opaque file the hash of its bytes as its identity', () => {
     // An unreadable payload cannot pass the ceilings, so it never reaches a
     // submission — but the identity it WOULD be filed under still has to be
@@ -386,6 +445,25 @@ describe('nothing is signed until every refusal has had its chance', () => {
       payload: pain001({ msgId: 'M1', total: '1000.00', count: 2 }),
     });
     expect(order.status).toBe('accepted');
+  });
+
+  it('refuses a file that mixes currencies — a control sum of unlike things', async () => {
+    await bringUp({ key: 'capped', partnerId: 'P2', userId: 'U2', maxAmountMinor: 10_000_000, maxTransfers: 50 });
+    const mixed = Buffer.from(
+      '<?xml version="1.0" encoding="UTF-8"?>' +
+        '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03"><CstmrCdtTrfInitn>' +
+        '<GrpHdr><MsgId>MIX-1</MsgId><NbOfTxs>2</NbOfTxs><CtrlSum>200.00</CtrlSum></GrpHdr>' +
+        '<PmtInf>' +
+        '<CdtTrfTxInf><Amt><InstdAmt Ccy="EUR">100.00</InstdAmt></Amt></CdtTrfTxInf>' +
+        '<CdtTrfTxInf><Amt><InstdAmt Ccy="CHF">100.00</InstdAmt></Amt></CdtTrfTxInf>' +
+        '</PmtInf></CstmrCdtTrfInitn></Document>',
+      'utf8',
+    );
+
+    // 200.00 is under the ceiling only if euros and francs are the same thing.
+    const problems = await refusal(submitOrder(ctx, { connection: 'capped', btf: BTF, payload: mixed }));
+    expect(problems.some((p) => /mixes currencies/.test(p.message))).toBe(true);
+    expect(bank.received).toEqual([]);
   });
 
   it('refuses a payload it cannot read, rather than signing it blind', async () => {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { createSign } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
+import { ES } from './fixtures/keys.js';
 import {
   decryptOrderData,
   decryptTransactionKey,
@@ -78,6 +80,47 @@ describe('signatures', () => {
     const signature = signOrderData(es.privatePem, orderData, 'A005');
     expect(signature).toHaveLength(256);
     expect(verifyOrderData(es.publicPem, orderData, signature, 'A005')).toBe(true);
+  });
+
+  /**
+   * THE GOLDEN VECTOR, and the reason it exists.
+   *
+   * `signOrderData` used to hash the order data and pass the DIGEST to a
+   * signer that hashes what it is given — so the signature that authorises a
+   * payment was over SHA-256(SHA-256(orderData)). Every test passed. The mock
+   * bank verified through the mirror-image function and agreed with it, so the
+   * suite could not have caught this no matter how many cases it had.
+   *
+   * The fix is not the assertion below; the fix is WHERE the expected value
+   * comes from. This is `openssl dgst -sha256 -sign` — an implementation that
+   * has never read this repository — so agreeing with it means agreeing with
+   * the world rather than with ourselves.
+   *
+   *   openssl dgst -sha256 -sign es-priv.pem -out sig.bin orderdata.bin
+   */
+  it('produces the byte-exact signature openssl does', () => {
+    // The COMMITTED fixture key, not the per-run one above: a golden vector
+    // needs a key that does not change between runs.
+    const payload = Buffer.from('<?xml version="1.0"?><Document>the payment file</Document>', 'utf8');
+    const openssl =
+      '8871df9e185b72ef36dfe38e25435e9c0442d8f423a3876ed7c67f899ce0ef3f082402b14978' +
+      '54040f2fb660a95612f0ea16908472f0fb5469f59f93a99d5d09bdc5f74f0ca6d907134f282f' +
+      '984fee06c52c17a562254dffc76efa11a70e0aed698ee79a47447a3fb2c6a5d4fe7a9295232e' +
+      'b4da365d1936ff276235479783fb3419ced926c75019022cb9639a6079e59b8cbfa16fc4290f' +
+      'bfb96548c48817636f09caca2535546025167a57f1451bdb2d07c25eaf1009a0a7edbfc06837' +
+      'b7b7d4bb9770fd29d863b6e0afa317b8581bd5f36ecd50625fb4bc4c60497088cba08309a2b6' +
+      '35e2852d031a22cae19536c555354c67ce4e084cf3c29a08db707dee';
+    expect(signOrderData(ES.privatePem, payload, 'A005').toString('hex')).toBe(openssl);
+    // And the other direction: we accept what openssl produced.
+    expect(verifyOrderData(ES.publicPem, payload, Buffer.from(openssl, 'hex'), 'A005')).toBe(true);
+  });
+
+  it('signs the order data ONCE — not the digest of the digest', () => {
+    // The regression, stated directly. `sign('sha256', x)` hashes x, so
+    // handing it a digest signs SHA-256 of that digest. A bank refuses it and
+    // the only symptom is every upload failing at a real connection.
+    const doubleHashed = createSign('sha256').update(sha256(orderData)).sign(es.privatePem);
+    expect(signOrderData(es.privatePem, orderData, 'A005').equals(doubleHashed)).toBe(false);
   });
 
   it('signs and verifies order data with A006 (PSS)', () => {

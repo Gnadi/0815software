@@ -6,6 +6,8 @@ import { openDb } from './db.js';
 import { seed } from './seed.js';
 import { assertKeyStoreReadable, loadKeySecret } from './keystore.js';
 import { Transport, httpPost } from './transport.js';
+import { tick } from './downloads.js';
+import { nowIso } from './connections.js';
 
 const config = configFromEnv();
 assertProductionConfig([
@@ -40,6 +42,8 @@ const app = createApp({
   logRequests: true,
 });
 
+const transport = new Transport({ post: httpPost, egress: config.egress });
+
 app.listen(config.port, () => {
   console.log(`[ps-12] banking API on http://localhost:${config.port}`);
   if (config.auth.secret === 'dev-secret-change-me' || config.auth.password === 'change-me') {
@@ -53,4 +57,28 @@ app.listen(config.port, () => {
     );
   }
   console.log('[ps-12] note: no part of this service has been tested against a real bank');
+
+  if (config.tickIntervalMs > 0) {
+    // The internal ticker: poll the banks for statements and status reports on
+    // a timer, so a single-service deployment needs no external cron. The
+    // generated compose stack supplies its own ticker sidecar and leaves this
+    // at 0; `POST /api/tick` works either way.
+    //
+    // `TICK_INTERVAL_MS` was parsed and documented for a while with nothing
+    // reading it, so a deployment outside the compose stack polled the bank
+    // exactly never and quietly stopped reconciling.
+    const timer = setInterval(() => {
+      void tick({ db, keySecret: loadKeySecret(config.keySecret), transport, actor: 'ticker', now: nowIso })
+        .then((result) => {
+          for (const problem of result.problems) {
+            console.warn(`[ps-12] tick: ${problem.connection}: ${problem.message}`);
+          }
+        })
+        .catch((err: unknown) => console.error('[ps-12] tick error', err));
+    }, config.tickIntervalMs);
+    timer.unref?.();
+    console.log(`[ps-12] internal ticker every ${config.tickIntervalMs}ms`);
+  } else {
+    console.log('[ps-12] note: downloads only arrive while POST /api/tick is called (the stack ticker does this)');
+  }
 });

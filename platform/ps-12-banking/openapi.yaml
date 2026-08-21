@@ -237,6 +237,25 @@ paths:
       security: [{adminSession: []}]
       responses:
         '200': { description: Success }
+  /api/connections/{key}/clear-failure:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Step a connection back out of `failed` so setup can be retried
+      description: >-
+        A bank refusing a setup message records a `failed` event, and plenty of
+        those are transient — a host that was down, a subscriber the bank had
+        not activated yet. This moves the connection BACKWARDS to the last step
+        it actually completed, so clearing a failure can never be a route to
+        `ready` without a human confirming the bank's digests.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The connection, back at its last completed step }
+        '409': { description: This connection has not failed }
   /api/orders:
     get:
       summary: List orders
@@ -274,7 +293,7 @@ paths:
       responses:
         '200': { description: An earlier submission of this file }
         '201': { description: Submitted }
-        '409': { description: The connection is not ready, or this MsgId was already refused }
+        '409': { description: The connection is not ready, or this MsgId belongs to an order that is not finished }
         '422': { description: Outside this connection's ceilings, or an unreadable payload }
   /api/orders/{public_id}:
     parameters:

@@ -9,6 +9,7 @@ import { parseResponse } from './ebics/parse.js';
 import { EBICS_NO_DOWNLOAD_DATA } from './ebics/codes.js';
 import { sha256Hex } from './payload.js';
 import { isStatement, isStatusReport, readStatusReports, verdictOfReports } from './reports.js';
+import { documentsIn, ZipError } from './zip.js';
 import { foldStatus, recordOrderEvent } from './orders.js';
 import type { BtfInput, DownloadDetail, DownloadKind, DownloadRow, TickResult } from '../shared/types.js';
 
@@ -287,7 +288,7 @@ export async function fetchOne(
           at,
         );
       const downloadId = Number(info.lastInsertRowid);
-      for (const report of readStatusReports(content)) {
+      for (const report of reportsIn(content)) {
         ctx.db
           .prepare(
             'INSERT INTO download_reports (download_id, msg_id, status_code, reason_code, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)',
@@ -316,6 +317,26 @@ export async function fetchOne(
   }
 
   return { download: downloadDetail(ctx.db, storedId), duplicate };
+}
+
+/**
+ * The status reports inside whatever the bank sent.
+ *
+ * EBICS delivers pain.002 inside a ZIP container — one download can carry
+ * several — so the archive is opened and every document in it is read. An
+ * archive this cannot open yields no reports rather than throwing: the bytes
+ * are already stored and the receipt has not gone out yet, so a caller can
+ * come back to them, whereas failing here would abandon a file mid-fetch.
+ */
+function reportsIn(content: Buffer): ReturnType<typeof readStatusReports> {
+  let documents: Buffer[];
+  try {
+    documents = documentsIn(content);
+  } catch (err) {
+    console.warn(`[ps-12] a download could not be opened as an archive: ${err instanceof ZipError ? err.message : err}`);
+    return [];
+  }
+  return documents.flatMap((document) => readStatusReports(document));
 }
 
 // ── Folding a status report into its order ────────────────────────────

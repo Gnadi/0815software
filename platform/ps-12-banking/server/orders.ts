@@ -267,11 +267,16 @@ export async function submitOrder(ctx: OrderContext, input: SubmitInput): Promis
   const btf = resolveBtf(connection, input.btf);
   const at = (ctx.now ?? nowIso)();
 
-  // 1. Replay, on the caller's key.
+  // 1. Replay, on the caller's key — SCOPED TO THIS CONNECTION.
+  //
+  // The scope matters: an idempotency key is the caller's word, and MOD-04
+  // builds it from the run's MsgId. Two connections legitimately carry the
+  // same run to two banks, and an unscoped lookup answered the second with the
+  // FIRST bank's order and silently dropped the file.
   if (input.idempotencyKey !== undefined) {
     const existing = ctx.db
-      .prepare('SELECT * FROM orders WHERE idempotency_key = ?')
-      .get(input.idempotencyKey) as OrderRow | undefined;
+      .prepare('SELECT * FROM orders WHERE connection_id = ? AND idempotency_key = ?')
+      .get(connection.id, input.idempotencyKey) as OrderRow | undefined;
     if (existing !== undefined) {
       return { order: orderDetail(ctx.db, existing.public_id), replayed: true };
     }
@@ -286,14 +291,23 @@ export async function submitOrder(ctx: OrderContext, input: SubmitInput): Promis
     .get(connection.id, facts.msgId) as OrderRow | undefined;
   if (seen !== undefined) {
     const previous = orderDetail(ctx.db, seen.public_id);
-    if (previous.status === 'rejected' || previous.status === 'failed') {
-      // A refused file may legitimately be corrected and resent — but not
-      // under the same MsgId, because the bank keys its own duplicate check on
-      // exactly that. Saying so is more useful than a bare 409.
+    // ONLY a finished, successful order replays silently. Everything else gets
+    // a 409 that names the state.
+    //
+    // The inverted version of this test — replay everything except `rejected`
+    // and `failed` — looked equivalent and was not. An order stuck at `queued`
+    // (the process died between the INSERT and the bank answering) came back
+    // as a cheerful success for ever, so that payment file could never be sent
+    // again while MOD-04 went on reporting the run as submitted. Enumerating
+    // what may replay, rather than what may not, is why this reads the way it
+    // does.
+    if (previous.status !== 'accepted' && previous.status !== 'settled') {
       throw new DomainError(
         409,
-        `this file was already submitted as ${previous.public_id} and ${previous.status}. ` +
-          'Give the corrected file a new MsgId before resubmitting: the bank rejects a repeated one.',
+        `this file was already submitted as ${previous.public_id} and is ${previous.status}. ` +
+          (previous.status === 'rejected' || previous.status === 'failed'
+            ? 'Give the corrected file a new MsgId before resubmitting: the bank rejects a repeated one.'
+            : 'Check that order before sending anything else — the bank may already hold this file.'),
       );
     }
     return { order: previous, replayed: true };
@@ -367,34 +381,55 @@ async function transmit(
     userId: connection.user_id,
   };
 
-  const keys: SubscriberKeys = {
-    esPrivatePem: privatePemFor(ctx.db, { connectionId: connection.id, purpose: 'ES', keySecret: ctx.keySecret }).pem,
-    esVersion: connection.es_version as EsVersion,
-    authPrivatePem: privatePemFor(ctx.db, { connectionId: connection.id, purpose: 'AUTH', keySecret: ctx.keySecret })
-      .pem,
-    encPrivatePem: privatePemFor(ctx.db, { connectionId: connection.id, purpose: 'ENC', keySecret: ctx.keySecret })
-      .pem,
-  };
+  /**
+   * Everything between recording the order and reaching the network.
+   *
+   * Wrapped so that a throw here — an unreadable key store is the realistic
+   * one — becomes a `failed` event on the order rather than an exception
+   * escaping to a 500. An order that stays at bare `queued` is the worst of
+   * both worlds: nothing was sent, but the MsgId is taken, and the replay
+   * guard cannot tell that from a submission that died mid-flight.
+   */
+  let keys: SubscriberKeys;
+  let bank: { authPublicPem: string; encPublicPem: string };
+  let packed: string;
+  let btf: Btf;
+  let segments: string[];
+  let transactionKey: Buffer;
+  try {
+    keys = {
+      esPrivatePem: privatePemFor(ctx.db, { connectionId: connection.id, purpose: 'ES', keySecret: ctx.keySecret }).pem,
+      esVersion: connection.es_version as EsVersion,
+      authPrivatePem: privatePemFor(ctx.db, { connectionId: connection.id, purpose: 'AUTH', keySecret: ctx.keySecret })
+        .pem,
+      encPrivatePem: privatePemFor(ctx.db, { connectionId: connection.id, purpose: 'ENC', keySecret: ctx.keySecret })
+        .pem,
+    };
 
-  const bank = bankKeysOf(ctx.db, connection.id);
-  const transactionKey = (ctx.transactionKey ?? newTransactionKey)();
+    bank = bankKeysOf(ctx.db, connection.id);
+    transactionKey = (ctx.transactionKey ?? newTransactionKey)();
 
-  // Pack once: the segments are slices of THIS string, so the digest the bank
-  // checks and the bytes it reassembles come from the same encryption.
-  const packed = packOrderData(transactionKey, input.payload);
-  // The bank's own published maximum, when its profile names one below the
-  // protocol's; an explicit context override wins over both (tests use it).
-  const limit = ctx.segmentLimit ?? bankProfile(connection.bank_key)?.segmentLimit ?? SEGMENT_LIMIT;
-  const segments = splitSegments(packed, limit);
+    // Pack once: the segments are slices of THIS string, so the digest the bank
+    // checks and the bytes it reassembles come from the same encryption.
+    packed = packOrderData(transactionKey, input.payload);
+    // The bank's own published maximum, when its profile names one below the
+    // protocol's; an explicit context override wins over both (tests use it).
+    const limit = ctx.segmentLimit ?? bankProfile(connection.bank_key)?.segmentLimit ?? SEGMENT_LIMIT;
+    segments = splitSegments(packed, limit);
 
-  const btf: Btf = {
-    serviceName: input.btf.service_name,
-    scope: input.btf.scope,
-    option: input.btf.option,
-    msgName: input.btf.msg_name,
-    msgVersion: input.btf.msg_version,
-    container: input.btf.container,
-  };
+    btf = {
+      serviceName: input.btf.service_name,
+      scope: input.btf.scope,
+      option: input.btf.option,
+      msgName: input.btf.msg_name,
+      msgVersion: input.btf.msg_version,
+      container: input.btf.container,
+    };
+  } catch (err) {
+    // Nothing has been signed and nothing has been sent, but the order exists,
+    // so it has to carry an outcome a human can act on.
+    return fail(ctx, order, at, `could not prepare the order: ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   let transactionId: string;
   try {

@@ -261,3 +261,75 @@ describe('the builder', () => {
     expect(render(el('e:X', {}, [text('v')]), NS)).toBe(render(el('e:X', {}, ['v']), NS));
   });
 });
+
+/**
+ * DIFFERENTIAL VECTORS — expected values produced by an implementation that
+ * has never read this code.
+ *
+ * Each `expected` below is the output of Python's
+ * `xml.etree.ElementTree.canonicalize` on the same input. That matters more
+ * than the assertions themselves: the first version of this file was
+ * cross-checked against Python too, and passed, because the cases chosen
+ * happened to avoid the two things the parser got wrong. A vector set is only
+ * as good as its hardest case, so these lead with the ones that were broken —
+ * CRLF line endings and whitespace inside attribute values, both of which a
+ * conformant parser folds BEFORE canonicalisation ever runs.
+ *
+ * Regenerate with:
+ *   python3 -c "import xml.etree.ElementTree as ET,io,sys; \
+ *     b=io.StringIO(); ET.canonicalize(sys.stdin.read(), out=b); print(repr(b.getvalue()))"
+ */
+const PYTHON_VECTORS: [name: string, input: string, expected: string][] = [
+  ["crlf between elements", "<a xmlns=\"urn:x\">\r\n  <b>t</b>\r\n</a>", "<a xmlns=\"urn:x\">\n  <b>t</b>\n</a>"],
+  ["lone CR", "<a>\rtext\r</a>", "<a>\ntext\n</a>"],
+  ["crlf inside text", "<a>line1\r\nline2</a>", "<a>line1\nline2</a>"],
+  ["tab in attribute", "<a n=\"x\ty\"/>", "<a n=\"x y\"></a>"],
+  ["newline in attribute", "<a n=\"x\ny\"/>", "<a n=\"x y\"></a>"],
+  ["crlf in attribute", "<a n=\"x\r\ny\"/>", "<a n=\"x y\"></a>"],
+  ["multiple spaces in attribute", "<a n=\"x   y\"/>", "<a n=\"x   y\"></a>"],
+  ["CR character reference", "<a n=\"x&#xD;y\">t&#xD;u</a>", "<a n=\"x&#xD;y\">t&#xD;u</a>"],
+  ["tab character reference", "<a n=\"x&#x9;y\"/>", "<a n=\"x&#x9;y\"></a>"],
+  ["escaped ampersand", "<a n=\"a&amp;b\">c&amp;d</a>", "<a n=\"a&amp;b\">c&amp;d</a>"],
+  ["gt in text and attribute", "<a n=\"a&gt;b\">c&gt;d</a>", "<a n=\"a>b\">c&gt;d</a>"],
+  ["nested + namespaces", "<p:a xmlns:p=\"urn:p\" xmlns=\"urn:d\"><b p:x=\"1\"/></p:a>", "<p:a xmlns:p=\"urn:p\"><b xmlns=\"urn:d\" p:x=\"1\"></b></p:a>"],
+  ["attribute ordering", "<a z=\"1\" a=\"2\" xmlns:n=\"urn:n\" n:b=\"3\"/>", "<a xmlns:n=\"urn:n\" a=\"2\" z=\"1\" n:b=\"3\"></a>"],
+  ["empty element", "<a></a>", "<a></a>"],
+  ["xmlns undeclaration", "<p:a xmlns:p=\"urn:p\" xmlns=\"urn:d\"><b xmlns=\"\"/></p:a>", "<p:a xmlns:p=\"urn:p\"><b></b></p:a>"],
+  ["comment stripped", "<a><!-- c --><b/></a>", "<a><b></b></a>"],
+  ["CDATA section", "<a><![CDATA[x<y&z]]></a>", "<a>x&lt;y&amp;z</a>"],
+  ["mixed whitespace attribute", "<a n=\" x \t\r\n y \"/>", "<a n=\" x    y \"></a>"],
+  ["undeclare a RENDERED default", "<a xmlns=\"urn:d\"><b xmlns=\"\"/></a>", "<a xmlns=\"urn:d\"><b xmlns=\"\"></b></a>"],
+  ["undeclare, default unused", "<p:a xmlns:p=\"urn:p\" xmlns=\"urn:d\"><b xmlns=\"\"/></p:a>", "<p:a xmlns:p=\"urn:p\"><b></b></p:a>"],
+  ["default used then undeclared", "<a xmlns=\"urn:d\"><b xmlns=\"\"><c xmlns=\"urn:d\"/></b></a>", "<a xmlns=\"urn:d\"><b xmlns=\"\"><c xmlns=\"urn:d\"></c></b></a>"],
+  ["grandchild under undeclared", "<a xmlns=\"urn:d\"><b xmlns=\"\"><c/></b></a>", "<a xmlns=\"urn:d\"><b xmlns=\"\"><c></c></b></a>"],
+  ["no namespace anywhere", "<a><b><c/></b></a>", "<a><b><c></c></b></a>"],
+  ["prefixed attr on plain elem", "<a xmlns:n=\"urn:n\" n:k=\"v\"><b/></a>", "<a xmlns:n=\"urn:n\" n:k=\"v\"><b></b></a>"],
+  ["deep prefix reuse", "<n:a xmlns:n=\"urn:n\"><n:b><n:c/></n:b></n:a>", "<n:a xmlns:n=\"urn:n\"><n:b><n:c></n:c></n:b></n:a>"],
+  ["same prefix rebound", "<n:a xmlns:n=\"urn:1\"><n:b xmlns:n=\"urn:2\"/></n:a>", "<n:a xmlns:n=\"urn:1\"><n:b xmlns:n=\"urn:2\"></n:b></n:a>"],
+  ["default rebound", "<a xmlns=\"urn:1\"><b xmlns=\"urn:2\"/></a>", "<a xmlns=\"urn:1\"><b xmlns=\"urn:2\"></b></a>"],
+];
+
+describe('agreement with an independent canonicaliser', () => {
+  it.each(PYTHON_VECTORS)('%s', (_name, input, expected) => {
+    expect(canonicalize(parse(input))).toBe(expected);
+  });
+
+  it('folds CRLF before anything else — the bug that broke every bank response', () => {
+    // A bank formatting its response with CRLF used to canonicalise to
+    // `&#xD;\n`, so the digest differed, the AuthSignature did not verify, and
+    // a perfectly good response was filed as `failed`.
+    expect(canonicalize(parse('<a>x\r\ny</a>'))).toBe('<a>x\ny</a>');
+    expect(canonicalize(parse('<a>x\ry</a>'))).toBe('<a>x\ny</a>');
+    // A CR that arrived as a character reference is NOT a line ending and
+    // survives, which is exactly why canonical form re-escapes it.
+    expect(canonicalize(parse('<a>x&#xD;y</a>'))).toBe('<a>x&#xD;y</a>');
+  });
+
+  it('folds whitespace inside attribute values, but not character references', () => {
+    expect(canonicalize(parse('<a n="x\ty"/>'))).toBe('<a n="x y"></a>');
+    expect(canonicalize(parse('<a n="x\ny"/>'))).toBe('<a n="x y"></a>');
+    // The subtlety: normalisation runs BEFORE entity resolution, so `&#x9;`
+    // is a real tab that survives and is written back out as a reference.
+    expect(canonicalize(parse('<a n="x&#x9;y"/>'))).toBe('<a n="x&#x9;y"></a>');
+  });
+});

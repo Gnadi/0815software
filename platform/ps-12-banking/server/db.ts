@@ -191,6 +191,69 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    id: 3,
+    name: 'scope-idempotency-keys-to-their-connection',
+    up(db) {
+      // An idempotency key is the CALLER'S word, and MOD-04 builds it from a
+      // payment run's MsgId. Two connections legitimately carry the same run
+      // to two banks — so a globally UNIQUE column was wrong twice over: the
+      // lookup answered the second submission with the first bank's order and
+      // dropped the file, and the constraint would have refused it anyway.
+      //
+      // The column was declared `TEXT UNIQUE` inline, which in SQLite creates
+      // an implicit index that cannot be dropped. Rebuilding the table is the
+      // only way to remove it, which is why this migration is long for what it
+      // does.
+      //
+      // And the trap in that rebuild, which this repository's upgrade test
+      // caught on the first run: `order_events` references `orders(id)` with
+      // ON DELETE CASCADE, so `DROP TABLE orders` silently empties it. The
+      // usual remedy — `PRAGMA foreign_keys=OFF` — is a no-op here because
+      // migrations run inside a transaction, so the events are copied aside
+      // and put back instead. Ids are preserved exactly, so every reference
+      // still resolves.
+      db.exec(`
+      CREATE TEMP TABLE order_events_backup AS SELECT * FROM order_events;
+
+      CREATE TABLE orders_rebuilt (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        connection_id   INTEGER NOT NULL REFERENCES bank_connections(id),
+        public_id       TEXT    NOT NULL UNIQUE,
+        msg_id          TEXT    NOT NULL,
+        btf             TEXT    NOT NULL,
+        payload_sha256  TEXT    NOT NULL,
+        amount_minor    INTEGER,
+        tx_count        INTEGER,
+        idempotency_key TEXT,
+        transaction_id  TEXT,
+        created_by      TEXT,
+        created_at      TEXT    NOT NULL
+      );
+
+      INSERT INTO orders_rebuilt
+        (id, connection_id, public_id, msg_id, btf, payload_sha256, amount_minor,
+         tx_count, idempotency_key, transaction_id, created_by, created_at)
+      SELECT id, connection_id, public_id, msg_id, btf, payload_sha256, amount_minor,
+             tx_count, idempotency_key, transaction_id, created_by, created_at
+        FROM orders;
+
+      DROP TABLE orders;
+      ALTER TABLE orders_rebuilt RENAME TO orders;
+
+      -- Both invariants, restated on the rebuilt table.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_msg
+        ON orders (connection_id, msg_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idempotency
+        ON orders (connection_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+
+      -- Put the cascade's casualties back.
+      INSERT INTO order_events (id, order_id, type, ebics_code, meta, created_at)
+      SELECT id, order_id, type, ebics_code, meta, created_at FROM order_events_backup;
+      DROP TABLE order_events_backup;
+      `);
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {

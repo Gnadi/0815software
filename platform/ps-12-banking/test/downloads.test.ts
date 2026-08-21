@@ -26,6 +26,7 @@ import {
 } from '../server/downloads.js';
 import { readStatusReports, verdictOfReports } from '../server/reports.js';
 import { MockBank } from './mock-bank.js';
+import { deflateRawSync } from 'node:zlib';
 import type { BtfInput } from '../shared/types.js';
 
 /**
@@ -97,6 +98,45 @@ function pain002(
     tx +
     `</CstmrPmtStsRpt></Document>`
   );
+}
+
+/**
+ * Wrap documents in a ZIP the way a bank does — which is how camt.053 and
+ * pain.002 actually arrive, per the BTF's `Container` element.
+ */
+function zipped(files: { name: string; content: string }[]): Buffer {
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  for (const file of files) {
+    const name = Buffer.from(file.name, 'utf8');
+    const plain = Buffer.from(file.content, 'utf8');
+    const body = deflateRawSync(plain);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(body.length, 18);
+    local.writeUInt32LE(plain.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    locals.push(local, name, body);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(8, 10);
+    central.writeUInt32LE(body.length, 20);
+    central.writeUInt32LE(plain.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    centrals.push(central, name);
+    offset += 30 + name.length + body.length;
+  }
+  const directory = Buffer.concat(centrals);
+  const eocd = Buffer.alloc(22);
+  eocd.writeUInt32LE(0x06054b50, 0);
+  eocd.writeUInt16LE(files.length, 8);
+  eocd.writeUInt16LE(files.length, 10);
+  eocd.writeUInt32LE(directory.length, 12);
+  eocd.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, eocd]);
 }
 
 async function bringUp(key = 'main'): Promise<void> {
@@ -371,6 +411,69 @@ describe('folding a report back into its order', () => {
 
 // ── The tick ──────────────────────────────────────────────────────────
 
+describe('a report inside a ZIP container — how banks actually send them', () => {
+  async function submitted(msgId: string): Promise<string> {
+    const { order } = await submitOrder(ctx, { connection: 'main', btf: SCT, payload: pain001(msgId) });
+    return order.public_id;
+  }
+
+  it('opens the archive and settles the order inside it', async () => {
+    await bringUp();
+    const id = await submitted('MOD04-Z1');
+    // The profiles all say `container: 'ZIP'`, and until the reader existed
+    // this stored the archive, parsed zero reports, stamped it processed and
+    // left the run sitting at `submitted` forever.
+    bank.enqueue(
+      { serviceName: 'PSR', msgName: 'pain.002' },
+      zipped([{ name: 'psr-20260822-1.xml', content: pain002('MOD04-Z1', 'ACSC') }]),
+    );
+
+    await fetchOne(ctx, 'main', PSR);
+    expect(applyReports(db, ctx.now!)).toBe(1);
+    expect(orderDetail(db, id).status).toBe('settled');
+  });
+
+  it('reads every document in a multi-file archive', async () => {
+    await bringUp();
+    const first = await submitted('MOD04-Z2');
+    const second = await submitted('MOD04-Z3');
+    bank.enqueue(
+      { serviceName: 'PSR', msgName: 'pain.002' },
+      zipped([
+        { name: 'a.xml', content: pain002('MOD04-Z2', 'ACSC') },
+        { name: 'b.xml', content: pain002('MOD04-Z3', 'RJCT', { reasonCode: 'AC01' }) },
+      ]),
+    );
+
+    await fetchOne(ctx, 'main', PSR);
+    expect(applyReports(db, ctx.now!)).toBe(2);
+    expect(orderDetail(db, first).status).toBe('settled');
+    expect(orderDetail(db, second).status).toBe('rejected');
+  });
+
+  it('stores the archive as the bank sent it, not the documents inside', async () => {
+    await bringUp();
+    const archive = zipped([{ name: 'a.xml', content: pain002('MOD04-Z4', 'ACSC') }]);
+    bank.enqueue({ serviceName: 'PSR', msgName: 'pain.002' }, archive);
+
+    const result = await fetchOne(ctx, 'main', PSR);
+    // The file of record is what arrived. Keeping the archive is what makes a
+    // parser bug a re-run rather than an unrecoverable loss.
+    expect(downloadContent(db, result.download!.public_id).equals(archive)).toBe(true);
+  });
+
+  it('keeps an unreadable archive rather than abandoning the fetch', async () => {
+    await bringUp();
+    // Truncated: the reader refuses it. The bytes still have to be stored,
+    // because the receipt has not gone out and this is the only copy offered.
+    bank.enqueue({ serviceName: 'PSR', msgName: 'pain.002' }, Buffer.concat([Buffer.from('PK\u0003\u0004'), Buffer.alloc(40)]));
+
+    const result = await fetchOne(ctx, 'main', PSR);
+    expect(result.download).not.toBeNull();
+    expect(downloadDetail(db, result.download!.public_id).reports).toEqual([]);
+  });
+});
+
 describe('the tick', () => {
   it('fetches for every ready connection and applies what it finds', async () => {
     await bringUp();
@@ -425,5 +528,28 @@ describe('the tick', () => {
 
   it('is a no-op on a stack with no connections at all', async () => {
     expect(await tick(ctx)).toEqual({ downloads_fetched: 0, orders_updated: 0, problems: [] });
+  });
+});
+
+describe('a report that names no original file', () => {
+  it('is kept but attached to nothing', async () => {
+    await bringUp();
+    await submitOrder(ctx, { connection: 'main', btf: SCT, payload: pain001('MOD04-X') });
+    // No OrgnlMsgId at all. There used to be a fallback to the REPORT's own
+    // GrpHdr/MsgId — the bank's id for the report, which has nothing to do
+    // with any order and on a collision would have applied a stranger's
+    // verdict to a real payment.
+    bank.enqueue(
+      { serviceName: 'PSR', msgName: 'pain.002' },
+      '<?xml version="1.0"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.002.001.03">' +
+        '<CstmrPmtStsRpt><GrpHdr><MsgId>MOD04-X</MsgId></GrpHdr>' +
+        '<OrgnlGrpInfAndSts><GrpSts>RJCT</GrpSts></OrgnlGrpInfAndSts></CstmrPmtStsRpt></Document>',
+    );
+
+    await fetchOne(ctx, 'main', PSR);
+    expect(applyReports(db, ctx.now!)).toBe(0);
+    // Stored, readable by a human, attached to nothing.
+    const stored = listDownloads(db, { kind: 'status' })[0]!;
+    expect(downloadDetail(db, stored.public_id).reports[0]).toMatchObject({ msg_id: null, status_code: 'RJCT' });
   });
 });
