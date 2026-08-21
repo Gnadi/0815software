@@ -49,6 +49,7 @@ import {
   tick,
   type DownloadContext,
 } from './downloads.js';
+import type { Product } from './ebics/envelopes.js';
 import type { BtfInput } from '../shared/types.js';
 
 /**
@@ -104,6 +105,42 @@ function optionalInt(source: Record<string, unknown>, field: string, min: number
     ]);
   }
   return value;
+}
+
+/**
+ * Read the optional `Product` off a request body.
+ *
+ * `product_name` alone is not enough: the schema makes `Language` mandatory on
+ * the element, so a name without a language would produce a message no bank
+ * accepts. Refusing it here means the operator finds out while filling in the
+ * form, not at the first upload.
+ */
+function optionalProduct(source: Record<string, unknown>): Product | undefined {
+  const name = optionalText(source, 'product_name');
+  const language = optionalText(source, 'product_language');
+  const instituteId = optionalText(source, 'product_institute_id');
+  if (name === undefined) {
+    if (language === undefined && instituteId === undefined) return undefined;
+    throw new DomainError(422, 'Validation failed', [
+      { field: 'product_name', message: 'required when a product language or institute id is given' },
+    ]);
+  }
+  if (name.length > 64) {
+    throw new DomainError(422, 'Validation failed', [
+      { field: 'product_name', message: 'must be at most 64 characters (EBICS ProductType)' },
+    ]);
+  }
+  if (language === undefined || !/^[a-z]{2}$/.test(language)) {
+    throw new DomainError(422, 'Validation failed', [
+      { field: 'product_language', message: 'required with a product name: a two-letter ISO 639 code, e.g. "de"' },
+    ]);
+  }
+  if (instituteId !== undefined && instituteId.length > 64) {
+    throw new DomainError(422, 'Validation failed', [
+      { field: 'product_institute_id', message: 'must be at most 64 characters' },
+    ]);
+  }
+  return { name, language, ...(instituteId === undefined ? {} : { instituteId }) };
 }
 
 /**
@@ -296,6 +333,7 @@ export function createApp(opts: AppOptions): express.Express {
         partnerId: reqText(b, 'partner_id', 60),
         userId: reqText(b, 'user_id', 60),
         esVersion: b.es_version === 'A006' ? 'A006' : 'A005',
+        product: optionalProduct(b),
         debtorIban: optionalText(b, 'debtor_iban'),
         maxAmountMinor: optionalInt(b, 'max_amount_minor', 1, Number.MAX_SAFE_INTEGER),
         maxTransfers: optionalInt(b, 'max_transfers', 1, 1_000_000),

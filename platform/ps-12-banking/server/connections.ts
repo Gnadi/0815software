@@ -11,7 +11,7 @@ import {
   publicRecords,
 } from './keystore.js';
 import { Transport } from './transport.js';
-import { buildHev, buildHia, buildHpb, buildIni, type Subscriber } from './ebics/envelopes.js';
+import { buildHev, buildHia, buildHpb, buildIni, type Product, type Subscriber } from './ebics/envelopes.js';
 import { parseHev, parseHpbOrderData, parseResponse } from './ebics/parse.js';
 import type { EsVersion } from './ebics/crypto.js';
 import type {
@@ -50,6 +50,8 @@ export interface ConnectionInput {
   partnerId: string;
   userId: string;
   esVersion?: EsVersion;
+  /** The `Product` element. Omit it and no `Product` is sent at all. */
+  product?: Product | null;
   debtorIban?: string | null;
   maxAmountMinor?: number;
   maxTransfers?: number;
@@ -66,6 +68,9 @@ interface ConnectionRow {
   user_id: string;
   ebics_version: string;
   es_version: string;
+  product_name: string | null;
+  product_language: string | null;
+  product_institute_id: string | null;
   debtor_iban: string | null;
   max_amount_minor: number;
   max_transfers: number;
@@ -181,6 +186,9 @@ function toConnection(db: Database.Database, row: ConnectionRow): Connection {
     user_id: row.user_id,
     ebics_version: row.ebics_version,
     es_version: row.es_version,
+    product_name: row.product_name,
+    product_language: row.product_language,
+    product_institute_id: row.product_institute_id,
     debtor_iban: row.debtor_iban,
     max_amount_minor: row.max_amount_minor,
     max_transfers: row.max_transfers,
@@ -221,7 +229,35 @@ function loaded(db: Database.Database, key: string): { row: ConnectionRow; state
 }
 
 function subscriberOf(row: ConnectionRow): Subscriber {
-  return { hostId: row.host_id, partnerId: row.partner_id, userId: row.user_id };
+  return {
+    hostId: row.host_id,
+    partnerId: row.partner_id,
+    userId: row.user_id,
+    ...productOf(row),
+  };
+}
+
+/**
+ * The `Product` element for a connection row, or nothing.
+ *
+ * Spread rather than assigned so that a connection with no product yields an
+ * object with no `product` key at all, rather than one whose `product` is
+ * `undefined` — two ways of saying the same thing is one too many, and the
+ * builders test the key's presence.
+ */
+export function productOf(row: {
+  product_name: string | null;
+  product_language: string | null;
+  product_institute_id: string | null;
+}): { product: Product } | Record<string, never> {
+  if (row.product_name === null || row.product_language === null) return {};
+  return {
+    product: {
+      name: row.product_name,
+      language: row.product_language,
+      ...(row.product_institute_id === null ? {} : { instituteId: row.product_institute_id }),
+    },
+  };
 }
 
 // ── Creating ──────────────────────────────────────────────────────────
@@ -244,8 +280,9 @@ export function createConnection(db: Database.Database, input: ConnectionInput, 
       .prepare(
         `INSERT INTO bank_connections
            (key, display_name, bank_key, url, host_id, partner_id, user_id, ebics_version, es_version,
+            product_name, product_language, product_institute_id,
             debtor_iban, max_amount_minor, max_transfers, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'H005', ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'H005', ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.key,
@@ -256,6 +293,9 @@ export function createConnection(db: Database.Database, input: ConnectionInput, 
         input.partnerId,
         input.userId,
         input.esVersion ?? 'A005',
+        input.product?.name ?? null,
+        input.product?.language ?? null,
+        input.product?.instituteId ?? null,
         input.debtorIban ?? null,
         input.maxAmountMinor ?? 100_000_000,
         input.maxTransfers ?? 500,

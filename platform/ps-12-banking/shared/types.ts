@@ -91,6 +91,15 @@ export interface Connection {
   ebics_version: string;
   es_version: string;
   debtor_iban: string | null;
+  /**
+   * The `Product` element: which client software the bank sees, and the id it
+   * issued for it. Null throughout means no `Product` element is sent, which
+   * is what H005 allows and what every bank tried so far accepts.
+   */
+  product_name: string | null;
+  /** ISO 639 two-letter code. Required by the schema whenever a name is set. */
+  product_language: string | null;
+  product_institute_id: string | null;
   /** Ceilings enforced before anything is signed — see the service README. */
   max_amount_minor: number;
   max_transfers: number;

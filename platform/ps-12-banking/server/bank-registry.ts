@@ -7,15 +7,22 @@ import type { BtfInput } from '../shared/types.js';
  *
  * The German entries are transcribed from **"Mappingtabelle BTF-Struktur auf
  * die Standard-Auftragsartenkennungen"**, the official table published at
- * `ebics.de`, final version of 27 February 2026. They are marked `confirmed`
- * because that document is the source of truth for the German market, not
- * because anyone has run them past a bank.
+ * `ebics.de`, final version of 27 February 2026. The Austrian entries come
+ * from **"Mappingtabelle BTF-Struktur / Standardauftragsarten AT"**, the
+ * Stuzza table at `ebics.psa.at`. They are marked `confirmed` because those
+ * documents are the source of truth for their markets, not because anyone has
+ * run them past a bank.
  *
- * Everything else is `confirmed: false` and deliberately minimal. An earlier
- * version of this file shipped invented values for four countries — a `PSR`
- * service name that does not exist, and a scope-plus-container combination
- * that names a different order type than intended. They were plausible, which
- * is exactly what made them dangerous, and only the published table showed it.
+ * The two tables do not agree with each other, and that is the point of
+ * keeping them apart: Germany leaves the scope off a plain SEPA credit
+ * transfer, Austria sets it to `AT`. An earlier `at-sepa` entry here was
+ * shaped after the German one and was wrong for exactly that reason.
+ *
+ * `generic` is `confirmed: false` and deliberately minimal. An earlier version
+ * of this file shipped invented values for four countries — a `PSR` service
+ * name that does not exist, and a scope-plus-container combination that names
+ * a different order type than intended. They were plausible, which is exactly
+ * what made them dangerous, and only the published tables showed it.
  *
  * ## What is deliberately NOT here
  *
@@ -66,6 +73,9 @@ export const PROTOCOL_SEGMENT_LIMIT = 1_000_000;
 const DE_SOURCE =
   'Mappingtabelle BTF-Struktur auf die Standard-Auftragsartenkennungen, ebics.de, Endfassung 27.02.2026';
 
+const AT_SOURCE =
+  'Mappingtabelle BTF-Struktur / Standardauftragsarten AT, Stuzza (ebics.psa.at), Stand 04.07.2025';
+
 export const REGISTRY: readonly BankProfile[] = [
   {
     key: 'de-sepa',
@@ -97,20 +107,46 @@ export const REGISTRY: readonly BankProfile[] = [
   },
   {
     key: 'at-sepa',
-    name: 'SEPA · Austria (unconfirmed)',
-    // Shaped like the German entries but with the Austrian scope, and marked
-    // unconfirmed because the Austrian mapping (ebics.psa.at) has not been
-    // read. Do not trust the scope or the ServiceOption without checking it.
-    creditTransfer: { service_name: 'SCT', msg_name: 'pain.001', msg_variant: '001', msg_version: '03' },
+    name: 'SEPA · Austria (Stuzza)',
+    // SCT/AT/pain.001, no ServiceOption and NO container. Austria differs from
+    // Germany here in a way that matters: the German table leaves the scope off
+    // the plain credit transfer, the Austrian table sets it to AT. An earlier
+    // version of this entry was shaped after the German one and therefore sent
+    // no scope at all — a different service, from the bank's point of view.
+    //
+    // No msg_variant/msg_version either. The Austrian table's MsgName column
+    // says only "pain.001": the schema in force is recognised from the file's
+    // own ISO namespace ("Im Allgemeinen werden auch ältere Formate bzw.
+    // Rulebooks unterstützt, aber ausschließlich solche mit ISO-Namespace"),
+    // not from the BTF. Pinning a version here would be an invention.
+    creditTransfer: { service_name: 'SCT', scope: 'AT', msg_name: 'pain.001' },
+    // EOP/AT/camt.053/ZIP.
     statement: { service_name: 'EOP', scope: 'AT', msg_name: 'camt.053', container: 'ZIP' },
-    paymentStatus: { service_name: 'REP', scope: 'AT', option: 'SCT', msg_name: 'pain.002', container: 'ZIP' },
+    // REP/AT/SCT/pain.002/ZIP. Austria splits the status report by scheme in
+    // the ServiceOption exactly as Germany does: SCT credit transfers, SCI
+    // instant, SDD direct debits, VOP Verification-of-Payee results.
+    paymentStatus: {
+      service_name: 'REP',
+      scope: 'AT',
+      option: 'SCT',
+      msg_name: 'pain.002',
+      container: 'ZIP',
+    },
+    // Present for the shape's sake only — see `notes`. Austria does not use
+    // them, and an operator quoting them at an Austrian bank will get a blank
+    // look rather than an account.
     legacyOrderTypes: { creditTransfer: 'CCT', statement: 'C53', paymentStatus: 'CRZ' },
     segmentLimit: PROTOCOL_SEGMENT_LIMIT,
-    confirmed: false,
-    source: 'shaped after the German table; the Austrian mapping at ebics.psa.at has NOT been checked',
+    confirmed: true,
+    source: AT_SOURCE,
     notes:
-      'Austria publishes its own BTF mapping. Until it has been read, treat the scope and the service option here ' +
-      'as guesses: check them against your bank’s documentation and confirm with POST /api/orders?validate=1.',
+      'The AAD (EBICS 2.5) column of the Austrian table is explicitly NOT used in Austria — it is printed for ' +
+      'software vendors migrating from the German order types and nothing more. Other Austrian BTFs an operator ' +
+      'may need, straight from the same table: camt.052 STM/AT/camt.052/ZIP, camt.054 STM/AT/camt.054/ZIP, ' +
+      'MT940 EOP/AT/mt940, MT942 STM/AT/mt942, PDF statements EOP/AT/pdf/ZIP, bank fees REP/BIL/camt.086/ZIP ' +
+      '(scope BIL, not AT), customer information CIM/AT/cimresp, SEPA direct debit SDD/AT/pain.008 with option ' +
+      'COR or B2B, instant SCI/AT/pain.001, foreign payments XCT/AT/pain.001. Since 09.10.2025 the ServiceOption ' +
+      'VOO/VOI selects Verification of Payee opt-out/opt-in; an absent option is read as OPT-OUT for SCT and SCI.',
   },
   {
     key: 'generic',

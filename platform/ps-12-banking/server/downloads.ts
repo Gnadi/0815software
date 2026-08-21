@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { DomainError } from './errors.js';
-import { listConnections, nowIso, publicId, requireReady } from './connections.js';
+import { listConnections, nowIso, productOf, publicId, requireReady } from './connections.js';
 import { privatePemFor } from './keystore.js';
 import { bankProfile } from './bank-registry.js';
 import { buildDownloadInit, buildDownloadSegment, buildReceipt, type Btf, type Subscriber, type SubscriberKeys } from './ebics/envelopes.js';
@@ -54,6 +54,9 @@ interface ConnectionRow {
   partner_id: string;
   user_id: string;
   es_version: string;
+  product_name: string | null;
+  product_language: string | null;
+  product_institute_id: string | null;
 }
 
 interface DownloadDbRow {
@@ -150,7 +153,12 @@ function kindOf(btf: BtfInput): DownloadKind {
 }
 
 function subscriberOf(row: ConnectionRow): Subscriber {
-  return { hostId: row.host_id, partnerId: row.partner_id, userId: row.user_id };
+  return {
+    hostId: row.host_id,
+    partnerId: row.partner_id,
+    userId: row.user_id,
+    ...productOf(row),
+  };
 }
 
 function keysOf(ctx: DownloadContext, row: ConnectionRow): SubscriberKeys {

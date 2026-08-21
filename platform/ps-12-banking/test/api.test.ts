@@ -162,14 +162,37 @@ describe('GET /api/banks', () => {
     expect(res.body.banks.length).toBeGreaterThan(0);
     for (const profile of res.body.banks) expect(profile.source).toBeTruthy();
 
-    // Only the German values are confirmed, and only because they are
-    // transcribed from the published mapping table. Anything shaped by
-    // analogy — Austria, the generic profile — must say it is a guess.
+    // Confirmed means "transcribed from that market's published mapping
+    // table", nothing more. Anything shaped by analogy — the generic profile
+    // — must say it is a guess.
     const byKey = Object.fromEntries(res.body.banks.map((b: { key: string }) => [b.key, b]));
     expect(byKey['de-sepa'].confirmed).toBe(true);
     expect(byKey['de-sepa'].source).toMatch(/ebics\.de/);
-    expect(byKey['at-sepa'].confirmed).toBe(false);
+    expect(byKey['at-sepa'].confirmed).toBe(true);
+    expect(byKey['at-sepa'].source).toMatch(/ebics\.psa\.at/);
     expect(byKey['generic'].confirmed).toBe(false);
+  });
+
+  it('keeps Austria and Germany apart where their tables disagree', async () => {
+    const res = await request(app).get('/api/banks').set(SERVICE).expect(200);
+    const byKey = Object.fromEntries(res.body.banks.map((b: { key: string }) => [b.key, b]));
+
+    // The one difference that a copy-by-analogy gets wrong, and did: the
+    // Austrian table sets Scope=AT on a plain SEPA credit transfer, the
+    // German one leaves it off entirely. Same service name, different BTF.
+    expect(byKey['at-sepa'].creditTransfer.scope).toBe('AT');
+    expect(byKey['de-sepa'].creditTransfer.scope).toBeUndefined();
+
+    // Austria's table gives no variant/version for pain.001 — the schema in
+    // force is read from the file's ISO namespace. Inventing one here would
+    // name a message the bank never published.
+    expect(byKey['at-sepa'].creditTransfer.msg_variant).toBeUndefined();
+    expect(byKey['at-sepa'].creditTransfer.msg_version).toBeUndefined();
+
+    // And neither market puts a container on a single pain.001: adding one
+    // names the several-files-in-one-container variant instead.
+    expect(byKey['at-sepa'].creditTransfer.container).toBeUndefined();
+    expect(byKey['de-sepa'].creditTransfer.container).toBeUndefined();
   });
 
   it('carries the EBICS 2.5 order types, because banks still talk in them', async () => {
@@ -184,6 +207,71 @@ describe('GET /api/banks', () => {
     const res = await request(app).get('/api/banks').set(SERVICE).expect(200);
     const serialised = JSON.stringify(res.body);
     expect(serialised).not.toMatch(/https?:\/\//);
+  });
+});
+
+// ── The Product element ───────────────────────────────────────────────
+
+describe('the client product identification', () => {
+  it('names the client software on the wire when the connection carries a Product', async () => {
+    // Optional in H005, and the service sent none for a long time. The
+    // Austrian specification's own worked ebicsRequest example carries it,
+    // and a bank uses it to tell one customer product from another when a
+    // support call comes in.
+    await bringUp('withprod', {
+      product_name: '0815software PS-12',
+      product_language: 'de',
+      product_institute_id: 'INST0815',
+    });
+
+    const detail = await request(app)
+      .get('/api/connections/withprod')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+    expect(detail.body.product_name).toBe('0815software PS-12');
+
+    // Every message from the key exchange onwards, not just the first.
+    expect(bank.requests.length).toBeGreaterThan(2);
+    for (const body of bank.requests.slice(1)) {
+      expect(body).toContain('<e:Product InstituteID="INST0815" Language="de">0815software PS-12</e:Product>');
+    }
+
+    // And on an actual upload.
+    await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'withprod', payload_base64: pain001('P1') })
+      .expect(201);
+    expect(bank.requests.at(-1)).toBeDefined();
+    expect(bank.requests.some((b) => b.includes('BTUOrderParams') && b.includes('<e:Product '))).toBe(true);
+  });
+
+  it('sends no Product element at all when the connection names none', async () => {
+    // The default, and what every message looked like before the element
+    // existed here. An empty Product is not the same thing as no Product.
+    await bringUp('noprod');
+    for (const body of bank.requests) expect(body).not.toContain('<e:Product');
+  });
+
+  it('refuses a product name with no language, because the schema requires one', async () => {
+    // Language is `use="required"` on the element. A name without it would
+    // build a message the bank's own parser rejects — better to say so while
+    // the operator still has the form open.
+    const res = await request(app)
+      .post('/api/connections')
+      .set('Authorization', `Bearer ${session}`)
+      .send({
+        key: 'halfprod',
+        display_name: 'Test Bank',
+        bank_key: 'at-sepa',
+        url: 'https://bank.example/ebics',
+        host_id: bank.hostId,
+        partner_id: 'PARTNER1',
+        user_id: 'USER1',
+        product_name: '0815software PS-12',
+      })
+      .expect(422);
+    expect(res.body.details[0].field).toBe('product_language');
   });
 });
 
@@ -395,16 +483,16 @@ describe('POST /api/orders', () => {
       .expect(201);
 
     expect(res.body.status).toBe('accepted');
-    // No scope and no container: the published table is explicit that adding
-    // both names a DIFFERENT order type (CCC, the multi-file container
-    // variant) than the single pain.001 MOD-04 produces.
+    // This connection is on the Austrian profile, so: Scope=AT, and no
+    // container — the published tables are explicit that adding a container
+    // names a DIFFERENT order type (the several-files variant) than the
+    // single pain.001 MOD-04 produces.
     expect(res.body.btf).toEqual({
       service_name: 'SCT',
+      scope: 'AT',
       msg_name: 'pain.001',
-      msg_variant: '001',
-      msg_version: '03',
     });
-    expect(bank.received[0]!.btf.scope).toBeNull();
+    expect(bank.received[0]!.btf.scope).toBe('AT');
   });
 
   it('lets a caller override the profile’s BTF', async () => {

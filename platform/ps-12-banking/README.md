@@ -292,11 +292,12 @@ entered your bank's details".
 
 The German profile is transcribed from the official **"Mappingtabelle
 BTF-Struktur auf die Standard-Auftragsartenkennungen"** (`ebics.de`, 27
-February 2026) and is the only one marked `confirmed`. Everything else is
-shaped by analogy and says so. That distinction is not decoration: the previous
-version of this file invented values for four countries, and the published
-table showed two of them to be wrong in ways that would have been refused at
-the bank —
+February 2026); the Austrian one from **"Mappingtabelle BTF-Struktur /
+Standardauftragsarten AT"** (Stuzza, `ebics.psa.at`). Those two are marked
+`confirmed`. `generic` is shaped by analogy and says so. That distinction is
+not decoration: the previous version of this file invented values for four
+countries, and the published table showed two of them to be wrong in ways that
+would have been refused at the bank —
 
 | | invented | published (DE) |
 | --- | --- | --- |
@@ -310,9 +311,46 @@ the BTF names **CCC**, the variant for several files inside an XML container,
 rather than **CCT**, a single pain.001. The table is explicit: *"Scope DE wegen
 Verwendung eines Containers."*
 
+The Austrian table then caught the correction's own overreach. Having learned
+that Germany wants no scope on a plain credit transfer, `at-sepa` was reshaped
+after the German entry and dropped its scope too — but Austria sets `Scope=AT`
+on exactly that message. The two markets disagree, and copying either one onto
+the other is wrong in one direction or the other:
+
+| | Germany | Austria |
+| --- | --- | --- |
+| credit transfer | `SCT` / — / pain.001 | `SCT` / **`AT`** / pain.001 |
+| statement | `EOP` / `DE` / camt.053 / ZIP | `EOP` / `AT` / camt.053 / ZIP |
+| status report | `REP` / `DE` / `SCT` / pain.002 / ZIP | `REP` / `AT` / `SCT` / pain.002 / ZIP |
+| bank fees | `REP` / `DE` / camt.086 / ZIP | `REP` / **`BIL`** / camt.086 / ZIP |
+
+Austria also pins no message variant or version: the schema in force is read
+from the file's own ISO namespace, so the `msg_variant`/`msg_version` the
+German entry carries would have been an invention there. And the Austrian
+table's legacy-order-type column is printed for German-market vendors
+migrating; the document says outright that those codes have no meaning in
+Austria and are not used there.
+
 Each profile also carries the EBICS 2.5 order types it replaces. Nothing sends
 them, but a bank on the telephone says "we've enabled CCT and C53 for you", and
-somebody has to be able to translate.
+somebody has to be able to translate — in Germany. In Austria that conversation
+happens in BTF terms already.
+
+### Which client software is speaking
+
+A connection may name a `Product`: the client software's own identification,
+its ISO 639 language, and the id the bank issued for it. It is optional in
+H005 and this service sent none for a long time — but the Austrian
+specification's worked `ebicsRequest` example carries it, and a bank uses it to
+tell one customer product from another when a support call comes in.
+
+It goes in exactly one place, after `UserID`/`SystemID` and before
+`OrderDetails`, and only in the initialisation phase — the transfer and receipt
+phases carry nothing but a host id and a transaction id. A mock bank that reads
+elements by name would accept it anywhere, so `schema.test.ts` validates every
+message twice, once with the element and once without, and asserts which of
+them carry it. Set no product fields and no element is emitted at all, which is
+what every message looked like before.
 
 ## Downloads, and the one rule that matters
 
@@ -498,12 +536,14 @@ ever, a connection permanently bricked by one transient bank error, an
 idempotency key that collided across connections, a `container: ZIP` nobody
 could open, and a status report matched on the wrong id.
 
-Then the published schemas found six more, and the BTF mapping table found two
-wrong service definitions. All are fixed and covered. The pattern across all
-three rounds is the same and is the useful thing to carry forward: **every
-defect was found by comparing against something outside this repository —
-openssl, Python, the XSDs, the mapping table — and none by adding another test
-of the kind already there.**
+Then the published schemas found six more, and the German BTF mapping table
+found two wrong service definitions. Then the Austrian mapping table found a
+third — a scope dropped from `at-sepa` in the course of fixing the German one,
+which is what copying a market's conventions sideways gets you. All are fixed
+and covered. The pattern across all four rounds is the same and is the useful
+thing to carry forward: **every defect was found by comparing against something
+outside this repository — openssl, Python, the XSDs, the mapping tables — and
+none by adding another test of the kind already there.**
 
 ## License
 

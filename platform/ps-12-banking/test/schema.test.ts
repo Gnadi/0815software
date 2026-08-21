@@ -15,6 +15,7 @@ import {
   buildDownloadInit,
   buildDownloadSegment,
   EBICS_NS,
+  type Subscriber,
 } from '../server/ebics/envelopes.js';
 import { unpackOrderData } from '../server/ebics/crypto.js';
 import { at, parse, textOf } from '../server/ebics/xml.js';
@@ -77,6 +78,20 @@ function validate(xml: string, schema: string): string | null {
 }
 
 const subscriber = { hostId: 'EBIXHOST', partnerId: 'PARTNER1', userId: 'USER1' };
+
+/**
+ * The same subscriber, naming its client software.
+ *
+ * `Product` is optional in H005 and sits in exactly one legal place — after
+ * `UserID`/`SystemID`, before `OrderDetails` — in both request families. A
+ * mock bank that reads elements by name would accept it anywhere, so the
+ * schema is the only thing that can catch a misplacement. Hence: every message
+ * is validated twice, once with the element and once without.
+ */
+const withProduct = {
+  ...subscriber,
+  product: { name: '0815software PS-12', language: 'de', instituteId: 'INST0815' },
+};
 const keys = {
   esPrivatePem: ES.privatePem,
   esVersion: 'A005' as const,
@@ -108,7 +123,7 @@ const transactionKey = Buffer.alloc(16, 7);
 const orderData = Buffer.from('<?xml version="1.0"?><Document xmlns="urn:x"/>', 'utf8');
 
 /** Every message this service can put on the wire, and its schema. */
-function everyMessage(): { name: string; xml: string; schema: string }[] {
+function everyMessage(subscriber: Subscriber): { name: string; xml: string; schema: string }[] {
   return [
     { name: 'HEV', xml: buildHev(subscriber.hostId), schema: 'ebics_hev.xsd' },
     {
@@ -226,8 +241,31 @@ if (!HAVE_SCHEMAS) {
 }
 
 describeIf('every message validates against the published EBICS 3.0 schema', () => {
-  it.each(everyMessage().map((m) => [m.name, m] as const))('%s', (_name, message) => {
+  it.each(everyMessage(subscriber).map((m) => [m.name, m] as const))('%s', (_name, message) => {
     expect(validate(message.xml, message.schema)).toBeNull();
+  });
+});
+
+describeIf('every message still validates when it names the client product', () => {
+  it.each(everyMessage(withProduct).map((m) => [m.name, m] as const))('%s', (_name, message) => {
+    expect(validate(message.xml, message.schema)).toBeNull();
+  });
+
+  it('actually put the element in', () => {
+    // Otherwise the suite above would pass by validating the same messages
+    // twice, which is the failure mode a parameterised test invites.
+    const carriers = everyMessage(withProduct).filter((m) => m.xml.includes('<e:Product '));
+    expect(carriers.map((m) => m.name)).toEqual(['INI', 'HIA', 'HPB', 'BTU initialisation', 'BTD initialisation',
+      'BTD initialisation with a date range']);
+    expect(carriers[0]!.xml).toContain('<e:Product InstituteID="INST0815" Language="de">0815software PS-12</e:Product>');
+  });
+
+  it('leaves it out of the transfer and receipt phases, where the schema has no room for it', () => {
+    // Not an oversight: those phases carry only HostID and TransactionID, so
+    // emitting a Product there would be a message no bank would parse.
+    const later = everyMessage(withProduct).filter((m) => /transfer|segment request|receipt/.test(m.name));
+    expect(later).toHaveLength(3);
+    for (const message of later) expect(message.xml).not.toContain('<e:Product');
   });
 });
 

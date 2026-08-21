@@ -279,6 +279,30 @@ export const MIGRATIONS: Migration[] = [
       if (!hasColumn('bank_keys')) db.exec('ALTER TABLE bank_keys ADD COLUMN certificate_pem TEXT');
     },
   },
+  {
+    id: 5,
+    name: 'connection-product',
+    up(db) {
+      // The `Product` element: which client software is talking, and under
+      // which id the bank knows it. Optional in H005, but the Austrian
+      // specification's worked example carries it and some banks ask for the
+      // id they issued, so it is a per-connection property — one customer can
+      // have a product id at one bank and none at another.
+      //
+      // Nullable, and null means "emit no Product element", which is exactly
+      // what every message this service sent before this migration did.
+      const columns = (db.prepare('PRAGMA table_info(bank_connections)').all() as { name: string }[]).map(
+        (c) => c.name,
+      );
+      if (!columns.includes('product_name')) db.exec('ALTER TABLE bank_connections ADD COLUMN product_name TEXT');
+      if (!columns.includes('product_language')) {
+        db.exec('ALTER TABLE bank_connections ADD COLUMN product_language TEXT');
+      }
+      if (!columns.includes('product_institute_id')) {
+        db.exec('ALTER TABLE bank_connections ADD COLUMN product_institute_id TEXT');
+      }
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {

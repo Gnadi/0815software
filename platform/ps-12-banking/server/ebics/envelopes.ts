@@ -48,6 +48,25 @@ export const NS: NsMap = { e: EBICS_NS, ds: DS_NS, esig: ESIG_NS };
 
 export const H005 = 'H005';
 
+/**
+ * Which client software is speaking — the `Product` element.
+ *
+ * Optional in H005 (`minOccurs="0"` in both `ebics_request` and
+ * `ebics_keymgmt_request`) and easy to dismiss for that reason, but the
+ * Austrian specification's own worked `ebicsRequest` example carries it, and
+ * banks use it to tell one customer product from another when a support call
+ * comes in. `InstituteID` is the id the bank assigned to that product, when it
+ * assigned one at all.
+ */
+export interface Product {
+  /** The product identification. `ProductType`: at most 64 characters. */
+  name: string;
+  /** ISO 639 two-letter language code, e.g. "de". The schema requires it. */
+  language: string;
+  /** The issuing institute's id for this product, when the bank gave one. */
+  instituteId?: string;
+}
+
 /** Who we are to the bank: the three ids from the EBICS contract. */
 export interface Subscriber {
   /** The bank's own id for its EBICS server, e.g. "EBIXHOST". */
@@ -56,6 +75,8 @@ export interface Subscriber {
   partnerId: string;
   /** The individual subscriber (user) id. */
   userId: string;
+  /** The client software, when the connection names one. */
+  product?: Product;
 }
 
 /** Our key material, as the builders need it. */
@@ -116,6 +137,25 @@ function staticHeader(subscriber: Subscriber, children: (XmlElement | null)[]): 
     el('e:HostID', {}, [subscriber.hostId]),
     ...children,
   ]);
+}
+
+/**
+ * `Product`, or nothing at all when the connection does not name one.
+ *
+ * Position is not free: the schema puts it after `UserID`/`SystemID` and
+ * before `OrderDetails` in both request families, so it is passed in at each
+ * call site rather than appended by `staticHeader`. `schema.test.ts` is what
+ * proves the placement, since a misplaced optional element is exactly the kind
+ * of mistake a mock bank that reads by name would never notice.
+ */
+function productElement(subscriber: Subscriber): XmlElement | null {
+  const product = subscriber.product;
+  if (product === undefined) return null;
+  const attrs: Record<string, string> =
+    product.instituteId === undefined
+      ? { Language: product.language }
+      : { Language: product.language, InstituteID: product.instituteId };
+  return el('e:Product', attrs, [product.name]);
 }
 
 /** The `PubKeyValue` shape used wherever a public key goes on the wire. */
@@ -222,6 +262,7 @@ function unsecuredRequest(subscriber: Subscriber, orderType: 'INI' | 'HIA', orde
         staticHeader(subscriber, [
           el('e:PartnerID', {}, [subscriber.partnerId]),
           el('e:UserID', {}, [subscriber.userId]),
+          productElement(subscriber),
           el('e:OrderDetails', {}, [el('e:AdminOrderType', {}, [orderType])]),
           el('e:SecurityMedium', {}, ['0000']),
         ]),
@@ -260,6 +301,7 @@ export function buildHpb(params: { subscriber: Subscriber; keys: SubscriberKeys;
         el('e:Timestamp', {}, [params.timestamp]),
         el('e:PartnerID', {}, [params.subscriber.partnerId]),
         el('e:UserID', {}, [params.subscriber.userId]),
+        productElement(params.subscriber),
         el('e:OrderDetails', {}, [
           el('e:AdminOrderType', {}, ['HPB']),
         ]),
@@ -342,6 +384,7 @@ export function buildUploadInit(params: UploadInit): string {
         el('e:Timestamp', {}, [params.timestamp]),
         el('e:PartnerID', {}, [subscriber.partnerId]),
         el('e:UserID', {}, [subscriber.userId]),
+        productElement(subscriber),
         el('e:OrderDetails', {}, [
           el('e:AdminOrderType', {}, ['BTU']),
           el('e:BTUOrderParams', {}, [btfElement(btf)]),
@@ -484,6 +527,7 @@ export function buildDownloadInit(params: {
         el('e:Timestamp', {}, [params.timestamp]),
         el('e:PartnerID', {}, [subscriber.partnerId]),
         el('e:UserID', {}, [subscriber.userId]),
+        productElement(subscriber),
         el('e:OrderDetails', {}, [
           el('e:AdminOrderType', {}, ['BTD']),
           el('e:BTDOrderParams', {}, [

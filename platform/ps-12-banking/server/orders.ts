@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { DomainError } from './errors.js';
-import { nowIso, publicId, requireReady } from './connections.js';
+import { nowIso, productOf, publicId, requireReady } from './connections.js';
 import { privatePemFor } from './keystore.js';
 import { Transport } from './transport.js';
 import { buildTransfer, buildUploadInit, type Btf, type Subscriber, type SubscriberKeys } from './ebics/envelopes.js';
@@ -69,7 +69,7 @@ export interface SubmitInput {
    *
    * That default is the point of the profile registry. A calling module knows
    * it has produced a pain.001; it should not also have to know that this
-   * bank wants `SCT/AT/pain.001/XML` while the one next door wants no scope at
+   * bank wants `SCT/AT/pain.001` while the one next door wants no scope at
    * all. An operator picks the profile once, when they set the connection up
    * and have the bank's documentation in front of them.
    */
@@ -362,6 +362,9 @@ interface ConnectionRow {
   partner_id: string;
   user_id: string;
   es_version: string;
+  product_name: string | null;
+  product_language: string | null;
+  product_institute_id: string | null;
   max_amount_minor: number;
   max_transfers: number;
 }
@@ -379,6 +382,7 @@ async function transmit(
     hostId: connection.host_id,
     partnerId: connection.partner_id,
     userId: connection.user_id,
+    ...productOf(connection),
   };
 
   /**

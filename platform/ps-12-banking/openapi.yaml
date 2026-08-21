@@ -86,6 +86,11 @@ paths:
         '403': { description: A service token cannot reach an operator's route }
     post:
       summary: Create connection
+      description: >-
+        key, display_name, bank_key, url, host_id, partner_id and user_id come from the EBICS contract.
+        Optional: es_version (A005 or A006), debtor_iban, max_amount_minor, max_transfers, and the
+        EBICS Product element as product_name / product_language (ISO 639, required with a name) /
+        product_institute_id. Omit the product fields and no Product element is sent.
       tags: [ps-12-banking]
       security: [{adminSession: []}]
       responses:
