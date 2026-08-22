@@ -108,8 +108,22 @@ export interface StatementEntry {
   entryRef: string | null;
   /** The bank's own reference for the booking. */
   accountServicerRef: string | null;
-  /** `Domn/Cd/Fmly/SubFmlyCd` joined, or the bank's proprietary code. */
+  /**
+   * The ISO domain code as `Domn/Fmly/SubFmly`, e.g. `PMNT/RCDT/ESCT`.
+   *
+   * Null where a bank sends only its own code.
+   */
   bankTransactionCode: string | null;
+  /**
+   * The bank's OWN transaction code, from `BkTxCd/Prtry/Cd`.
+   *
+   * Kept beside the ISO one rather than as a fallback for it. The Austrian
+   * schemas make **both** `Domn` and `Prtry` mandatory, so an Austrian bank
+   * always sends both — and a reader that preferred the ISO code and fell back
+   * to this one would drop the proprietary code on every single booking, in
+   * the market where it is the code the bank actually keys on.
+   */
+  proprietaryTransactionCode: string | null;
   /** The reference OUR pain.001 put on the transaction, when there is one. */
   endToEndId: string | null;
   mandateId: string | null;
@@ -291,7 +305,8 @@ function readEntry(entry: XmlElement, ns: string, seq: number): StatementEntry {
     valueDate: dateOf(at(entry, ns, 'ValDt'), ns),
     entryRef: blank(textOf(at(entry, ns, 'NtryRef'))),
     accountServicerRef: blank(textOf(at(entry, ns, 'AcctSvcrRef'))),
-    bankTransactionCode: transactionCode(at(entry, ns, 'BkTxCd'), ns),
+    bankTransactionCode: isoTransactionCode(at(entry, ns, 'BkTxCd'), ns),
+    proprietaryTransactionCode: proprietaryCode(at(entry, ns, 'BkTxCd'), ns),
     endToEndId: refs === null ? null : blank(textOf(at(refs, ns, 'EndToEndId'))),
     mandateId: refs === null ? null : blank(textOf(at(refs, ns, 'MndtId'))),
     msgId: refs === null ? null : blank(textOf(at(refs, ns, 'MsgId'))),
@@ -344,20 +359,29 @@ function dateOf(node: XmlElement | null, ns: string): string | null {
   return blank(textOf(at(node, ns, 'Dt'))) ?? blank(textOf(at(node, ns, 'DtTm')));
 }
 
-/** The ISO domain code as `Domn/Fmly/SubFmly`, or the bank's own. */
-function transactionCode(node: XmlElement | null, ns: string): string | null {
+/** The ISO domain code as `Domn/Fmly/SubFmly`. */
+function isoTransactionCode(node: XmlElement | null, ns: string): string | null {
   if (node === null) return null;
   const domain = at(node, ns, 'Domn');
-  if (domain !== null) {
-    const family = at(domain, ns, 'Fmly');
-    const parts = [
-      textOf(at(domain, ns, 'Cd')).trim(),
-      family === null ? '' : textOf(at(family, ns, 'Cd')).trim(),
-      family === null ? '' : textOf(at(family, ns, 'SubFmlyCd')).trim(),
-    ].filter((p) => p !== '');
-    if (parts.length > 0) return parts.join('/');
-  }
-  return blank(textOf(at(node, ns, 'Prtry', 'Cd')));
+  if (domain === null) return null;
+  const family = at(domain, ns, 'Fmly');
+  const parts = [
+    textOf(at(domain, ns, 'Cd')).trim(),
+    family === null ? '' : textOf(at(family, ns, 'Cd')).trim(),
+    family === null ? '' : textOf(at(family, ns, 'SubFmlyCd')).trim(),
+  ].filter((p) => p !== '');
+  return parts.length > 0 ? parts.join('/') : null;
+}
+
+/**
+ * The bank's own transaction code.
+ *
+ * Read separately, NOT as a fallback for the ISO one — see the note on
+ * `proprietaryTransactionCode`. In Austria both are always present, so a
+ * fallback would never fire and the proprietary code would be lost every time.
+ */
+function proprietaryCode(node: XmlElement | null, ns: string): string | null {
+  return node === null ? null : blank(textOf(at(node, ns, 'Prtry', 'Cd')));
 }
 
 /**

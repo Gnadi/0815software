@@ -7,6 +7,7 @@
     <GrpHdr>
       <MsgId>NTF-2026-0815-01</MsgId>
       <CreDtTm>2026-08-15T12:00:00</CreDtTm>
+      <MsgRcpt><Nm>0815 Software GmbH</Nm></MsgRcpt>
     </GrpHdr>
     <Ntfctn>
       <Id>AT-NTF-000123</Id>
@@ -20,10 +21,15 @@
         <CdtDbtInd>CRDT</CdtDbtInd>
         <Sts>BOOK</Sts>
         <BookgDt><Dt>2026-08-15</Dt></BookgDt>
-        <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd>
+        <AcctSvcrRef>BANKREF-0044</AcctSvcrRef>
+        <BkTxCd>
+          <Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn>
+          <Prtry><Cd>NTRF+051</Cd><Issr>APC</Issr></Prtry>
+        </BkTxCd>
         <NtryDtls>
           <TxDtls>
-            <Refs><EndToEndId>INV-2026-0044</EndToEndId></Refs>
+            <Refs><AcctSvcrRef>BANKREF-0044</AcctSvcrRef><EndToEndId>INV-2026-0044</EndToEndId></Refs>
+            <AmtDtls><TxAmt><Amt Ccy="EUR">45.00</Amt></TxAmt></AmtDtls>
             <RltdPties><Dbtr><Nm>Kleinkunde e.U.</Nm></Dbtr></RltdPties>
             <RmtInf><Ustrd>Rechnung 2026-0044</Ustrd></RmtInf>
           </TxDtls>

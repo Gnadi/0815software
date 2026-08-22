@@ -15,13 +15,33 @@ too. That makes them the better check on what this module puts in front of a
 bank — `buildPain001` produces the file that moves money, and until now nothing
 outside this repository had ever looked at it.
 
-## ⚠️ These do not compile yet — two code-list files are missing
+## How they are used
 
-`pain.001.001.03-austrian.xsd` includes `RB7.1_pain.001_codelists.xsd`, and the
-national variant includes `RB7.0_pain.001.N_codelists.xsd`. Neither was part of
-the upload, and they are **deliberately not reconstructed**: a code list's whole
-content is the exact set of values it permits, so one written from memory would
-validate the wrong set while looking authoritative.
+They carry their **own** target namespace — `ISO:pain.001.001.03:APC:STUZZA:payments:004`
+rather than the ISO one — because the ISO namespace is what goes on the wire
+and these exist solely to validate against. `sepa-schema.test.ts` rewrites the
+namespace before handing a file to `xmllint`. That is the documented procedure.
 
-`sepa-schema.test.ts` skips, naming the missing file, until they are dropped in
-here. It is the only test that refers to them.
+The code lists they include are here too. While they were missing the test
+skipped rather than reconstructing them: the entire content of a code list is
+the exact set of values it permits, so one written from memory would validate
+the wrong set while looking authoritative.
+
+## The result
+
+**`buildPain001` passes the Austrian SEPA schema** — ordinary run, batch-booked
+run, single payment without a BIC, and a Finanzamtszahlung with its
+per-transaction `Purp/Cd`. That is the first time anything outside this
+repository has looked at the file this module puts in front of a bank.
+
+## The `.N` variant is a different product
+
+`pain.001.001.03-austrian-national.xsd` is **not** a stricter SEPA check and is
+deliberately not used to validate this module's output. Its service-level codes
+are `NURG` / `SDVA` / `URGP` — the Austrian domestic priority codes — and
+`SEPA` is not among them. It describes the national non-SEPA credit transfer,
+which this module does not produce.
+
+A file from `buildPain001` therefore *fails* it, correctly. There is a test
+asserting exactly that failure, with its message, so that nobody later reads
+the omission as a gap and "fixes" it.

@@ -17,7 +17,8 @@ import { fetchOne, tick, type DownloadContext } from '../server/downloads.js';
 import { applyStatements, findEntries, listStatements, reparseStatements } from '../server/statements.js';
 import { MockBank } from './mock-bank.js';
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { hundredths, isAccountMessage, isStatementMessage, readBankStatement } from '../server/camt.js';
 
@@ -40,21 +41,29 @@ const CASES = [
 ] as const;
 
 /**
- * The STUZZA schemas, which are stricter than the ISO ones on the same
- * namespace — a document passing one passes the ISO original too.
+ * The STUZZA schemas — a **stricter subset** of ISO, so a document passing one
+ * of these passes the ISO original too. That is what makes them worth running:
+ * they encode what an Austrian bank actually sends, which ISO does not.
  *
- * Skipped, loudly, until the six code-list documents they include are dropped
- * in beside them; see `test/schema/austrian/README.md`. Those code lists are
- * enumerations of external ISO code lists and are deliberately not
- * reconstructed here: the whole content of a code list is the exact set of
- * values it permits.
+ * They carry their own target namespace (`ISO:camt.053.001.02:APC:STUZZA:…`)
+ * rather than the ISO one, and the schema header says why: the ISO namespace is
+ * what goes on the wire, and this one exists solely to validate against. So a
+ * check means rewriting the namespace first — a documented step, not a
+ * workaround, and the same one every Austrian validator performs.
  */
 const AUSTRIAN = join(SCHEMA_DIR, 'austrian');
 const AUSTRIAN_CASES = [
-  ['statement-v02', 'camt.053.001.02.austrian.004.xsd', 'RB7.0_camt.053_codelists.xsd'],
-  ['report-052', 'camt.052.001.02.austrian.004.xsd', 'RB7.0_camt.052_codelists.xsd'],
-  ['notification-054', 'camt.054.001.02.austrian.004.xsd', 'RB7.0_camt.054_codelists.xsd'],
+  ['statement-v02', '053'],
+  ['report-052', '052'],
+  ['notification-054', '054'],
 ] as const;
+
+function toStuzzaNamespace(xml: string, message: string): string {
+  return xml.replaceAll(
+    `urn:iso:std:iso:20022:tech:xsd:camt.${message}.001.02`,
+    `ISO:camt.${message}.001.02:APC:STUZZA:payments:004`,
+  );
+}
 
 const fixture = (name: string): Buffer => readFileSync(join(FIXTURES, `${name}.xml`));
 const v02 = (): NonNullable<ReturnType<typeof readBankStatement>> => readBankStatement(fixture('statement-v02'))!;
@@ -76,15 +85,52 @@ describeIf('the fixtures are what a conforming bank may send', () => {
     execFileSync('xmllint', ['--noout', '--schema', join(SCHEMA_DIR, schema), join(FIXTURES, `${name}.xml`)]);
   });
 
-  it.each(AUSTRIAN_CASES)('%s, against the stricter Austrian subset', (name, schema, codelist) => {
-    if (!existsSync(join(AUSTRIAN, codelist))) {
-      console.warn(
-        `[camt] skipping the Austrian check for ${name}: ${schema} includes ${codelist}, which is not ` +
-          'in test/schema/austrian/. See the README there.',
-      );
-      return;
-    }
-    execFileSync('xmllint', ['--noout', '--schema', join(AUSTRIAN, schema), join(FIXTURES, `${name}.xml`)]);
+  /**
+   * The same fixtures against the Austrian subset — which caught six things
+   * about them that no amount of reading ISO would have:
+   *
+   *   GrpHdr/MsgRcpt          required
+   *   Stmt/LglSeqNb           required
+   *   Ntry/BookgDt, AcctSvcrRef  required
+   *   BkTxCd/Domn AND /Prtry  BOTH required, and Prtry/Issr is fixed to "APC"
+   *   TxDtls/Refs, /AmtDtls   both required; Refs allows only five of its ten
+   *                           fields; RmtInf/Ustrd is a SINGLE line
+   *   Sts                     BOOK only on a camt.053
+   */
+  it.each(AUSTRIAN_CASES)('%s, against the stricter Austrian subset', (name, message) => {
+    const file = join(mkdtempSync(join(tmpdir(), 'camt-at-')), `${name}.xml`);
+    writeFileSync(file, toStuzzaNamespace(readFileSync(join(FIXTURES, `${name}.xml`), 'utf8'), message));
+    execFileSync('xmllint', [
+      '--noout',
+      '--schema',
+      join(AUSTRIAN, `camt.${message}.001.02.austrian.004.xsd`),
+      file,
+    ]);
+  });
+});
+
+/**
+ * What the Austrian schemas say about the three messages, encoded as tests so
+ * the reader cannot quietly stop honouring it.
+ */
+describe('what the Austrian subset requires', () => {
+  it('keeps the bank’s OWN transaction code, not only the ISO one', () => {
+    // Domn and Prtry are BOTH mandatory in Austria, so an Austrian bank always
+    // sends both. A reader that preferred the ISO code and fell back to the
+    // proprietary one would drop the proprietary code on every single booking
+    // — in the market where it is the code the bank keys on.
+    const [entry] = v02().statements[0]!.entries;
+    expect(entry!.bankTransactionCode).toBe('PMNT/RCDT/ESCT');
+    expect(entry!.proprietaryTransactionCode).toBe('NTRF+051');
+  });
+
+  it('finds no pending entry on a statement, because Austria forbids one', () => {
+    // AT_EntryStatus2Code is {BOOK} for camt.053 and {BOOK, PDNG} for camt.052
+    // and camt.054. A pending item lives in the intraday report — which is
+    // exactly why querying across both would count money that has not moved.
+    expect(v02().statements[0]!.entries.every((e) => e.status === 'BOOK')).toBe(true);
+    const report = readBankStatement(fixture('report-052'))!;
+    expect(report.statements[0]!.entries.map((e) => e.status)).toContain('PDNG');
   });
 });
 
@@ -190,8 +236,8 @@ describe('the account and its balances', () => {
 describe('the bookings', () => {
   it('reads every entry, in the order the bank wrote them', () => {
     const entries = v02().statements[0]!.entries;
-    expect(entries).toHaveLength(4);
-    expect(entries.map((e) => e.seq)).toEqual([1, 2, 3, 4]);
+    expect(entries).toHaveLength(3);
+    expect(entries.map((e) => e.seq)).toEqual([1, 2, 3]);
   });
 
   it('keeps the amount exactly as sent, and never signs it', () => {
@@ -214,23 +260,37 @@ describe('the bookings', () => {
   it('reads the references a payment can be matched on', () => {
     const [incoming] = v02().statements[0]!.entries;
     expect(incoming!.endToEndId).toBe('INV-2026-0042');
-    expect(incoming!.msgId).toBe('CUST-MSG-9');
+    // Austria's Refs allows only AcctSvcrRef, EndToEndId, TxId, MndtId and
+    // ChqNb — so MsgId is null HERE and read only where a market sends it.
+    expect(incoming!.msgId).toBeNull();
+    expect(incoming!.accountServicerRef).toBe('BANKREF-0001');
     // The structured creditor reference: where an invoice number belongs, and
     // what to match on before falling back to reading free text.
     expect(incoming!.creditorReference).toBe('RF18539007547034');
   });
 
   it('keeps every remittance line — a reference split across two is common', () => {
-    const [incoming] = v02().statements[0]!.entries;
-    // Ustrd repeats at 140 characters. Keeping only the first loses the second
-    // half of a long invoice reference.
-    expect(incoming!.remittance).toBe('Rechnung 2026-0042 vom 01.08.2026\nTeilzahlung 1 von 2');
+    // The Austrian subset caps Ustrd at ONE line, so the fixture carries one.
+    // Elsewhere it repeats at 140 characters, and keeping only the first line
+    // loses the second half of a long invoice reference — hence the join.
+    expect(v02().statements[0]!.entries[0]!.remittance).toBe('Rechnung 2026-0042 vom 01.08.2026');
+    const twoLines = readBankStatement(
+      Buffer.from(
+        `<?xml version="1.0"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">` +
+          `<BkToCstmrStmt><GrpHdr><MsgId>M</MsgId></GrpHdr><Stmt><Id>S</Id><Acct><Id><IBAN>AT61</IBAN></Id></Acct>` +
+          `<Ntry><Amt Ccy="EUR">1.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts><BkTxCd/>` +
+          `<NtryDtls><TxDtls><RmtInf><Ustrd>first half</Ustrd><Ustrd>second half</Ustrd></RmtInf></TxDtls></NtryDtls>` +
+          `</Ntry></Stmt></BkToCstmrStmt></Document>`,
+        'utf8',
+      ),
+    )!;
+    expect(twoLines.statements[0]!.entries[0]!.remittance).toBe('first half\nsecond half');
   });
 
-  it('reads the transaction code both as ISO domain and as a bank’s own', () => {
+  it('reads the ISO transaction code and the bank’s own SIDE BY SIDE', () => {
     const entries = v02().statements[0]!.entries;
-    expect(entries[0]!.bankTransactionCode).toBe('PMNT/RCDT/ESCT');
-    expect(entries[1]!.bankTransactionCode).toBe('NSTO+117');
+    expect(entries[1]!.bankTransactionCode).toBe('PMNT/ICDT/ESCT');
+    expect(entries[1]!.proprietaryTransactionCode).toBe('NSTO+117');
   });
 
   it('flags a reversal and reads why it came back', () => {
@@ -242,10 +302,14 @@ describe('the bookings', () => {
   });
 
   it('distinguishes a booked entry from a pending one', () => {
-    const entries = v02().statements[0]!.entries;
-    expect(entries[0]!.status).toBe('BOOK');
-    // Not money yet. A consumer treating this as settled is paying twice.
-    expect(entries[3]!.status).toBe('PDNG');
+    expect(v02().statements[0]!.entries[0]!.status).toBe('BOOK');
+    // Not money yet. A consumer treating this as settled is paying twice — and
+    // in Austria a pending entry can only reach us on a camt.052, never on a
+    // statement, because the schema's status enumeration says so.
+    const pending = readBankStatement(fixture('report-052'))!.statements[0]!.entries.find(
+      (e) => e.status === 'PDNG',
+    );
+    expect(pending).toBeDefined();
   });
 
   it('reads the purpose code where the bank passes it through', () => {
@@ -370,7 +434,7 @@ describe('a statement that arrives as a download', () => {
     await collect('statement-v02');
     const [statement] = listStatements(db, { connection: 'main' });
     expect(statement!.statement_id).toBe('AT-STMT-000123');
-    expect(statement!.entry_count).toBe(4);
+    expect(statement!.entry_count).toBe(3);
     expect(statement!.account.iban).toBe('AT611904300234573201');
     // The bytes stay reachable, so a better reader can be re-run over them.
     expect(statement!.download).toMatch(/^dl_/);
@@ -420,8 +484,14 @@ describe('a statement that arrives as a download', () => {
    */
   it('leaves pending entries out unless they are asked for', async () => {
     await collect('statement-v02');
+    bank.enqueue({ serviceName: 'STM', msgName: 'camt.052' }, fixture('report-052'));
+    await fetchOne(ctx, 'main', { service_name: 'STM', scope: 'AT', msg_name: 'camt.052' });
+    applyStatements(db, ctx.now!);
+
     expect(findEntries(db, {}).map((e) => e.status)).toEqual(['BOOK', 'BOOK', 'BOOK']);
-    expect(findEntries(db, { status: 'PDNG' })).toHaveLength(1);
+    // The pending item is on the intraday report, which is where Austria puts
+    // it — so seeing it means asking for both, deliberately.
+    expect(findEntries(db, { status: 'PDNG', source: 'any' })).toHaveLength(1);
   });
 
   it('can exclude reversals, which undo an earlier booking', async () => {

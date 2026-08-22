@@ -608,6 +608,25 @@ export const MIGRATIONS: Migration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_statements_source ON statements (source)');
     },
   },
+  {
+    id: 14,
+    name: 'entry-proprietary-transaction-code',
+    up(db) {
+      // The bank's OWN transaction code, beside the ISO domain code.
+      //
+      // The Austrian schemas make both `Domn` and `Prtry` mandatory on every
+      // entry, so an Austrian bank always sends both. The reader used to prefer
+      // the ISO code and fall back to the proprietary one — which in Austria
+      // means the fallback never fires and the proprietary code, the one the
+      // bank actually keys on, was dropped on every single booking.
+      const columns = (db.prepare('PRAGMA table_info(statement_entries)').all() as { name: string }[]).map(
+        (c) => c.name,
+      );
+      if (!columns.includes('proprietary_transaction_code')) {
+        db.exec('ALTER TABLE statement_entries ADD COLUMN proprietary_transaction_code TEXT');
+      }
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {

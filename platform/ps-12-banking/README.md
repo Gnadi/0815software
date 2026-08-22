@@ -650,7 +650,8 @@ produces a plausible value that never matches the bank's letter.
 | — | `HTD`/`HKD`, `HCA`/`HCS`, and per-connection download subscriptions | **Done** |
 | — | `HAC`, the customer protocol, against the published examples | **Done** |
 | — | `camt.053` read into queryable bookings, against the ISO schemas | **Done** |
-| — | `camt.052`/`camt.054` too, on the Austrian schemas' evidence | **Done** — 682 tests |
+| — | `camt.052`/`camt.054` too, on the Austrian schemas' evidence | **Done** |
+| — | Validated against STUZZA's strict Austrian subset: two code fixes | **Done** — 684 tests |
 
 ## Which BTFs are supported
 
@@ -756,6 +757,34 @@ table means transcribing ISO 4217 from memory, and this repository has been
 bitten twice by exactly that kind of plausible transcription. A consumer working
 in euros uses it as cents and is right. It is null when the bank sent more than
 two decimal places, because rounding an amount silently is worse than declining.
+
+### What the Austrian subset changed
+
+STUZZA publishes a **Technical Validation Subset** of camt.052/053/054 — the
+same target message, a stricter schema. Every fixture here is now validated
+against it as well as against ISO (`test/schema/austrian/`), and it caught two
+things the ISO schema never would:
+
+**The bank's own transaction code was being thrown away.** The reader took
+`BkTxCd/Domn` and fell back to `BkTxCd/Prtry`. Austria makes **both**
+mandatory, so the fallback never fires there and the proprietary code — the one
+an Austrian bank actually keys on — was lost on every single booking. They are
+now read side by side (`bank_transaction_code` and
+`proprietary_transaction_code`).
+
+**A pending entry cannot appear on an Austrian camt.053 at all.** The status
+enumeration is `{BOOK}` for a statement and `{BOOK, PDNG}` for a report or
+notification. So a pending item reaches us on a camt.052 — which is precisely
+why a query spanning both counts money that has not moved, and why
+`GET /api/entries` defaults to statements alone. The fixture's pending entry
+moved to the report, where the schema says it belongs.
+
+Four more constraints the subset imposes, all invisible in ISO and none of
+which would throw: `GrpHdr/MsgRcpt`, `Stmt/LglSeqNb`, `Ntry/BookgDt` and
+`Ntry/AcctSvcrRef` are required; `Refs` allows only five of its ten fields (no
+`MsgId`, no `PmtInfId`, no `InstrId`); `TxDtls/AmtDtls` is required; and
+`RmtInf/Ustrd` is a **single** line where ISO permits many. The reader handles
+both, since a German bank sends the ISO shape.
 
 ### camt.052 and camt.054 read through the same reader
 

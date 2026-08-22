@@ -426,7 +426,14 @@ export interface StatementEntryRow {
   value_date: string | null;
   entry_ref: string | null;
   account_servicer_ref: string | null;
+  /** The ISO domain code, e.g. `PMNT/RCDT/ESCT`. */
   bank_transaction_code: string | null;
+  /**
+   * The bank's OWN transaction code. Kept beside the ISO one, not as a
+   * fallback: an Austrian bank always sends both, so a fallback would silently
+   * drop this on every booking in the market that keys on it.
+   */
+  proprietary_transaction_code: string | null;
   end_to_end_id: string | null;
   mandate_id: string | null;
   msg_id: string | null;

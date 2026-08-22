@@ -13,20 +13,31 @@ import { buildPain001, type SepaInstruction } from '../shared/sepa.js';
  * whether a bank will accept it. This one is the outside check, and the same
  * kind of check that found every real defect in PS-12.
  *
- * The schemas are STUZZA's Austrian validation subset: stricter than the ISO
- * original on the same namespace, so passing here implies passing there.
+ * The schema is STUZZA's Austrian validation subset: a **stricter** subset of
+ * ISO, so a file passing it passes the ISO original too.
  *
- * **It skips until two code-list documents are dropped in beside them** — see
- * `test/schema/README.md`. A skipped check that says exactly what it needs is
- * worth more than a reconstructed code list that quietly validates the wrong
- * set of values.
+ * It carries its own target namespace (`ISO:pain.001.001.03:APC:STUZZA:…`)
+ * rather than the ISO one, and the schema itself says why — the ISO namespace
+ * is what goes on the wire, and this one exists only to validate against. So
+ * the check rewrites the namespace first. That is the documented procedure,
+ * not a workaround.
+ *
+ * ## The `.N` variant is a different product, not a stricter check
+ *
+ * `pain.001.001.03-austrian-national.xsd` is vendored beside it and is NOT
+ * used to validate this module's output, because it would fail — correctly.
+ * Its service-level codes are `NURG` / `SDVA` / `URGP`, the Austrian domestic
+ * priority codes, and `SEPA` is not among them. It describes the national
+ * non-SEPA credit transfer, which this module does not produce. There is a
+ * test below that pins exactly that, so nobody "fixes" the omission later.
  */
 
 const SCHEMA_DIR = join(import.meta.dirname, 'schema');
-const CASES = [
-  ['SEPA Rulebook 7.1 plus Austrian options', 'pain.001.001.03-austrian.xsd', 'RB7.1_pain.001_codelists.xsd'],
-  ['the Austrian national variant', 'pain.001.001.03-austrian-national.xsd', 'RB7.0_pain.001.N_codelists.xsd'],
-] as const;
+const SEPA_SCHEMA = 'pain.001.001.03-austrian.xsd';
+const SEPA_NAMESPACE = 'ISO:pain.001.001.03:APC:STUZZA:payments:004';
+const NATIONAL_SCHEMA = 'pain.001.001.03-austrian-national.xsd';
+const NATIONAL_NAMESPACE = 'ISO:pain.001.001.03:APC:STUZZA:payments:004:N';
+const ISO_NAMESPACE = 'urn:iso:std:iso:20022:tech:xsd:pain.001.001.03';
 
 const HAVE_XMLLINT = ((): boolean => {
   try {
@@ -82,32 +93,46 @@ const FILES: [string, SepaInstruction][] = [
   ],
 ];
 
-const describeIf = HAVE_XMLLINT ? describe : describe.skip;
+const describeIf = HAVE_XMLLINT && existsSync(join(SCHEMA_DIR, SEPA_SCHEMA)) ? describe : describe.skip;
+
+const workdir = mkdtempSync(join(tmpdir(), 'mod04-pain-'));
+
+/** Write the file under the schema's own namespace and hand it to xmllint. */
+function validate(xml: string, schema: string, namespace: string): string | null {
+  const file = join(workdir, `${Math.random().toString(36).slice(2)}.xml`);
+  writeFileSync(file, xml.replaceAll(ISO_NAMESPACE, namespace));
+  try {
+    execFileSync('xmllint', ['--noout', '--schema', join(SCHEMA_DIR, schema), file], { stdio: 'pipe' });
+    return null;
+  } catch (err) {
+    return (err as { stderr?: Buffer }).stderr?.toString() ?? String(err);
+  }
+}
 
 describeIf('the pain.001 this module produces', () => {
-  const workdir = mkdtempSync(join(tmpdir(), 'mod04-pain-'));
-
-  it.each(
-    CASES.flatMap(([label, schema, codelist]) =>
-      FILES.map(([name, instruction]) => [`${name} — ${label}`, schema, codelist, instruction] as const),
-    ),
-  )('%s', (_name, schema, codelist, instruction) => {
-    if (!existsSync(join(SCHEMA_DIR, codelist))) {
-      console.warn(
-        `[sepa] skipping: ${schema} includes ${codelist}, which is not in test/schema/. See the README there.`,
-      );
-      return;
-    }
-    const file = join(workdir, `${Math.random().toString(36).slice(2)}.xml`);
-    writeFileSync(file, buildPain001(instruction));
-    execFileSync('xmllint', ['--noout', '--schema', join(SCHEMA_DIR, schema), file]);
+  it.each(FILES)('%s passes the Austrian SEPA schema', (_name, instruction) => {
+    expect(validate(buildPain001(instruction), SEPA_SCHEMA, SEPA_NAMESPACE)).toBeNull();
   });
 
-  it('produces a file at all, so a skipped schema check is not the only assertion', () => {
+  /**
+   * The `.N` schema is the national NON-SEPA product, and this pins it.
+   *
+   * Without this test the natural reading of "MOD-04's file fails the Austrian
+   * national schema" is that MOD-04 is wrong. It is not: `SvcLvl/Cd` there is a
+   * domestic priority code (NURG / SDVA / URGP) and `SEPA` is deliberately
+   * absent. A SEPA credit transfer is simply not that product.
+   */
+  it('is correctly REJECTED by the national non-SEPA schema, on the service level', () => {
+    const problem = validate(buildPain001(base), NATIONAL_SCHEMA, NATIONAL_NAMESPACE);
+    expect(problem).not.toBeNull();
+    expect(problem).toContain("The value 'SEPA' is not an element of the set {'NURG', 'SDVA', 'URGP'}");
+  });
+
+  it('produces a file at all, so the schema check is not the only assertion', () => {
     // Without this the suite could pass while `buildPain001` threw, which is
     // exactly the trap a conditional test sets for itself.
     for (const [, instruction] of FILES) {
-      expect(buildPain001(instruction)).toContain('urn:iso:std:iso:20022:tech:xsd:pain.001.001.03');
+      expect(buildPain001(instruction)).toContain(ISO_NAMESPACE);
     }
   });
 });
