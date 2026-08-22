@@ -640,10 +640,32 @@ produces a plausible value that never matches the bank's letter.
 | 5 | MOD-04 integration — "Send via EBICS" beside "Download XML" | **Done** |
 | 6 | Downloads: camt.053 and pain.002, and reconciliation back into MOD-04 | **Done** |
 | — | Review pass: ten findings, three of them bank-blockers | **Done** |
-| — | Validation against the official H005 schemas: six more findings | **Done** — 397 tests |
+| — | Validation against the official H005 schemas: six more findings | **Done** |
+| — | The Austrian market: BTF table, `Product`, CIM, payment formats | **Done** |
+| — | `SignatureFlag`, Verification of Payee, `SPR` | **Done** |
+| — | VEU: `HVU`, `HVZ`, `HVD`, `HVT`, `HVE`, `HVS` | **Done** — 531 tests |
 
-What is left is not code: a first connection to a real bank, with that bank's
-own example messages and file check in hand.
+## What is not implemented
+
+Thirteen order types are built: `HEV`, `INI`, `HIA`, `HPB`, `SPR`, `BTU`, `BTD`
+and the six VEU ones. That covers the whole payment path and then some. Eight
+order types the H005 schema defines are **not** here, and two of them matter
+before this runs for long:
+
+| | | why it matters |
+| --- | --- | --- |
+| `HCA` | change the authentication and encryption keys | **key renewal.** Today the only way to replace a key is `SPR` and a fresh INI letter — on paper, with a gap in service. Certificates last ten years, so this is not urgent; a compromised key makes it urgent immediately. |
+| `HCS` | change all three keys, ES included | as above, for the key that authorises payments |
+| `HTD` | subscriber data | what the bank thinks *this subscriber* may do: accounts, permitted order types, signature class. Several banks expect a client to fetch it; it is also the cheapest possible first live request. |
+| `HKD` | customer data | the same for the whole customer |
+| `HPD` | bank parameters | what the bank supports — segment sizes, versions |
+| `HAA` | available order types | a shortcut for part of `HPD`/`HTD` |
+| `H3K` | one-step initialisation with certificates | an alternative to INI + HIA + HPB, not a replacement for it |
+| `PUB` | change the ES key alone | superseded by `HCS` |
+
+None of these blocks a payment. `HTD` is the one worth having before the first
+bank conversation, because it is a read-only download that answers "does this
+bank agree about who I am and what I may send" without any money moving.
 
 ## Scripts
 
