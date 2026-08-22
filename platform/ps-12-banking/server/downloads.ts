@@ -20,6 +20,7 @@ import {
   type HacEntry,
 } from './hac.js';
 import { foldStatus, recordOrderEvent } from './orders.js';
+import { applyStatements } from './statements.js';
 import type {
   BtfInput,
   DownloadDetail,
@@ -48,9 +49,10 @@ import type {
  * ## What is parsed, and what is not
  *
  * A `pain.002` is read, because it is the answer to "did that payment file go
- * through?" and nothing else in the stack can answer it. A `camt.053` is
- * stored whole and left alone: it is an account statement, and matching
- * bookings to invoices belongs to the module that has the invoices.
+ * through?" and nothing else in the stack can answer it. A `camt.053` is read
+ * into bookings by `statements.ts` — reading the bank's own format is what
+ * this service is for. What a booking MEANS, which invoice it settles, stays
+ * with the module that has the invoices.
  */
 
 export interface DownloadContext {
@@ -632,7 +634,7 @@ export function applyCustomerProtocol(db: Database.Database, now: () => string):
  */
 export async function tick(ctx: DownloadContext): Promise<TickResult> {
   const now = ctx.now ?? nowIso;
-  const result: TickResult = { downloads_fetched: 0, orders_updated: 0, problems: [] };
+  const result: TickResult = { downloads_fetched: 0, orders_updated: 0, statements_read: 0, problems: [] };
 
   for (const connection of listConnections(ctx.db)) {
     if (connection.state !== 'ready') continue;
@@ -660,6 +662,9 @@ export async function tick(ctx: DownloadContext): Promise<TickResult> {
   }
 
   result.orders_updated = applyReports(ctx.db, now) + applyCustomerProtocol(ctx.db, now);
+  // Statements last: they are the slowest to read and nothing else waits on
+  // them, so an operator watching a tick sees the payment answers first.
+  result.statements_read = applyStatements(ctx.db, now);
   return result;
 }
 

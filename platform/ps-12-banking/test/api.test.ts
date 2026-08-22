@@ -126,6 +126,8 @@ describe('who may do what', () => {
     ['post', '/api/connections/main/key-change'],
     ['post', '/api/connections/main/key-change/complete'],
     ['delete', '/api/connections/main/key-change'],
+    // Dropping and rebuilding derived rows is not a module's call.
+    ['post', '/api/statements/reparse'],
   ];
 
   it.each(OPERATOR_ROUTES)('%s %s needs a credential', async (method, path) => {
@@ -150,6 +152,10 @@ describe('who may do what', () => {
     ['post', '/api/orders'],
     ['post', '/api/tick'],
     ['get', '/api/banks'],
+    // Bookings are what a MODULE consumes: reading them moves no money and
+    // needs no human, unlike everything under /connections.
+    ['get', '/api/statements'],
+    ['get', '/api/entries'],
   ] as [string, string][])('%s %s accepts a service token', async (method, path) => {
     const res = await (request(app) as unknown as Record<string, (p: string) => request.Test>)
       [method]!(path)
@@ -703,7 +709,7 @@ describe('POST /api/orders', () => {
 describe('POST /api/tick', () => {
   it('is a quiet no-op on a stack with no connections', async () => {
     const res = await request(app).post('/api/tick').set(SERVICE).expect(200);
-    expect(res.body).toEqual({ downloads_fetched: 0, orders_updated: 0, problems: [] });
+    expect(res.body).toEqual({ downloads_fetched: 0, orders_updated: 0, statements_read: 0, problems: [] });
   });
 
   it('fetches what is waiting and reports what it did', async () => {

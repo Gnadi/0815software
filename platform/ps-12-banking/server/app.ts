@@ -80,6 +80,13 @@ import {
   setSubscriptionEnabled,
 } from './subscriptions.js';
 import { changeKeys, completeKeyChange, discardKeyChange, pendingKeyChange } from './key-change.js';
+import {
+  findEntries,
+  listStatements,
+  reparseStatements,
+  statementDetail,
+  type EntryQuery,
+} from './statements.js';
 import type { BtfInput } from '../shared/types.js';
 
 /**
@@ -123,6 +130,17 @@ function body(req: Request): Record<string, unknown> {
 function optionalText(source: Record<string, unknown>, field: string): string | undefined {
   const value = source[field];
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
+}
+
+/** A bounded integer from the query string, or undefined. */
+function queryInt(req: Request, name: string, min: number, max: number): number | undefined {
+  const raw = req.query[name];
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new DomainError(422, 'Validation failed', [{ field: name, message: `must be an integer ${min}..${max}` }]);
+  }
+  return value;
 }
 
 function optionalInt(source: Record<string, unknown>, field: string, min: number, max: number): number | undefined {
@@ -745,6 +763,75 @@ export function createApp(opts: AppOptions): express.Express {
    * unreachable must not stop the others from being polled, and a scheduler
    * calling this every minute needs an answer it can log, not a 500.
    */
+  // ── Account statements, read into bookings ─────────────────────────
+  //
+  // Service token as well as admin session: this is what a module consumes.
+  // Reading bookings moves no money and needs no human, unlike everything
+  // under /connections.
+  //
+  // What is deliberately NOT here: any notion of an entry being "matched" to
+  // an invoice. Which invoice a payment settles depends on the invoices, and
+  // those live in the module that issued them. This answers "what did the bank
+  // book"; the module decides what that means.
+  app.get('/api/statements', requireCaller, (req, res) => {
+    res.json({
+      statements: listStatements(db, {
+        ...(typeof req.query.connection === 'string' ? { connection: req.query.connection } : {}),
+        ...(typeof req.query.account === 'string' ? { account: req.query.account } : {}),
+        ...(queryInt(req, 'limit', 1, 500) === undefined ? {} : { limit: queryInt(req, 'limit', 1, 500) as number }),
+      }),
+    });
+  });
+
+  app.get('/api/statements/:public_id', requireCaller, (req, res) => {
+    res.json(statementDetail(db, req.params.public_id as string));
+  });
+
+  /**
+   * The query a payment matcher needs.
+   *
+   * `status` defaults to BOOK. A pending entry is money the bank has seen and
+   * not booked, and treating it as a payment is how an invoice gets marked
+   * settled against a transaction that later vanishes — so a caller that
+   * wants them has to say so.
+   */
+  app.get('/api/entries', requireCaller, (req, res) => {
+    const text = (name: string): string | undefined =>
+      typeof req.query[name] === 'string' && req.query[name] !== '' ? (req.query[name] as string) : undefined;
+    const query: EntryQuery = {
+      ...(text('connection') === undefined ? {} : { connection: text('connection') as string }),
+      ...(text('account') === undefined ? {} : { account: text('account') as string }),
+      ...(text('from') === undefined ? {} : { from: text('from') as string }),
+      ...(text('to') === undefined ? {} : { to: text('to') as string }),
+      ...(text('end_to_end_id') === undefined ? {} : { endToEndId: text('end_to_end_id') as string }),
+      ...(text('reference') === undefined ? {} : { reference: text('reference') as string }),
+      ...(text('search') === undefined ? {} : { search: text('search') as string }),
+      ...(text('status') === undefined ? {} : { status: text('status') as string }),
+      ...(req.query.credit === undefined ? {} : { credit: req.query.credit === '1' || req.query.credit === 'true' }),
+      ...(req.query.exclude_reversals === '1' || req.query.exclude_reversals === 'true'
+        ? { excludeReversals: true }
+        : {}),
+      ...(queryInt(req, 'amount_hundredths', 0, Number.MAX_SAFE_INTEGER) === undefined
+        ? {}
+        : { amountHundredths: queryInt(req, 'amount_hundredths', 0, Number.MAX_SAFE_INTEGER) as number }),
+      ...(queryInt(req, 'limit', 1, 1000) === undefined ? {} : { limit: queryInt(req, 'limit', 1, 1000) as number }),
+    };
+    res.json({ entries: findEntries(db, query) });
+  });
+
+  /**
+   * Re-read every stored statement.
+   *
+   * The bytes are the record, so a fix to the reader should improve statements
+   * already collected and not only the next one. Admin-only: it drops and
+   * rebuilds the derived rows, which is not something a module should trigger.
+   */
+  app.post('/api/statements/reparse', requireAdmin, (req, res) => {
+    const b = body(req);
+    const connection = typeof b.connection === 'string' ? b.connection : undefined;
+    res.json({ downloads_queued: reparseStatements(db, connection) });
+  });
+
   app.post('/api/tick', requireCaller, (req, res, next) => {
     void (async () => {
       res.json(await tick(exchangeCtx(req)));

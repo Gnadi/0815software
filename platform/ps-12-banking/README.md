@@ -551,7 +551,8 @@ what every message looked like before.
 ```
 POST /api/tick  →  for each ready connection:
                      BTD pain.002  →  store  →  ACK  →  fold into the orders
-                     BTD camt.053  →  store  →  ACK  →  hand over untouched
+                     BTD camt.053  →  store  →  ACK  →  read into bookings
+                     BTD HAC       →  store  →  ACK  →  fold failures in
 ```
 
 **The positive receipt goes out only after the bytes are committed.** A receipt
@@ -592,7 +593,9 @@ instead of an unrecoverable loss — the file is offered once.
 | File | Treatment |
 | ---- | --------- |
 | **pain.002** payment status report | **Read.** It is the answer to "did that payment file go through?", and nothing else in the stack can answer it. |
-| **camt.053** account statement | **Stored whole, never parsed.** It is an account statement, and matching bookings to invoices belongs to the module that has the invoices. |
+| **camt.053** account statement | **Read into bookings**, queryable by reference, amount and date. The bytes are kept as the record. Which invoice a booking settles is still the consuming module's business — see "Account statements are read into bookings". |
+| **HAC** customer protocol | **Read.** The bank's own log of what it did with each order; failures are folded into the order they name. Also a `pain.002`, which is why the kind is decided by the bytes. |
+| **CIM** customer information | **Read** far enough to show its text — a notice meant for a person. |
 
 Status codes are passed through, not translated — the same reasoning as the
 three EBICS codes in `codes.ts`. The one judgement made is conservative: **any**
@@ -645,7 +648,8 @@ produces a plausible value that never matches the bank's letter.
 | — | `SignatureFlag`, Verification of Payee, `SPR` | **Done** |
 | — | VEU: `HVU`, `HVZ`, `HVD`, `HVT`, `HVE`, `HVS` | **Done** |
 | — | `HTD`/`HKD`, `HCA`/`HCS`, and per-connection download subscriptions | **Done** |
-| — | `HAC`, the customer protocol, against the published examples | **Done** — 632 tests |
+| — | `HAC`, the customer protocol, against the published examples | **Done** |
+| — | `camt.053` read into queryable bookings, against the ISO schemas | **Done** — 673 tests |
 
 ## Which BTFs are supported
 
@@ -696,20 +700,86 @@ handed over untouched:
 | `pain.002` | payment statuses, folded into the order | the answer to "did that file go through?" |
 | `pain.002` with `OrgnlMsgId=EBICS` | the `HAC` protocol | a different message wearing the same name; see below |
 | `cimresp` / `BRCResp` | the Austrian customer information notices | a notice meant for a person to read |
-| `camt.053` | recognised as a statement — **stored whole, not parsed** | matching bookings to invoices belongs to the module that has the invoices |
+| `camt.053` | **bookings**, queryable — see below | reading the bank's own format is what this service is for |
 
 So `camt.052`, `camt.054`, `camt.086`, `mt940`, `mt942`, PDF statements and
 every national format land as `kind: 'other'`: fetched on every tick if
 subscribed, stored, digest-deduplicated, downloadable through the API — and not
-interpreted. That is the intended shape of this service, not an omission. It is
-a bank transport, and a parser it does not need is a parser that can be wrong
-about money.
+interpreted.
 
-The one place that judgement would have to be revisited is a consumer that
-needs a field out of one of those files. Then the question is where the parser
-belongs — and this repository has already answered it once, in
-[`docs/PLATFORM-SERVICE-OPPORTUNITIES.md`](../../docs/PLATFORM-SERVICE-OPPORTUNITIES.md):
-not here.
+### Account statements are read into bookings
+
+A `camt.053` used to be stored whole and handed over, on the argument that
+matching bookings to invoices is the business of the module that has the
+invoices. **That argument was about matching, and it was applied to parsing.**
+The two are different, and the line is now drawn between them —
+[`docs/PLATFORM-SERVICE-OPPORTUNITIES.md`](../../docs/PLATFORM-SERVICE-OPPORTUNITIES.md)
+records the revision.
+
+Reading a camt.053 is understanding the format the bank speaks, which is the
+entire reason this service exists. A parser in every module that wants bank data
+is the same duplication as an EBICS client in every module that wants a bank —
+quieter, and harder to debug, because it fails silently (below). So the
+statement is parsed here, and the bookings are a query:
+
+```
+GET /api/statements[?connection=&account=]          the statements collected
+GET /api/statements/:public_id                      one, with its entries
+GET /api/entries?connection=&account=&from=&to=
+                &reference=&end_to_end_id=
+                &amount_hundredths=&search=
+                &credit=&status=&exclude_reversals=  the query a matcher needs
+POST /api/statements/reparse                        re-read the stored bytes
+```
+
+`GET /api/entries` takes a service token, because bookings are what a module
+consumes and reading them moves no money.
+
+**What is deliberately absent: any notion of an entry being "matched".** Which
+invoice a booking settles depends on the invoices, and those live in the module
+that issued them. This answers *what did the bank book*; the module decides what
+that means.
+
+Two defaults exist to stop the expensive mistakes:
+
+- **Only `BOOK` entries come back.** A `PDNG` entry is money the bank has seen
+  and not booked. Treating it as a payment is how an invoice gets marked
+  settled against a transaction that later vanishes.
+- **`reversal` is on every entry.** A returned direct debit undoes an earlier
+  booking, and a consumer summing income has to see that.
+
+**Amounts.** The exact decimal string the bank wrote is always kept. Beside it
+is `amount_hundredths` — the amount times one hundred — and deliberately **not**
+a field called `amount_minor`. Minor units need the currency's exponent, which
+is two for the euro, zero for the yen and three for the dinar; shipping that
+table means transcribing ISO 4217 from memory, and this repository has been
+bitten twice by exactly that kind of plausible transcription. A consumer working
+in euros uses it as cents and is right. It is null when the bank sent more than
+two decimal places, because rounding an amount silently is worse than declining.
+
+**Why both schema versions are vendored.** `camt.053.001.02` and `.08` are both
+in use in the German and Austrian markets, and they differ in three places that
+are invisible in a sample file and **silent** when got wrong:
+
+| | `.02` | `.08` |
+| --- | --- | --- |
+| `Ntry/Sts` | a plain code | a `Cd`/`Prtry` choice |
+| a counterparty's name | `Dbtr/Nm` | `Dbtr/Pty/Nm` |
+| the transaction amount | only under `AmtDtls/TxAmt` | also a direct `Amt` |
+
+The second is the one that matters: a reader written for `.02` returns **no
+counterparty at all** on a `.08` statement, for every booking, with no error —
+which reads as "the bank did not send a name". Both schemas are in
+`test/schema/`, both fixtures are validated against them before anything parses
+them, and there is a test per difference.
+
+Storing bookings is the one place the "nothing derivable is stored" rule is
+bent, and knowingly: *"was invoice 42 paid?"* is a search across every statement
+ever collected, and answering it by re-parsing each stored blob is a full scan
+dressed as a read model. The bytes remain the record — `POST
+/api/statements/reparse` drops the derived rows and reads them again, so a fix
+to the parser improves every statement already collected rather than only the
+next one.
 
 ### Why the catalogue question is the wrong question
 
@@ -884,11 +954,17 @@ established with the bank that the change went through.
   MOD-04 is a module feature that has not been built.
 - **SEPA direct debit collection** (`pain.008`), which needs mandates that no
   module currently holds.
-- **Parsing account statements.** A `camt.053` is downloaded, stored whole and
-  handed over; turning bookings into matched receivables is the consuming
-  module's job. Doing it here would be the cross-module read-model service this
-  repository decided not to build
-  ([`docs/PLATFORM-SERVICE-OPPORTUNITIES.md`](../../docs/PLATFORM-SERVICE-OPPORTUNITIES.md)).
+- **Matching bookings to invoices.** A `camt.053` IS parsed here now, and the
+  bookings are queryable (see above) — that changed, and
+  [`docs/PLATFORM-SERVICE-OPPORTUNITIES.md`](../../docs/PLATFORM-SERVICE-OPPORTUNITIES.md)
+  records why. What did not change is the other half: deciding *which invoice a
+  payment settles* depends on the invoices, so it stays with the module that
+  issued them. This service holds no notion of an entry being matched.
+- **`camt.052` and `camt.054`.** Intraday reports and notifications are fetched
+  and stored like any other BTF, and not parsed. They share ISO components with
+  `camt.053`, which makes it tempting to point the same reader at them —
+  precisely the plausible assumption this service refuses to ship without a
+  schema to check it against. Their XSDs are not in this repository.
 
 ## Honesty about what is proven
 

@@ -244,8 +244,9 @@ export interface OrderPreview {
 /**
  * What kind of file the bank handed over.
  *
- *   statement  camt.053 — an account statement. Stored whole, never parsed
- *              here: matching bookings to invoices is a module's business.
+ *   statement  camt.053 — an account statement, READ into bookings (see
+ *              server/camt.ts). Deciding which invoice a booking settles is
+ *              still a module's business; reading the format is not.
  *   status     pain.002 — a payment status report. The answer to "did that
  *              file go through?", so this one IS read.
  *   info       CIM — a notice the bank wants a PERSON to read. Read far
@@ -338,6 +339,88 @@ export interface HacEntrySummary {
 export interface TickResult {
   downloads_fetched: number;
   orders_updated: number;
+  /** Account statements read into bookings this pass. */
+  statements_read: number;
   /** Connections that could not be reached, with the reason. Not an error. */
   problems: { connection: string; message: string }[];
+}
+
+// ── Account statements ────────────────────────────────────────────────
+
+/**
+ * One account's statement, as read out of a `camt.053`.
+ *
+ * The balances are SIGNED here — a closing balance is a position, and a
+ * consumer comparing two of them needs the direction in the number. An
+ * ENTRY's amount is not: ISO puts the direction in a separate indicator and
+ * never a minus sign, and this keeps faith with what the bank sent.
+ */
+export interface StatementRow {
+  public_id: string;
+  connection: string;
+  /** The download it was read out of, so the original bytes stay reachable. */
+  download: string | null;
+  /** The camt.053 schema version, e.g. "02" or "08". They differ materially. */
+  version: string;
+  message_id: string;
+  statement_id: string;
+  electronic_seq: number | null;
+  legal_seq: number | null;
+  created_at: string | null;
+  from_date: string | null;
+  to_date: string | null;
+  account: {
+    iban: string | null;
+    other: string | null;
+    currency: string | null;
+    name: string | null;
+    owner: string | null;
+  };
+  opening_balance: string | null;
+  closing_balance: string | null;
+  balance_currency: string | null;
+  entry_count: number;
+}
+
+/**
+ * One booking.
+ *
+ * `amount` is exactly what the bank wrote, unsigned; `credit` carries the
+ * direction. `amount_hundredths` is that amount times one hundred and is
+ * deliberately NOT called `amount_minor`: minor units need the currency's
+ * exponent — two for the euro, zero for the yen, three for the dinar — and
+ * this service does not ship that table. Null when the bank sent more than
+ * two decimal places.
+ */
+export interface StatementEntryRow {
+  statement: string;
+  account_iban: string | null;
+  seq: number;
+  amount: string;
+  amount_hundredths: number | null;
+  currency: string;
+  /** True when money came IN. */
+  credit: boolean;
+  /** True when this entry undoes an earlier one. Do not sum it as income. */
+  reversal: boolean;
+  /** `BOOK` booked, `PDNG` pending — a pending entry is not money yet. */
+  status: string;
+  booking_date: string | null;
+  value_date: string | null;
+  entry_ref: string | null;
+  account_servicer_ref: string | null;
+  bank_transaction_code: string | null;
+  end_to_end_id: string | null;
+  mandate_id: string | null;
+  msg_id: string | null;
+  payment_info_id: string | null;
+  instruction_id: string | null;
+  counterparty_name: string | null;
+  counterparty_iban: string | null;
+  remittance: string | null;
+  /** The structured creditor reference — where an invoice number belongs. */
+  creditor_reference: string | null;
+  purpose: string | null;
+  return_reason: string | null;
+  additional_info: string | null;
 }

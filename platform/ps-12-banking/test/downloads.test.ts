@@ -529,7 +529,7 @@ describe('the tick', () => {
   });
 
   it('is a no-op on a stack with no connections at all', async () => {
-    expect(await tick(ctx)).toEqual({ downloads_fetched: 0, orders_updated: 0, problems: [] });
+    expect(await tick(ctx)).toEqual({ downloads_fetched: 0, orders_updated: 0, statements_read: 0, problems: [] });
   });
 });
 

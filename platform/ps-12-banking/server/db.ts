@@ -482,6 +482,100 @@ export const MIGRATIONS: Migration[] = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_orders_ebics_order ON orders (connection_id, ebics_order_id)');
     },
   },
+  {
+    id: 12,
+    name: 'account-statements',
+    up(db) {
+      // Bookings, read out of a camt.053 and made queryable.
+      //
+      // This is the one place the "nothing derivable is stored" rule is bent,
+      // and deliberately: a consumer asking "was invoice 42 paid?" needs to
+      // search across every statement ever collected, by reference, by amount
+      // and by date. Re-parsing every stored blob on each such question is not
+      // a read model, it is a full scan.
+      //
+      // The bytes remain the record. These rows are rebuilt by clearing
+      // `downloads.processed_at`, which is exactly what a fix to the parser
+      // needs — so a better reader improves every statement already collected
+      // rather than only the next one.
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS statements (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        download_id     INTEGER NOT NULL REFERENCES downloads(id) ON DELETE CASCADE,
+        connection_id   INTEGER NOT NULL REFERENCES bank_connections(id),
+        public_id       TEXT    NOT NULL UNIQUE,        -- "stm_<hex>"
+        -- The schema version the bank sent. Worth keeping: .02 and .08 differ
+        -- in ways that decide how this row was read (see server/camt.ts).
+        version         TEXT    NOT NULL,
+        message_id      TEXT    NOT NULL,               -- GrpHdr/MsgId
+        statement_id    TEXT    NOT NULL,               -- Stmt/Id
+        electronic_seq  INTEGER,
+        legal_seq       INTEGER,
+        created_at      TEXT,
+        from_date       TEXT,
+        to_date         TEXT,
+        account_iban    TEXT,
+        account_other   TEXT,
+        account_currency TEXT,
+        account_name    TEXT,
+        account_owner   TEXT,
+        opening_balance TEXT,
+        closing_balance TEXT,
+        balance_currency TEXT,
+        entry_count     INTEGER NOT NULL,
+        stored_at       TEXT    NOT NULL
+      );
+      -- THE INVARIANT: one statement per account per identifier. A bank
+      -- re-offering a file whose receipt it never saw must not double every
+      -- booking on it — the download digest absorbs the usual case, and this
+      -- absorbs a bank that regenerates the same statement with new bytes.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_statements_identity
+        ON statements (connection_id, account_iban, statement_id);
+      CREATE INDEX IF NOT EXISTS idx_statements_download ON statements (download_id);
+
+      CREATE TABLE IF NOT EXISTS statement_entries (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        statement_id    INTEGER NOT NULL REFERENCES statements(id) ON DELETE CASCADE,
+        seq             INTEGER NOT NULL,               -- position in the file
+        -- EXACTLY as the bank wrote it, unsigned. ISO puts the direction in a
+        -- separate indicator and never a minus sign.
+        amount          TEXT    NOT NULL,
+        -- The amount times one hundred. NOT called amount_minor: minor units
+        -- need the currency's exponent (2 for EUR, 0 for JPY, 3 for KWD), and
+        -- that table is not something to transcribe from memory. Null when the
+        -- bank sent more than two decimal places.
+        amount_hundredths INTEGER,
+        currency        TEXT    NOT NULL,
+        credit          INTEGER NOT NULL,               -- 1 = money in
+        reversal        INTEGER NOT NULL DEFAULT 0,
+        status          TEXT    NOT NULL,               -- BOOK | PDNG | INFO
+        booking_date    TEXT,
+        value_date      TEXT,
+        entry_ref       TEXT,
+        account_servicer_ref TEXT,
+        bank_transaction_code TEXT,
+        end_to_end_id   TEXT,
+        mandate_id      TEXT,
+        msg_id          TEXT,
+        payment_info_id TEXT,
+        instruction_id  TEXT,
+        counterparty_name TEXT,
+        counterparty_iban TEXT,
+        remittance      TEXT,
+        creditor_reference TEXT,
+        purpose         TEXT,
+        return_reason   TEXT,
+        additional_info TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_position
+        ON statement_entries (statement_id, seq);
+      -- The three a consumer actually searches by.
+      CREATE INDEX IF NOT EXISTS idx_entries_e2e ON statement_entries (end_to_end_id);
+      CREATE INDEX IF NOT EXISTS idx_entries_reference ON statement_entries (creditor_reference);
+      CREATE INDEX IF NOT EXISTS idx_entries_booking ON statement_entries (booking_date);
+      `);
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {

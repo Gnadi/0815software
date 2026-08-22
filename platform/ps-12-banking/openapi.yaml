@@ -660,14 +660,120 @@ paths:
     get:
       summary: Download the file itself
       description: >-
-        The bytes the bank sent, stored whole. A camt.053 is deliberately not
-        parsed by this service — matching bookings to invoices belongs to the
-        module that has the invoices.
+        The bytes the bank sent, stored whole. They stay the record even where the service has read
+        them: a camt.053 is parsed into bookings (see /api/entries) and the original is still here,
+        so a fix to the reader can be applied to statements already collected.
       tags: [ps-12-banking]
       security: [{serviceToken: []}, {adminSession: []}]
       responses:
         '200': { description: The file }
         '404': { description: No such download }
+  /api/statements:
+    get:
+      summary: The account statements read out of collected camt.053 files
+      description: >-
+        Metadata and balances, newest first. Entries are on the detail route, so a listing never drags
+        thousands of bookings through a caller that only wanted to know what arrived.
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - name: connection
+          in: query
+          schema: { type: string }
+        - name: account
+          in: query
+          description: An IBAN.
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        '200': { description: The statements }
+  /api/statements/{public_id}:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: One statement, with every booking on it
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: The statement and its entries }
+        '404': { description: No such statement }
+  /api/statements/reparse:
+    post:
+      summary: Re-read every stored statement
+      description: >-
+        Drops the derived bookings and reads the stored bytes again, so a fix to the reader improves
+        statements already collected and not only the next one. Body: {connection?}. Admin only —
+        rebuilding derived rows is not a module's call.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: How many downloads were queued for re-reading }
+  /api/entries:
+    get:
+      summary: Find bookings — the query a payment matcher needs
+      description: >-
+        The service reads the bank's camt.053 and hands over what it booked. It does NOT decide which
+        invoice a booking settles: that depends on the invoices, and those live in the module that
+        issued them. Two defaults matter. Only `BOOK` entries come back, because a `PDNG` entry is
+        money the bank has seen and not booked, and settling an invoice against one is how a payment
+        gets counted that later vanishes. And `reversal` is on every entry — a returned direct debit
+        undoes an earlier booking, so pass exclude_reversals when summing. Amounts are the exact
+        string the bank sent, unsigned, with the direction in `credit`; `amount_hundredths` is that
+        times one hundred and is NOT minor units (EUR 2, JPY 0, KWD 3 — that table is not shipped).
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - name: connection
+          in: query
+          schema: { type: string }
+        - name: account
+          in: query
+          description: An IBAN.
+          schema: { type: string }
+        - name: from
+          in: query
+          description: Inclusive, on the BOOKING date.
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: credit
+          in: query
+          description: 1 for money in, 0 for money out; omit for both.
+          schema: { type: string }
+        - name: status
+          in: query
+          description: Defaults to BOOK.
+          schema: { type: string }
+        - name: end_to_end_id
+          in: query
+          description: The reference your own pain.001 put on the transaction.
+          schema: { type: string }
+        - name: reference
+          in: query
+          description: The structured creditor reference, matched exactly.
+          schema: { type: string }
+        - name: amount_hundredths
+          in: query
+          schema: { type: integer }
+        - name: search
+          in: query
+          description: Substring of the remittance text or the counterparty name.
+          schema: { type: string }
+        - name: exclude_reversals
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        '200': { description: The bookings }
+        '422': { description: A numeric parameter was not an integer in range }
   /api/tick:
     post:
       summary: Run the periodic work

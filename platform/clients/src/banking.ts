@@ -79,6 +79,54 @@ export class BankingClient extends BaseClient {
     return this.apiGet(`/api/downloads/${encodeURIComponent(publicId)}`);
   }
 
+  /** The account statements the service has read into bookings. */
+  listStatements(opts: { connection?: string; account?: string; limit?: number } = {}): Promise<{
+    statements: BankStatement[];
+  }> {
+    return this.apiGet(`/api/statements${queryString(opts as Record<string, unknown>)}`);
+  }
+
+  getStatement(publicId: string): Promise<BankStatement & { entries: BankEntry[] }> {
+    return this.apiGet(`/api/statements/${encodeURIComponent(publicId)}`);
+  }
+
+  /**
+   * Find bookings — the query a payment matcher needs.
+   *
+   * The service reads the bank's camt.053 and hands over what it booked. It
+   * does NOT decide which invoice a booking settles: that depends on the
+   * invoices, and those are yours. So the flow is: ask here with whatever you
+   * know (a reference you put on the payment, an amount, a date range), then
+   * decide.
+   *
+   * Two defaults worth knowing:
+   *
+   * - **Only booked entries come back.** A `PDNG` entry is money the bank has
+   *   seen and not booked; treating it as a payment is how an invoice gets
+   *   marked settled against a transaction that later vanishes. Pass
+   *   `status: 'PDNG'` if you really want them.
+   * - **Reversals are included.** An entry with `reversal: true` undoes an
+   *   earlier one — pass `excludeReversals` when summing.
+   */
+  findEntries(query: EntryQuery = {}): Promise<{ entries: BankEntry[] }> {
+    return this.apiGet(
+      `/api/entries${queryString({
+        connection: query.connection,
+        account: query.account,
+        from: query.from,
+        to: query.to,
+        credit: query.credit,
+        status: query.status,
+        end_to_end_id: query.endToEndId,
+        reference: query.reference,
+        amount_hundredths: query.amountHundredths,
+        search: query.search,
+        exclude_reversals: query.excludeReversals,
+        limit: query.limit,
+      })}`,
+    );
+  }
+
   /**
    * Run the periodic pass: fetch what is waiting, fold status reports into
    * the orders they are about.
@@ -91,16 +139,27 @@ export class BankingClient extends BaseClient {
   }
 }
 
+/** `?a=1&b=2`, with empty and undefined values dropped. */
+function queryString(params: Record<string, unknown>): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue;
+    query.set(key, typeof value === 'boolean' ? (value ? '1' : '0') : String(value));
+  }
+  const suffix = query.toString();
+  return suffix === '' ? '' : `?${suffix}`;
+}
+
 /**
  * What kind of file the bank handed over.
  *
- *   statement  camt.053 — an account statement, stored whole and not parsed
- *              by the service: matching bookings to invoices is your business
+ *   statement  camt.053 — an account statement, READ into bookings you can
+ *              query; see findEntries
  *   status     pain.002 — a payment status report, which IS read, because it
  *              is the answer to "did that payment file go through?"
  *   other      anything else a BTF names
  */
-export type DownloadKind = 'statement' | 'status' | 'other';
+export type DownloadKind = 'statement' | 'status' | 'info' | 'protocol' | 'other';
 
 export interface BankDownload {
   public_id: string;
@@ -218,4 +277,96 @@ export interface BankProfile {
   /** False until a human checked these values against a bank's documentation. */
   confirmed: boolean;
   notes: string;
+}
+
+// ── Account statements and the bookings on them ───────────────────────
+
+export interface BankStatement {
+  public_id: string;
+  connection: string;
+  /** The download it was read from — the original bytes stay reachable. */
+  download: string | null;
+  /** The camt.053 schema version, e.g. "02" or "08". */
+  version: string;
+  message_id: string;
+  statement_id: string;
+  electronic_seq: number | null;
+  legal_seq: number | null;
+  created_at: string | null;
+  from_date: string | null;
+  to_date: string | null;
+  account: { iban: string | null; other: string | null; currency: string | null; name: string | null; owner: string | null };
+  /** SIGNED, unlike an entry: a balance is a position, not a movement. */
+  opening_balance: string | null;
+  closing_balance: string | null;
+  balance_currency: string | null;
+  entry_count: number;
+}
+
+/**
+ * One booking.
+ *
+ * `amount` is exactly what the bank wrote and is never signed — ISO 20022 puts
+ * the direction in a separate indicator, which is `credit` here.
+ *
+ * `amount_hundredths` is that amount times one hundred. It is deliberately NOT
+ * called `amount_minor`: minor units need the currency's exponent, which is
+ * two for the euro, zero for the yen and three for the dinar. Working in
+ * euros, treat it as cents. Null when the bank sent finer granularity than two
+ * decimal places, because rounding an amount silently is worse than saying so.
+ */
+export interface BankEntry {
+  statement: string;
+  account_iban: string | null;
+  seq: number;
+  amount: string;
+  amount_hundredths: number | null;
+  currency: string;
+  /** True when money came IN. */
+  credit: boolean;
+  /** True when this entry undoes an earlier one. Do not sum it as income. */
+  reversal: boolean;
+  /** `BOOK` booked, `PDNG` pending — pending is not money yet. */
+  status: string;
+  booking_date: string | null;
+  value_date: string | null;
+  entry_ref: string | null;
+  account_servicer_ref: string | null;
+  bank_transaction_code: string | null;
+  /** The reference your own pain.001 put on the transaction, if any. */
+  end_to_end_id: string | null;
+  mandate_id: string | null;
+  msg_id: string | null;
+  payment_info_id: string | null;
+  instruction_id: string | null;
+  counterparty_name: string | null;
+  counterparty_iban: string | null;
+  /** Every unstructured remittance line, joined with newlines. */
+  remittance: string | null;
+  /** The structured creditor reference — where an invoice number belongs. */
+  creditor_reference: string | null;
+  purpose: string | null;
+  /** Why a payment came back, when it did. */
+  return_reason: string | null;
+  additional_info: string | null;
+}
+
+export interface EntryQuery {
+  connection?: string;
+  account?: string;
+  /** Inclusive, on the BOOKING date — when the money actually moved. */
+  from?: string;
+  to?: string;
+  /** True for money in, false for money out; omit for both. */
+  credit?: boolean;
+  /** Defaults to `BOOK` server-side. */
+  status?: string;
+  endToEndId?: string;
+  reference?: string;
+  /** Exact amount in hundredths. */
+  amountHundredths?: number;
+  /** Substring of the remittance text or the counterparty name. */
+  search?: string;
+  excludeReversals?: boolean;
+  limit?: number;
 }

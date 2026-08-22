@@ -62,3 +62,30 @@ both `pain.002.001.03`, in the same namespace, with the same root element.**
 Told apart only by `OrgnlGrpInfAndSts/OrgnlMsgId`, which is the literal string
 `EBICS` in a `HAC` and the original file's `MsgId` in a status report. Reading
 one as the other is the mistake this schema and these fixtures make visible.
+
+## `camt.053.001.02.xsd` and `camt.053.001.08.xsd`
+
+The ISO 20022 bank-to-customer account statement, in the two versions in
+practical use in the German and Austrian markets. Both carry the
+`SWIFTStandards Workstation` generation header that marks them as the
+registered schemas rather than somebody's retyping.
+
+`camt.test.ts` validates its fixtures against these before parsing them, and
+`server/camt.ts` is written against the schemas rather than against a
+description of the message.
+
+**Why both versions are here.** They differ in two places that a reader written
+for one gets silently wrong on the other, and neither difference throws:
+
+- **`Ntry/Sts`** is a plain code in `.02` (`<Sts>BOOK</Sts>`) and a choice in
+  `.08` (`<Sts><Cd>BOOK</Cd></Sts>`).
+- **`RltdPties/Dbtr`** is a `PartyIdentification32` in `.02`, so the name is at
+  `Dbtr/Nm`. In `.08` it is a `Party40Choice`, so it is at `Dbtr/Pty/Nm` — and
+  a reader looking for `Dbtr/Nm` finds nothing at all. The counterparty on
+  every booking would come back empty, which reads as "the bank did not send
+  it" rather than as a bug.
+
+A third: `EntryTransaction2` (`.02`) has no transaction-level `Amt` — the
+amount is under `AmtDtls/TxAmt/Amt`. `EntryTransaction10` (`.08`) has both.
+
+Neither difference is visible without the schemas, which is why they are here.

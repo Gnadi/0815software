@@ -223,9 +223,9 @@ it did not:
    RSA private keys that — at signature class E, chosen here — are sufficient
    to move money. In a module they end up in every module that ever needs a
    bank, each with its own store, its own secret and its own bugs.
-2. **A second consumer is already visible.** MOD-04 payables now; statement
-   retrieval for receivables matching next; payroll and MOD-06 Procurement
-   later.
+2. **A second consumer is already visible.** MOD-04 payables now; the
+   bookings from `camt.053`, for receivables matching, next; payroll and MOD-06
+   Procurement later.
 3. **Modules stay standalone.** Integration is opt-in and best-effort like
    every other service: `BANKING_URL` unset and MOD-04 behaves exactly as it
    did before — the payment file is still downloadable, and always will be.
@@ -246,6 +246,52 @@ several unguarded ones.
 reading of the specification and, where an offline implementation existed,
 cross-checked against it. No part of it has spoken to a real bank. The first
 live connection should be treated as a debugging exercise.
+
+### Revised: the camt.053 parser belongs here, not in the consuming module
+
+The original write-up drew a line that this document repeated in several
+places: an account statement is **downloaded, stored whole and handed over**,
+because turning bookings into matched receivables is the business of the module
+that has the invoices.
+
+**That line was drawn one step too far out, and it is now corrected.** PS-12
+reads a `camt.053` into bookings and offers them as a query
+(`GET /api/entries`).
+
+The mistake was collapsing two different things into one word. *Reading* a
+camt.053 is understanding the format the bank speaks — which is the entire
+reason this service exists. *Matching* a booking to an invoice is business
+logic about invoices. Only the second belongs in a module, and the original
+argument, which is sound, was about the second.
+
+Leaving the parser out had the same shape as the mistake PS-12 was created to
+avoid. An EBICS client in every module that wants a bank was rejected because
+key custody must happen once; a camt.053 parser in every module that wants bank
+data is the same duplication in a quieter form, and a worse one to debug:
+
+- **The format has versions that differ materially and fail silently.**
+  `camt.053.001.02` and `.08` disagree about where a counterparty's name sits
+  (`Dbtr/Nm` versus `Dbtr/Pty/Nm`) and about whether `Sts` is a code or a
+  choice. A reader written for one returns *null* on the other — for every
+  booking, with no error. Every module would rediscover that separately, and
+  some would not.
+- **There is no natural place for the schemas.** PS-12 already vendors the
+  EBICS, CIM and HAC schemas and validates fixtures against them before
+  parsing. A module doing bank formats would need that apparatus too.
+- **Amounts and directions are easy to get subtly wrong.** ISO 20022 never
+  signs an amount; the direction is a separate indicator, a reversal undoes an
+  earlier entry, and a pending entry is not money. Each of those is one wrong
+  line away from an invoice marked paid that was not.
+
+**What still belongs to the module, unchanged.** Which invoice a booking
+settles, whether a customer is now paid up, what to do about a partial payment.
+PS-12 answers *"what did the bank book"*; the module decides what that means. It
+holds no notion of an entry being matched and should not gain one.
+
+This does **not** reopen the reporting read-model question above. That candidate
+is about serving *cross-module* views of data other modules own. This is a
+service parsing the wire format of the protocol it already speaks, for data it
+already holds — the same thing `payload.ts` does on the way out.
 
 ## Verification (per new service)
 
