@@ -555,3 +555,54 @@ describe('a report that names no original file', () => {
     expect(downloadDetail(db, stored.public_id).reports[0]).toMatchObject({ msg_id: null, status_code: 'RJCT' });
   });
 });
+
+// ── CIM: a notice meant for a person ──────────────────────────────────
+
+describe('customer information messages', () => {
+  const CIM: BtfInput = { service_name: 'CIM', scope: 'AT', msg_name: 'cimresp' };
+  const NOTICE = `<?xml version="1.0" encoding="UTF-8"?>
+<CIMResp xmlns="urn:example:cim">
+  <CIMMsgType>
+    <CIMId>f81d4fae-7dec-11d0-a765-00a0c91e6bf6</CIMId>
+    <Timestamp>2026-08-20T18:00:00Z</Timestamp>
+    <Text>Am 24.08.2026 steht EBICS zwischen 02:00 und 04:00 nicht zur Verfügung.</Text>
+  </CIMMsgType>
+</CIMResp>`;
+
+  it('files a CIM as "info" rather than as an opaque blob', async () => {
+    await bringUp();
+    bank.enqueue({ serviceName: 'CIM', msgName: 'cimresp' }, NOTICE);
+
+    const result = await fetchOne(ctx, 'main', CIM);
+    expect(result.download!.kind).toBe('info');
+  });
+
+  it('shows the notice on the detail route, read out of the stored bytes', async () => {
+    await bringUp();
+    bank.enqueue({ serviceName: 'CIM', msgName: 'cimresp' }, NOTICE);
+    const result = await fetchOne(ctx, 'main', CIM);
+
+    const detail = downloadDetail(db, result.download!.public_id);
+    expect(detail.notices).toHaveLength(1);
+    expect(detail.notices![0]!.id).toBe('f81d4fae-7dec-11d0-a765-00a0c91e6bf6');
+    expect(detail.notices![0]!.lines[0]).toMatch(/24.08.2026/);
+  });
+
+  it('keeps the bytes whole, whatever the reader made of them', async () => {
+    // The reader's ceiling moves when the CIMResp schema arrives; the stored
+    // document must not, or every notice fetched before then becomes
+    // unreadable at exactly the moment the parser gets better.
+    await bringUp();
+    bank.enqueue({ serviceName: 'CIM', msgName: 'cimresp' }, NOTICE);
+    const result = await fetchOne(ctx, 'main', CIM);
+
+    expect(downloadContent(db, result.download!.public_id).toString('utf8')).toBe(NOTICE);
+  });
+
+  it('leaves other downloads without notices at all', async () => {
+    await bringUp();
+    bank.enqueue({ serviceName: 'EOP', msgName: 'camt.053' }, zipped([{ name: 'statement.xml', content: '<Document/>' }]));
+    const result = await fetchOne(ctx, 'main', EOP);
+    expect(downloadDetail(db, result.download!.public_id).notices).toBeUndefined();
+  });
+});

@@ -248,9 +248,11 @@ export interface OrderPreview {
  *              here: matching bookings to invoices is a module's business.
  *   status     pain.002 — a payment status report. The answer to "did that
  *              file go through?", so this one IS read.
+ *   info       CIM — a notice the bank wants a PERSON to read. Read far
+ *              enough to show its text; see server/cim.ts for the ceiling.
  *   other      anything else a BTF names. Kept, offered, not understood.
  */
-export const DOWNLOAD_KINDS = ['statement', 'status', 'other'] as const;
+export const DOWNLOAD_KINDS = ['statement', 'status', 'info', 'other'] as const;
 export type DownloadKind = (typeof DOWNLOAD_KINDS)[number];
 
 export interface DownloadRow {
@@ -278,6 +280,12 @@ export interface DownloadDetail extends DownloadRow {
     reason: string | null;
     created_at: string;
   }[];
+  /**
+   * For `kind: 'info'` only — the notices inside a CIM, read far enough to be
+   * shown to a person. Empty for everything else, and empty for a CIM this
+   * could not make sense of: the bytes are stored either way.
+   */
+  notices?: { id: string | null; timestamp: string | null; lines: string[] }[];
 }
 
 /** What one `POST /api/tick` did. */

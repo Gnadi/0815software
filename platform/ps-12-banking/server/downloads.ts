@@ -10,6 +10,7 @@ import { EBICS_NO_DOWNLOAD_DATA } from './ebics/codes.js';
 import { sha256Hex } from './payload.js';
 import { isStatement, isStatusReport, readStatusReports, verdictOfReports } from './reports.js';
 import { documentsIn, ZipError } from './zip.js';
+import { isCustomerInfo, readCustomerInfo } from './cim.js';
 import { foldStatus, recordOrderEvent } from './orders.js';
 import type { BtfInput, DownloadDetail, DownloadKind, DownloadRow, TickResult } from '../shared/types.js';
 
@@ -132,7 +133,13 @@ export function downloadDetail(db: Database.Database, publicIdValue: string): Do
       'SELECT msg_id, status_code, reason_code, reason, created_at FROM download_reports WHERE download_id = ? ORDER BY id',
     )
     .all(row.id) as DownloadDetail['reports'];
-  return { ...toRow(db, row), reports };
+
+  // Read on the way out rather than stored: the CIMResp schema is not in this
+  // repository (see server/cim.ts), so what can be read out of one will get
+  // better, and a column written by today's reader would not.
+  if (row.kind !== 'info') return { ...toRow(db, row), reports };
+  const content = db.prepare('SELECT content FROM downloads WHERE id = ?').get(row.id) as { content: Buffer };
+  return { ...toRow(db, row), reports, notices: readCustomerInfo(content.content) };
 }
 
 /** The file itself. Separate from the metadata so a list never carries blobs. */
@@ -149,6 +156,7 @@ export function downloadContent(db: Database.Database, publicIdValue: string): B
 function kindOf(btf: BtfInput): DownloadKind {
   if (isStatusReport(btf.msg_name)) return 'status';
   if (isStatement(btf.msg_name)) return 'statement';
+  if (isCustomerInfo(btf.msg_name)) return 'info';
   return 'other';
 }
 

@@ -441,6 +441,33 @@ what. Until a real bank has accepted one, treat it as unconfirmed — and note
 that the failure mode is a refusal you can see, not a lock you only think
 happened.
 
+### Customer information messages
+
+An Austrian bank sends notices — a service window, a format deadline — as
+`CIM/AT`, and without help they land in `downloads` as `other`: kept, offered,
+completely opaque. They are now `kind: 'info'`, and `GET /api/downloads/:id`
+carries a `notices` array with each message's id, timestamp and prose.
+
+**The CIMResp schema is not in this repository.** It is published at
+`zv.psa.at`, which this build cannot reach, so `cim.ts` has a deliberate
+ceiling: the only element names it uses are the two the Austrian guideline
+states in prose — `CIMMsgType` and `CIMId` — and everything else is taken
+structurally. The text is the element's own text content, which needs no name
+at all; the timestamp is whichever descendant parses as an ISO date-time,
+because the guideline says each message has one and never says where. Nothing
+is required and nothing throws. A parser that guessed `<CIMText>` would be
+repeating a mistake this codebase has already paid for twice.
+
+The notices are read on the way out rather than stored, so the reader can get
+better without a migration — and `downloads.content` keeps the document whole
+either way, which is what makes that safe.
+
+One more thing worth knowing before you configure a connection: **the two
+Austrian documents disagree on the message name.** The mapping table
+(04.07.2025) says `CIM/AT/cimresp`; the implementation guideline's worked
+`ebicsRequest` example says `CIM/AT/BRCResp`. PS-12 recognises both, and
+`bank-registry.ts` records the conflict — ask your bank which it answers to.
+
 ### Verification of Payee
 
 Since 09.10.2025 the ServiceOption on a SEPA credit transfer says whether the

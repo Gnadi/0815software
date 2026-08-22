@@ -146,7 +146,10 @@ export const REGISTRY: readonly BankProfile[] = [
       'MT940 EOP/AT/mt940, MT942 STM/AT/mt942, PDF statements EOP/AT/pdf/ZIP, bank fees REP/BIL/camt.086/ZIP ' +
       '(scope BIL, not AT), customer information CIM/AT/cimresp, SEPA direct debit SDD/AT/pain.008 with option ' +
       'COR or B2B, instant SCI/AT/pain.001, foreign payments XCT/AT/pain.001. Since 09.10.2025 the ServiceOption ' +
-      'VOO/VOI selects Verification of Payee opt-out/opt-in; an absent option is read as OPT-OUT for SCT and SCI.',
+      'VOO/VOI selects Verification of Payee opt-out/opt-in; an absent option is read as OPT-OUT for SCT and SCI. ' +
+      'NOTE: the two Austrian documents disagree on the customer-information message name — the mapping table says ' +
+      'CIM/AT/cimresp, the implementation guideline\u2019s worked ebicsRequest example says CIM/AT/BRCResp. PS-12 ' +
+      'recognises both as a customer information message; ask your bank which one it answers to.',
   },
   {
     key: 'generic',
