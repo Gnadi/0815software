@@ -7,6 +7,7 @@ import {
   createPublicKey,
   generateKeyPairSync,
   privateDecrypt,
+  privateEncrypt,
   publicEncrypt,
   randomBytes,
   sign,
@@ -163,6 +164,66 @@ export function signOrderData(privatePem: string, orderData: Buffer, version: Es
   return version === 'A006'
     ? sign('sha256', orderData, { key, padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 })
     : sign('sha256', orderData, { key, padding: constants.RSA_PKCS1_PADDING });
+}
+
+/**
+ * The DER prefix of a PKCS#1 v1.5 `DigestInfo` for SHA-256.
+ *
+ * `SEQUENCE { SEQUENCE { OID 2.16.840.1.101.3.4.2.1, NULL }, OCTET STRING(32) }`
+ * — the 19 bytes that go in front of the raw hash. Written out rather than
+ * built with the DER helpers because it is a constant, and a constant anyone
+ * can check against RFC 8017 §9.2 is easier to trust than nine calls.
+ */
+const SHA256_DIGEST_INFO = Buffer.from('3031300d060960864801650304020105000420', 'hex');
+
+/**
+ * Sign a digest we did not compute — the co-signature case, and nothing else.
+ *
+ * A second signatory approving an order in the bank's distributed-signature
+ * queue signs the `DataDigest` that `HVD` returned. They may not have the
+ * order data at all: `OrderDataAvailable` is a flag in that same response. So
+ * unlike every other signature in this service, the hash arrives from outside.
+ *
+ * **This is the exact shape of the worst bug this codebase has had.** The ES
+ * over order data once passed `sha256(orderData)` to `sign('sha256', …)`,
+ * which hashed it again; every test passed because the mock bank made the same
+ * mistake in reverse. The rule that came out of it — never hand a digest to
+ * something whose name contains the hash — is why the `DigestInfo` is built
+ * here by hand.
+ *
+ * It is `privateEncrypt`, not `sign(null, …)`, and that was not the first
+ * guess. `crypto.sign` with a null algorithm looks like the raw primitive and
+ * is not: over this same key and digest it produced neither openssl's answer
+ * nor anything else recognisable, whether handed the bare hash or the full
+ * `DigestInfo`. `privateEncrypt` with `RSA_PKCS1_PADDING` is the operation
+ * EMSA-PKCS1-v1_5 actually describes — pad the given bytes as `0x00 0x01 FF…
+ * 0x00 ‖ DigestInfo` and exponentiate — and it agrees with openssl to the
+ * byte. The golden vector is the only reason that difference was ever noticed;
+ * all three candidates produce a signature-shaped 256 bytes.
+ *
+ * The test is pinned against `openssl pkeyutl -sign -pkeyopt digest:sha256`,
+ * an implementation that has never read this repository, and against
+ * `signOrderData` over the preimage — the two must agree byte for byte.
+ *
+ * A006 is refused rather than approximated. RSASSA-PSS needs the hash function
+ * during encoding, not merely its output, and `node:crypto` offers no way to
+ * feed it a digest. An A006 subscriber cannot co-sign through this service,
+ * and being told so is better than a signature that is quietly not one.
+ */
+export function signDigest(privatePem: string, digest: Buffer, version: EsVersion = 'A005'): Buffer {
+  if (version === 'A006') {
+    throw new Error(
+      'A006 (RSASSA-PSS) cannot sign a digest computed elsewhere: PSS encoding needs the hash function itself, ' +
+        'and node:crypto exposes no way to supply one. Co-signing requires an A005 subscriber.',
+    );
+  }
+  if (digest.length !== 32) {
+    throw new Error(`expected a 32-byte SHA-256 digest to sign, got ${digest.length} bytes`);
+  }
+  return privateEncrypt(
+    { key: privateKeyFromPem(privatePem), padding: constants.RSA_PKCS1_PADDING },
+    Buffer.concat([SHA256_DIGEST_INFO, digest]),
+  );
 }
 
 export function verifyOrderData(

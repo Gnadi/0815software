@@ -323,6 +323,310 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    id: 7,
+    name: 'connection-verification-of-payee',
+    up(db) {
+      // Verification of Payee. Since 09.10.2025 the ServiceOption VOO/VOI on a
+      // SEPA credit transfer selects opt-out/opt-in; leaving it off means the
+      // market's default decides, and both published tables set that default
+      // to OPT-OUT for SCT and SCI.
+      //
+      // "default" keeps exactly that behaviour — no option, the bank decides —
+      // and is what every existing connection gets. The point of the column is
+      // that an installation which cares can say so rather than inherit it.
+      const columns = (db.prepare('PRAGMA table_info(bank_connections)').all() as { name: string }[]).map(
+        (c) => c.name,
+      );
+      if (!columns.includes('vop')) {
+        db.exec("ALTER TABLE bank_connections ADD COLUMN vop TEXT NOT NULL DEFAULT 'default'");
+      }
+    },
+  },
+  {
+    id: 8,
+    name: 'download-subscriptions',
+    up(db) {
+      // WHAT THE TICK POLLS, per connection, instead of two hard-coded BTFs.
+      //
+      // Until now `tick()` fetched exactly `profile.paymentStatus` and
+      // `profile.statement` — a payment status report and a camt.053 — and
+      // nothing else, on every connection. Every other BTF a bank offers
+      // (camt.052 intraday, camt.054 notifications, camt.086 fees, MT940,
+      // the Austrian CIM customer information, PDF statements) was reachable
+      // only by an operator pressing "fetch now". That is not a protocol
+      // limitation and never was; the upload side has always taken any BTF
+      // the caller names.
+      //
+      // A row here is one standing instruction: fetch this BTF on every tick.
+      // `HTD` is where the list of legitimate values comes from — the bank's
+      // own statement of what it has enabled for this contract.
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS download_subscriptions (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        connection_id  INTEGER NOT NULL REFERENCES bank_connections(id) ON DELETE CASCADE,
+        btf            TEXT    NOT NULL,          -- json, as sent
+        -- The same BTF with its keys in a fixed order, so that two spellings
+        -- of one subscription collide on the index instead of both polling.
+        btf_key        TEXT    NOT NULL,
+        label          TEXT,
+        enabled        INTEGER NOT NULL DEFAULT 1,
+        -- When set, each poll asks for this many days back. Banks differ on
+        -- whether an absent DateRange means "everything new" or "today", and
+        -- for a statement the difference is a missed day.
+        lookback_days  INTEGER,
+        created_at     TEXT    NOT NULL,
+        last_fetched_at TEXT,
+        last_problem   TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_download_subscriptions_btf
+        ON download_subscriptions (connection_id, btf_key);
+      `);
+    },
+  },
+  {
+    id: 9,
+    name: 'backfill-download-subscriptions',
+    up(db) {
+      // Every connection that existed before migration 8 keeps polling exactly
+      // what it polled before — its profile's status report and statement.
+      // Written out as literal JSON rather than read from `bank-registry.ts`
+      // because a migration must produce the same result forever, and that
+      // file is edited whenever a published mapping table changes.
+      const profiles: Record<string, { label: string; btf: Record<string, string> }[]> = {
+        'de-sepa': [
+          { label: 'payment status reports', btf: { service_name: 'REP', scope: 'DE', option: 'SCT', msg_name: 'pain.002', container: 'ZIP' } },
+          { label: 'account statements', btf: { service_name: 'EOP', scope: 'DE', msg_name: 'camt.053', container: 'ZIP' } },
+        ],
+        'at-sepa': [
+          { label: 'payment status reports', btf: { service_name: 'REP', scope: 'AT', option: 'SCT', msg_name: 'pain.002', container: 'ZIP' } },
+          { label: 'account statements', btf: { service_name: 'EOP', scope: 'AT', msg_name: 'camt.053', container: 'ZIP' } },
+        ],
+        generic: [
+          { label: 'payment status reports', btf: { service_name: 'REP', option: 'SCT', msg_name: 'pain.002', container: 'ZIP' } },
+          { label: 'account statements', btf: { service_name: 'EOP', msg_name: 'camt.053', container: 'ZIP' } },
+        ],
+      };
+      // The same canonical ordering `subscriptions.ts` uses. Repeated here
+      // rather than imported for the reason above.
+      const order = ['service_name', 'scope', 'option', 'msg_name', 'msg_version', 'msg_variant', 'msg_format', 'container'];
+      const canonical = (btf: Record<string, string>): string =>
+        JSON.stringify(order.filter((k) => btf[k] !== undefined).map((k) => [k, btf[k]]));
+
+      const connections = db.prepare('SELECT id, bank_key, created_at FROM bank_connections').all() as {
+        id: number;
+        bank_key: string;
+        created_at: string;
+      }[];
+      const insert = db.prepare(
+        `INSERT OR IGNORE INTO download_subscriptions
+           (connection_id, btf, btf_key, label, enabled, created_at)
+         VALUES (?, ?, ?, ?, 1, ?)`,
+      );
+      for (const connection of connections) {
+        for (const entry of profiles[connection.bank_key] ?? profiles.generic) {
+          insert.run(connection.id, JSON.stringify(entry.btf), canonical(entry.btf), entry.label, connection.created_at);
+        }
+      }
+    },
+  },
+  {
+    id: 10,
+    name: 'pending-subscriber-keys',
+    up(db) {
+      // Key rotation over the wire (HCA/HCS) needs two live keys per purpose
+      // for the length of one request: the one the bank still knows, which
+      // signs the change, and the one that takes over if it says yes.
+      //
+      // THE ORDERING THIS COLUMN EXISTS FOR. The new keys are generated and
+      // COMMITTED — as pending — before the request goes out. Generating them
+      // in memory and writing them only after the bank accepts would leave a
+      // window where the bank has moved to a key this service no longer holds,
+      // and the recovery from that is re-initialising on paper. A pending row
+      // nobody activated costs nothing; a lost private key costs days.
+      const columns = (db.prepare('PRAGMA table_info(subscriber_keys)').all() as { name: string }[]).map((c) => c.name);
+      if (!columns.includes('pending')) {
+        db.exec('ALTER TABLE subscriber_keys ADD COLUMN pending INTEGER NOT NULL DEFAULT 0');
+      }
+      // The live-key index has to make room for the pending one. Named
+      // explicitly at creation (migration 1), so it can be replaced.
+      db.exec(`
+      DROP INDEX IF EXISTS idx_subscriber_keys_live;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriber_keys_live
+        ON subscriber_keys (connection_id, purpose) WHERE retired_at IS NULL AND pending = 0;
+      -- And at most one pending key per purpose, for the same reason: "which
+      -- key is taking over?" must have one answer.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriber_keys_pending
+        ON subscriber_keys (connection_id, purpose) WHERE retired_at IS NULL AND pending = 1;
+      `);
+    },
+  },
+  {
+    id: 11,
+    name: 'order-ebics-order-id',
+    up(db) {
+      // The BANK's order number, from the mutable header of the response that
+      // accepted the upload. Not the same thing as `transaction_id`, which
+      // names one conversation and is meaningless once it ends.
+      //
+      // This is the handle the customer protocol (HAC) logs every action
+      // under. Without it a HAC entry saying "signature refused, order A445"
+      // cannot be tied to the payment file it refused, which makes the whole
+      // protocol readable but not actionable.
+      const columns = (db.prepare('PRAGMA table_info(orders)').all() as { name: string }[]).map((c) => c.name);
+      if (!columns.includes('ebics_order_id')) {
+        db.exec('ALTER TABLE orders ADD COLUMN ebics_order_id TEXT');
+      }
+      // Not unique: a bank may reuse an order number across customers, and
+      // orders are looked up per connection anyway.
+      db.exec('CREATE INDEX IF NOT EXISTS idx_orders_ebics_order ON orders (connection_id, ebics_order_id)');
+    },
+  },
+  {
+    id: 12,
+    name: 'account-statements',
+    up(db) {
+      // Bookings, read out of a camt.053 and made queryable.
+      //
+      // This is the one place the "nothing derivable is stored" rule is bent,
+      // and deliberately: a consumer asking "was invoice 42 paid?" needs to
+      // search across every statement ever collected, by reference, by amount
+      // and by date. Re-parsing every stored blob on each such question is not
+      // a read model, it is a full scan.
+      //
+      // The bytes remain the record. These rows are rebuilt by clearing
+      // `downloads.processed_at`, which is exactly what a fix to the parser
+      // needs — so a better reader improves every statement already collected
+      // rather than only the next one.
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS statements (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        download_id     INTEGER NOT NULL REFERENCES downloads(id) ON DELETE CASCADE,
+        connection_id   INTEGER NOT NULL REFERENCES bank_connections(id),
+        public_id       TEXT    NOT NULL UNIQUE,        -- "stm_<hex>"
+        -- The schema version the bank sent. Worth keeping: .02 and .08 differ
+        -- in ways that decide how this row was read (see server/camt.ts).
+        version         TEXT    NOT NULL,
+        message_id      TEXT    NOT NULL,               -- GrpHdr/MsgId
+        statement_id    TEXT    NOT NULL,               -- Stmt/Id
+        electronic_seq  INTEGER,
+        legal_seq       INTEGER,
+        created_at      TEXT,
+        from_date       TEXT,
+        to_date         TEXT,
+        account_iban    TEXT,
+        account_other   TEXT,
+        account_currency TEXT,
+        account_name    TEXT,
+        account_owner   TEXT,
+        opening_balance TEXT,
+        closing_balance TEXT,
+        balance_currency TEXT,
+        entry_count     INTEGER NOT NULL,
+        stored_at       TEXT    NOT NULL
+      );
+      -- THE INVARIANT: one statement per account per identifier. A bank
+      -- re-offering a file whose receipt it never saw must not double every
+      -- booking on it — the download digest absorbs the usual case, and this
+      -- absorbs a bank that regenerates the same statement with new bytes.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_statements_identity
+        ON statements (connection_id, account_iban, statement_id);
+      CREATE INDEX IF NOT EXISTS idx_statements_download ON statements (download_id);
+
+      CREATE TABLE IF NOT EXISTS statement_entries (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        statement_id    INTEGER NOT NULL REFERENCES statements(id) ON DELETE CASCADE,
+        seq             INTEGER NOT NULL,               -- position in the file
+        -- EXACTLY as the bank wrote it, unsigned. ISO puts the direction in a
+        -- separate indicator and never a minus sign.
+        amount          TEXT    NOT NULL,
+        -- The amount times one hundred. NOT called amount_minor: minor units
+        -- need the currency's exponent (2 for EUR, 0 for JPY, 3 for KWD), and
+        -- that table is not something to transcribe from memory. Null when the
+        -- bank sent more than two decimal places.
+        amount_hundredths INTEGER,
+        currency        TEXT    NOT NULL,
+        credit          INTEGER NOT NULL,               -- 1 = money in
+        reversal        INTEGER NOT NULL DEFAULT 0,
+        status          TEXT    NOT NULL,               -- BOOK | PDNG | INFO
+        booking_date    TEXT,
+        value_date      TEXT,
+        entry_ref       TEXT,
+        account_servicer_ref TEXT,
+        bank_transaction_code TEXT,
+        end_to_end_id   TEXT,
+        mandate_id      TEXT,
+        msg_id          TEXT,
+        payment_info_id TEXT,
+        instruction_id  TEXT,
+        counterparty_name TEXT,
+        counterparty_iban TEXT,
+        remittance      TEXT,
+        creditor_reference TEXT,
+        purpose         TEXT,
+        return_reason   TEXT,
+        additional_info TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_position
+        ON statement_entries (statement_id, seq);
+      -- The three a consumer actually searches by.
+      CREATE INDEX IF NOT EXISTS idx_entries_e2e ON statement_entries (end_to_end_id);
+      CREATE INDEX IF NOT EXISTS idx_entries_reference ON statement_entries (creditor_reference);
+      CREATE INDEX IF NOT EXISTS idx_entries_booking ON statement_entries (booking_date);
+      `);
+    },
+  },
+  {
+    id: 13,
+    name: 'statement-source-message',
+    up(db) {
+      // WHICH of the three account messages a statement came out of.
+      //
+      // camt.052/053/054 carry the same entry structure — verified against the
+      // Austrian schemas, which define ReportEntry2 identically in all three —
+      // so one reader serves them. But they do NOT mean the same thing, and
+      // storing them undifferentiated is a double-count waiting to happen:
+      //
+      //   statement     camt.053, end of day. The definitive record.
+      //   report        camt.052, intraday and PROVISIONAL. Every booking on
+      //                 it appears AGAIN on the day's statement.
+      //   notification  camt.054, individual items as they happen. Same.
+      //
+      // So the source is recorded and `findEntries` defaults to statements
+      // alone. A caller that wants to see money arriving before end of day has
+      // to ask for it, exactly as with pending entries.
+      //
+      // Existing rows are statements: camt.053 is all this service could read
+      // before this migration.
+      const columns = (db.prepare('PRAGMA table_info(statements)').all() as { name: string }[]).map((c) => c.name);
+      if (!columns.includes('source')) {
+        db.exec("ALTER TABLE statements ADD COLUMN source TEXT NOT NULL DEFAULT 'statement'");
+      }
+      if (!columns.includes('message_name')) {
+        db.exec('ALTER TABLE statements ADD COLUMN message_name TEXT');
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_statements_source ON statements (source)');
+    },
+  },
+  {
+    id: 14,
+    name: 'entry-proprietary-transaction-code',
+    up(db) {
+      // The bank's OWN transaction code, beside the ISO domain code.
+      //
+      // The Austrian schemas make both `Domn` and `Prtry` mandatory on every
+      // entry, so an Austrian bank always sends both. The reader used to prefer
+      // the ISO code and fall back to the proprietary one — which in Austria
+      // means the fallback never fires and the proprietary code, the one the
+      // bank actually keys on, was dropped on every single booking.
+      const columns = (db.prepare('PRAGMA table_info(statement_entries)').all() as { name: string }[]).map(
+        (c) => c.name,
+      );
+      if (!columns.includes('proprietary_transaction_code')) {
+        db.exec('ALTER TABLE statement_entries ADD COLUMN proprietary_transaction_code TEXT');
+      }
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {

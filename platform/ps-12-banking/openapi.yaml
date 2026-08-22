@@ -92,7 +92,9 @@ paths:
         EBICS Product element as product_name / product_language (ISO 639, required with a name) /
         product_institute_id. Omit the product fields and no Product element is sent.
         request_eds (default false) makes uploads carry SignatureFlag requestEDS="true", asking the bank
-        to spool them into its distributed-signature (VEU/EDS) queue; PS-12 cannot read that queue back.
+        to spool them into its distributed-signature (VEU/EDS) queue.
+        vop selects Verification of Payee: "default" (no ServiceOption, the market default decides),
+        "opt_out" (VOO) or "opt_in" (VOI).
       tags: [ps-12-banking]
       security: [{adminSession: []}]
       responses:
@@ -220,6 +222,282 @@ paths:
       responses:
         '200': { description: The connection is now ready }
         '422': { description: The digests do not match what was fetched }
+  /api/connections/{key}/lock:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Lock the subscriber at the bank (SPR)
+      description: >-
+        Revokes this subscriber's authorisation AT THE BANK. Unlike /suspend this cannot be undone from
+        here: the way back is new keys and a fresh INI/HIA. The connection moves to "locked" only when the
+        bank answered EBICS_OK; a refusal is recorded as failed and answered 502. Body: {reason}.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Locked }
+        '409': { description: Already locked, or the bank keys have not been fetched yet }
+        '502': { description: The bank refused — the subscriber is NOT locked }
+  /api/connections/{key}/veu:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+      - name: details
+        in: query
+        description: "1 asks with HVZ instead of HVU — the same list with amounts, accounts and digests filled in"
+        schema: { type: string }
+    get:
+      summary: What is waiting in the bank's distributed-signature queue (HVU/HVZ)
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The queue, empty when nothing is waiting }
+  /api/connections/{key}/veu/detail:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: One queued order's digest, display file and signers (HVD)
+      description: "Body: {btf, order_id, partner_id?}."
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The order }
+        '404': { description: The bank has no such order waiting }
+  /api/connections/{key}/veu/transactions:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: The individual payments inside a queued collective order (HVT)
+      description: "Body: {btf, order_id, partner_id?, complete_order_data?, limit?, offset?}."
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The transactions }
+  /api/connections/{key}/veu/sign:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Add our signature to a queued order (HVE)
+      description: >-
+        Body: {btf, order_id, partner_id?}. The digest that gets signed is fetched from the bank with HVD
+        immediately beforehand and is NEVER taken from this body — a service that signed a caller-supplied
+        digest would be a signing oracle for any document at all.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Signed, with the digest that was signed }
+        '404': { description: The bank has no such order waiting }
+        '502': { description: The bank refused the signature }
+  /api/connections/{key}/veu/cancel:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Cancel a queued order (HVS)
+      description: "Body: {btf, order_id, partner_id?}. The digest is fetched with HVD, as for /sign."
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Cancelled }
+        '404': { description: The bank has no such order waiting }
+  /api/connections/{key}/customer-data:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+      - name: scope
+        in: query
+        description: "\"customer\" asks with HKD (every subscriber); anything else asks with HTD (this one)"
+        schema: { type: string }
+    get:
+      summary: What the bank says this customer may do (HTD/HKD)
+      description: >-
+        The bank's own list of the order types and BTFs it has enabled for THIS contract, the accounts they
+        apply to, the signatures each needs, and per subscriber the signature class held and any ceiling the
+        bank enforces. Authoritative in a way no published mapping table is. The response adds
+        `available_downloads`: the BTD entries, in exactly the shape POST /subscriptions takes.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The customer data }
+        '502': { description: The bank has not enabled that order type }
+  /api/connections/{key}/bank-parameters:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: What this bank supports (HPD)
+      description: >-
+        Access parameters and the EBICS, authentication, encryption and signature versions the bank speaks.
+        The cheapest compatibility check there is. A flag present without its `supported` attribute means
+        SUPPORTED — the schema's own default.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The bank's parameters }
+  /api/connections/{key}/waiting:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: The BTFs the bank has files waiting for right now (HAA)
+      description: >-
+        A different question from /customer-data: that says what this customer is PERMITTED to fetch, this
+        says what is ACTUALLY there. An empty list is the ordinary answer.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The BTFs with data waiting }
+  /api/connections/{key}/subscriptions:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Which BTFs the tick fetches on this connection
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The subscriptions, with what the last poll did }
+    post:
+      summary: Fetch one more BTF on every tick
+      description: >-
+        Body: {btf, label?, lookback_days?, enabled?}. Any BTF at all — a new connection starts with its
+        profile's status report and statement, and everything beyond that is this. Use /customer-data to
+        find out what the bank actually offers rather than guessing.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '201': { description: Created }
+        '409': { description: This connection already fetches that BTF }
+        '422': { description: A BTF needs at least a service name and a message name }
+  /api/connections/{key}/subscriptions/{id}/enable:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      summary: Resume polling one BTF
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The subscription }
+        '404': { description: No such subscription on this connection }
+  /api/connections/{key}/subscriptions/{id}/disable:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      summary: Stop polling one BTF, without forgetting it
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The subscription }
+        '404': { description: No such subscription on this connection }
+  /api/connections/{key}/key-change:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: The keys prepared for a change but not yet in force
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The pending keys — digests only, never key material }
+    post:
+      summary: Replace this connection's keys over the wire (HCA/HCS)
+      description: >-
+        Body: {include_signature?}. False (the default) sends HCA and replaces the authentication and
+        encryption keys; true sends HCS and replaces the ES key as well — the one that authorises payments.
+        The request is signed with the keys the bank already holds, and that signature is the authorisation,
+        so no second paper letter is needed. The replacements are committed as PENDING before the request
+        goes out and promoted only once the bank accepts: the unrecoverable failure is the bank moving to a
+        key this service does not hold. A refusal leaves them pending rather than discarding them, because a
+        refusal at the transfer phase is ambiguous from this side.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Changed, with the keys now in force }
+        '409': { description: A pending change for a different order type is in the way }
+        '502': { description: The bank refused — the keys were NOT changed }
+    delete:
+      summary: Discard a pending key change
+      description: >-
+        Only safe once the bank has confirmed the change did NOT go through: discarding after an acceptance
+        destroys the only copy of the key the bank has moved to.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '204': { description: Discarded }
+        '409': { description: There is no pending key change }
+  /api/connections/{key}/key-change/complete:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Promote a pending change the bank accepted but this service never recorded
+      description: >-
+        The recovery for a crash between the bank's acceptance and our commit. Deliberately explicit rather
+        than inferred: an operator must have established WITH THE BANK that the change went through, because
+        getting it wrong leaves every later message signed with a key the bank has retired.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The keys now in force }
+        '409': { description: There is no pending key change }
+  /api/connections/{key}/subscriptions/{id}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        schema: { type: string }
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    delete:
+      summary: Stop fetching one BTF entirely
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '204': { description: Removed }
+        '404': { description: No such subscription on this connection }
   /api/connections/{key}/suspend:
     parameters:
       - name: key
@@ -362,7 +640,12 @@ paths:
         schema: { type: string }
     get:
       summary: Get download
-      description: The metadata plus, for a pain.002, the payment statuses read out of it.
+      description: >-
+        The metadata plus, depending on the kind, what was read out of the file. `status`
+        carries the payment statuses; `info` carries a CIM's notices; `protocol` carries
+        `customer_protocol` — the bank's own log of what it did with each order, folded by
+        EBICS order number with a verdict per order. Note that `status` and `protocol` are
+        BOTH pain.002 documents: the kind is decided by the bytes, not by the BTF.
       tags: [ps-12-banking]
       security: [{serviceToken: []}, {adminSession: []}]
       responses:
@@ -377,14 +660,134 @@ paths:
     get:
       summary: Download the file itself
       description: >-
-        The bytes the bank sent, stored whole. A camt.053 is deliberately not
-        parsed by this service — matching bookings to invoices belongs to the
-        module that has the invoices.
+        The bytes the bank sent, stored whole. They stay the record even where the service has read
+        them: a camt.053 is parsed into bookings (see /api/entries) and the original is still here,
+        so a fix to the reader can be applied to statements already collected.
       tags: [ps-12-banking]
       security: [{serviceToken: []}, {adminSession: []}]
       responses:
         '200': { description: The file }
         '404': { description: No such download }
+  /api/statements:
+    get:
+      summary: The account statements read out of collected camt.053 files
+      description: >-
+        Metadata and balances, newest first. Entries are on the detail route, so a listing never drags
+        thousands of bookings through a caller that only wanted to know what arrived.
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - name: connection
+          in: query
+          schema: { type: string }
+        - name: account
+          in: query
+          description: An IBAN.
+          schema: { type: string }
+        - name: source
+          in: query
+          description: >-
+            statement (camt.053), report (camt.052) or notification (camt.054). Unlike /api/entries this does
+            NOT default — a list of what arrived is not a sum, so every message is the useful answer.
+          schema: { type: string, enum: [statement, report, notification, any] }
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        '200': { description: The statements }
+  /api/statements/{public_id}:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: One statement, with every booking on it
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: The statement and its entries }
+        '404': { description: No such statement }
+  /api/statements/reparse:
+    post:
+      summary: Re-read every stored statement
+      description: >-
+        Drops the derived bookings and reads the stored bytes again, so a fix to the reader improves
+        statements already collected and not only the next one. Body: {connection?}. Admin only —
+        rebuilding derived rows is not a module's call.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: How many downloads were queued for re-reading }
+  /api/entries:
+    get:
+      summary: Find bookings — the query a payment matcher needs
+      description: >-
+        The service reads the bank's camt.053 and hands over what it booked. It does NOT decide which
+        invoice a booking settles: that depends on the invoices, and those live in the module that
+        issued them. Two defaults matter. Only `BOOK` entries come back, because a `PDNG` entry is
+        money the bank has seen and not booked, and settling an invoice against one is how a payment
+        gets counted that later vanishes. And `reversal` is on every entry — a returned direct debit
+        undoes an earlier booking, so pass exclude_reversals when summing. Amounts are the exact
+        string the bank sent, unsigned, with the direction in `credit`; `amount_hundredths` is that
+        times one hundred and is NOT minor units (EUR 2, JPY 0, KWD 3 — that table is not shipped).
+      tags: [ps-12-banking]
+      security: [{serviceToken: []}, {adminSession: []}]
+      parameters:
+        - name: connection
+          in: query
+          schema: { type: string }
+        - name: account
+          in: query
+          description: An IBAN.
+          schema: { type: string }
+        - name: from
+          in: query
+          description: Inclusive, on the BOOKING date.
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: credit
+          in: query
+          description: 1 for money in, 0 for money out; omit for both.
+          schema: { type: string }
+        - name: status
+          in: query
+          description: Defaults to BOOK.
+          schema: { type: string }
+        - name: source
+          in: query
+          description: >-
+            Which account message the bookings came from. DEFAULTS TO "statement" — the end-of-day camt.053.
+            A camt.052 report ("report") and a camt.054 notification ("notification") carry bookings the day's
+            statement carries again, so querying across all of them counts the same money twice. Pass "any"
+            only if you mean it.
+          schema: { type: string, enum: [statement, report, notification, any] }
+        - name: end_to_end_id
+          in: query
+          description: The reference your own pain.001 put on the transaction.
+          schema: { type: string }
+        - name: reference
+          in: query
+          description: The structured creditor reference, matched exactly.
+          schema: { type: string }
+        - name: amount_hundredths
+          in: query
+          schema: { type: integer }
+        - name: search
+          in: query
+          description: Substring of the remittance text or the counterparty name.
+          schema: { type: string }
+        - name: exclude_reversals
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        '200': { description: The bookings }
+        '422': { description: A numeric parameter was not an integer in range }
   /api/tick:
     post:
       summary: Run the periodic work

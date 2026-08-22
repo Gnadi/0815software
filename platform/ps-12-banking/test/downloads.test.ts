@@ -529,7 +529,7 @@ describe('the tick', () => {
   });
 
   it('is a no-op on a stack with no connections at all', async () => {
-    expect(await tick(ctx)).toEqual({ downloads_fetched: 0, orders_updated: 0, problems: [] });
+    expect(await tick(ctx)).toEqual({ downloads_fetched: 0, orders_updated: 0, statements_read: 0, problems: [] });
   });
 });
 
@@ -553,5 +553,71 @@ describe('a report that names no original file', () => {
     // Stored, readable by a human, attached to nothing.
     const stored = listDownloads(db, { kind: 'status' })[0]!;
     expect(downloadDetail(db, stored.public_id).reports[0]).toMatchObject({ msg_id: null, status_code: 'RJCT' });
+  });
+});
+
+// ── CIM: a notice meant for a person ──────────────────────────────────
+
+describe('customer information messages', () => {
+  const CIM: BtfInput = { service_name: 'CIM', scope: 'AT', msg_name: 'cimresp' };
+  const NOTICE = `<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="http://www.psa.at/EBICS/CIMResp">
+  <GrpHdr>
+    <MsgId>2026082114300012ABCD</MsgId>
+    <CreDtTm>2026-08-21T14:30:00</CreDtTm>
+  </GrpHdr>
+  <CIM>
+    <CIMTmStmp>2026-08-20T18:00:00</CIMTmStmp>
+    <CIMId>f81d4fae-7dec-11d0-a765-00a0c91e6bf6</CIMId>
+    <HdLine>Serviceintervall</HdLine>
+    <CIMTxt>Am 24.08.2026 steht EBICS zwischen 02:00 und 04:00 nicht zur Verfügung.</CIMTxt>
+  </CIM>
+</Document>`;
+
+  it('files a CIM as "info" rather than as an opaque blob', async () => {
+    await bringUp();
+    bank.enqueue({ serviceName: 'CIM', msgName: 'cimresp' }, NOTICE);
+
+    const result = await fetchOne(ctx, 'main', CIM);
+    expect(result.download!.kind).toBe('info');
+  });
+
+  it('shows the notice on the detail route, read out of the stored bytes', async () => {
+    await bringUp();
+    bank.enqueue({ serviceName: 'CIM', msgName: 'cimresp' }, NOTICE);
+    const result = await fetchOne(ctx, 'main', CIM);
+
+    const detail = downloadDetail(db, result.download!.public_id);
+    expect(detail.customer_info!.message_id).toBe('2026082114300012ABCD');
+    expect(detail.customer_info!.notices).toHaveLength(1);
+    expect(detail.customer_info!.notices[0]!.id).toBe('f81d4fae-7dec-11d0-a765-00a0c91e6bf6');
+    expect(detail.customer_info!.notices[0]!.headline).toBe('Serviceintervall');
+    expect(detail.customer_info!.notices[0]!.text).toMatch(/24.08.2026/);
+  });
+
+  it('keeps the bytes whole, whatever the reader made of them', async () => {
+    // The reader has already been rewritten once, against a schema that
+    // arrived after it. The stored document must not move when that happens,
+    // or every notice fetched beforehand becomes unreadable at exactly the
+    // moment the parser gets better.
+    await bringUp();
+    bank.enqueue({ serviceName: 'CIM', msgName: 'cimresp' }, NOTICE);
+    const result = await fetchOne(ctx, 'main', CIM);
+
+    expect(downloadContent(db, result.download!.public_id).toString('utf8')).toBe(NOTICE);
+  });
+
+  it('says so plainly when a CIM cannot be read, rather than inventing one', async () => {
+    await bringUp();
+    bank.enqueue({ serviceName: 'CIM', msgName: 'cimresp' }, '<Document xmlns="urn:x"><Nonsense/></Document>');
+    const result = await fetchOne(ctx, 'main', CIM);
+    expect(downloadDetail(db, result.download!.public_id).customer_info).toBeNull();
+  });
+
+  it('leaves other downloads with no customer_info at all', async () => {
+    await bringUp();
+    bank.enqueue({ serviceName: 'EOP', msgName: 'camt.053' }, zipped([{ name: 'statement.xml', content: '<Document/>' }]));
+    const result = await fetchOne(ctx, 'main', EOP);
+    expect(downloadDetail(db, result.download!.public_id).customer_info).toBeUndefined();
   });
 });

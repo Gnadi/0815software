@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HVDResponseOrderData xmlns="urn:org:ebics:H005">
+  <DataDigest SignatureVersion="A005">yeee4C+0xZjU0Ex6aQt+Zm7FCo61GQtftMTqmYcSffc=</DataDigest>
+  <DisplayFile>WmFobGxhdWYgQXVndXN0</DisplayFile>
+  <OrderDataAvailable>true</OrderDataAvailable>
+  <OrderDataSize>3074</OrderDataSize>
+  <OrderDetailsAvailable>true</OrderDetailsAvailable>
+  <SignerInfo>
+    <PartnerID>PARTNER1</PartnerID>
+    <UserID>USER1</UserID>
+    <Name>Erste Unterschrift</Name>
+    <Timestamp>2026-08-21T10:00:00Z</Timestamp>
+    <Permission AuthorisationLevel="E"/>
+  </SignerInfo>
+</HVDResponseOrderData>

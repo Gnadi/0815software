@@ -207,6 +207,117 @@ export interface SepaCreditTransfer {
   creditor_bic: string | null;
   /** The payment purpose. An ISO 11649 "RF…" reference is sent structurally. */
   remittance: string;
+  /**
+   * `Purp/Cd` — `TAXS` marks this ONE payment as a Finanzamtszahlung.
+   *
+   * Per payment because the specification allows nowhere else: coding it at
+   * batch level "ist nicht vorgesehen" even when every payment in the batch is
+   * a tax payment. So a run may hold tax payments and ordinary ones together.
+   */
+  purpose?: 'TAXS';
+}
+
+/**
+ * The Austrian credit transfer this module can produce.
+ *
+ * `TAXS` — a Finanzamtszahlung, a payment to a tax office.
+ *
+ * There is deliberately no `CPPP` here. A Postbarzahlung is addressed to
+ * BAWAG PSK's collection account with the real recipient in `UltmtCdtr` and a
+ * CashPerPost reference in `EndToEndId`, none of which a bill from a creditor
+ * can express: this module would flag it correctly and address it wrongly.
+ * PS-12 knows the format and checks for it on the way to the bank — see
+ * `platform/ps-12-banking/server/austrian.ts`.
+ */
+export type AustrianPurpose = 'TAXS';
+
+/**
+ * The remittance format for a Finanzamtszahlung, exactly as PSA publishes it.
+ *
+ *   (\d{2}(\d{2}(/?\d{2})?)?([-+](0|([1-9]([0-9]{0,10})?))[A-Z]{1,3})+)+
+ *
+ * A period, then one or more amount-and-tax-kind pairs, repeated:
+ *
+ * - **period** `YY`, `YYMM`, `YYMMDD` or `YYMM/MM`;
+ * - **amount** in cents, `+` for a liability and `-` for a credit, no leading
+ *   zeros, at most 11 digits;
+ * - **kind of tax** one to three capital letters.
+ *
+ * `0811+676850L+176800DB+23601DZ0810-563910U` is the specification's own
+ * example: for 11/08, €6768.50 wage tax, €1768.00 employer contribution and
+ * €236.01 surcharge; for 10/08, a €5639.10 VAT credit. Every example in both
+ * PSA documents is a test case in `sepa.test.ts`.
+ *
+ * Non-capturing throughout and anchored, which the published form is not — it
+ * is written to be read, and an unanchored version would accept any string
+ * with a valid fragment somewhere inside it.
+ */
+export const TAXS_REMITTANCE =
+  /^(?:\d{2}(?:\d{2}(?:\/?\d{2})?)?(?:[-+](?:0|[1-9][0-9]{0,10})[A-Z]{1,3})+)+$/;
+
+/**
+ * Whether a remittance line is acceptable for a Finanzamtszahlung.
+ *
+ * The pattern is PSA's own and is the default; `override` exists because a
+ * bank may tighten it, not because this module is unsure what it is.
+ */
+export function austrianRemittanceProblem(
+  purpose: AustrianPurpose,
+  remittance: string,
+  override: RegExp | null = null,
+): SepaProblem | null {
+  const text = remittance.trim();
+  if (text === '') {
+    return { field: 'remittance', message: `a ${purpose} payment needs a structured remittance line` };
+  }
+  if (text.length > MAX_REMITTANCE) {
+    return { field: 'remittance', message: `must be at most ${MAX_REMITTANCE} characters` };
+  }
+  if (!(override ?? TAXS_REMITTANCE).test(text)) {
+    return {
+      field: 'remittance',
+      message:
+        'is not a valid Finanzamt remittance: a period (YY, YYMM, YYMMDD or YYMM/MM) followed by amounts in ' +
+        'cents with + for a liability or - for a credit and a one-to-three-letter kind of tax, e.g. ' +
+        '"0811+676850L+176800DB"',
+    };
+  }
+  return null;
+}
+
+/**
+ * Whether a 9-digit Ordnungsbegriff carries a valid check digit.
+ *
+ * The tax account number is `FA-NNNNNN-P`: the office that issued it, the tax
+ * number, and a check digit computed by doubling the digits in positions 2, 4,
+ * 6 and 8, summing the DIGITS of those results, adding the digits in positions
+ * 1, 3, 5 and 7, and completing to the next multiple of ten.
+ *
+ * There is deliberately no check that the office number matches the IBAN. The
+ * specification says so outright: after the 2020 office mergers a tax number
+ * outlives the office that issued it, and "etwaige Prüfungen der
+ * Übereinstimmung zwischen Steuernummer und IBAN sind daher auszubauen".
+ *
+ * One inconsistency worth knowing about, because it will eventually be
+ * reported as a bug: the specification's own §4 narrative example, tax account
+ * `023765641`, does NOT satisfy this rule — it computes to a check digit of 7.
+ * The §3.1 worked example, `269135729`, does. The rule is implemented as
+ * §3.1 states it and as §3.1 demonstrates it.
+ */
+export function taxAccountProblem(ordnungsbegriff: string): string | null {
+  const digits = ordnungsbegriff.trim();
+  if (!/^\d{9}$/.test(digits)) {
+    return 'must be the 9-digit tax account number (Ordnungsbegriff), with a leading zero if needed';
+  }
+  const value = [...digits].map(Number);
+  const doubled = [1, 3, 5, 7].reduce((sum, i) => sum + digitSum(value[i]! * 2), 0);
+  const plain = [0, 2, 4, 6].reduce((sum, i) => sum + value[i]!, 0);
+  const expected = (10 - ((doubled + plain) % 10)) % 10;
+  return value[8] === expected ? null : `check digit should be ${expected}`;
+}
+
+function digitSum(n: number): number {
+  return [...String(n)].reduce((sum, c) => sum + Number(c), 0);
 }
 
 /** One payment run: one debtor account, one execution date, N transfers. */
@@ -249,7 +360,15 @@ export function sepaControlSum(payments: { amount_cents: number }[]): number {
  * is writing a file the bank refuses, at a point where the operator has
  * already left the screen.
  */
-export function validateSepaInstruction(instruction: SepaInstruction): SepaProblem[] {
+export function validateSepaInstruction(
+  instruction: SepaInstruction,
+  /**
+   * The remittance format for the run's Austrian purpose, when the operator
+   * has configured one. Null means "not checked" — see
+   * `austrianRemittanceProblem` for why this service does not ship a pattern.
+   */
+  austrianRemittancePattern: RegExp | null = null,
+): SepaProblem[] {
   const problems: SepaProblem[] = [];
   const push = (field: string, message: string): void => void problems.push({ field, message });
 
@@ -293,6 +412,14 @@ export function validateSepaInstruction(instruction: SepaInstruction): SepaProbl
     if (iban) push(at('creditor_iban'), iban);
     if (payment.creditor_bic !== null && !isValidBic(payment.creditor_bic)) {
       push(at('creditor_bic'), 'must be a valid 8 or 11 character BIC');
+    }
+    if (payment.purpose !== undefined) {
+      const problem = austrianRemittanceProblem(payment.purpose, payment.remittance, austrianRemittancePattern);
+      if (problem !== null) push(at('remittance'), problem.message);
+      // The Ordnungsbegriff travels in EndToEndId — the tax office books the
+      // payment against it, so a typo lands the money in the wrong account.
+      const account = taxAccountProblem(payment.end_to_end_id);
+      if (account !== null) push(at('end_to_end_id'), `is the tax account number and ${account}`);
     }
   });
 
@@ -349,10 +476,13 @@ function agent(indent: number, name: 'DbtrAgt' | 'CdtrAgt', bic: string | null):
  * block as `SCOR`, which is what the creditor's accounting system reads to
  * match the payment automatically; everything else is unstructured text.
  */
-function remittance(indent: number, text: string): string[] {
+function remittance(indent: number, text: string, forceUnstructured = false): string[] {
   const pad = ' '.repeat(indent);
   const trimmed = text.trim();
-  if (trimmed !== '' && isCreditorReference(trimmed)) {
+  // A Finanzamtszahlung's reference is a structured Ustrd STRING, not an ISO
+  // 11649 reference. Letting the RF test win would move a tax payment's whole
+  // routing information into a block the tax office does not read.
+  if (!forceUnstructured && trimmed !== '' && isCreditorReference(trimmed)) {
     const ref = trimmed.replace(/\s+/g, '').toUpperCase();
     return [
       `${pad}<RmtInf>`,
@@ -415,6 +545,9 @@ export function buildPain001(instruction: SepaInstruction): string {
     '        <SvcLvl>',
     tag(10, 'Cd', 'SEPA'),
     '        </SvcLvl>',
+    // CtgyPurp follows SvcLvl — the schema's sequence is InstrPrty, SvcLvl,
+    // LclInstrm, CtgyPurp, and element order in pain.001 is not a matter of
+    // taste.
     '      </PmtTpInf>',
     tag(6, 'ReqdExctnDt', instruction.execution_date),
     '      <Dbtr>',
@@ -449,7 +582,12 @@ export function buildPain001(instruction: SepaInstruction): string {
       tag(12, 'IBAN', normalizeIban(payment.creditor_iban)),
       '          </Id>',
       '        </CdtrAcct>',
-      ...remittance(8, payment.remittance),
+      // Purp comes after CdtrAcct and before RmtInf — the schema's sequence,
+      // not a preference.
+      ...(payment.purpose === undefined
+        ? []
+        : ['        <Purp>', tag(10, 'Cd', payment.purpose), '        </Purp>']),
+      ...remittance(8, payment.remittance, payment.purpose !== undefined),
       '      </CdtTrfTxInf>',
     );
   }

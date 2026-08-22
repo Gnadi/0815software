@@ -6,6 +6,7 @@ import {
   packOrderData,
   publicKeyDigest,
   sha256,
+  signDigest,
   signOrderData,
   type EsVersion,
 } from './crypto.js';
@@ -393,7 +394,35 @@ function signatureFlag(requestEDS: boolean): XmlElement {
  * the plaintext before anything is packed.
  */
 export function buildUploadInit(params: UploadInit): string {
-  const { subscriber, keys, bank, btf } = params;
+  return uploadInitialisation({
+    ...params,
+    orderDetails: [
+      el('e:AdminOrderType', {}, ['BTU']),
+      el('e:BTUOrderParams', {}, [btfElement(params.btf), signatureFlag(params.requestEDS === true)]),
+    ],
+  });
+}
+
+/**
+ * The initialisation phase every signed upload shares — BTU, SPR, HVE.
+ *
+ * They differ only in `OrderDetails`: which admin order type, and which
+ * `OrderParams` substitution goes with it. Everything else — the ES over the
+ * order data, the transaction key encrypted to the bank, the digest the bank
+ * checks the reassembled file against — is identical, and was worth having in
+ * one place the moment a second order type needed it.
+ */
+function uploadInitialisation(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  orderData: Buffer;
+  transactionKey: Buffer;
+  timestamp: string;
+  segments: number;
+  orderDetails: (XmlElement | null)[];
+}): string {
+  const { subscriber, keys, bank } = params;
 
   // esig:UserSignatureData → esig:OrderSignatureData, and the sequence is
   // SignatureVersion, SignatureValue, PartnerID, UserID — all ELEMENTS. This
@@ -421,10 +450,7 @@ export function buildUploadInit(params: UploadInit): string {
         el('e:PartnerID', {}, [subscriber.partnerId]),
         el('e:UserID', {}, [subscriber.userId]),
         productElement(subscriber),
-        el('e:OrderDetails', {}, [
-          el('e:AdminOrderType', {}, ['BTU']),
-          el('e:BTUOrderParams', {}, [btfElement(btf), signatureFlag(params.requestEDS === true)]),
-        ]),
+        el('e:OrderDetails', {}, params.orderDetails),
         el('e:BankPubKeyDigests', {}, [
           el('e:Authentication', { Version: 'X002', Algorithm: 'http://www.w3.org/2001/04/xmlenc#sha256' }, [
             publicKeyDigest(bank.authPublicPem).toString('base64'),
@@ -462,6 +488,51 @@ export function buildUploadInit(params: UploadInit): string {
 }
 
 /**
+ * The order data an `SPR` carries: a single space.
+ *
+ * **This byte is the one thing here not derived from the published schema.**
+ * The schema forces the shape — an `ebicsRequest` upload initialisation must
+ * carry `SignatureData`, `DataDigest` and `NumSegments`, so SPR must sign
+ * *something* — but it cannot say what, and the EBICS specification text that
+ * does is not in this repository. A single blank is what the specification
+ * prescribes as far as this was written from; treat it as unconfirmed until a
+ * real bank accepts one.
+ *
+ * The failure mode is at least honest: a bank that disagrees rejects the
+ * request with a return code, `sendSpr` records that code and does NOT move
+ * the connection to `locked`. An operator locking a compromised key sees the
+ * refusal rather than a green tick over nothing.
+ */
+export const SPR_ORDER_DATA = Buffer.from(' ', 'utf8');
+
+/**
+ * SPR — lock this subscriber at the bank.
+ *
+ * The Austrian implementation guideline says plainly that Austrian institutes
+ * support it ("Die österreichischen Institute unterstützen die Sperre des
+ * Anwenders mittels Auftragsart SPR"), and at signature class E it is the only
+ * way to stop a compromised key without telephoning the bank.
+ *
+ * It is an ordinary signed upload with `StandardOrderParams` — the catch-all
+ * the schema defines for admin order types that carry no BTF — and no date
+ * range, since it is about now.
+ */
+export function buildSpr(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  transactionKey: Buffer;
+  timestamp: string;
+}): string {
+  return uploadInitialisation({
+    ...params,
+    orderData: SPR_ORDER_DATA,
+    segments: 1,
+    orderDetails: [el('e:AdminOrderType', {}, ['SPR']), el('e:StandardOrderParams', {})],
+  });
+}
+
+/**
  * The `Service` element — the BTF itself.
  *
  * The order is the schema's (`RestrictedServiceType`): ServiceName, Scope,
@@ -477,13 +548,17 @@ export function buildUploadInit(params: UploadInit): string {
  *   variant `001`, version `09`. Sending only the version says less than the
  *   bank asked for.
  */
-function btfElement(btf: Btf): XmlElement {
+function btfElement(btf: Btf, name: 'Service' | 'ServiceFilter' = 'Service'): XmlElement {
   const msgAttrs: Record<string, string> = {};
   if (btf.msgVariant !== undefined) msgAttrs.variant = btf.msgVariant;
   if (btf.msgVersion !== undefined) msgAttrs.version = btf.msgVersion;
   if (btf.msgFormat !== undefined) msgAttrs.format = btf.msgFormat;
 
-  return el('e:Service', {}, [
+  // HVU and HVZ name the same structure `ServiceFilter`; everywhere else it is
+  // `Service`. Same children either way — the schema types differ only in that
+  // ServiceType leaves every child optional, which a filter needs and an
+  // actual BTF does not.
+  return el(`e:${name}`, {}, [
     el('e:ServiceName', {}, [btf.serviceName]),
     btf.scope !== undefined ? el('e:Scope', {}, [btf.scope]) : null,
     btf.option !== undefined ? el('e:ServiceOption', {}, [btf.option]) : null,
@@ -554,7 +629,37 @@ export function buildDownloadInit(params: {
   /** Inclusive ISO dates. Both or neither — a half-open range is not a range. */
   dateRange?: { from: string; to: string };
 }): string {
-  const { subscriber, keys, bank, btf } = params;
+  return downloadInitialisation({
+    ...params,
+    orderDetails: [
+      el('e:AdminOrderType', {}, ['BTD']),
+      el('e:BTDOrderParams', {}, [
+        btfElement(params.btf),
+        params.dateRange === undefined
+          ? null
+          : el('e:DateRange', {}, [
+              el('e:Start', {}, [params.dateRange.from]),
+              el('e:End', {}, [params.dateRange.to]),
+            ]),
+      ]),
+    ],
+  });
+}
+
+/**
+ * The initialisation phase every download shares — BTD and the four VEU reads.
+ *
+ * Like its upload counterpart, they differ only in `OrderDetails`. There is no
+ * body at all: a download asks, it does not send.
+ */
+function downloadInitialisation(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  orderDetails: (XmlElement | null)[];
+}): string {
+  const { subscriber, keys, bank } = params;
 
   const root = el('e:ebicsRequest', { Version: H005, Revision: '1' }, [
     el('e:header', { authenticate: 'true' }, [
@@ -564,18 +669,7 @@ export function buildDownloadInit(params: {
         el('e:PartnerID', {}, [subscriber.partnerId]),
         el('e:UserID', {}, [subscriber.userId]),
         productElement(subscriber),
-        el('e:OrderDetails', {}, [
-          el('e:AdminOrderType', {}, ['BTD']),
-          el('e:BTDOrderParams', {}, [
-            btfElement(btf),
-            params.dateRange === undefined
-              ? null
-              : el('e:DateRange', {}, [
-                  el('e:Start', {}, [params.dateRange.from]),
-                  el('e:End', {}, [params.dateRange.to]),
-                ]),
-          ]),
-        ]),
+        el('e:OrderDetails', {}, params.orderDetails),
         el('e:BankPubKeyDigests', {}, [
           el('e:Authentication', { Version: 'X002', Algorithm: 'http://www.w3.org/2001/04/xmlenc#sha256' }, [
             publicKeyDigest(bank.authPublicPem).toString('base64'),
@@ -592,6 +686,443 @@ export function buildDownloadInit(params: {
   ]);
 
   return signed(root, keys.authPrivatePem);
+}
+
+// ── Asking the bank about itself ──────────────────────────────────────
+
+/**
+ * The read-only administrative downloads.
+ *
+ * | | asks |
+ * | --- | --- |
+ * | `HTD` | what THIS subscriber may do — accounts, order types, signature class |
+ * | `HKD` | the same for the whole customer, every subscriber included |
+ * | `HPD` | the bank's own parameters and capabilities |
+ * | `HAA` | which order types are available at all |
+ * | `HAC` | the customer protocol: what the bank did with each order |
+ *
+ * All five are `ebicsRequest` downloads with `StandardOrderParams` — the
+ * catch-all the schema defines for admin order types that carry no BTF — so
+ * they differ only in the three letters. That is why they are one function.
+ *
+ * `HTD` is the cheapest useful request there is: read-only, no money, and it
+ * answers "does this bank agree about who I am and what I may send" before a
+ * payment is ever built. It is the sensible first live call after `HPB`.
+ *
+ * **`HAC`'s answer is specified outside this schema set**, in the national
+ * annexes — it is not in the ten files the EBICS Working Group publishes as
+ * H005. It is read against the annotated schema published beside it instead;
+ * see `server/hac.ts`, which is also where the reason a customer protocol must
+ * never be mistaken for a payment status report is written down.
+ */
+export type AdminDownloadType = 'HTD' | 'HKD' | 'HPD' | 'HAA' | 'HAC';
+
+export function buildAdminDownload(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  orderType: AdminDownloadType;
+  /** Inclusive ISO dates. `HAC` is the one where this is usually wanted. */
+  dateRange?: { from: string; to: string };
+}): string {
+  return downloadInitialisation({
+    ...params,
+    orderDetails: [
+      el('e:AdminOrderType', {}, [params.orderType]),
+      el(
+        'e:StandardOrderParams',
+        {},
+        params.dateRange === undefined
+          ? []
+          : [
+              el('e:DateRange', {}, [
+                el('e:Start', {}, [params.dateRange.from]),
+                el('e:End', {}, [params.dateRange.to]),
+              ]),
+            ],
+      ),
+    ],
+  });
+}
+
+// ── Renewing the subscriber keys ──────────────────────────────────────
+
+/**
+ * `HCA` and `HCS` — replace our own keys without another paper INI letter.
+ *
+ * Without these the only way to change a key is `SPR` and a fresh
+ * initialisation on paper, with a gap in service while the bank processes it.
+ * With them a compromised or expiring key is replaced over the wire in one
+ * request.
+ *
+ * | | replaces |
+ * | --- | --- |
+ * | `HCA` | the authentication (X002) and encryption (E002) keys |
+ * | `HCS` | those two AND the ES key that authorises payments |
+ *
+ * **The old keys sign the change; that is what authorises it.** The request is
+ * an ordinary signed upload built with the keys currently on file, and its
+ * order data carries the NEW public keys as certificates. A bank that accepts
+ * it has verified, with the key it already trusts, that the holder of that key
+ * asked for the replacement — which is exactly the property that makes a paper
+ * letter unnecessary the second time.
+ *
+ * So the caller passes both sets, and the distinction matters: `keys` are the
+ * ones in use today, `replacement` are the ones that take over if the bank
+ * says yes. Swapping them produces a request signed by a key the bank has
+ * never seen, which it will refuse.
+ */
+export interface KeyChange {
+  subscriber: Subscriber;
+  /** The keys currently registered with the bank. These sign the request. */
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  transactionKey: Buffer;
+  timestamp: string;
+  /** Certificates over the NEW keys that are to take over. */
+  replacement: {
+    /** Required for HCS, ignored for HCA — only HCS replaces the ES key. */
+    esCertificatePem?: string;
+    esVersion?: EsVersion;
+    authCertificatePem: string;
+    encCertificatePem: string;
+  };
+}
+
+/**
+ * `HCA` — new authentication and encryption keys, ES key unchanged.
+ *
+ * The order data is an `HCARequestOrderData`, whose shape is `HIA`'s: the two
+ * key infos and the partner and user ids. The difference is entirely in what
+ * signs the envelope — `HIA` is unsecured because the bank has nothing of ours
+ * yet, and this is fully signed because by now it has.
+ */
+export function buildKeyChangeAuth(params: KeyChange): VeuUpload {
+  const orderData = Buffer.from(
+    document(
+      el('e:HCARequestOrderData', {}, [
+        el('e:AuthenticationPubKeyInfo', {}, [
+          x509Data(params.replacement.authCertificatePem),
+          el('e:AuthenticationVersion', {}, ['X002']),
+        ]),
+        el('e:EncryptionPubKeyInfo', {}, [
+          x509Data(params.replacement.encCertificatePem),
+          el('e:EncryptionVersion', {}, ['E002']),
+        ]),
+        el('e:PartnerID', {}, [params.subscriber.partnerId]),
+        el('e:UserID', {}, [params.subscriber.userId]),
+      ]),
+      NS,
+    ),
+    'utf8',
+  );
+
+  return keyChangeUpload(params, 'HCA', orderData);
+}
+
+/**
+ * `HCS` — new keys for all three purposes, the ES key included.
+ *
+ * The one that matters after a compromise: `HCA` leaves the key that
+ * authorises payments exactly where it was.
+ */
+export function buildKeyChangeAll(params: KeyChange): VeuUpload {
+  const { esCertificatePem, esVersion } = params.replacement;
+  if (esCertificatePem === undefined) {
+    throw new Error('HCS replaces the ES key as well, so a certificate over the new ES key is required');
+  }
+
+  const orderData = Buffer.from(
+    document(
+      el('e:HCSRequestOrderData', {}, [
+        el('e:AuthenticationPubKeyInfo', {}, [
+          x509Data(params.replacement.authCertificatePem),
+          el('e:AuthenticationVersion', {}, ['X002']),
+        ]),
+        el('e:EncryptionPubKeyInfo', {}, [
+          x509Data(params.replacement.encCertificatePem),
+          el('e:EncryptionVersion', {}, ['E002']),
+        ]),
+        // In the S002 namespace, like every other signature key info.
+        el('esig:SignaturePubKeyInfo', {}, [
+          x509Data(esCertificatePem),
+          el('esig:SignatureVersion', {}, [esVersion ?? 'A005']),
+        ]),
+        el('e:PartnerID', {}, [params.subscriber.partnerId]),
+        el('e:UserID', {}, [params.subscriber.userId]),
+      ]),
+      NS,
+    ),
+    'utf8',
+  );
+
+  return keyChangeUpload(params, 'HCS', orderData);
+}
+
+function keyChangeUpload(params: KeyChange, orderType: 'HCA' | 'HCS', orderData: Buffer): VeuUpload {
+  return {
+    orderData,
+    init: uploadInitialisation({
+      subscriber: params.subscriber,
+      // The CURRENT keys. See the note on KeyChange.
+      keys: params.keys,
+      bank: params.bank,
+      orderData,
+      transactionKey: params.transactionKey,
+      timestamp: params.timestamp,
+      segments: 1,
+      orderDetails: [el(`e:AdminOrderType`, {}, [orderType]), el('e:StandardOrderParams', {})],
+    }),
+  };
+}
+
+// ── VEU: the distributed-signature queue ──────────────────────────────
+
+/**
+ * The four orders that READ the queue, and the two that change it.
+ *
+ * When an order needs more signatures than it arrived with, the bank spools it
+ * rather than refusing it — that is what `SignatureFlag requestEDS="true"` on
+ * a BTU asks for. These are how a second signatory then sees it and acts:
+ *
+ * | | asks |
+ * | --- | --- |
+ * | `HVU` | what is waiting for MY signature |
+ * | `HVZ` | the same, with the payment details folded in |
+ * | `HVD` | one order's digest and its display file |
+ * | `HVT` | one order's individual transactions |
+ * | `HVE` | add my signature to one order |
+ * | `HVS` | cancel one order |
+ *
+ * `HVU` and `HVZ` take an optional list of service filters; the other four
+ * name exactly one order, by partner, service and order id.
+ */
+export type VeuReadType = 'HVU' | 'HVZ' | 'HVD' | 'HVT';
+
+/** Which order a per-order VEU request is about. */
+export interface VeuOrderRef {
+  /** The customer the order belongs to — not necessarily ours. */
+  partnerId: string;
+  /** The BTF the order was submitted under. */
+  btf: Btf;
+  orderId: string;
+}
+
+/**
+ * `HVU` / `HVZ` — what is waiting for a signature.
+ *
+ * `serviceFilter` narrows the answer to particular BTFs; an empty list asks
+ * for everything, which is the sensible default for an operator's overview.
+ */
+export function buildVeuOverview(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  /** `HVZ` is `HVU` plus the payment details — same request shape. */
+  orderType: 'HVU' | 'HVZ';
+  serviceFilter?: Btf[];
+}): string {
+  return downloadInitialisation({
+    ...params,
+    orderDetails: [
+      el('e:AdminOrderType', {}, [params.orderType]),
+      el(
+        `e:${params.orderType}OrderParams`,
+        {},
+        (params.serviceFilter ?? []).map((btf) => btfElement(btf, 'ServiceFilter')),
+      ),
+    ],
+  });
+}
+
+/**
+ * `HVD` — one order's `DataDigest`, display file and signer list.
+ *
+ * The digest is the point: it is what `HVE` signs. A co-signatory must never
+ * hash the order data themselves and sign that, because they may not have the
+ * order data at all — `OrderDataAvailable` is a flag in this very response.
+ */
+export function buildVeuDetail(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  order: VeuOrderRef;
+}): string {
+  return downloadInitialisation({
+    ...params,
+    orderDetails: [
+      el('e:AdminOrderType', {}, ['HVD']),
+      el('e:HVDOrderParams', {}, veuRequestStructure(params.order)),
+    ],
+  });
+}
+
+/**
+ * `HVT` — the individual transactions inside one order.
+ *
+ * `completeOrderData` false asks for the bank's own summary of each
+ * transaction rather than the raw file, which is what a human approving a
+ * payment actually wants to read. The window is explicit because a collective
+ * order can hold thousands.
+ */
+export function buildVeuTransactions(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  order: VeuOrderRef;
+  completeOrderData?: boolean;
+  fetchLimit?: number;
+  fetchOffset?: number;
+}): string {
+  return downloadInitialisation({
+    ...params,
+    orderDetails: [
+      el('e:AdminOrderType', {}, ['HVT']),
+      el('e:HVTOrderParams', {}, [
+        ...veuRequestStructure(params.order),
+        el('e:OrderFlags', {
+          completeOrderData: params.completeOrderData === true ? 'true' : 'false',
+          fetchLimit: String(params.fetchLimit ?? 100),
+          fetchOffset: String(params.fetchOffset ?? 0),
+        }),
+      ]),
+    ],
+  });
+}
+
+/**
+ * A VEU upload: the initialisation envelope and the bytes its transfer phase
+ * must carry.
+ *
+ * Both are returned together because the caller cannot rebuild the order data
+ * itself — it contains a signature, and re-deriving it would mean signing
+ * twice and hoping the two agree. The `DataDigest` in the envelope is over
+ * exactly these bytes.
+ */
+export interface VeuUpload {
+  init: string;
+  orderData: Buffer;
+}
+
+/**
+ * `HVE` — add our signature to an order already in the queue.
+ *
+ * The order data this uploads is a `UserSignatureData` document carrying one
+ * `OrderSignatureData`: our ES over the **`DataDigest` that `HVD` returned**,
+ * not over anything we hashed ourselves. A co-signatory may not have the order
+ * data at all — `OrderDataAvailable` is a flag in that same HVD response — so
+ * the digest is the only thing there is to sign, and `signDigest` is the one
+ * function in this service that takes a hash from outside.
+ *
+ * The envelope around it is an ordinary signed upload, because the schema
+ * leaves no alternative: an upload initialisation must carry `SignatureData`,
+ * `DataDigest` and `NumSegments`. So the outer ES signs the signature document
+ * and the inner one signs the order — which reads oddly until you notice that
+ * the outer one is the transport's own integrity check and the inner one is
+ * the authorisation.
+ *
+ * **Unconfirmed against a real bank**, like SPR: the shape is forced by the
+ * schema, but no published document in this repository says HVE's order data
+ * is exactly this. A bank that disagrees refuses the request with a code.
+ */
+export function buildVeuSignature(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  transactionKey: Buffer;
+  order: VeuOrderRef;
+  /** Base64, exactly as `HVD` sent it. */
+  dataDigest: string;
+}): VeuUpload {
+  const signature = signDigest(params.keys.esPrivatePem, Buffer.from(params.dataDigest, 'base64'), params.keys.esVersion);
+  const orderData = Buffer.from(
+    document(
+      el('esig:UserSignatureData', {}, [
+        el('esig:OrderSignatureData', {}, [
+          el('esig:SignatureVersion', {}, [params.keys.esVersion]),
+          el('esig:SignatureValue', {}, [signature.toString('base64')]),
+          el('esig:PartnerID', {}, [params.subscriber.partnerId]),
+          el('esig:UserID', {}, [params.subscriber.userId]),
+        ]),
+      ]),
+      NS,
+    ),
+    'utf8',
+  );
+
+  return {
+    orderData,
+    init: uploadInitialisation({
+      ...params,
+      orderData,
+      segments: 1,
+      orderDetails: [
+        el('e:AdminOrderType', {}, ['HVE']),
+        el('e:HVEOrderParams', {}, veuRequestStructure(params.order)),
+      ],
+    }),
+  };
+}
+
+/**
+ * `HVS` — cancel an order waiting in the queue.
+ *
+ * The order data is an `HVSRequestOrderData` naming the digest of the order
+ * being cancelled, which is the schema's way of making sure a cancellation
+ * cannot be aimed at an order the sender has not actually looked at: the
+ * digest comes from `HVD`.
+ */
+export function buildVeuCancel(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  transactionKey: Buffer;
+  order: VeuOrderRef;
+  /** Base64, exactly as `HVD` sent it. */
+  dataDigest: string;
+}): VeuUpload {
+  const orderData = Buffer.from(
+    document(
+      el('e:HVSRequestOrderData', {}, [
+        el('e:CancelledDataDigest', { SignatureVersion: params.keys.esVersion }, [params.dataDigest]),
+      ]),
+      NS,
+    ),
+    'utf8',
+  );
+
+  return {
+    orderData,
+    init: uploadInitialisation({
+      ...params,
+      orderData,
+      segments: 1,
+      orderDetails: [
+        el('e:AdminOrderType', {}, ['HVS']),
+        el('e:HVSOrderParams', {}, veuRequestStructure(params.order)),
+      ],
+    }),
+  };
+}
+
+/**
+ * `HVRequestStructure` — PartnerID, Service, OrderID, in that order.
+ *
+ * Shared by HVD, HVE, HVS and HVT, and the order is not ours to choose: the
+ * schema declares it as a sequence.
+ */
+function veuRequestStructure(order: VeuOrderRef): XmlElement[] {
+  return [
+    el('e:PartnerID', {}, [order.partnerId]),
+    btfElement(order.btf),
+    el('e:OrderID', {}, [order.orderId]),
+  ];
 }
 
 /**

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  austrianRemittanceProblem,
+  taxAccountProblem,
   buildPain001,
   formatIban,
   ibanProblem,
@@ -359,5 +361,136 @@ describe('the pain.001.001.03 file', () => {
   it('books each payment separately, so every transfer keeps its own trail', () => {
     expect(xml).toContain('<BtchBookg>false</BtchBookg>');
     expect(buildPain001(instruction({ batch_booking: true }))).toContain('<BtchBookg>true</BtchBookg>');
+  });
+});
+
+// ── The two Austrian special transfers ────────────────────────────────
+
+describe('Finanzamtszahlung and Postbarzahlung', () => {
+  const BASE = {
+    message_id: 'MOD04-20260821-0001',
+    created_at: '2026-08-21T10:00:00Z',
+    execution_date: '2026-08-21',
+    batch_booking: false,
+    debtor_name: '0815software GmbH',
+    debtor_iban: 'AT611904300234573201',
+    debtor_bic: 'BKAUATWW',
+    payments: [
+      {
+        end_to_end_id: '269135729',
+        amount_cents: 1441161,
+        creditor_name: 'Finanzamt Oesterreich',
+        creditor_iban: 'AT830100000005504109',
+        creditor_bic: null,
+        remittance: '0811+676850L+176800DB+23601DZ0810-563910U',
+      },
+    ],
+  };
+
+  it('marks a tax payment on the transaction, never on the batch', () => {
+    // The specification allows exactly one place: Purp/Cd inside CdtTrfTxInf.
+    // Coding it at batch level "ist nicht vorgesehen" even when every payment
+    // in the batch is a tax payment.
+    const xml = buildPain001({ ...BASE, payments: [{ ...BASE.payments[0]!, purpose: 'TAXS' as const }] });
+    expect(xml).toContain('<Purp>');
+    expect(xml).toContain('<Cd>TAXS</Cd>');
+    expect(xml).not.toContain('<CtgyPurp>');
+    // Purp sits after CdtrAcct and before RmtInf — the schema's sequence.
+    expect(xml.indexOf('<Purp>')).toBeGreaterThan(xml.indexOf('</CdtrAcct>'));
+    expect(xml.indexOf('<Purp>')).toBeLessThan(xml.indexOf('<RmtInf>'));
+  });
+
+  it('lets one run hold a tax payment and an ordinary one', () => {
+    // Which follows from the mark being per transaction, and would be
+    // impossible if it were a property of the batch.
+    const xml = buildPain001({
+      ...BASE,
+      payments: [
+        { ...BASE.payments[0]!, purpose: 'TAXS' as const },
+        { ...BASE.payments[0]!, end_to_end_id: 'B9-INV', remittance: 'Rechnung 2026-0815' },
+      ],
+    });
+    expect(xml.match(/<Purp>/g)).toHaveLength(1);
+  });
+
+  it('never emits a category purpose — a Postbarzahlung is not built here', () => {
+    // A CPPP payment is addressed to BAWAG PSK's collection account with the
+    // real recipient in UltmtCdtr, which a bill from a creditor cannot
+    // express. PS-12 checks for one on the way to the bank instead.
+    const xml = buildPain001({ ...BASE, payments: [{ ...BASE.payments[0]!, purpose: 'TAXS' as const }] });
+    expect(xml).not.toContain('CtgyPurp');
+  });
+
+  it('emits nothing extra for an ordinary transfer', () => {
+    const xml = buildPain001(BASE);
+    expect(xml).not.toContain('CtgyPurp');
+    expect(xml).not.toContain('<Purp>');
+  });
+
+  it('keeps an Austrian reference in Ustrd even when it looks like RF', () => {
+    // The RF test would otherwise move a tax payment's routing information
+    // into a structured block the tax office does not read.
+    const rfLike = { ...BASE.payments[0]!, remittance: 'RF18 5390 0754 7034' };
+    expect(buildPain001({ ...BASE, payments: [rfLike] })).toContain('<CdtrRefInf>');
+    expect(
+      buildPain001({ ...BASE, payments: [{ ...rfLike, purpose: 'TAXS' as const }] }),
+    ).not.toContain('<CdtrRefInf>');
+  });
+});
+
+describe('the Finanzamt remittance format', () => {
+  // Every example PSA publishes, in both the German and the English document.
+  const VALID = [
+    '08+100AZ',
+    '08+100AZ+4500AA+1401DB',
+    '08+100AZ+4500AA+1401DB0811+1EU+4500E-1401GEB',
+    '08+100AZ+4500AA+1401DB0811+1EU+4500E-1401GEB0811/12+1EL+4500GA-1401EQ',
+    '08+100AZ+4500AA+1401DB0811+1EU+4500E-1401GEB0811/12+1EL+4500GA-1401EQ081211+1FS+4500KU-1401E',
+    '0811+676850L+176800DB+23601DZ0810-563910U',
+    '0801/03+817200U0804+285900U0711/12+250000U',
+  ];
+
+  it.each(VALID)('accepts the published example %s', (remittance) => {
+    expect(austrianRemittanceProblem('TAXS', remittance)).toBeNull();
+  });
+
+  it.each([
+    ['Rechnung 2026-0815', 'an ordinary reference'],
+    ['08', 'a period with no booking'],
+    ['08+100az', 'a lower-case kind of tax'],
+    ['08+0100AZ', 'a leading zero in the amount'],
+    ['08+100ABCD', 'a four-letter kind of tax'],
+    ['', 'nothing at all'],
+  ])('refuses %s — %s', (remittance) => {
+    expect(austrianRemittanceProblem('TAXS', remittance)).not.toBeNull();
+  });
+
+  it('refuses more than 140 characters, which no Ustrd may carry', () => {
+    const long = '08+100AZ'.repeat(20);
+    expect(long.length).toBeGreaterThan(140);
+    expect(austrianRemittanceProblem('TAXS', long)?.message).toMatch(/140/);
+  });
+});
+
+describe('the tax account number', () => {
+  it('accepts the check digit the specification works through', () => {
+    // 26-913/5729: office 26, tax number 913572, check digit 9.
+    expect(taxAccountProblem('269135729')).toBeNull();
+  });
+
+  it('names the digit it expected when one is wrong', () => {
+    expect(taxAccountProblem('269135720')).toBe('check digit should be 9');
+  });
+
+  it('insists on nine digits, leading zero and all', () => {
+    expect(taxAccountProblem('26913572')).toMatch(/9-digit/);
+    expect(taxAccountProblem('26-913/5729')).toMatch(/9-digit/);
+  });
+
+  it('does not check the office number against the IBAN', () => {
+    // Deliberately: after the 2020 office mergers a tax number outlives the
+    // office that issued it, and the specification says such checks "sind
+    // daher auszubauen".
+    expect(taxAccountProblem('269135729')).toBeNull();
   });
 });

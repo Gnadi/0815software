@@ -36,11 +36,19 @@ import {
   resume,
   sendHia,
   sendIni,
+  sendSpr,
   suspend,
   verifyBankKeys,
   type ExchangeContext,
 } from './connections.js';
-import { listOrders, orderDetail, previewOrder, submitOrder, type OrderContext } from './orders.js';
+import {
+  listOrders,
+  orderDetail,
+  previewOrder,
+  submitOrder,
+  type OrderContext,
+  type VopMode,
+} from './orders.js';
 import {
   downloadContent,
   downloadDetail,
@@ -50,6 +58,35 @@ import {
   type DownloadContext,
 } from './downloads.js';
 import type { Product } from './ebics/envelopes.js';
+import {
+  cancel as veuCancel,
+  detail as veuDetail,
+  overview as veuOverview,
+  sign as veuSign,
+  transactions as veuTransactions,
+  type VeuContext,
+  type VeuOrderInput,
+} from './veu.js';
+import {
+  availableDownloads,
+  fetchAvailableOrderData,
+  fetchBankParameters,
+  fetchCustomerData,
+} from './customer-data.js';
+import {
+  addSubscription,
+  listSubscriptions,
+  removeSubscription,
+  setSubscriptionEnabled,
+} from './subscriptions.js';
+import { changeKeys, completeKeyChange, discardKeyChange, pendingKeyChange } from './key-change.js';
+import {
+  findEntries,
+  listStatements,
+  reparseStatements,
+  statementDetail,
+  type EntryQuery,
+} from './statements.js';
 import type { BtfInput } from '../shared/types.js';
 
 /**
@@ -95,6 +132,17 @@ function optionalText(source: Record<string, unknown>, field: string): string | 
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
 }
 
+/** A bounded integer from the query string, or undefined. */
+function queryInt(req: Request, name: string, min: number, max: number): number | undefined {
+  const raw = req.query[name];
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new DomainError(422, 'Validation failed', [{ field: name, message: `must be an integer ${min}..${max}` }]);
+  }
+  return value;
+}
+
 function optionalInt(source: Record<string, unknown>, field: string, min: number, max: number): number | undefined {
   const raw = source[field];
   if (raw === undefined || raw === null || raw === '') return undefined;
@@ -105,6 +153,43 @@ function optionalInt(source: Record<string, unknown>, field: string, min: number
     ]);
   }
   return value;
+}
+
+/** Which queued order a VEU request names. */
+function veuOrderInput(source: Record<string, unknown>): VeuOrderInput {
+  const partnerId = optionalText(source, 'partner_id');
+  const btf = btfFrom(source);
+  // Required here, unlike on an order: the queue is indexed by service, and
+  // the connection's own profile says nothing about an order somebody else
+  // submitted under a different one.
+  if (btf === undefined) {
+    throw new DomainError(422, 'Validation failed', [
+      { field: 'btf', message: 'required — name the service the queued order was submitted under' },
+    ]);
+  }
+  return {
+    btf,
+    orderId: reqText(source, 'order_id', 40),
+    ...(partnerId === undefined ? {} : { partnerId }),
+  };
+}
+
+/**
+ * Read the Verification-of-Payee choice off a request body.
+ *
+ * Refused rather than silently ignored when it is not one of the three: a
+ * typo'd "optout" would otherwise leave the connection on the market default
+ * while its record claims a deliberate choice was made.
+ */
+function vopMode(source: Record<string, unknown>): VopMode | undefined {
+  const raw = optionalText(source, 'vop');
+  if (raw === undefined) return undefined;
+  if (raw !== 'default' && raw !== 'opt_out' && raw !== 'opt_in') {
+    throw new DomainError(422, 'Validation failed', [
+      { field: 'vop', message: 'must be "default", "opt_out" (VOO) or "opt_in" (VOI)' },
+    ]);
+  }
+  return raw;
 }
 
 /**
@@ -241,7 +326,7 @@ export function createApp(opts: AppOptions): express.Express {
 
   const actorOf = (req: Request): string => (sessionOk(req) ? auth.username : 'service');
 
-  const exchangeCtx = (req: Request): ExchangeContext & OrderContext & DownloadContext => ({
+  const exchangeCtx = (req: Request): ExchangeContext & OrderContext & DownloadContext & VeuContext => ({
     db,
     keySecret,
     transport,
@@ -335,6 +420,7 @@ export function createApp(opts: AppOptions): express.Express {
         esVersion: b.es_version === 'A006' ? 'A006' : 'A005',
         product: optionalProduct(b),
         requestEds: b.request_eds === true || b.request_eds === 'true',
+        vop: vopMode(b),
         debtorIban: optionalText(b, 'debtor_iban'),
         maxAmountMinor: optionalInt(b, 'max_amount_minor', 1, Number.MAX_SAFE_INTEGER),
         maxTransfers: optionalInt(b, 'max_transfers', 1, 1_000_000),
@@ -404,6 +490,163 @@ export function createApp(opts: AppOptions): express.Express {
         encDigest: reqText(b, 'enc_digest', 200),
       }),
     );
+  });
+
+  // SPR — ask the bank to lock the subscriber. Separate from /suspend on
+  // purpose: suspending stops orders HERE and is undone with /resume, this
+  // ends the subscriber's authorisation AT THE BANK and cannot be undone from
+  // this service at all.
+  app.post('/api/connections/:key/lock', requireAdmin, (req, res, next) => {
+    const b = body(req);
+    sendSpr(exchangeCtx(req), req.params.key as string, reqText(b, 'reason', 200))
+      .then((detail) => res.json(detail))
+      .catch(next);
+  });
+
+  // ── VEU: the distributed-signature queue ───────────────────────────
+  //
+  // Admin session only, never a service token. A module submitting a payment
+  // is one thing; a second human approving one is exactly the step VEU exists
+  // to require, and handing it to a machine credential would undo the point.
+  app.get('/api/connections/:key/veu', requireAdmin, (req, res, next) => {
+    const withDetails = req.query.details === '1' || req.query.details === 'true';
+    veuOverview(exchangeCtx(req), req.params.key as string, { orderType: withDetails ? 'HVZ' : 'HVU' })
+      .then((orders) => res.json({ orders }))
+      .catch(next);
+  });
+
+  app.post('/api/connections/:key/veu/detail', requireAdmin, (req, res, next) => {
+    veuDetail(exchangeCtx(req), req.params.key as string, veuOrderInput(body(req)))
+      .then((detail) => res.json(detail))
+      .catch(next);
+  });
+
+  app.post('/api/connections/:key/veu/transactions', requireAdmin, (req, res, next) => {
+    const b = body(req);
+    veuTransactions(exchangeCtx(req), req.params.key as string, veuOrderInput(b), {
+      completeOrderData: b.complete_order_data === true,
+      fetchLimit: optionalInt(b, 'limit', 1, 10_000) ?? 100,
+      fetchOffset: optionalInt(b, 'offset', 0, 1_000_000) ?? 0,
+    })
+      .then((result) => res.json(result))
+      .catch(next);
+  });
+
+  // The two that move money. The digest signed is fetched from the bank by
+  // `veu.ts`, never taken from this body — see the note in that file.
+  app.post('/api/connections/:key/veu/sign', requireAdmin, (req, res, next) => {
+    veuSign(exchangeCtx(req), req.params.key as string, veuOrderInput(body(req)))
+      .then((result) => res.json(result))
+      .catch(next);
+  });
+
+  app.post('/api/connections/:key/veu/cancel', requireAdmin, (req, res, next) => {
+    veuCancel(exchangeCtx(req), req.params.key as string, veuOrderInput(body(req)))
+      .then((result) => res.json(result))
+      .catch(next);
+  });
+
+  // ── What the bank says this customer may do ────────────────────────
+  //
+  // HTD (this subscriber) or HKD (the whole customer). Read-only, moves no
+  // money, and the answer is worth more than any table in this repository:
+  // it is the bank's own list of the order types and BTFs it has enabled for
+  // this contract, with the signature class and ceilings it enforces.
+  app.get('/api/connections/:key/customer-data', requireAdmin, (req, res, next) => {
+    const scope = req.query.scope === 'customer' ? 'customer' : 'subscriber';
+    fetchCustomerData(exchangeCtx(req), req.params.key as string, scope)
+      .then((data) => res.json({ scope, ...data, available_downloads: availableDownloads(data) }))
+      .catch(next);
+  });
+
+  // HPD — the bank's own parameters. The cheapest compatibility check there
+  // is, and the one whose absence turns into an obscure return code later.
+  app.get('/api/connections/:key/bank-parameters', requireAdmin, (req, res, next) => {
+    fetchBankParameters(exchangeCtx(req), req.params.key as string)
+      .then((parameters) => res.json(parameters))
+      .catch(next);
+  });
+
+  // HAA — what the bank has waiting RIGHT NOW, as opposed to what this
+  // customer is permitted to fetch. Different question, different answer.
+  app.get('/api/connections/:key/waiting', requireAdmin, (req, res, next) => {
+    fetchAvailableOrderData(exchangeCtx(req), req.params.key as string)
+      .then((btfs) => res.json({ waiting: btfs }))
+      .catch(next);
+  });
+
+  // ── What the tick fetches, per connection ──────────────────────────
+  //
+  // Any BTF, not the two this service used to hard-code. `available_downloads`
+  // above is where the legitimate values come from.
+  app.get('/api/connections/:key/subscriptions', requireAdmin, (req, res) => {
+    res.json({ subscriptions: listSubscriptions(db, req.params.key as string) });
+  });
+
+  app.post('/api/connections/:key/subscriptions', requireAdmin, (req, res) => {
+    const b = body(req);
+    const btf = btfFrom(b);
+    if (btf === undefined) {
+      throw new DomainError(422, 'Validation failed', [
+        { field: 'btf', message: 'is required — name what to fetch on every tick' },
+      ]);
+    }
+    res.status(201).json(
+      addSubscription(
+        db,
+        req.params.key as string,
+        {
+          btf,
+          ...(typeof b.label === 'string' ? { label: b.label.slice(0, 120) } : {}),
+          ...(optionalInt(b, 'lookback_days', 1, 3650) === undefined
+            ? {}
+            : { lookbackDays: optionalInt(b, 'lookback_days', 1, 3650) as number }),
+          ...(b.enabled === false ? { enabled: false } : {}),
+        },
+        now,
+      ),
+    );
+  });
+
+  app.post('/api/connections/:key/subscriptions/:id/enable', requireAdmin, (req, res) => {
+    res.json(setSubscriptionEnabled(db, req.params.key as string, Number(req.params.id), true));
+  });
+
+  app.post('/api/connections/:key/subscriptions/:id/disable', requireAdmin, (req, res) => {
+    res.json(setSubscriptionEnabled(db, req.params.key as string, Number(req.params.id), false));
+  });
+
+  app.delete('/api/connections/:key/subscriptions/:id', requireAdmin, (req, res) => {
+    removeSubscription(db, req.params.key as string, Number(req.params.id));
+    res.status(204).end();
+  });
+
+  // ── Key rotation over the wire: HCA and HCS ────────────────────────
+  //
+  // Admin session only, and never a service token. A module that could rotate
+  // the ES key could rotate it to a key it holds, which is the whole security
+  // model handed over in one request.
+  app.get('/api/connections/:key/key-change', requireAdmin, (req, res) => {
+    res.json({ pending: pendingKeyChange(exchangeCtx(req), req.params.key as string) });
+  });
+
+  app.post('/api/connections/:key/key-change', requireAdmin, (req, res, next) => {
+    const b = body(req);
+    changeKeys(exchangeCtx(req), req.params.key as string, { includeSignature: b.include_signature === true })
+      .then((result) => res.json(result))
+      .catch(next);
+  });
+
+  // The recovery for a crash between the bank's acceptance and our commit.
+  // Deliberately explicit: an operator must have established with the bank
+  // that the change actually went through.
+  app.post('/api/connections/:key/key-change/complete', requireAdmin, (req, res) => {
+    res.json({ keys: completeKeyChange(exchangeCtx(req), req.params.key as string) });
+  });
+
+  app.delete('/api/connections/:key/key-change', requireAdmin, (req, res) => {
+    discardKeyChange(exchangeCtx(req), req.params.key as string);
+    res.status(204).end();
   });
 
   app.post('/api/connections/:key/suspend', requireAdmin, (req, res) => {
@@ -520,6 +763,78 @@ export function createApp(opts: AppOptions): express.Express {
    * unreachable must not stop the others from being polled, and a scheduler
    * calling this every minute needs an answer it can log, not a 500.
    */
+  // ── Account statements, read into bookings ─────────────────────────
+  //
+  // Service token as well as admin session: this is what a module consumes.
+  // Reading bookings moves no money and needs no human, unlike everything
+  // under /connections.
+  //
+  // What is deliberately NOT here: any notion of an entry being "matched" to
+  // an invoice. Which invoice a payment settles depends on the invoices, and
+  // those live in the module that issued them. This answers "what did the bank
+  // book"; the module decides what that means.
+  app.get('/api/statements', requireCaller, (req, res) => {
+    res.json({
+      statements: listStatements(db, {
+        ...(typeof req.query.connection === 'string' ? { connection: req.query.connection } : {}),
+        ...(typeof req.query.account === 'string' ? { account: req.query.account } : {}),
+        ...(typeof req.query.source === 'string' ? { source: req.query.source } : {}),
+        ...(queryInt(req, 'limit', 1, 500) === undefined ? {} : { limit: queryInt(req, 'limit', 1, 500) as number }),
+      }),
+    });
+  });
+
+  app.get('/api/statements/:public_id', requireCaller, (req, res) => {
+    res.json(statementDetail(db, req.params.public_id as string));
+  });
+
+  /**
+   * The query a payment matcher needs.
+   *
+   * `status` defaults to BOOK. A pending entry is money the bank has seen and
+   * not booked, and treating it as a payment is how an invoice gets marked
+   * settled against a transaction that later vanishes — so a caller that
+   * wants them has to say so.
+   */
+  app.get('/api/entries', requireCaller, (req, res) => {
+    const text = (name: string): string | undefined =>
+      typeof req.query[name] === 'string' && req.query[name] !== '' ? (req.query[name] as string) : undefined;
+    const query: EntryQuery = {
+      ...(text('connection') === undefined ? {} : { connection: text('connection') as string }),
+      ...(text('account') === undefined ? {} : { account: text('account') as string }),
+      ...(text('from') === undefined ? {} : { from: text('from') as string }),
+      ...(text('to') === undefined ? {} : { to: text('to') as string }),
+      ...(text('end_to_end_id') === undefined ? {} : { endToEndId: text('end_to_end_id') as string }),
+      ...(text('reference') === undefined ? {} : { reference: text('reference') as string }),
+      ...(text('search') === undefined ? {} : { search: text('search') as string }),
+      ...(text('status') === undefined ? {} : { status: text('status') as string }),
+      // Defaults to `statement` server-side: see EntryQuery.source.
+      ...(text('source') === undefined ? {} : { source: text('source') as EntryQuery['source'] }),
+      ...(req.query.credit === undefined ? {} : { credit: req.query.credit === '1' || req.query.credit === 'true' }),
+      ...(req.query.exclude_reversals === '1' || req.query.exclude_reversals === 'true'
+        ? { excludeReversals: true }
+        : {}),
+      ...(queryInt(req, 'amount_hundredths', 0, Number.MAX_SAFE_INTEGER) === undefined
+        ? {}
+        : { amountHundredths: queryInt(req, 'amount_hundredths', 0, Number.MAX_SAFE_INTEGER) as number }),
+      ...(queryInt(req, 'limit', 1, 1000) === undefined ? {} : { limit: queryInt(req, 'limit', 1, 1000) as number }),
+    };
+    res.json({ entries: findEntries(db, query) });
+  });
+
+  /**
+   * Re-read every stored statement.
+   *
+   * The bytes are the record, so a fix to the reader should improve statements
+   * already collected and not only the next one. Admin-only: it drops and
+   * rebuilds the derived rows, which is not something a module should trigger.
+   */
+  app.post('/api/statements/reparse', requireAdmin, (req, res) => {
+    const b = body(req);
+    const connection = typeof b.connection === 'string' ? b.connection : undefined;
+    res.json({ downloads_queued: reparseStatements(db, connection) });
+  });
+
   app.post('/api/tick', requireCaller, (req, res, next) => {
     void (async () => {
       res.json(await tick(exchangeCtx(req)));

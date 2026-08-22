@@ -27,3 +27,65 @@ Validating against the published schema is the one check the mock cannot fake.
 It found, among other things, that `AuthSignature` was in the wrong namespace,
 that `UserSignatureData` had the wrong shape entirely, and that H005 does not
 define `PubKeyValue` at all — the subscriber's keys must be X.509 certificates.
+
+## `EBICS.CIM.Response.V.1.0.xsd`
+
+The Austrian Customer Information Message, published by PSA at
+`zv.psa.at/de/download/ebics.html`. Target namespace
+`http://www.psa.at/EBICS/CIMResp`, schema version dated 08.08.2022.
+
+`cim.test.ts` validates its fixtures against this before parsing them. It was
+added late, and it immediately showed the first reader to be wrong: that one
+was written from the implementation guideline's prose, which mentions
+`<CIMMsgType>` — a **type** name, not an element. The element is `CIM`.
+
+## `pain.002.001.03-hac.xsd`
+
+The customer acknowledgement — `HAC`, the *Kundenprotokoll*: the bank's own log
+of what it did with every order. Published by the **EBICS Working Group** at
+`ebics.de` as `pain.002.001.03commented-for-HAC.xsd`, annotations dated May
+2018, alongside four worked examples now in `test/fixtures/hac/`.
+
+It is the ISO 20022 `pain.002.001.03` schema with every element annotated for
+this use: `NONE` where the element is not used in `HAC` at all, and a note
+saying what it carries where it is. That annotation layer is the specification
+— the element names alone would tell you nothing about what `FILE_UPLOAD` or
+`ORDER_HAC_FINAL` mean.
+
+**`HAC` is not in the H005 schema set**, which is why this file is separate and
+why `HAC` was the one order type this service declined to read until these
+arrived. It is documented in the national annexes instead; PSA publishes no
+Austrian variant, so the German document is taken to apply in both markets.
+
+The trap it exists to catch: **a `HAC` document and a payment status report are
+both `pain.002.001.03`, in the same namespace, with the same root element.**
+Told apart only by `OrgnlGrpInfAndSts/OrgnlMsgId`, which is the literal string
+`EBICS` in a `HAC` and the original file's `MsgId` in a status report. Reading
+one as the other is the mistake this schema and these fixtures make visible.
+
+## `camt.053.001.02.xsd` and `camt.053.001.08.xsd`
+
+The ISO 20022 bank-to-customer account statement, in the two versions in
+practical use in the German and Austrian markets. Both carry the
+`SWIFTStandards Workstation` generation header that marks them as the
+registered schemas rather than somebody's retyping.
+
+`camt.test.ts` validates its fixtures against these before parsing them, and
+`server/camt.ts` is written against the schemas rather than against a
+description of the message.
+
+**Why both versions are here.** They differ in two places that a reader written
+for one gets silently wrong on the other, and neither difference throws:
+
+- **`Ntry/Sts`** is a plain code in `.02` (`<Sts>BOOK</Sts>`) and a choice in
+  `.08` (`<Sts><Cd>BOOK</Cd></Sts>`).
+- **`RltdPties/Dbtr`** is a `PartyIdentification32` in `.02`, so the name is at
+  `Dbtr/Nm`. In `.08` it is a `Party40Choice`, so it is at `Dbtr/Pty/Nm` — and
+  a reader looking for `Dbtr/Nm` finds nothing at all. The counterparty on
+  every booking would come back empty, which reads as "the bank did not send
+  it" rather than as a bug.
+
+A third: `EntryTransaction2` (`.02`) has no transaction-level `Amt` — the
+amount is under `AmtDtls/TxAmt/Amt`. `EntryTransaction10` (`.08`) has both.
+
+Neither difference is visible without the schemas, which is why they are here.

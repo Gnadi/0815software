@@ -30,8 +30,37 @@ export interface ServerConfig {
   shellOrigins: string[];
   auth: AuthConfig;
   seller: SellerConfig;
+  /**
+   * An optional OVERRIDE for the Finanzamt remittance format.
+   *
+   * PSA's own pattern is published and shipped as `TAXS_REMITTANCE`, so
+   * nothing needs configuring for a tax payment to be checked. This exists
+   * because a bank may be *stricter* than PSA, and a customer told so should
+   * be able to say it here rather than discover it from a rejected file.
+   *
+   * It replaces the format check only. The 140-character cap, the refusal of
+   * an empty remittance and the tax account check digit stand either way.
+   */
+  austrianRemittance: { TAXS: RegExp | null };
   platform: PlatformConfig;
   sso: SsoConfig;
+}
+
+/**
+ * Read a regular expression from the environment, refusing a malformed one.
+ *
+ * Anchored on both ends, because a remittance format that matched a substring
+ * would accept a correct reference with anything at all appended — which is
+ * precisely how a tax payment ends up unallocated.
+ */
+function patternFromEnv(name: string, raw: string | undefined): RegExp | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const source = raw.trim();
+  try {
+    return new RegExp(`^(?:${source})$`);
+  } catch (err) {
+    throw new Error(`${name} is not a valid regular expression: ${(err as Error).message}`);
+  }
 }
 
 /**
@@ -86,6 +115,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       vatId: env.SELLER_VAT_ID ?? 'ATU00000000',
       iban: env.SELLER_IBAN ?? 'AT00 0000 0000 0000 0000',
       bic: env.SELLER_BIC ?? 'EXAMPLEX',
+    },
+    austrianRemittance: {
+      TAXS: patternFromEnv('AT_TAXS_REMITTANCE_PATTERN', env.AT_TAXS_REMITTANCE_PATTERN),
     },
     // Platform Services — all optional; unset means standalone (no calls out).
     sso: {

@@ -8,6 +8,7 @@ import { newTransactionKey, packOrderData, type EsVersion } from './ebics/crypto
 import { parseResponse } from './ebics/parse.js';
 import type { Verdict } from './ebics/codes.js';
 import { checkCeilings, inspectPayload, type PayloadFacts } from './payload.js';
+import { austrianPaymentProblems } from './austrian.js';
 import { bankProfile } from './bank-registry.js';
 import type { BtfInput, Order, OrderDetail, OrderEvent, OrderStatus } from '../shared/types.js';
 
@@ -78,19 +79,70 @@ export interface SubmitInput {
   idempotencyKey?: string;
 }
 
+/** How a connection wants Verification of Payee handled. */
+export type VopMode = 'default' | 'opt_out' | 'opt_in';
+
+/** The ServiceOption each mode asks for. `default` asks for nothing. */
+const VOP_OPTION: Record<VopMode, string | null> = { default: null, opt_out: 'VOO', opt_in: 'VOI' };
+
 /**
  * The BTF this order will actually be sent with.
  *
  * A caller-supplied one always wins — a bank that needs a different BTF for
- * one message must stay reachable without editing the registry.
+ * one message must stay reachable without editing the registry, and a caller
+ * that names its own BTF has taken responsibility for all of it, Verification
+ * of Payee included.
+ *
+ * ## Verification of Payee
+ *
+ * Since 09.10.2025 the ServiceOption says whether the bank should check the
+ * payee's name against the IBAN: `VOO` opts out, `VOI` opts in. Send neither
+ * and the market's default applies — OPT-OUT for SCT and SCI in both the
+ * German and the Austrian tables. `vop: 'default'` is exactly that, and is
+ * what every connection has unless someone chose otherwise.
+ *
+ * The option slot is **shared**, which is the trap here. It also carries the
+ * payment's own kind, and the published tables combine the two into single
+ * codes: a salary payment opting out is `CFDVOO`, not `CFD` plus `VOO`. Only
+ * some combinations exist — the Austrian table has `CFDVOO` and `THMVOI` but
+ * no `URGVOO` — so this refuses to compose one rather than inventing a code
+ * the bank never published. An operator who needs a combined option names it
+ * on the BTF directly.
  */
-export function resolveBtf(connection: { bank_key: string }, btf?: BtfInput): BtfInput {
+export function resolveBtf(
+  connection: { bank_key: string; vop?: string | null },
+  btf?: BtfInput,
+): BtfInput {
   if (btf !== undefined) return btf;
   const profile = bankProfile(connection.bank_key);
   if (profile === undefined) {
     throw new DomainError(409, `this connection's bank profile "${connection.bank_key}" is not one this service knows`);
   }
-  return profile.creditTransfer;
+
+  return applyVop(profile.creditTransfer, (connection.vop ?? 'default') as VopMode);
+}
+
+/**
+ * Put the Verification-of-Payee choice into a BTF's ServiceOption.
+ *
+ * Separate from `resolveBtf` because the interesting case — a BTF that
+ * already uses the option slot — cannot be reached through any shipped bank
+ * profile, and an unreachable branch is one nothing can test.
+ */
+export function applyVop(btf: BtfInput, mode: VopMode): BtfInput {
+  const option = VOP_OPTION[mode] ?? null;
+  if (option === null) return btf;
+
+  if (btf.option !== undefined) {
+    throw new DomainError(
+      409,
+      `this connection asks for Verification of Payee ${option}, but the BTF already puts "${btf.option}" in ` +
+        `the ServiceOption. The published tables combine the two into a single code — CFD with VOO is "CFDVOO" — ` +
+        `and only some combinations exist: the Austrian table has CFDVOO and THMVOI but no URGVOO. Name the ` +
+        `combined option on the order's own BTF rather than letting this service concatenate one.`,
+    );
+  }
+  return { ...btf, option };
 }
 
 interface OrderRow {
@@ -239,10 +291,13 @@ export function previewOrder(
     amount_minor: facts.amountMinor,
     tx_count: facts.txCount,
     btf,
-    problems: checkCeilings(facts, {
-      maxAmountMinor: connection.max_amount_minor,
-      maxTransfers: connection.max_transfers,
-    }),
+    problems: [
+      ...checkCeilings(facts, {
+        maxAmountMinor: connection.max_amount_minor,
+        maxTransfers: connection.max_transfers,
+      }),
+      ...austrianPaymentProblems(input.payload),
+    ],
   };
 }
 
@@ -313,11 +368,17 @@ export async function submitOrder(ctx: OrderContext, input: SubmitInput): Promis
     return { order: previous, replayed: true };
   }
 
-  // 3. Ceilings — the last gate before the ES key is used.
-  const problems = checkCeilings(facts, {
-    maxAmountMinor: connection.max_amount_minor,
-    maxTransfers: connection.max_transfers,
-  });
+  // 3. Ceilings, and the Austrian payment formats — the last gate before the
+  //    ES key is used. A malformed Finanzamtszahlung is refused by the bank
+  //    AFTER a signature has authorised it, and at class E that signature is
+  //    the money; catching it here costs one parse and no round trip.
+  const problems = [
+    ...checkCeilings(facts, {
+      maxAmountMinor: connection.max_amount_minor,
+      maxTransfers: connection.max_transfers,
+    }),
+    ...austrianPaymentProblems(input.payload),
+  ];
   if (problems.length > 0) {
     throw new DomainError(422, 'this file is outside what this connection may send', problems);
   }
@@ -366,6 +427,7 @@ interface ConnectionRow {
   product_language: string | null;
   product_institute_id: string | null;
   request_eds: number;
+  vop: string;
   max_amount_minor: number;
   max_transfers: number;
 }
@@ -437,6 +499,7 @@ async function transmit(
   }
 
   let transactionId: string;
+  let ebicsOrderId: string | null = null;
   try {
     const initBody = buildUploadInit({
       subscriber,
@@ -463,18 +526,29 @@ async function transmit(
       return fail(ctx, order, at, 'the bank accepted the initialisation but returned no transaction id');
     }
     transactionId = response.transactionId;
+    // The bank's own order number, when it sends one. Optional in H005, so an
+    // absent one is not an error — but it is what the customer protocol logs
+    // every later action under, so it is worth recording when offered.
+    ebicsOrderId = response.orderId;
   } catch (err) {
     // The request never completed. Whether the bank has the file is UNKNOWN,
     // which is precisely why this is `failed` and not `rejected`.
     return fail(ctx, order, at, err instanceof Error ? err.message : String(err));
   }
 
-  ctx.db.prepare('UPDATE orders SET transaction_id = ? WHERE id = ?').run(transactionId, order.id);
+  ctx.db
+    .prepare('UPDATE orders SET transaction_id = ?, ebics_order_id = ? WHERE id = ?')
+    .run(transactionId, ebicsOrderId, order.id);
   recordOrderEvent(ctx.db, {
     orderId: order.id,
     type: 'initialised',
     at,
-    meta: { transaction_id: transactionId, segments: segments.length, tx_count: facts.txCount },
+    meta: {
+      transaction_id: transactionId,
+      ...(ebicsOrderId === null ? {} : { ebics_order_id: ebicsOrderId }),
+      segments: segments.length,
+      tx_count: facts.txCount,
+    },
   });
 
   // Transfer phase — segments are 1-based and must arrive in order.

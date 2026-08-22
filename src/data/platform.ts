@@ -327,7 +327,7 @@ export const platform: PlatformService[] = [
     port: 4012,
     source: `${REPO}/ps-12-banking`,
     overview:
-      'MOD-04 already produces a valid pain.001 SEPA credit transfer per payment run; today a human downloads it and uploads it in online banking. EBICS is the protocol that removes the manual step, and this is a Platform Service rather than a module feature for one reason above the others: an EBICS subscriber holds RSA private keys that are sufficient to move money, and those keys belong in exactly one place, guarded once. Private keys are AES-256-GCM ciphertext at rest, are never returned by any endpoint, and are reached through one function that takes a purpose rather than a key id. The protocol layer is Node built-ins only — the exclusive XML canonicaliser and the XML-DSig signature are implemented here rather than taken as dependencies. Nothing in it has yet spoken to a real bank.',
+      'MOD-04 already produces a valid pain.001 SEPA credit transfer per payment run; today a human downloads it and uploads it in online banking. EBICS is the protocol that removes the manual step, and this is a Platform Service rather than a module feature for one reason above the others: an EBICS subscriber holds RSA private keys that are sufficient to move money, and those keys belong in exactly one place, guarded once. Private keys are AES-256-GCM ciphertext at rest, are never returned by any endpoint, and are reached through one function that takes a purpose rather than a key id. The protocol layer is Node built-ins only — the exclusive XML canonicaliser and the XML-DSig signature are implemented here rather than taken as dependencies. Every message it builds is validated against the published EBICS 3.0 schemas on every test run, and the German and Austrian order-type tables are transcribed rather than guessed: that discipline is what found each of the defects this service has had. Nothing in it has yet spoken to a real bank.',
     responsibilities: [
       'Subscriber key custody: A005/A006 signing, X002 authentication, E002 encryption',
       'The EBICS key exchange — INI, HIA, HPB — and a printable INI letter',
@@ -335,12 +335,16 @@ export const platform: PlatformService[] = [
       'Signed BTU uploads of any ISO 20022 file, with segmentation and receipts',
       'A payment file is submitted at most once, and per-connection ceilings hold',
       'Statement and status-report downloads, folded back into the payment runs',
+      'The distributed-signature queue: see what awaits a second signature, co-sign it, or cancel it',
+      'Lock a compromised subscriber at the bank yourself, without a phone call',
+      'German and Austrian order types, Verification of Payee, and the Austrian payment formats',
     ],
     api: [
       'GET /api/banks · GET/POST /api/connections',
       'POST /api/connections/:key/keys · /ini · /hia · /hpb',
       'GET /api/connections/:key/ini-letter.pdf',
-      'POST /api/connections/:key/verify-bank-keys · /suspend · /resume',
+      'POST /api/connections/:key/verify-bank-keys · /suspend · /resume · /lock',
+      'GET /api/connections/:key/veu · POST …/veu/detail · /transactions · /sign · /cancel',
       'POST /api/orders (?validate=1) · GET /api/orders[/:id]',
       'GET /api/downloads[/:id][/content] · POST /api/tick',
     ],

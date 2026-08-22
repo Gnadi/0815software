@@ -30,8 +30,14 @@ export interface FieldError {
  *   hia_sent         the bank has our auth and encryption keys
  *   hpb_fetched      we have the bank's keys — NOT yet trusted
  *   ready            a human confirmed the bank's key digests; orders allowed
- *   suspended        deliberately stopped; orders refused
+ *   suspended        deliberately stopped HERE; orders refused, resumable
+ *   locked           the bank locked the subscriber after SPR; NOT resumable
  *   failed           the bank refused a setup step
+ *
+ * `suspended` and `locked` look alike and are not. Suspending is a local
+ * decision and `resume` undoes it. `locked` records that the BANK has revoked
+ * the subscriber's authorisation, which nothing in this service can undo: the
+ * way back is new keys and a fresh INI/HIA, on paper.
  *
  * `hpb_fetched` is not `ready` on purpose. The HPB response cannot prove it
  * came from the bank, so an operator has to compare the digests against what
@@ -46,6 +52,7 @@ export const CONNECTION_STATES = [
   'hpb_fetched',
   'ready',
   'suspended',
+  'locked',
   'failed',
 ] as const;
 export type ConnectionState = (typeof CONNECTION_STATES)[number];
@@ -107,6 +114,12 @@ export interface Connection {
    * is the whole authorisation.
    */
   request_eds: boolean;
+  /**
+   * Verification of Payee. `default` sends no ServiceOption and lets the
+   * market's own default decide (opt-out, in both published tables);
+   * `opt_out` and `opt_in` say so explicitly with VOO / VOI.
+   */
+  vop: 'default' | 'opt_out' | 'opt_in';
   /** Ceilings enforced before anything is signed — see the service README. */
   max_amount_minor: number;
   max_transfers: number;
@@ -231,13 +244,19 @@ export interface OrderPreview {
 /**
  * What kind of file the bank handed over.
  *
- *   statement  camt.053 — an account statement. Stored whole, never parsed
- *              here: matching bookings to invoices is a module's business.
+ *   statement  camt.053 — an account statement, READ into bookings (see
+ *              server/camt.ts). Deciding which invoice a booking settles is
+ *              still a module's business; reading the format is not.
  *   status     pain.002 — a payment status report. The answer to "did that
  *              file go through?", so this one IS read.
+ *   info       CIM — a notice the bank wants a PERSON to read. Read far
+ *              enough to show its text; see server/cim.ts for the ceiling.
+ *   protocol   HAC — the customer acknowledgement, the bank's own log of what
+ *              it did with every order. ALSO a pain.002, which is exactly why
+ *              it needs a kind of its own; see server/hac.ts.
  *   other      anything else a BTF names. Kept, offered, not understood.
  */
-export const DOWNLOAD_KINDS = ['statement', 'status', 'other'] as const;
+export const DOWNLOAD_KINDS = ['statement', 'status', 'info', 'protocol', 'other'] as const;
 export type DownloadKind = (typeof DOWNLOAD_KINDS)[number];
 
 export interface DownloadRow {
@@ -265,12 +284,167 @@ export interface DownloadDetail extends DownloadRow {
     reason: string | null;
     created_at: string;
   }[];
+  /**
+   * For `kind: 'info'` only — what a CIM said, read against its published
+   * schema. Absent for every other kind, and null for a CIM this could not
+   * parse: the bytes are stored either way.
+   *
+   * `text` is HTML from outside this system. Anything rendering it must escape
+   * or sanitise it; the schema names which tags a bank may use and says a
+   * client ignores the rest, which is a display rule, not a safety guarantee.
+   */
+  customer_info?: {
+    message_id: string;
+    created_at: string;
+    notices: { id: string; timestamp: string; headline: string | null; text: string }[];
+  } | null;
+  /**
+   * For `kind: 'protocol'` only — what a HAC logged, read against the schema
+   * the EBICS Working Group publishes with it.
+   *
+   * `entries` are the bank's own actions in the order it recorded them;
+   * `orders` folds them per EBICS order number, which is the form an operator
+   * asking "what happened to that payment?" actually wants.
+   */
+  customer_protocol?: {
+    message_id: string;
+    created_at: string;
+    host_id: string | null;
+    entries: HacEntrySummary[];
+    orders: { order_id: string; verdict: HacOrderVerdict; entries: HacEntrySummary[] }[];
+  } | null;
+}
+
+/** What the bank's log says became of one order. */
+export type HacOrderVerdict = 'processed' | 'failed' | 'in_progress';
+
+/** One logged action, as the API hands it over. */
+export interface HacEntrySummary {
+  action: string;
+  user_id: string | null;
+  partner_id: string | null;
+  order_id: string | null;
+  admin_order_type: string | null;
+  service_name: string | null;
+  msg_name: string | null;
+  timestamp: string | null;
+  /** The order this action is ABOUT, when it is not the one it names. */
+  references_order_id: string | null;
+  reason_code: string | null;
+  /** Free text; on the final entry, the bank's display file. */
+  additional_info: string | null;
 }
 
 /** What one `POST /api/tick` did. */
 export interface TickResult {
   downloads_fetched: number;
   orders_updated: number;
+  /** Account statements read into bookings this pass. */
+  statements_read: number;
   /** Connections that could not be reached, with the reason. Not an error. */
   problems: { connection: string; message: string }[];
+}
+
+// ── Account statements ────────────────────────────────────────────────
+
+/**
+ * One account's statement, as read out of a `camt.053`.
+ *
+ * The balances are SIGNED here — a closing balance is a position, and a
+ * consumer comparing two of them needs the direction in the number. An
+ * ENTRY's amount is not: ISO puts the direction in a separate indicator and
+ * never a minus sign, and this keeps faith with what the bank sent.
+ */
+export interface StatementRow {
+  public_id: string;
+  connection: string;
+  /** The download it was read out of, so the original bytes stay reachable. */
+  download: string | null;
+  /**
+   * Which of the three account messages this came from.
+   *
+   *   statement     camt.053, end of day — the definitive record
+   *   report        camt.052, intraday and PROVISIONAL: every booking on it
+   *                 appears AGAIN on the day's statement
+   *   notification  camt.054, individual items as they happen — same caveat
+   *
+   * They share an entry structure, which is why one reader serves all three.
+   * They do not share a meaning, which is why summing across them
+   * double-counts and why queries default to statements alone.
+   */
+  source: 'statement' | 'report' | 'notification';
+  /** The ISO message name, e.g. "camt.053.001.02". */
+  message_name: string | null;
+  /** The schema version, e.g. "02" or "08". They differ materially. */
+  version: string;
+  message_id: string;
+  statement_id: string;
+  electronic_seq: number | null;
+  legal_seq: number | null;
+  created_at: string | null;
+  from_date: string | null;
+  to_date: string | null;
+  account: {
+    iban: string | null;
+    other: string | null;
+    currency: string | null;
+    name: string | null;
+    owner: string | null;
+  };
+  opening_balance: string | null;
+  closing_balance: string | null;
+  balance_currency: string | null;
+  entry_count: number;
+}
+
+/**
+ * One booking.
+ *
+ * `amount` is exactly what the bank wrote, unsigned; `credit` carries the
+ * direction. `amount_hundredths` is that amount times one hundred and is
+ * deliberately NOT called `amount_minor`: minor units need the currency's
+ * exponent — two for the euro, zero for the yen, three for the dinar — and
+ * this service does not ship that table. Null when the bank sent more than
+ * two decimal places.
+ */
+export interface StatementEntryRow {
+  statement: string;
+  /** Which account message it came from — see `StatementRow.source`. */
+  source: 'statement' | 'report' | 'notification';
+  account_iban: string | null;
+  seq: number;
+  amount: string;
+  amount_hundredths: number | null;
+  currency: string;
+  /** True when money came IN. */
+  credit: boolean;
+  /** True when this entry undoes an earlier one. Do not sum it as income. */
+  reversal: boolean;
+  /** `BOOK` booked, `PDNG` pending — a pending entry is not money yet. */
+  status: string;
+  booking_date: string | null;
+  value_date: string | null;
+  entry_ref: string | null;
+  account_servicer_ref: string | null;
+  /** The ISO domain code, e.g. `PMNT/RCDT/ESCT`. */
+  bank_transaction_code: string | null;
+  /**
+   * The bank's OWN transaction code. Kept beside the ISO one, not as a
+   * fallback: an Austrian bank always sends both, so a fallback would silently
+   * drop this on every booking in the market that keys on it.
+   */
+  proprietary_transaction_code: string | null;
+  end_to_end_id: string | null;
+  mandate_id: string | null;
+  msg_id: string | null;
+  payment_info_id: string | null;
+  instruction_id: string | null;
+  counterparty_name: string | null;
+  counterparty_iban: string | null;
+  remittance: string | null;
+  /** The structured creditor reference — where an invoice number belongs. */
+  creditor_reference: string | null;
+  purpose: string | null;
+  return_reason: string | null;
+  additional_info: string | null;
 }

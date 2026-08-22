@@ -17,7 +17,9 @@ import {
 import {
   foldStatus,
   listOrders,
+  applyVop,
   orderDetail,
+  resolveBtf,
   previewOrder,
   splitSegments,
   submitOrder,
@@ -711,5 +713,46 @@ describe('a private key never leaves the service', () => {
       payload: pain001({ msgId: 'M1', total: '10.00', count: 1 }),
     });
     for (const body of bank.requests) expect(body).not.toMatch(/PRIVATE KEY/);
+  });
+});
+
+// ── Verification of Payee, where the option slot is already taken ─────
+
+describe('composing the Verification-of-Payee option', () => {
+  const SCT = { service_name: 'SCT', scope: 'AT', msg_name: 'pain.001' };
+
+  it('adds nothing when the choice is left to the market', () => {
+    // Both published tables read an absent ServiceOption as OPT-OUT for SCT.
+    // Saying nothing is a real choice and must stay the default.
+    expect(applyVop(SCT, 'default')).toEqual(SCT);
+    expect(applyVop(SCT, 'default').option).toBeUndefined();
+  });
+
+  it('puts VOO or VOI in an empty option slot', () => {
+    expect(applyVop(SCT, 'opt_out').option).toBe('VOO');
+    expect(applyVop(SCT, 'opt_in').option).toBe('VOI');
+    // And leaves the rest of the BTF exactly as it was.
+    expect(applyVop(SCT, 'opt_in').scope).toBe('AT');
+  });
+
+  it('refuses to concatenate a code the tables do not publish', () => {
+    // The tables DO combine the two — CFD with VOO is "CFDVOO" — but only for
+    // some payment kinds: the Austrian table has CFDVOO and THMVOI and no
+    // URGVOO at all. Composing by string concatenation would name order types
+    // that do not exist, which is how three earlier BTF bugs got in.
+    expect(() => applyVop({ ...SCT, option: 'URG' }, 'opt_out')).toThrow(/already puts "URG"/);
+    expect(() => applyVop({ ...SCT, option: 'CFD' }, 'opt_in')).toThrow(/CFDVOO/);
+  });
+
+  it('passes a caller-supplied BTF through resolveBtf untouched', () => {
+    // Overriding the BTF is how a bank wanting something unusual stays
+    // reachable; rewriting its option would defeat that.
+    const given = { service_name: 'SCT', scope: 'AT', option: 'CFDVOO', msg_name: 'pain.001' };
+    expect(resolveBtf({ bank_key: 'at-sepa', vop: 'opt_in' } as never, given)).toBe(given);
+  });
+
+  it('reads the connection mode through resolveBtf', () => {
+    expect(resolveBtf({ bank_key: 'at-sepa', vop: 'opt_in' } as never).option).toBe('VOI');
+    expect(resolveBtf({ bank_key: 'at-sepa' } as never).option).toBeUndefined();
   });
 });

@@ -210,6 +210,20 @@ export function openDb(path: string): Database.Database {
     );
   }
 
+  // The Austrian special credit transfers: a Finanzamtszahlung (TAXS) or a
+  // Postbarzahlung (CPPP) carries a category purpose that an ordinary transfer
+  // does not. A property of the whole run rather than of one bill, because
+  // that is how they are filed and because ISO 20022 allows PmtTpInf at one
+  // level only. Null means an ordinary SEPA credit transfer, which is what
+  // every existing run is.
+  if (!columns('payment_runs').includes('category_purpose')) {
+    db.exec('ALTER TABLE payment_runs ADD COLUMN category_purpose TEXT');
+    // Whether a remittance format was configured when this run was made. Null
+    // for an ordinary run, which has none to check. Stored rather than derived
+    // because the configuration can change and this is a fact about the run.
+    db.exec('ALTER TABLE payment_runs ADD COLUMN remittance_checked INTEGER');
+  }
+
   ensureReportViews(db);
 
   return db;

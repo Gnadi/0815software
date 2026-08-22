@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HVZResponseOrderData xmlns="urn:org:ebics:H005">
+  <OrderDetails>
+    <Service>
+      <ServiceName>SCT</ServiceName>
+      <Scope>AT</Scope>
+      <MsgName>pain.001</MsgName>
+    </Service>
+    <OrderID>A1B2</OrderID>
+    <DataDigest SignatureVersion="A005">yeee4C+0xZjU0Ex6aQt+Zm7FCo61GQtftMTqmYcSffc=</DataDigest>
+    <OrderDataAvailable>true</OrderDataAvailable>
+    <OrderDataSize>3074</OrderDataSize>
+    <OrderDetailsAvailable>true</OrderDetailsAvailable>
+    <TotalOrders>3</TotalOrders>
+    <TotalAmount isCredit="false">2214.80</TotalAmount>
+    <Currency>EUR</Currency>
+    <FirstOrderInfo>
+      <OrderPartyInfo>0815software GmbH</OrderPartyInfo>
+      <AccountInfo>
+        <AccountNumber international="true">AT611904300234573201</AccountNumber>
+        <BankCode international="true">BKAUATWW</BankCode>
+      </AccountInfo>
+    </FirstOrderInfo>
+    <SigningInfo readyToBeSigned="true" NumSigRequired="2" NumSigDone="1"/>
+    <SignerInfo>
+      <PartnerID>PARTNER1</PartnerID>
+      <UserID>USER1</UserID>
+      <Name>Erste Unterschrift</Name>
+      <Timestamp>2026-08-21T10:00:00Z</Timestamp>
+      <Permission AuthorisationLevel="E"/>
+    </SignerInfo>
+    <OriginatorInfo>
+      <PartnerID>PARTNER1</PartnerID>
+      <UserID>USER1</UserID>
+      <Name>0815software GmbH</Name>
+      <Timestamp>2026-08-21T09:59:00Z</Timestamp>
+    </OriginatorInfo>
+    <AdditionalOrderInfo>Zahllauf August</AdditionalOrderInfo>
+  </OrderDetails>
+</HVZResponseOrderData>
