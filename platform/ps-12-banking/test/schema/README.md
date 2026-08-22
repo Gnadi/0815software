@@ -27,3 +27,14 @@ Validating against the published schema is the one check the mock cannot fake.
 It found, among other things, that `AuthSignature` was in the wrong namespace,
 that `UserSignatureData` had the wrong shape entirely, and that H005 does not
 define `PubKeyValue` at all — the subscriber's keys must be X.509 certificates.
+
+## `EBICS.CIM.Response.V.1.0.xsd`
+
+The Austrian Customer Information Message, published by PSA at
+`zv.psa.at/de/download/ebics.html`. Target namespace
+`http://www.psa.at/EBICS/CIMResp`, schema version dated 08.08.2022.
+
+`cim.test.ts` validates its fixtures against this before parsing them. It was
+added late, and it immediately showed the first reader to be wrong: that one
+was written from the implementation guideline's prose, which mentions
+`<CIMMsgType>` — a **type** name, not an element. The element is `CIM`.

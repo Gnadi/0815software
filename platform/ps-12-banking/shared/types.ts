@@ -281,11 +281,19 @@ export interface DownloadDetail extends DownloadRow {
     created_at: string;
   }[];
   /**
-   * For `kind: 'info'` only — the notices inside a CIM, read far enough to be
-   * shown to a person. Empty for everything else, and empty for a CIM this
-   * could not make sense of: the bytes are stored either way.
+   * For `kind: 'info'` only — what a CIM said, read against its published
+   * schema. Absent for every other kind, and null for a CIM this could not
+   * parse: the bytes are stored either way.
+   *
+   * `text` is HTML from outside this system. Anything rendering it must escape
+   * or sanitise it; the schema names which tags a bank may use and says a
+   * client ignores the rest, which is a display rule, not a safety guarantee.
    */
-  notices?: { id: string | null; timestamp: string | null; lines: string[] }[];
+  customer_info?: {
+    message_id: string;
+    created_at: string;
+    notices: { id: string; timestamp: string; headline: string | null; text: string }[];
+  } | null;
 }
 
 /** What one `POST /api/tick` did. */

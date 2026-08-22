@@ -561,13 +561,18 @@ describe('a report that names no original file', () => {
 describe('customer information messages', () => {
   const CIM: BtfInput = { service_name: 'CIM', scope: 'AT', msg_name: 'cimresp' };
   const NOTICE = `<?xml version="1.0" encoding="UTF-8"?>
-<CIMResp xmlns="urn:example:cim">
-  <CIMMsgType>
+<Document xmlns="http://www.psa.at/EBICS/CIMResp">
+  <GrpHdr>
+    <MsgId>2026082114300012ABCD</MsgId>
+    <CreDtTm>2026-08-21T14:30:00</CreDtTm>
+  </GrpHdr>
+  <CIM>
+    <CIMTmStmp>2026-08-20T18:00:00</CIMTmStmp>
     <CIMId>f81d4fae-7dec-11d0-a765-00a0c91e6bf6</CIMId>
-    <Timestamp>2026-08-20T18:00:00Z</Timestamp>
-    <Text>Am 24.08.2026 steht EBICS zwischen 02:00 und 04:00 nicht zur Verfügung.</Text>
-  </CIMMsgType>
-</CIMResp>`;
+    <HdLine>Serviceintervall</HdLine>
+    <CIMTxt>Am 24.08.2026 steht EBICS zwischen 02:00 und 04:00 nicht zur Verfügung.</CIMTxt>
+  </CIM>
+</Document>`;
 
   it('files a CIM as "info" rather than as an opaque blob', async () => {
     await bringUp();
@@ -583,15 +588,18 @@ describe('customer information messages', () => {
     const result = await fetchOne(ctx, 'main', CIM);
 
     const detail = downloadDetail(db, result.download!.public_id);
-    expect(detail.notices).toHaveLength(1);
-    expect(detail.notices![0]!.id).toBe('f81d4fae-7dec-11d0-a765-00a0c91e6bf6');
-    expect(detail.notices![0]!.lines[0]).toMatch(/24.08.2026/);
+    expect(detail.customer_info!.message_id).toBe('2026082114300012ABCD');
+    expect(detail.customer_info!.notices).toHaveLength(1);
+    expect(detail.customer_info!.notices[0]!.id).toBe('f81d4fae-7dec-11d0-a765-00a0c91e6bf6');
+    expect(detail.customer_info!.notices[0]!.headline).toBe('Serviceintervall');
+    expect(detail.customer_info!.notices[0]!.text).toMatch(/24.08.2026/);
   });
 
   it('keeps the bytes whole, whatever the reader made of them', async () => {
-    // The reader's ceiling moves when the CIMResp schema arrives; the stored
-    // document must not, or every notice fetched before then becomes
-    // unreadable at exactly the moment the parser gets better.
+    // The reader has already been rewritten once, against a schema that
+    // arrived after it. The stored document must not move when that happens,
+    // or every notice fetched beforehand becomes unreadable at exactly the
+    // moment the parser gets better.
     await bringUp();
     bank.enqueue({ serviceName: 'CIM', msgName: 'cimresp' }, NOTICE);
     const result = await fetchOne(ctx, 'main', CIM);
@@ -599,10 +607,17 @@ describe('customer information messages', () => {
     expect(downloadContent(db, result.download!.public_id).toString('utf8')).toBe(NOTICE);
   });
 
-  it('leaves other downloads without notices at all', async () => {
+  it('says so plainly when a CIM cannot be read, rather than inventing one', async () => {
+    await bringUp();
+    bank.enqueue({ serviceName: 'CIM', msgName: 'cimresp' }, '<Document xmlns="urn:x"><Nonsense/></Document>');
+    const result = await fetchOne(ctx, 'main', CIM);
+    expect(downloadDetail(db, result.download!.public_id).customer_info).toBeNull();
+  });
+
+  it('leaves other downloads with no customer_info at all', async () => {
     await bringUp();
     bank.enqueue({ serviceName: 'EOP', msgName: 'camt.053' }, zipped([{ name: 'statement.xml', content: '<Document/>' }]));
     const result = await fetchOne(ctx, 'main', EOP);
-    expect(downloadDetail(db, result.download!.public_id).notices).toBeUndefined();
+    expect(downloadDetail(db, result.download!.public_id).customer_info).toBeUndefined();
   });
 });

@@ -1,41 +1,52 @@
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { isCustomerInfo, readCustomerInfo } from '../server/cim.js';
 
 /**
  * Reading a customer information message.
  *
- * Every other parser in this service is checked against a published schema.
- * This one cannot be: the CIMResp schema lives at `zv.psa.at`, which this
- * build cannot reach. So the tests are written the way the parser is — around
- * the two element names the Austrian guideline states in prose, and around
- * structure for everything else — and they assert the CEILING as much as the
- * behaviour, so that a later version built on the real schema has to be a
- * deliberate change rather than an accident.
+ * The fixture is validated against the published `EBICS.CIM.Response.V.1.0.xsd`
+ * by the first test here, and only then parsed. That order is the whole point.
+ * The first version of this reader was written without the schema, from the
+ * guideline's prose mentioning `<CIMMsgType>` — which is a TYPE name, not an
+ * element — and it produced one notice containing the entire document's text
+ * rather than failing. The tests it had all passed, because they were written
+ * against the same misreading.
  */
 
-const RESPONSE = `<?xml version="1.0" encoding="UTF-8"?>
-<CIMResp xmlns="urn:example:cim">
-  <CIMMsgType>
-    <CIMId>f81d4fae-7dec-11d0-a765-00a0c91e6bf6</CIMId>
-    <Timestamp>2026-08-20T18:00:00Z</Timestamp>
-    <Subject>Serviceintervall</Subject>
-    <Text>Am 24.08.2026 von 02:00 bis 04:00 steht EBICS nicht zur Verfügung.</Text>
-  </CIMMsgType>
-  <CIMMsgType>
-    <CIMId>0f8fad5b-d9cb-469f-a165-70867728950e</CIMId>
-    <Timestamp>2026-08-21T09:00:00Z</Timestamp>
-    <Text>Ab 11/2026 wird für SEPA-Überweisungen nur noch pain.001.001.09 angenommen.</Text>
-  </CIMMsgType>
-</CIMResp>`;
+const SCHEMA = join(import.meta.dirname, 'schema', 'EBICS.CIM.Response.V.1.0.xsd');
+const FIXTURE = join(import.meta.dirname, 'fixtures', 'cim', 'cimresp.xml');
+const HAVE_SCHEMA = existsSync(SCHEMA);
+const HAVE_XMLLINT = ((): boolean => {
+  try {
+    execFileSync('xmllint', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+const response = (): string => readFileSync(FIXTURE, 'utf8');
+
+const describeIf = HAVE_SCHEMA && HAVE_XMLLINT ? describe : describe.skip;
+
+describeIf('the fixture is what a conforming bank sends', () => {
+  it('validates against the published CIMResp schema', () => {
+    // If this fails the fixture is wrong, and every assertion below measures
+    // the parser against a document no bank would produce.
+    execFileSync('xmllint', ['--noout', '--schema', SCHEMA, FIXTURE]);
+  });
+});
 
 describe('which BTF is a customer information message', () => {
   it('accepts both names the two Austrian documents give', () => {
-    // The mapping table (04.07.2025) says cimresp; the implementation
-    // guideline's worked ebicsRequest example says BRCResp. An operator whose
-    // bank follows the older example should not get an opaque blob for it.
+    // The mapping table says cimresp; the guideline's worked example says
+    // BRCResp. An operator whose bank follows the older one should not get an
+    // opaque blob for it.
     expect(isCustomerInfo('cimresp')).toBe(true);
     expect(isCustomerInfo('BRCResp')).toBe(true);
-    expect(isCustomerInfo('CIMResp')).toBe(true);
   });
 
   it('does not claim anything else', () => {
@@ -45,61 +56,62 @@ describe('which BTF is a customer information message', () => {
   });
 });
 
-describe('reading the notices', () => {
-  it('finds every message, not just the first', () => {
-    expect(readCustomerInfo(RESPONSE)).toHaveLength(2);
+describe('reading a CIMResp', () => {
+  it('reads the group header', () => {
+    const message = readCustomerInfo(response())!;
+    expect(message.messageId).toBe('2026082114300012ABCD');
+    expect(message.createdAt).toBe('2026-08-21T14:30:00');
   });
 
-  it('reads the CIMId, which the guideline names', () => {
-    const [first, second] = readCustomerInfo(RESPONSE);
-    expect(first!.id).toBe('f81d4fae-7dec-11d0-a765-00a0c91e6bf6');
-    expect(second!.id).toBe('0f8fad5b-d9cb-469f-a165-70867728950e');
-  });
-
-  it('finds the timestamp by shape, because nothing names it', () => {
-    // The guideline says each message carries one and never says in which
-    // element, so this looks for text that parses as an ISO date-time. That
-    // is the honest ceiling without the schema.
-    expect(readCustomerInfo(RESPONSE)[0]!.timestamp).toBe('2026-08-20T18:00:00Z');
-  });
-
-  it('keeps the prose, and keeps it in order', () => {
-    // Text content needs no element names at all, which is exactly why the
-    // parser leans on it: a guessed <CIMText> would have dropped everything
-    // from a bank that called it something else.
-    expect(readCustomerInfo(RESPONSE)[0]!.lines).toEqual([
-      'Serviceintervall',
-      'Am 24.08.2026 von 02:00 bis 04:00 steht EBICS nicht zur Verfügung.',
+  it('reads every notice, each as its own entry', () => {
+    // The regression that made this file worth rewriting: the old reader
+    // returned ONE entry holding the whole document's text.
+    const { notices } = readCustomerInfo(response())!;
+    expect(notices).toHaveLength(2);
+    expect(notices.map((n) => n.id)).toEqual([
+      'f81d4fae-7dec-11d0-a765-00a0c91e6bf6',
+      '0f8fad5b-d9cb-469f-a165-70867728950e',
     ]);
   });
 
-  it('does not repeat the id or the timestamp as prose', () => {
-    const [first] = readCustomerInfo(RESPONSE);
-    expect(first!.lines).not.toContain(first!.id);
-    expect(first!.lines).not.toContain(first!.timestamp);
+  it('reads the timestamp from CIMTmStmp, not by guessing at a date shape', () => {
+    expect(readCustomerInfo(response())!.notices[0]!.timestamp).toBe('2026-08-20T18:00:00');
   });
 
-  it('reads a message in ANY namespace, since none is documented here', () => {
-    // The guideline names CIMMsgType but this build has no schema to say which
-    // namespace it lives in. Matching on one would drop every message from a
-    // bank that chose differently.
-    const other = RESPONSE.replace('urn:example:cim', 'urn:some:other:namespace');
-    expect(readCustomerInfo(other)).toHaveLength(2);
-    expect(readCustomerInfo(other)[0]!.id).toBe('f81d4fae-7dec-11d0-a765-00a0c91e6bf6');
+  it('reads the headline, and leaves it null where the bank sent none', () => {
+    const { notices } = readCustomerInfo(response())!;
+    expect(notices[0]!.headline).toBe('Serviceintervall');
+    expect(notices[1]!.headline).toBeNull();
   });
 
-  it('falls back to the document itself when there is no CIMMsgType wrapper', () => {
-    const bare = `<CIMResp xmlns="urn:example:cim"><CIMId>abc</CIMId><Text>Hinweis</Text></CIMResp>`;
-    const [only] = readCustomerInfo(bare);
-    expect(only!.id).toBe('abc');
-    expect(only!.lines).toEqual(['Hinweis']);
+  it('keeps the body as the HTML the bank sent, CDATA unwrapped', () => {
+    const [first] = readCustomerInfo(response())!.notices;
+    expect(first!.text).toContain('<b>02:00 bis 04:00</b>');
+    expect(first!.text).toContain('Am 24.08.2026');
   });
 
-  it('returns nothing rather than throwing on bytes that are not XML', () => {
-    // The document is stored whole either way. Failing here would turn an
-    // unreadable notice into an unreadable download, and a bank's service
-    // announcement is not worth a 500.
-    expect(readCustomerInfo(Buffer.from([0x00, 0x01, 0x02]))).toEqual([]);
-    expect(readCustomerInfo('not xml at all')).toEqual([]);
+  it('never mixes the group header into a notice', () => {
+    // What the old reader did, and the reason a notice looked plausible while
+    // being wrong: the MsgId came out as part of the message text.
+    for (const notice of readCustomerInfo(response())!.notices) {
+      expect(notice.text).not.toContain('2026082114300012ABCD');
+      expect(notice.text).not.toContain('CreDtTm');
+    }
+  });
+
+  it('reads a document in another namespace, since a notice is not a payment', () => {
+    // Leniency is cheap here and a namespace mismatch would hide the message
+    // entirely. It would not be acceptable anywhere a signature is involved.
+    const other = response().replace('http://www.psa.at/EBICS/CIMResp', 'urn:some:other');
+    expect(readCustomerInfo(other)!.notices).toHaveLength(2);
+  });
+
+  it('returns null for anything that is not a CIMResp', () => {
+    // The document is stored whole either way, and a bank's announcement is
+    // not worth a 500.
+    expect(readCustomerInfo('<Document xmlns="urn:x"><Other/></Document>')).toBeNull();
+    expect(readCustomerInfo('<CstmrCdtTrfInitn/>')).toBeNull();
+    expect(readCustomerInfo(Buffer.from([0x00, 0x01, 0x02]))).toBeNull();
+    expect(readCustomerInfo('not xml at all')).toBeNull();
   });
 });

@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2017 rel. 3 sp1 (x64) (http://www.altova.com) by Helmut Biely (self-employed) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://www.psa.at/EBICS/CIMResp" targetNamespace="http://www.psa.at/EBICS/CIMResp" elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<!-- ******************************************************************-->
+	<!--*  EBICS   Customer Information Message                                        *-->
+	<!-- ******************************************************************-->
+	<xs:attribute name="versiondate" fixed="08.08.2022">
+		<xs:annotation>
+			<xs:documentation xml:lang="de">Versionsdatum dieses Schemas</xs:documentation>
+		</xs:annotation>
+	</xs:attribute>
+	<xs:simpleType name="ISODateTime">
+		<xs:restriction base="xs:dateTime"/>
+	</xs:simpleType>
+	<xs:element name="Document" type="Customer_Information_Message">
+		<xs:annotation>
+			<xs:documentation>Rootelement</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:complexType name="CIMMsgType">
+		<xs:sequence>
+			<xs:element name="CIMTmStmp" type="ISODateTime">
+				<xs:annotation>
+					<xs:documentation>Timestamp of the creation of the CIM in the host system/banking server.
+
+The CIMTmStmp is only relevant for requests including a DateRange element. In this case all CIMs shall be transmitted whose time stamp lies within the requested DateRange and which are still valid at the time of the request. The validity period must be disclosed to the EBICS-server by the originator of the CIM.</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="CIMId">
+				<xs:annotation>
+					<xs:documentation>Unique identification of the CIM according to RFC4122 Universally Unique Identifier (UUID).</xs:documentation>
+				</xs:annotation>
+				<xs:simpleType>
+					<xs:restriction base="xs:string">
+						<xs:length value="36"/>
+					</xs:restriction>
+				</xs:simpleType>
+			</xs:element>
+			<xs:element name="HdLine" type="Max82Text" minOccurs="0">
+				<xs:annotation>
+					<xs:documentation>Headline in the form of CDATA.
+The headline shall be presented by the client with the attributes "bold" and "arial 14". HTML-tags are not allowed in the headline.</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="CIMTxt" type="xs:string">
+				<xs:annotation>
+					<xs:documentation>Message-body in the form of CDATA. 
+The maximum length of the HTML text is 1680 characters.
+
+Only the follwoing HTML tags are allowed:
+o paragraph control:  paragraph (p), line break (br), preformatted text (pre)
+o lists: list item (li), unordered list (ul), ordered list (ol)
+o references: internal and external links (a href=)
+o font-attributes: bold (b), italic (i), underscored (u), strikethrough (s), subscripted (sub), superscripted (sup)
+o layout: (font) with the attributes "color", "face" and "size"
+Shorthand for empty tags is allowed.
+
+All other tags shall be ignored by the client.
+</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="Customer_Information_Message">
+		<xs:sequence>
+			<xs:element name="GrpHdr" type="GrpHdrType">
+				<xs:annotation>
+					<xs:documentation>
+
+
+</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="CIM" type="CIMMsgType" maxOccurs="unbounded">
+				<xs:annotation>
+					<xs:documentation>Only if a CIM request message was received from the client one or more CIMs will be downloaded in response.
+
+If the CIM request message did not include a DateRange element all current CIMs which were not sent to the requesting client previously will be downloaded. (The logic is the same as in the case of account-informations.)
+</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="GrpHdrType">
+		<xs:sequence>
+			<xs:element name="MsgId" type="MsgIdType">
+				<xs:annotation>
+					<xs:documentation>Unique identification of the message. Structure: digits 1 to 16 timestamp in the format YYYYMMDDHHMMSShh plus 4   mandatory random numbers and up to 15 additional random numbers optionally</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+			<xs:element name="CreDtTm" type="ISODateTime">
+				<xs:annotation>
+					<xs:documentation>Timestamp of the creation of the message in the EBICS Server.</xs:documentation>
+				</xs:annotation>
+			</xs:element>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:simpleType name="Max82Text">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="1"/>
+			<xs:maxLength value="82"/>
+			<xs:whiteSpace value="preserve"/>
+		</xs:restriction>
+	</xs:simpleType>
+	<xs:simpleType name="MsgIdType">
+		<xs:restriction base="xs:string">
+			<xs:minLength value="20"/>
+			<xs:maxLength value="35"/>
+			<xs:whiteSpace value="collapse"/>
+			<xs:pattern value="2[0-9]{15}[A-Z0-9]{4,}"/>
+		</xs:restriction>
+	</xs:simpleType>
+</xs:schema>

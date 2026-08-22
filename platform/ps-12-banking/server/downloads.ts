@@ -139,7 +139,19 @@ export function downloadDetail(db: Database.Database, publicIdValue: string): Do
   // better, and a column written by today's reader would not.
   if (row.kind !== 'info') return { ...toRow(db, row), reports };
   const content = db.prepare('SELECT content FROM downloads WHERE id = ?').get(row.id) as { content: Buffer };
-  return { ...toRow(db, row), reports, notices: readCustomerInfo(content.content) };
+  const message = readCustomerInfo(content.content);
+  return {
+    ...toRow(db, row),
+    reports,
+    customer_info:
+      message === null
+        ? null
+        : {
+            message_id: message.messageId,
+            created_at: message.createdAt,
+            notices: message.notices,
+          },
+  };
 }
 
 /** The file itself. Separate from the metadata so a list never carries blobs. */
