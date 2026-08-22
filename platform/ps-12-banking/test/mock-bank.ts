@@ -190,6 +190,8 @@ export class MockBank {
   readonly locked = new Set<string>();
   /** Orders waiting for a second signature. A test seeds this directly. */
   readonly veuQueue: QueuedForSignature[] = [];
+  /** The order numbers this bank has assigned to uploads, in order. */
+  readonly assignedOrderIds: string[] = [];
   /** The accounts HTD and HKD report. A test may replace them. */
   readonly accounts: { id: string; iban: string; bic: string; currency: string; description: string; holder: string }[] =
     [
@@ -517,7 +519,11 @@ export class MockBank {
     });
 
     if (this.options.omitTransactionId === true) return this.response({ segments });
-    return this.response({ transactionId: id, segments });
+    // The bank's own order number, which HAC logs every action under. A real
+    // bank assigns it here, at the initialisation of an upload.
+    const orderId = `A${400 + this.counter}`;
+    this.assignedOrderIds.push(orderId);
+    return this.response({ transactionId: id, segments, orderId });
   }
 
   /**
@@ -1209,6 +1215,8 @@ export class MockBank {
     transactionKey?: string;
     segmentNumber?: number;
     lastSegment?: boolean;
+    /** The bank's own order number, which HAC logs every action under. */
+    orderId?: string;
   }): string {
     const root = el('e:ebicsResponse', { Version: 'H005', Revision: '1' }, [
       el('e:header', { authenticate: 'true' }, [
@@ -1224,6 +1232,9 @@ export class MockBank {
                 parts.lastSegment === true ? { lastSegment: 'true' } : {},
                 [String(parts.segmentNumber)],
               ),
+          // In the MUTABLE header, between SegmentNumber and ReturnCode —
+          // exactly where the response schema puts it.
+          parts.orderId === undefined ? null : el('e:OrderID', {}, [parts.orderId]),
           el('e:ReturnCode', {}, [parts.technical ?? '000000']),
           el('e:ReportText', {}, [parts.reportText ?? 'OK']),
         ]),

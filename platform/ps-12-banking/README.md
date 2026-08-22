@@ -644,7 +644,8 @@ produces a plausible value that never matches the bank's letter.
 | — | The Austrian market: BTF table, `Product`, CIM, payment formats | **Done** |
 | — | `SignatureFlag`, Verification of Payee, `SPR` | **Done** |
 | — | VEU: `HVU`, `HVZ`, `HVD`, `HVT`, `HVE`, `HVS` | **Done** |
-| — | `HTD`/`HKD`, `HCA`/`HCS`, and per-connection download subscriptions | **Done** — 603 tests |
+| — | `HTD`/`HKD`, `HCA`/`HCS`, and per-connection download subscriptions | **Done** |
+| — | `HAC`, the customer protocol, against the published examples | **Done** — 632 tests |
 
 ## Which BTFs are supported
 
@@ -712,38 +713,87 @@ where each value came from.
 
 ## What is not implemented
 
-Nineteen order types are built: `HEV`, `INI`, `HIA`, `HPB`, `SPR`, `BTU`, `BTD`,
-the six VEU ones (`HVU`, `HVZ`, `HVD`, `HVT`, `HVE`, `HVS`), the four
-administrative downloads (`HTD`, `HKD`, `HPD`, `HAA`) and the two key changes
-(`HCA`, `HCS`). Three of the H005 schema set's order types are **not** here:
+Twenty order types are built: `HEV`, `INI`, `HIA`, `HPB`, `SPR`, `BTU`, `BTD`,
+the six VEU ones (`HVU`, `HVZ`, `HVD`, `HVT`, `HVE`, `HVS`), the five
+administrative downloads (`HTD`, `HKD`, `HPD`, `HAA`, `HAC`) and the two key
+changes (`HCA`, `HCS`). Two of the H005 schema set's order types are **not**
+here:
 
 | | | why it is not here |
 | --- | --- | --- |
 | `H3K` | one-step initialisation with certificates | an alternative to INI + HIA + HPB, not a replacement for it. Everything it does can be done today, in three requests instead of one. |
 | `PUB` | change the ES key alone | superseded by `HCS`, which changes it along with the other two |
-| `HAC` | the customer protocol | **its request is built and its bytes can be fetched; its answer cannot be parsed.** See below. |
 
-### `HAC`, specifically
+### `HAC` — the customer protocol
 
-`HAC` is the *Kundenprotokoll* — the bank's own log of what it did with each
-order, and the natural place to look when a payment file disappears. It is
-referenced by name in the national mapping tables, so it is reasonable to
-expect it here.
+The *Kundenprotokoll*: the bank's own log of what it did with every order. The
+file arrived, the signature verified (or did not), it went into the
+distributed-signature queue, a second subscriber signed it, it finished. The
+place to look when a payment file goes quiet.
 
-It is **not in the H005 schema set**. The EBICS Working Group's published
-`EBICS_3.0_schema_H005` archive contains ten files, and none of them defines
-`HACResponseOrderData`; the format is specified in the national annexes
-instead. `buildAdminDownload` accepts `'HAC'` and produces a schema-valid
-request, and a subscription to it would store the bytes — but this service will
-not claim to read them, because the last time a reader was written from prose
-rather than a schema (the Austrian `CIM` message) it matched nothing, fell back
-to the whole document, and returned a confident answer that was wrong.
+It was the last thing missing, and for a stated reason: **`HAC` is not in the
+H005 schema set.** The EBICS Working Group's `EBICS_3.0_schema_H005` archive
+contains ten files and none of them defines its order data. It is specified in
+the national annexes instead, and this service does not write readers from
+prose — the last one written that way (the Austrian `CIM` message) matched
+nothing, fell back to the whole document, and returned a confident wrong
+answer.
 
-Adding `HAC` properly means obtaining its national schema and validating a
-fixture against it first. That is the same order every other message here was
-built in.
+That is now resolved. The EBICS Working Group publishes
+`pain.002.001.03commented-for-HAC.xsd` — the ISO schema annotated element by
+element for this use — together with four worked examples. Both are vendored
+(`test/schema/`, `test/fixtures/hac/`), the examples are validated against the
+schema before anything parses them, and `server/hac.ts` is written against
+that rather than against a description. PSA publishes no Austrian variant, so
+the German document is taken to apply in both markets.
 
-### Key renewal, which is now available
+**The trap it hides, which is worth stating plainly.** A `HAC` document and a
+payment status report are **both `pain.002.001.03`** — same namespace, same
+root element, same `CstmrPmtStsRpt`. Nothing about the shape says which it is.
+Classifying a download by its BTF alone would file the bank's activity log as a
+set of payment verdicts and hand it to the code that settles and rejects
+orders.
+
+So `downloads.ts` now classifies on the **bytes**, not only on the BTF, and
+checks for a customer acknowledgement first. The one element that separates
+them is `OrgnlGrpInfAndSts/OrgnlMsgId`: the literal string `EBICS` in a `HAC`,
+the original file's `MsgId` in a status report. As it happens the current `HAC`
+profile omits the three status elements `reports.ts` reads, so today the
+mistake would have produced nothing rather than something wrong — that is luck,
+not design, and a bank adding a `GrpSts` would have attached a verdict carrying
+the msgId `"EBICS"` to whatever order happened to be filed under that name.
+
+**What it is worth, once read.** A `pain.002` answers "did the payment settle?".
+The protocol answers an earlier question: *"did the bank accept the file, and
+did my signature hold?"* An order refused at the signature step never reaches a
+status report at all, so without this it sits at `accepted` forever while
+nothing moves. `POST /api/tick` now folds those failures into the order they
+name.
+
+It folds **failures only**. A `HAC` verdict of `processed` means the bank
+finished handling the order at the EBICS level; it does not mean the payment
+executed, which only a `pain.002` can say. Recording a settlement from it would
+be a settlement this service invented.
+
+Two things this required that were missing:
+
+- **The bank's own order number.** `HAC` logs every action under the `OrderID`
+  the bank assigns to an upload — which arrives in the response's *mutable*
+  header, and which `parseResponse` never read. Without it a log entry saying
+  "signature refused, order A445" is readable but not actionable. Orders now
+  record it (migration 11).
+- **Case-insensitive key lookup.** A `HAC` entry's details are name/value pairs
+  where `SchmeNm/Prtry` is the name — unordered, the examples say so explicitly.
+  And the EBICS Working Group's own example file spells the key `OrderID`
+  twenty-one times and `OrderId` twice, *in the same document*. A
+  case-sensitive reader loses the order number on exactly those two entries, in
+  the file published to demonstrate the format.
+
+The BTF to fetch it under is a national matter and is deliberately not guessed
+here — ask the bank, or read it off `GET /api/connections/:key/customer-data`.
+Detection does not depend on getting it right.
+
+### Key renewal, which is now available### Key renewal, which is now available
 
 `HCA` replaces the authentication and encryption keys; `HCS` replaces those and
 the ES key — the one that authorises payments, and therefore the one that

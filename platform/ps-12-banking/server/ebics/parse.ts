@@ -30,6 +30,16 @@ export interface EbicsResponse {
   verdict: Verdict;
   /** Present from the initialisation phase onwards. */
   transactionId: string | null;
+  /**
+   * The bank's own order number for an upload — its handle, not ours.
+   *
+   * Different from `transactionId`, which identifies one conversation and is
+   * forgotten when it ends. This one outlives it: it is what the customer
+   * protocol (`HAC`) logs every action under, and what a VEU queue entry is
+   * named by. Without recording it, a `HAC` entry saying an order was refused
+   * cannot be tied to the payment file it refused.
+   */
+  orderId: string | null;
   /** How many segments the bank says a download has. */
   segments: number | null;
   /** The current segment's number, during a download transfer. */
@@ -95,6 +105,9 @@ export function parseResponse(xml: string, bankAuthPublicPem?: string): EbicsRes
     // would not be — hence the throw above.
     verdict: verdictOf(technical, business === '' ? '000000' : business, reportText),
     transactionId: nullIfEmpty(textOf(staticPart === null ? null : at(staticPart, EBICS_NS, 'TransactionID')).trim()),
+    // In the MUTABLE header, beside the return code — not the static one where
+    // TransactionID lives.
+    orderId: nullIfEmpty(textOf(mutable === null ? null : at(mutable, EBICS_NS, 'OrderID')).trim()),
     segments: intOrNull(textOf(header === null ? null : at(header, EBICS_NS, 'static', 'NumSegments')).trim()),
     segmentNumber: intOrNull(textOf(segmentNumberEl).trim()),
     lastSegment: segmentNumberEl !== null && attrOf(segmentNumberEl, 'lastSegment') === 'true',

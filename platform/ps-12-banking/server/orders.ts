@@ -499,6 +499,7 @@ async function transmit(
   }
 
   let transactionId: string;
+  let ebicsOrderId: string | null = null;
   try {
     const initBody = buildUploadInit({
       subscriber,
@@ -525,18 +526,29 @@ async function transmit(
       return fail(ctx, order, at, 'the bank accepted the initialisation but returned no transaction id');
     }
     transactionId = response.transactionId;
+    // The bank's own order number, when it sends one. Optional in H005, so an
+    // absent one is not an error — but it is what the customer protocol logs
+    // every later action under, so it is worth recording when offered.
+    ebicsOrderId = response.orderId;
   } catch (err) {
     // The request never completed. Whether the bank has the file is UNKNOWN,
     // which is precisely why this is `failed` and not `rejected`.
     return fail(ctx, order, at, err instanceof Error ? err.message : String(err));
   }
 
-  ctx.db.prepare('UPDATE orders SET transaction_id = ? WHERE id = ?').run(transactionId, order.id);
+  ctx.db
+    .prepare('UPDATE orders SET transaction_id = ?, ebics_order_id = ? WHERE id = ?')
+    .run(transactionId, ebicsOrderId, order.id);
   recordOrderEvent(ctx.db, {
     orderId: order.id,
     type: 'initialised',
     at,
-    meta: { transaction_id: transactionId, segments: segments.length, tx_count: facts.txCount },
+    meta: {
+      transaction_id: transactionId,
+      ...(ebicsOrderId === null ? {} : { ebics_order_id: ebicsOrderId }),
+      segments: segments.length,
+      tx_count: facts.txCount,
+    },
   });
 
   // Transfer phase — segments are 1-based and must arrive in order.

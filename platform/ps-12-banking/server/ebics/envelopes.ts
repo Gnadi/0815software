@@ -709,10 +709,11 @@ function downloadInitialisation(params: {
  * answers "does this bank agree about who I am and what I may send" before a
  * payment is ever built. It is the sensible first live call after `HPB`.
  *
- * **`HAC` is here but its answer cannot be parsed.** The customer protocol's
- * order data is specified outside the H005 schema set — it is not in the ten
- * files the EBICS Working Group publishes — so this service fetches it and
- * stores the bytes without claiming to understand them. See `downloads.ts`.
+ * **`HAC`'s answer is specified outside this schema set**, in the national
+ * annexes — it is not in the ten files the EBICS Working Group publishes as
+ * H005. It is read against the annotated schema published beside it instead;
+ * see `server/hac.ts`, which is also where the reason a customer protocol must
+ * never be mistaken for a payment status report is written down.
  */
 export type AdminDownloadType = 'HTD' | 'HKD' | 'HPD' | 'HAA' | 'HAC';
 

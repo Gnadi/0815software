@@ -640,7 +640,12 @@ paths:
         schema: { type: string }
     get:
       summary: Get download
-      description: The metadata plus, for a pain.002, the payment statuses read out of it.
+      description: >-
+        The metadata plus, depending on the kind, what was read out of the file. `status`
+        carries the payment statuses; `info` carries a CIM's notices; `protocol` carries
+        `customer_protocol` — the bank's own log of what it did with each order, folded by
+        EBICS order number with a verdict per order. Note that `status` and `protocol` are
+        BOTH pain.002 documents: the kind is decided by the bytes, not by the BTF.
       tags: [ps-12-banking]
       security: [{serviceToken: []}, {adminSession: []}]
       responses:

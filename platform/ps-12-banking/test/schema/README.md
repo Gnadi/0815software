@@ -38,3 +38,27 @@ The Austrian Customer Information Message, published by PSA at
 added late, and it immediately showed the first reader to be wrong: that one
 was written from the implementation guideline's prose, which mentions
 `<CIMMsgType>` — a **type** name, not an element. The element is `CIM`.
+
+## `pain.002.001.03-hac.xsd`
+
+The customer acknowledgement — `HAC`, the *Kundenprotokoll*: the bank's own log
+of what it did with every order. Published by the **EBICS Working Group** at
+`ebics.de` as `pain.002.001.03commented-for-HAC.xsd`, annotations dated May
+2018, alongside four worked examples now in `test/fixtures/hac/`.
+
+It is the ISO 20022 `pain.002.001.03` schema with every element annotated for
+this use: `NONE` where the element is not used in `HAC` at all, and a note
+saying what it carries where it is. That annotation layer is the specification
+— the element names alone would tell you nothing about what `FILE_UPLOAD` or
+`ORDER_HAC_FINAL` mean.
+
+**`HAC` is not in the H005 schema set**, which is why this file is separate and
+why `HAC` was the one order type this service declined to read until these
+arrived. It is documented in the national annexes instead; PSA publishes no
+Austrian variant, so the German document is taken to apply in both markets.
+
+The trap it exists to catch: **a `HAC` document and a payment status report are
+both `pain.002.001.03`, in the same namespace, with the same root element.**
+Told apart only by `OrgnlGrpInfAndSts/OrgnlMsgId`, which is the literal string
+`EBICS` in a `HAC` and the original file's `MsgId` in a status report. Reading
+one as the other is the mistake this schema and these fixtures make visible.

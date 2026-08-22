@@ -11,8 +11,23 @@ import { sha256Hex } from './payload.js';
 import { isStatement, isStatusReport, readStatusReports, verdictOfReports } from './reports.js';
 import { documentsIn, ZipError } from './zip.js';
 import { isCustomerInfo, readCustomerInfo } from './cim.js';
+import {
+  entriesForOrder,
+  isCustomerAcknowledgement,
+  readCustomerAcknowledgement,
+  verdictOfEntries,
+  type CustomerAcknowledgement,
+  type HacEntry,
+} from './hac.js';
 import { foldStatus, recordOrderEvent } from './orders.js';
-import type { BtfInput, DownloadDetail, DownloadKind, DownloadRow, TickResult } from '../shared/types.js';
+import type {
+  BtfInput,
+  DownloadDetail,
+  DownloadKind,
+  DownloadRow,
+  HacEntrySummary,
+  TickResult,
+} from '../shared/types.js';
 
 /**
  * Fetching what the bank has for us, and folding it back into the orders.
@@ -134,11 +149,17 @@ export function downloadDetail(db: Database.Database, publicIdValue: string): Do
     )
     .all(row.id) as DownloadDetail['reports'];
 
-  // Read on the way out rather than stored: the CIMResp schema is not in this
-  // repository (see server/cim.ts), so what can be read out of one will get
-  // better, and a column written by today's reader would not.
-  if (row.kind !== 'info') return { ...toRow(db, row), reports };
+  // Both of these are read on the way OUT rather than stored, and for the same
+  // reason: the bytes are the record, so a better reader improves every file
+  // already collected instead of only the next one.
+  if (row.kind !== 'info' && row.kind !== 'protocol') return { ...toRow(db, row), reports };
   const content = db.prepare('SELECT content FROM downloads WHERE id = ?').get(row.id) as { content: Buffer };
+
+  if (row.kind === 'protocol') {
+    const log = documentsOf(content.content).map(readCustomerAcknowledgement).find((l) => l !== null) ?? null;
+    return { ...toRow(db, row), reports, customer_protocol: log === null ? null : summarise(log) };
+  }
+
   const message = readCustomerInfo(content.content);
   return {
     ...toRow(db, row),
@@ -154,6 +175,51 @@ export function downloadDetail(db: Database.Database, publicIdValue: string): Do
   };
 }
 
+/**
+ * A customer acknowledgement, in the shape the API hands over.
+ *
+ * `orders` is the part worth having: the raw entry list is chronological
+ * across every subscriber and every order at once, and the question an
+ * operator actually has is "what happened to THAT payment?". Folding by order
+ * number answers it, and `entriesForOrder` deliberately includes the entries
+ * that only REFER to an order — a co-signature is part of the payment's story
+ * even though it carries its own order number.
+ */
+function summarise(log: CustomerAcknowledgement): NonNullable<DownloadDetail['customer_protocol']> {
+  const entry = (e: HacEntry): HacEntrySummary => ({
+    action: e.action,
+    user_id: e.userId,
+    partner_id: e.partnerId,
+    order_id: e.orderId,
+    admin_order_type: e.adminOrderType,
+    service_name: e.serviceName,
+    msg_name: e.msgName,
+    timestamp: e.timestamp,
+    references_order_id: e.references.orderId,
+    reason_code: e.reasonCode,
+    additional_info: e.additionalInfo,
+  });
+
+  const orderIds: string[] = [];
+  for (const e of log.entries) {
+    // The order an entry is ABOUT: a HVE names its own number and refers to
+    // the payment, so the reference wins where there is one.
+    const id = e.references.orderId ?? e.orderId;
+    if (id !== null && !orderIds.includes(id)) orderIds.push(id);
+  }
+
+  return {
+    message_id: log.messageId,
+    created_at: log.createdAt,
+    host_id: log.hostId,
+    entries: log.entries.map(entry),
+    orders: orderIds.map((orderId) => {
+      const entries = entriesForOrder(log, orderId);
+      return { order_id: orderId, verdict: verdictOfEntries(entries), entries: entries.map(entry) };
+    }),
+  };
+}
+
 /** The file itself. Separate from the metadata so a list never carries blobs. */
 export function downloadContent(db: Database.Database, publicIdValue: string): Buffer {
   const row = db.prepare('SELECT content FROM downloads WHERE public_id = ?').get(publicIdValue) as
@@ -165,11 +231,34 @@ export function downloadContent(db: Database.Database, publicIdValue: string): B
 
 // ── Fetching ──────────────────────────────────────────────────────────
 
-function kindOf(btf: BtfInput): DownloadKind {
+/**
+ * What kind of file this is — from the BTF, and from the BYTES.
+ *
+ * The content check is not belt-and-braces. **A HAC customer acknowledgement
+ * is a `pain.002.001.03`, the same message name as a payment status report**,
+ * in the same namespace with the same root element. Classifying on the BTF
+ * alone would file the bank's own activity log as a set of payment verdicts
+ * and hand it to `applyReports`, which exists to settle and reject orders.
+ *
+ * So the bytes decide, and they are checked first. `isCustomerAcknowledgement`
+ * reads the one element that distinguishes them — see `hac.ts`.
+ */
+function kindOf(btf: BtfInput, documents: Buffer[]): DownloadKind {
+  if (documents.some(isCustomerAcknowledgement)) return 'protocol';
   if (isStatusReport(btf.msg_name)) return 'status';
   if (isStatement(btf.msg_name)) return 'statement';
   if (isCustomerInfo(btf.msg_name)) return 'info';
   return 'other';
+}
+
+/** The documents inside a download — one file, or the members of its archive. */
+function documentsOf(content: Buffer): Buffer[] {
+  try {
+    return documentsIn(content);
+  } catch (err) {
+    console.warn(`[ps-12] a download could not be opened as an archive: ${err instanceof ZipError ? err.message : err}`);
+    return [];
+  }
 }
 
 function subscriberOf(row: ConnectionRow): Subscriber {
@@ -289,6 +378,9 @@ export async function fetchOne(
 
   const content = unpackOrderData(transactionKey, parts.join(''));
   const digest = sha256Hex(content);
+  // Opened once: the kind depends on what is inside, not only on the BTF.
+  const documents = documentsOf(content);
+  const kind = kindOf(btf, documents);
 
   // STORE FIRST. The receipt below tells the bank to stop offering this file,
   // so it must not be sent until these bytes are committed.
@@ -315,7 +407,7 @@ export async function fetchOne(
         .run(
           connection.id,
           storedId,
-          kindOf(btf),
+          kind,
           JSON.stringify(btf),
           digest,
           content.byteLength,
@@ -324,7 +416,9 @@ export async function fetchOne(
           at,
         );
       const downloadId = Number(info.lastInsertRowid);
-      for (const report of reportsIn(content)) {
+      // A HAC's entries are NOT payment verdicts, and the kind check above is
+      // what keeps them out of this table.
+      for (const report of kind === 'protocol' ? [] : documents.flatMap(readStatusReports)) {
         ctx.db
           .prepare(
             'INSERT INTO download_reports (download_id, msg_id, status_code, reason_code, reason, created_at) VALUES (?, ?, ?, ?, ?, ?)',
@@ -353,26 +447,6 @@ export async function fetchOne(
   }
 
   return { download: downloadDetail(ctx.db, storedId), duplicate };
-}
-
-/**
- * The status reports inside whatever the bank sent.
- *
- * EBICS delivers pain.002 inside a ZIP container — one download can carry
- * several — so the archive is opened and every document in it is read. An
- * archive this cannot open yields no reports rather than throwing: the bytes
- * are already stored and the receipt has not gone out yet, so a caller can
- * come back to them, whereas failing here would abandon a file mid-fetch.
- */
-function reportsIn(content: Buffer): ReturnType<typeof readStatusReports> {
-  let documents: Buffer[];
-  try {
-    documents = documentsIn(content);
-  } catch (err) {
-    console.warn(`[ps-12] a download could not be opened as an archive: ${err instanceof ZipError ? err.message : err}`);
-    return [];
-  }
-  return documents.flatMap((document) => readStatusReports(document));
 }
 
 // ── Folding a status report into its order ────────────────────────────
@@ -455,6 +529,97 @@ export function applyReports(db: Database.Database, now: () => string): number {
   return updated;
 }
 
+/**
+ * Apply every unprocessed customer acknowledgement to the orders it names.
+ *
+ * ## Why this is worth doing at all
+ *
+ * A `pain.002` status report answers "did the payment settle?". The customer
+ * protocol answers a different and earlier question: **"did the bank accept
+ * the file, and did my signature hold?"** An order refused at the signature
+ * step never reaches a status report, so without this it sits at `accepted`
+ * forever while the money never moves.
+ *
+ * ## What it deliberately does NOT claim
+ *
+ * A `HAC` verdict of `processed` means the bank finished handling the order at
+ * the EBICS level — the file arrived, the signatures verified, it was passed
+ * on. **It does not mean the payment executed**, which only a `pain.002` can
+ * say. So a positive protocol entry records nothing: the order's status
+ * already reflects an accepted upload, and calling it `settled` here would be
+ * a settlement this service invented.
+ *
+ * A failure is the other way round. It is information nothing else will ever
+ * carry, so it is recorded.
+ */
+export function applyCustomerProtocol(db: Database.Database, now: () => string): number {
+  const pending = db
+    .prepare(
+      `SELECT d.id AS download_id, d.public_id, d.connection_id
+         FROM downloads d
+        WHERE d.kind = 'protocol' AND d.processed_at IS NULL
+        ORDER BY d.id`,
+    )
+    .all() as { download_id: number; public_id: string; connection_id: number }[];
+
+  let updated = 0;
+  for (const row of pending) {
+    const content = db.prepare('SELECT content FROM downloads WHERE id = ?').get(row.download_id) as {
+      content: Buffer;
+    };
+    const log = documentsOf(content.content).map(readCustomerAcknowledgement).find((l) => l !== null) ?? null;
+    if (log !== null) {
+      const ids = new Set<string>();
+      for (const entry of log.entries) {
+        const id = entry.references.orderId ?? entry.orderId;
+        if (id !== null) ids.add(id);
+      }
+
+      for (const orderId of ids) {
+        const entries = entriesForOrder(log, orderId);
+        if (verdictOfEntries(entries) !== 'failed') continue;
+
+        // The bank's order number, which only exists on orders submitted since
+        // migration 11. An older order cannot be matched, and inventing a
+        // match on anything else would attach a stranger's failure to a real
+        // payment.
+        const order = db
+          .prepare('SELECT id FROM orders WHERE connection_id = ? AND ebics_order_id = ?')
+          .get(row.connection_id, orderId) as { id: number } | undefined;
+        if (order === undefined) continue;
+
+        const events = db
+          .prepare('SELECT type, ebics_code, meta, created_at FROM order_events WHERE order_id = ? ORDER BY id')
+          .all(order.id) as { type: string; ebics_code: string | null; meta: string; created_at: string }[];
+        const current = foldStatus(
+          events.map((e) => ({ type: e.type, ebics_code: e.ebics_code, meta: {}, created_at: e.created_at })),
+        );
+        // Already known to have gone wrong. Re-processing a protocol file must
+        // not fill the stream with duplicates.
+        if (current === 'rejected' || current === 'failed') continue;
+
+        const failure = entries.find((e) => e.reasonCode !== null && !['TS01', 'DS01', 'DS05', 'DS06'].includes(e.reasonCode.toUpperCase()));
+        recordOrderEvent(db, {
+          orderId: order.id,
+          type: 'rejected',
+          at: now(),
+          code: failure?.reasonCode ?? null,
+          meta: {
+            message: `the bank's protocol records this order as failed at ${failure?.action ?? 'an unnamed step'}`,
+            source: row.public_id,
+            ebics_order_id: orderId,
+          },
+        });
+        updated += 1;
+      }
+    }
+
+    db.prepare('UPDATE downloads SET processed_at = ? WHERE id = ?').run(now(), row.download_id);
+  }
+
+  return updated;
+}
+
 // ── The tick ──────────────────────────────────────────────────────────
 
 /**
@@ -494,7 +659,7 @@ export async function tick(ctx: DownloadContext): Promise<TickResult> {
     }
   }
 
-  result.orders_updated = applyReports(ctx.db, now);
+  result.orders_updated = applyReports(ctx.db, now) + applyCustomerProtocol(ctx.db, now);
   return result;
 }
 

@@ -250,9 +250,12 @@ export interface OrderPreview {
  *              file go through?", so this one IS read.
  *   info       CIM — a notice the bank wants a PERSON to read. Read far
  *              enough to show its text; see server/cim.ts for the ceiling.
+ *   protocol   HAC — the customer acknowledgement, the bank's own log of what
+ *              it did with every order. ALSO a pain.002, which is exactly why
+ *              it needs a kind of its own; see server/hac.ts.
  *   other      anything else a BTF names. Kept, offered, not understood.
  */
-export const DOWNLOAD_KINDS = ['statement', 'status', 'info', 'other'] as const;
+export const DOWNLOAD_KINDS = ['statement', 'status', 'info', 'protocol', 'other'] as const;
 export type DownloadKind = (typeof DOWNLOAD_KINDS)[number];
 
 export interface DownloadRow {
@@ -294,6 +297,41 @@ export interface DownloadDetail extends DownloadRow {
     created_at: string;
     notices: { id: string; timestamp: string; headline: string | null; text: string }[];
   } | null;
+  /**
+   * For `kind: 'protocol'` only — what a HAC logged, read against the schema
+   * the EBICS Working Group publishes with it.
+   *
+   * `entries` are the bank's own actions in the order it recorded them;
+   * `orders` folds them per EBICS order number, which is the form an operator
+   * asking "what happened to that payment?" actually wants.
+   */
+  customer_protocol?: {
+    message_id: string;
+    created_at: string;
+    host_id: string | null;
+    entries: HacEntrySummary[];
+    orders: { order_id: string; verdict: HacOrderVerdict; entries: HacEntrySummary[] }[];
+  } | null;
+}
+
+/** What the bank's log says became of one order. */
+export type HacOrderVerdict = 'processed' | 'failed' | 'in_progress';
+
+/** One logged action, as the API hands it over. */
+export interface HacEntrySummary {
+  action: string;
+  user_id: string | null;
+  partner_id: string | null;
+  order_id: string | null;
+  admin_order_type: string | null;
+  service_name: string | null;
+  msg_name: string | null;
+  timestamp: string | null;
+  /** The order this action is ABOUT, when it is not the one it names. */
+  references_order_id: string | null;
+  reason_code: string | null;
+  /** Free text; on the final entry, the bank's display file. */
+  additional_info: string | null;
 }
 
 /** What one `POST /api/tick` did. */

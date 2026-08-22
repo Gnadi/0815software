@@ -461,6 +461,27 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    id: 11,
+    name: 'order-ebics-order-id',
+    up(db) {
+      // The BANK's order number, from the mutable header of the response that
+      // accepted the upload. Not the same thing as `transaction_id`, which
+      // names one conversation and is meaningless once it ends.
+      //
+      // This is the handle the customer protocol (HAC) logs every action
+      // under. Without it a HAC entry saying "signature refused, order A445"
+      // cannot be tied to the payment file it refused, which makes the whole
+      // protocol readable but not actionable.
+      const columns = (db.prepare('PRAGMA table_info(orders)').all() as { name: string }[]).map((c) => c.name);
+      if (!columns.includes('ebics_order_id')) {
+        db.exec('ALTER TABLE orders ADD COLUMN ebics_order_id TEXT');
+      }
+      // Not unique: a bank may reuse an order number across customers, and
+      // orders are looked up per connection anyway.
+      db.exec('CREATE INDEX IF NOT EXISTS idx_orders_ebics_order ON orders (connection_id, ebics_order_id)');
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {
