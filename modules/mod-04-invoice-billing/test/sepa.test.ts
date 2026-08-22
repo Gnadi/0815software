@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   austrianRemittanceProblem,
   taxAccountProblem,
-  CPPP_REMITTANCE,
   buildPain001,
   formatIban,
   ibanProblem,
@@ -414,12 +413,12 @@ describe('Finanzamtszahlung and Postbarzahlung', () => {
     expect(xml.match(/<Purp>/g)).toHaveLength(1);
   });
 
-  it('marks a Postbarzahlung with Prtry, not Cd', () => {
-    // CPPP appears in no ISO ExternalCategoryPurpose list.
-    const xml = buildPain001({ ...BASE, category_purpose: 'CPPP' as const });
-    expect(xml).toContain('<Prtry>CPPP</Prtry>');
-    expect(xml).not.toContain('<Cd>CPPP</Cd>');
-    expect(xml.indexOf('<CtgyPurp>')).toBeGreaterThan(xml.indexOf('</SvcLvl>'));
+  it('never emits a category purpose — a Postbarzahlung is not built here', () => {
+    // A CPPP payment is addressed to BAWAG PSK's collection account with the
+    // real recipient in UltmtCdtr, which a bill from a creditor cannot
+    // express. PS-12 checks for one on the way to the bank instead.
+    const xml = buildPain001({ ...BASE, payments: [{ ...BASE.payments[0]!, purpose: 'TAXS' as const }] });
+    expect(xml).not.toContain('CtgyPurp');
   });
 
   it('emits nothing extra for an ordinary transfer', () => {
@@ -470,50 +469,6 @@ describe('the Finanzamt remittance format', () => {
     const long = '08+100AZ'.repeat(20);
     expect(long.length).toBeGreaterThan(140);
     expect(austrianRemittanceProblem('TAXS', long)?.message).toMatch(/140/);
-  });
-});
-
-describe('the Postbarzahlung remittance format', () => {
-  it('accepts the published example', () => {
-    const published =
-      'K1D20111101K3K4K8D20110101K23P436764058615?1234?Hirschdorf vorm Walde?' +
-      'Karl-Christian Lorenzpl.12/3/23?Heizkostenzuschuss 12/2012';
-    expect(austrianRemittanceProblem('CPPP', published)).toBeNull();
-  });
-
-  it('accepts a minimal one', () => {
-    expect(austrianRemittanceProblem('CPPP', 'K3?1234?Ort?Strasse 1?Zweck')).toBeNull();
-  });
-
-  it('refuses a line with too few delimiters to hold an address', () => {
-    // Post code, address line 1, address line 2 and free text need four
-    // delimited fields. Three of anything is not an address.
-    expect(austrianRemittanceProblem('CPPP', 'K3?1234?Ort')).not.toBeNull();
-    expect(austrianRemittanceProblem('CPPP', 'K3?1234?Ort?Strasse 1')).not.toBeNull();
-  });
-
-  it('lets the free text carry the delimiter, but not the address lines', () => {
-    // "Trennzeichen darf enthalten sein" applies to the remittance text only,
-    // so extra delimiters land there and split nothing further — which is why
-    // the address parts have to be both non-greedy and delimiter-free. The
-    // published [^\2] is not that in JavaScript: it means "not U+0002". This
-    // pins the lookahead translation that is.
-    const withExtras = 'K3?1234?Ort?Strasse 1?Zweck?mit?weiteren?Zeichen';
-    expect(austrianRemittanceProblem('CPPP', withExtras)).toBeNull();
-    const match = CPPP_REMITTANCE.exec(withExtras)!;
-    expect(match[4]).toBe('Ort');
-    expect(match[5]).toBe('Strasse 1');
-    expect(match[6]).toBe('Zweck?mit?weiteren?Zeichen');
-  });
-
-  it('refuses two mutually exclusive clauses', () => {
-    // A rule the regular expression cannot carry: only one of K21…K25.
-    const both = 'K21K22?1234?Ort?Strasse 1?Zweck';
-    expect(austrianRemittanceProblem('CPPP', both)?.message).toMatch(/mutually exclusive/);
-  });
-
-  it('refuses a delimiter drawn from the clause alphabet', () => {
-    expect(austrianRemittanceProblem('CPPP', 'K3K1234KOrtKStrasse 1KZweck')).not.toBeNull();
   });
 });
 

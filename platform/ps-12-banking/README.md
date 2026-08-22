@@ -475,6 +475,41 @@ The two Austrian documents also disagree on the message name — the mapping
 table says `cimresp`, the guideline's worked example says `BRCResp`. Both are
 recognised, and `bank-registry.ts` records the conflict.
 
+### The two Austrian payment formats
+
+PS-12 is payload-agnostic and stays that way — it does not know what an invoice
+is and never rewrites a byte of what it signs. It makes one narrow exception,
+for the same reason `payload.ts` reads a `MsgId`: a malformed Finanzamtszahlung
+or Postbarzahlung is refused by the bank **after** an ES has authorised it, and
+at signature class E that signature is the money.
+
+So when an uploaded `pain.001` marks a payment as Austrian, `austrian.ts`
+checks its remittance against PSA's published format before anything is signed.
+A file with no such mark is not touched, and silence never means "checked and
+fine" — the caller's own validation still applies.
+
+| | element | level |
+| --- | --- | --- |
+| TAXS | `Purp/Cd` | the individual `CdtTrfTxInf` |
+| CPPP | `PmtTpInf/CtgyPurp/Prtry` | either |
+
+A `CtgyPurp` of `TAXS` is itself a finding, not a synonym: the specification
+allows that code nowhere but `Purp/Cd` on the transaction, and says batch-level
+coding "ist nicht vorgesehen" even when every payment in the batch is one.
+`CPPP` belongs in `Prtry` because it is not an ISO `ExternalCategoryPurpose`
+code — a bank handed `<Cd>CPPP</Cd>` is handed a code that does not exist.
+
+One translation note. **`[^\2]` is not a backreference in JavaScript**: inside
+a character class it means "not U+0002". Used verbatim the published CPPP
+expression would let an address line contain the delimiter and mis-split the
+address, so it ships as a negative lookahead, `(?:(?!\2).)*?`. Two rules the
+expression cannot carry are checked beside it: clauses 21–25 are mutually
+exclusive, and the line is capped at 140 characters.
+
+A Finanzamtszahlung's 9-digit Ordnungsbegriff in `EndToEndId` is check-digit
+verified too. MOD-04 builds these files; this is the last gate before the key
+that can pay is used.
+
 ### Verification of Payee
 
 Since 09.10.2025 the ServiceOption on a SEPA credit transfer says whether the

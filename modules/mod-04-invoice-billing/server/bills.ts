@@ -29,6 +29,8 @@ import {
   type AustrianPurpose,
   type SepaInstruction,
 } from '../shared/sepa.js';
+import { buildEactRemittance } from '../shared/eact.js';
+import { finanzamtFor } from '../shared/finanzamt.js';
 import { DomainError, likeTerm, nowIso, todayIso } from './invoices.js';
 import type { SellerConfig } from './config.js';
 
@@ -89,7 +91,14 @@ export function listCreditors(db: Database.Database, search?: string): CreditorR
        ORDER BY c.name COLLATE NOCASE`,
     )
     .all(...(term ? [likeTerm(term), likeTerm(term.replace(/\s+/g, '').toUpperCase())] : [])) as CreditorCountRow[];
-  return rows.map((row) => ({ ...row, open_cents: row.open_cents ?? 0 }));
+  return rows.map((row) => {
+    const office = finanzamtFor(row.iban);
+    return {
+      ...row,
+      open_cents: row.open_cents ?? 0,
+      finanzamt: office === null ? null : { office: office.office, name: office.name },
+    };
+  });
 }
 
 export function getCreditor(db: Database.Database, id: number): Creditor {
@@ -412,19 +421,22 @@ export interface RunInput {
   createdBy?: string | null;
   batchBooking?: boolean;
   /**
-   * `TAXS` for a Finanzamtszahlung, `CPPP` for a Postbarzahlung, absent for an
-   * ordinary transfer. Applied to every payment in the run.
+   * `TAXS` marks every payment in the run as a Finanzamtszahlung.
    *
-   * The two are ENCODED differently, and this is where that is decided: TAXS
-   * becomes `Purp/Cd` on each individual transfer, because the specification
-   * says coding it at batch level "ist nicht vorgesehen" even when the whole
-   * batch is tax payments; CPPP becomes `PmtTpInf/CtgyPurp/Prtry` for the run.
-   * A run-wide flag is an operator convenience, not a claim about where the
-   * code goes on the wire.
+   * The code still lands on each individual transfer as `Purp/Cd`, because
+   * the specification says coding it at batch level "ist nicht vorgesehen"
+   * even when the whole batch is tax payments. A run-wide flag is an operator
+   * convenience, not a claim about where the code goes on the wire.
    */
   categoryPurpose?: AustrianPurpose;
   /** The configured remittance format for that purpose, when there is one. */
   remittancePattern?: RegExp | null;
+  /**
+   * Write each payment's remittance in the EACT structured form so the
+   * creditor's ledger can match it automatically. Ignored for a
+   * Finanzamtszahlung, whose Ustrd has its own grammar.
+   */
+  structuredRemittance?: boolean;
   createdAt?: string;
   today?: string;
 }
@@ -476,6 +488,38 @@ function runStatus(row: {
  * date in the past. The alternative is a half-built run and a file the bank
  * bounces, discovered by an operator who has already moved on.
  */
+/**
+ * The remittance line one bill goes out with.
+ *
+ * Ordinarily the bill's own payment reference. With `structuredRemittance` it
+ * is the EACT form instead — `/CINV/<reference>/ <amount>/ <invoice date>` —
+ * which the creditor's ledger can match automatically rather than by somebody
+ * reading it. A Finanzamtszahlung is never restructured: its Ustrd carries the
+ * tax periods and amounts and has its own grammar.
+ */
+function remittanceFor(
+  bill: { reference: string; payment_reference: string; amount_cents: number; issue_date: string | null },
+  input: RunInput,
+): string {
+  if (input.structuredRemittance !== true || input.categoryPurpose !== undefined) {
+    return sepaText(bill.payment_reference, MAX_REMITTANCE);
+  }
+  // A bill without an issue date simply carries no date component. EACT drops
+  // an unused trailing component with its separator, so this stays valid.
+  const { remittance } = buildEactRemittance([
+    {
+      tag: 'CINV',
+      reference: bill.reference,
+      amountCents: bill.amount_cents,
+      ...(bill.issue_date === null ? {} : { date: bill.issue_date }),
+    },
+  ]);
+  // One invoice always fits; the fallback is here because `buildEactRemittance`
+  // may legitimately omit an element and an empty Ustrd would be worse than an
+  // unstructured one.
+  return remittance === '' ? sepaText(bill.payment_reference, MAX_REMITTANCE) : remittance;
+}
+
 export function createPaymentRun(db: Database.Database, seller: SellerConfig, input: RunInput): number {
   const today = input.today ?? todayIso();
   const config = paymentConfig(seller, input.batchBooking ?? false);
@@ -525,7 +569,7 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
     creditor_name: bill.creditor_name,
     creditor_iban: bill.creditor_iban,
     creditor_bic: bill.creditor_bic,
-    remittance: sepaText(bill.payment_reference, MAX_REMITTANCE),
+    remittance: remittanceFor(bill, input),
   }));
 
   // The bank's own file check, run here where the fields can still be fixed.
@@ -538,7 +582,6 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
     debtor_name: config.debtor_name,
     debtor_iban: normalizeIban(seller.iban),
     debtor_bic: config.debtor_bic,
-    ...(input.categoryPurpose === 'CPPP' ? { category_purpose: 'CPPP' as const } : {}),
     payments: items.map((item) => ({
       end_to_end_id: item.end_to_end_id,
       amount_cents: item.amount_cents,
@@ -644,7 +687,7 @@ function runRow(db: Database.Database, row: RunStoredRow): PaymentRunRow {
     banking_order_id: row.banking_order_id ?? null,
     bank_status: row.bank_status ?? null,
     bank_message: row.bank_message ?? null,
-    category_purpose: (row.category_purpose ?? null) as 'TAXS' | 'CPPP' | null,
+    category_purpose: (row.category_purpose ?? null) as 'TAXS' | null,
     remittance_format_checked:
       row.remittance_checked === null || row.remittance_checked === undefined ? null : row.remittance_checked === 1,
   };
@@ -696,7 +739,6 @@ export function paymentRunXml(db: Database.Database, id: number): string {
     // Read back from the run, never recomputed: the file must be identical
     // every time it is rebuilt, and a purpose taken from today's config would
     // change a run made under a different one.
-    ...(row.category_purpose === 'CPPP' ? { category_purpose: 'CPPP' as const } : {}),
     payments: detail.items.map((item) => ({
       end_to_end_id: item.end_to_end_id,
       amount_cents: item.amount_cents,

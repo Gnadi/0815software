@@ -169,6 +169,14 @@ export interface CreditorRow extends Creditor {
   bill_count: number;
   /** Gross still owed to this creditor: bills that are neither paid nor cancelled. */
   open_cents: number;
+  /**
+   * The Austrian tax office this creditor's IBAN belongs to, when it is one.
+   *
+   * A hint, not a rule: the list it comes from is marked non-normative and
+   * changes. It exists so a screen can say "this is Finanzamt Linz — send it
+   * as a Finanzamtszahlung?" rather than leaving an operator to know.
+   */
+  finanzamt: { office: number; name: string } | null;
 }
 
 /** One incoming bill — what we owe, to whom, by when. */
@@ -252,11 +260,10 @@ export interface PaymentRunRow {
   bank_status: string | null;
   bank_message: string | null;
   /**
-   * `TAXS` for a Finanzamtszahlung, `CPPP` for a Postbarzahlung, null for an
-   * ordinary SEPA credit transfer — which is every run made before this
-   * existed, and most runs after it.
+   * `TAXS` for a Finanzamtszahlung, null for an ordinary SEPA credit transfer
+   * — which is every run made before this existed, and most runs after it.
    */
-  category_purpose: 'TAXS' | 'CPPP' | null;
+  category_purpose: 'TAXS' | null;
   /**
    * Whether the remittance lines were checked against a published format.
    *

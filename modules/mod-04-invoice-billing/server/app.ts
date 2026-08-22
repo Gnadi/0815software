@@ -245,12 +245,11 @@ export interface AppOptions {
    */
   bankingConfigured?: boolean;
   /**
-   * The remittance formats for the two Austrian special credit transfers, from
-   * `ServerConfig`. Null means the operator has configured none, and a TAXS or
-   * CPPP run then goes out with its `Ustrd` unchecked — see `config.ts` for
-   * why this service ships no pattern of its own.
+   * An optional OVERRIDE for the Finanzamt remittance format, from
+   * `ServerConfig`. PSA's own pattern is shipped and enforced by default; this
+   * exists for a bank that is stricter.
    */
-  austrianRemittance?: { TAXS: RegExp | null; CPPP: RegExp | null };
+  austrianRemittance?: { TAXS: RegExp | null };
   verifyLogin?: LoginVerifier;
   /**
    * The platform machine token (PLATFORM_SERVICE_TOKEN). When set, it is the
@@ -273,7 +272,7 @@ export interface AppOptions {
   loginMode?: LoginMode;
 }
 
-export function createApp({ db, hardening, auth, seller, staticDir, platform = noopPlatform, bankingConfigured = false, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [], austrianRemittance = { TAXS: null, CPPP: null } }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, seller, staticDir, platform = noopPlatform, bankingConfigured = false, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [], austrianRemittance = { TAXS: null } }: AppOptions): express.Express {
   const app = express();
   const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
 
@@ -764,20 +763,25 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
     const billIds = rawIds.map((raw, i) => id(raw, `bill_ids[${i}]`, errors));
     const executionDate = optDate(input.execution_date, 'execution_date', errors);
 
-    // TAXS = Finanzamtszahlung, CPPP = Postbarzahlung. A whole run rather than
-    // a mixture: they go to different places under different rules, and ISO
-    // allows one PmtTpInf per file.
+    // TAXS marks every payment in the run as a Finanzamtszahlung. There is no
+    // CPPP here: a Postbarzahlung is addressed to BAWAG PSK's collection
+    // account with the real recipient in UltmtCdtr, which a bill from a
+    // creditor cannot express. PS-12 checks for one on the way to the bank.
     const rawPurpose = typeof input.category_purpose === 'string' ? input.category_purpose.trim() : '';
-    if (rawPurpose !== '' && rawPurpose !== 'TAXS' && rawPurpose !== 'CPPP') {
-      errors.push({ field: 'category_purpose', message: 'must be "TAXS" (Finanzamtszahlung) or "CPPP" (Postbarzahlung)' });
+    if (rawPurpose !== '' && rawPurpose !== 'TAXS') {
+      errors.push({
+        field: 'category_purpose',
+        message: 'must be "TAXS" (Finanzamtszahlung); a Postbarzahlung cannot be built from a bill',
+      });
     }
     if (errors.length > 0) fail(errors);
-    const categoryPurpose = rawPurpose === '' ? undefined : (rawPurpose as 'TAXS' | 'CPPP');
+    const categoryPurpose = rawPurpose === '' ? undefined : ('TAXS' as const);
 
     const runId = createPaymentRun(db, seller, {
       billIds,
       executionDate: executionDate ?? undefined,
       createdBy: actorOf(res, auth),
+      structuredRemittance: input.structured_remittance === true,
       ...(categoryPurpose === undefined
         ? {}
         : { categoryPurpose, remittancePattern: austrianRemittance[categoryPurpose] }),

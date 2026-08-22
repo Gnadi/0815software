@@ -31,19 +31,17 @@ export interface ServerConfig {
   auth: AuthConfig;
   seller: SellerConfig;
   /**
-   * Optional OVERRIDES for the two Austrian remittance formats.
+   * An optional OVERRIDE for the Finanzamt remittance format.
    *
-   * The formats themselves are published by PSA and shipped in `shared/sepa.ts`
-   * — `TAXS_REMITTANCE` and `CPPP_REMITTANCE` — so nothing needs configuring
-   * for a tax payment or a Postbarzahlung to be checked. These exist because a
-   * bank may be *stricter* than PSA, and a customer told so should be able to
-   * say it here rather than discover it from a rejected file.
+   * PSA's own pattern is published and shipped as `TAXS_REMITTANCE`, so
+   * nothing needs configuring for a tax payment to be checked. This exists
+   * because a bank may be *stricter* than PSA, and a customer told so should
+   * be able to say it here rather than discover it from a rejected file.
    *
-   * They replace the format check only. The length cap and the refusal of an
-   * empty remittance stand either way, and an override cannot make an invalid
-   * tax account number acceptable.
+   * It replaces the format check only. The 140-character cap, the refusal of
+   * an empty remittance and the tax account check digit stand either way.
    */
-  austrianRemittance: { TAXS: RegExp | null; CPPP: RegExp | null };
+  austrianRemittance: { TAXS: RegExp | null };
   platform: PlatformConfig;
   sso: SsoConfig;
 }
@@ -120,7 +118,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     },
     austrianRemittance: {
       TAXS: patternFromEnv('AT_TAXS_REMITTANCE_PATTERN', env.AT_TAXS_REMITTANCE_PATTERN),
-      CPPP: patternFromEnv('AT_CPPP_REMITTANCE_PATTERN', env.AT_CPPP_REMITTANCE_PATTERN),
     },
     // Platform Services — all optional; unset means standalone (no calls out).
     sso: {

@@ -8,6 +8,7 @@ import { newTransactionKey, packOrderData, type EsVersion } from './ebics/crypto
 import { parseResponse } from './ebics/parse.js';
 import type { Verdict } from './ebics/codes.js';
 import { checkCeilings, inspectPayload, type PayloadFacts } from './payload.js';
+import { austrianPaymentProblems } from './austrian.js';
 import { bankProfile } from './bank-registry.js';
 import type { BtfInput, Order, OrderDetail, OrderEvent, OrderStatus } from '../shared/types.js';
 
@@ -290,10 +291,13 @@ export function previewOrder(
     amount_minor: facts.amountMinor,
     tx_count: facts.txCount,
     btf,
-    problems: checkCeilings(facts, {
-      maxAmountMinor: connection.max_amount_minor,
-      maxTransfers: connection.max_transfers,
-    }),
+    problems: [
+      ...checkCeilings(facts, {
+        maxAmountMinor: connection.max_amount_minor,
+        maxTransfers: connection.max_transfers,
+      }),
+      ...austrianPaymentProblems(input.payload),
+    ],
   };
 }
 
@@ -364,11 +368,17 @@ export async function submitOrder(ctx: OrderContext, input: SubmitInput): Promis
     return { order: previous, replayed: true };
   }
 
-  // 3. Ceilings — the last gate before the ES key is used.
-  const problems = checkCeilings(facts, {
-    maxAmountMinor: connection.max_amount_minor,
-    maxTransfers: connection.max_transfers,
-  });
+  // 3. Ceilings, and the Austrian payment formats — the last gate before the
+  //    ES key is used. A malformed Finanzamtszahlung is refused by the bank
+  //    AFTER a signature has authorised it, and at class E that signature is
+  //    the money; catching it here costs one parse and no round trip.
+  const problems = [
+    ...checkCeilings(facts, {
+      maxAmountMinor: connection.max_amount_minor,
+      maxTransfers: connection.max_transfers,
+    }),
+    ...austrianPaymentProblems(input.payload),
+  ];
   if (problems.length > 0) {
     throw new DomainError(422, 'this file is outside what this connection may send', problems);
   }

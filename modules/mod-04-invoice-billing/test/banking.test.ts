@@ -444,7 +444,6 @@ describe('Finanzamtszahlung and Postbarzahlung', () => {
   // documented tax account number, check digit and all.
   const TAX_REMITTANCE = '0811+676850L+176800DB+23601DZ0810-563910U';
   const TAX_ACCOUNT = '269135729';
-  const CPPP_REMITTANCE = 'K3?1234?Hirschdorf?Karl-Christian Lorenzpl.12?Heizkostenzuschuss';
 
   async function runWith(purpose: string, reference: string, remittance: string): Promise<PaymentRunDetail> {
     const created = await addBill({ reference, remittance });
@@ -503,16 +502,18 @@ describe('Finanzamtszahlung and Postbarzahlung', () => {
     expect(JSON.stringify(res.body)).toContain('Finanzamt remittance');
   });
 
-  it('marks a Postbarzahlung with Prtry, because CPPP is not an ISO code', async () => {
-    // A bank handed <Cd>CPPP</Cd> is handed a code that appears in no ISO
-    // ExternalCategoryPurpose list.
+  it('refuses a Postbarzahlung, which a bill cannot express', async () => {
+    // CPPP goes to BAWAG PSK's collection account with the real recipient in
+    // UltmtCdtr. Flagging it here and addressing it wrongly is worse than not
+    // offering it; PS-12 checks for one on the way to the bank.
     await boot({});
-    const run = await runWith('CPPP', 'CPP-1', CPPP_REMITTANCE);
-    const xml = (await request(app).get(`/api/payment-runs/${run.id}/sepa.xml`).set('Cookie', cookie).expect(200))
-      .text;
-    expect(xml).toContain('<CtgyPurp>');
-    expect(xml).toContain('<Prtry>CPPP</Prtry>');
-    expect(xml).not.toContain('<Cd>CPPP</Cd>');
+    const created = await addBill({ reference: 'CPP-1', remittance: 'K3?1234?Ort?Strasse 1?Zweck' });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: 'CPPP' });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('Postbarzahlung cannot be built from a bill');
   });
 
   it('says the format WAS checked — the patterns are published and shipped', async () => {
@@ -551,5 +552,55 @@ describe('Finanzamtszahlung and Postbarzahlung', () => {
       .send({ bill_ids: [created.id], category_purpose: 'TAX' });
     expect(res.status).toBe(422);
     expect(JSON.stringify(res.body)).toContain('category_purpose');
+  });
+});
+
+// ── EACT structured remittance ────────────────────────────────────────
+
+describe('structured remittance', () => {
+  it('writes the invoice, amount and date in a form a ledger can match', async () => {
+    // Without it the creditor gets a sum and a line of text somebody reads.
+    await boot({});
+    const created = await addBill({ reference: 'SW-2026-004512', remittance: '' });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], structured_remittance: true });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+    const xml = (await request(app)
+      .get(`/api/payment-runs/${res.body.id}/sepa.xml`)
+      .set('Cookie', cookie)
+      .expect(200)).text;
+    expect(xml).toContain('<Ustrd>/CINV/SW-2026-004512/ 384.20/ 20260602</Ustrd>');
+  });
+
+  it('leaves an ordinary run as free text', async () => {
+    await boot({});
+    const run = await makeRun();
+    const xml = (await request(app)
+      .get(`/api/payment-runs/${run.id}/sepa.xml`)
+      .set('Cookie', cookie)
+      .expect(200)).text;
+    expect(xml).not.toContain('/CINV/');
+  });
+
+  it('never restructures a Finanzamtszahlung', async () => {
+    // Its Ustrd carries the tax periods and amounts and has its own grammar;
+    // wrapping that in /CINV/ would make it unparseable at the tax office.
+    await boot({});
+    const created = await addBill({ reference: '269135729', remittance: '0811+676850L' });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: 'TAXS', structured_remittance: true });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+    const xml = (await request(app)
+      .get(`/api/payment-runs/${res.body.id}/sepa.xml`)
+      .set('Cookie', cookie)
+      .expect(200)).text;
+    expect(xml).toContain('<Ustrd>0811+676850L</Ustrd>');
+    expect(xml).not.toContain('/CINV/');
   });
 });
