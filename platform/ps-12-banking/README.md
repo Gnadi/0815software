@@ -681,6 +681,36 @@ A new connection is seeded with its profile's two, so nothing changes for an
 existing installation. Everything beyond that is a decision an operator makes
 once — and `HTD` is where the legitimate choices come from.
 
+### Transporting a BTF and understanding one are different questions
+
+Everything above is about **transport**, and there the answer is genuinely
+"all of them": any BTF, in both directions, with no list to fall out of date.
+
+What a file *means* is a separate matter, and there the coverage is small on
+purpose. Five message types are read; everything else is stored as bytes and
+handed over untouched:
+
+| | read as | why |
+| --- | --- | --- |
+| `pain.001` | MsgId, transaction count, control sum — on the way OUT | the ceilings and the once-only rule need them |
+| `pain.002` | payment statuses, folded into the order | the answer to "did that file go through?" |
+| `pain.002` with `OrgnlMsgId=EBICS` | the `HAC` protocol | a different message wearing the same name; see below |
+| `cimresp` / `BRCResp` | the Austrian customer information notices | a notice meant for a person to read |
+| `camt.053` | recognised as a statement — **stored whole, not parsed** | matching bookings to invoices belongs to the module that has the invoices |
+
+So `camt.052`, `camt.054`, `camt.086`, `mt940`, `mt942`, PDF statements and
+every national format land as `kind: 'other'`: fetched on every tick if
+subscribed, stored, digest-deduplicated, downloadable through the API — and not
+interpreted. That is the intended shape of this service, not an omission. It is
+a bank transport, and a parser it does not need is a parser that can be wrong
+about money.
+
+The one place that judgement would have to be revisited is a consumer that
+needs a field out of one of those files. Then the question is where the parser
+belongs — and this repository has already answered it once, in
+[`docs/PLATFORM-SERVICE-OPPORTUNITIES.md`](../../docs/PLATFORM-SERVICE-OPPORTUNITIES.md):
+not here.
+
 ### Why the catalogue question is the wrong question
 
 The obvious way to "support every BTF in the standard" is to transcribe the
@@ -716,13 +746,20 @@ where each value came from.
 Twenty order types are built: `HEV`, `INI`, `HIA`, `HPB`, `SPR`, `BTU`, `BTD`,
 the six VEU ones (`HVU`, `HVZ`, `HVD`, `HVT`, `HVE`, `HVS`), the five
 administrative downloads (`HTD`, `HKD`, `HPD`, `HAA`, `HAC`) and the two key
-changes (`HCA`, `HCS`). Two of the H005 schema set's order types are **not**
-here:
+changes (`HCA`, `HCS`).
 
-| | | why it is not here |
-| --- | --- | --- |
-| `H3K` | one-step initialisation with certificates | an alternative to INI + HIA + HPB, not a replacement for it. Everything it does can be done today, in three requests instead of one. |
-| `PUB` | change the ES key alone | superseded by `HCS`, which changes it along with the other two |
+**Exactly one order type the H005 schema set defines is missing: `H3K`** — the
+one-step initialisation that sends all three certificates together instead of
+`INI` + `HIA` and then fetching the bank's keys with `HPB`. It is an
+alternative to that sequence, not a capability beyond it: everything it does
+can be done today, in three requests instead of one. Worth adding for a bank
+that mandates it; nothing is unreachable without it.
+
+`PUB` — replacing the ES key on its own — is **not part of H005** and so is not
+a gap. It survives only as a passing mention in a comment in the S002 signature
+schema; EBICS 3.0 has no `PUBRequestOrderData`, and `HCS` is how an ES key is
+replaced. An earlier version of this section listed it as missing, which
+overstated by one.
 
 ### `HAC` — the customer protocol
 
