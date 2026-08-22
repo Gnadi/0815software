@@ -684,6 +684,12 @@ paths:
           in: query
           description: An IBAN.
           schema: { type: string }
+        - name: source
+          in: query
+          description: >-
+            statement (camt.053), report (camt.052) or notification (camt.054). Unlike /api/entries this does
+            NOT default — a list of what arrived is not a sum, so every message is the useful answer.
+          schema: { type: string, enum: [statement, report, notification, any] }
         - name: limit
           in: query
           schema: { type: integer }
@@ -750,6 +756,14 @@ paths:
           in: query
           description: Defaults to BOOK.
           schema: { type: string }
+        - name: source
+          in: query
+          description: >-
+            Which account message the bookings came from. DEFAULTS TO "statement" — the end-of-day camt.053.
+            A camt.052 report ("report") and a camt.054 notification ("notification") carry bookings the day's
+            statement carries again, so querying across all of them counts the same money twice. Pass "any"
+            only if you mean it.
+          schema: { type: string, enum: [statement, report, notification, any] }
         - name: end_to_end_id
           in: query
           description: The reference your own pain.001 put on the transaction.

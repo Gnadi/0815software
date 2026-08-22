@@ -360,7 +360,22 @@ export interface StatementRow {
   connection: string;
   /** The download it was read out of, so the original bytes stay reachable. */
   download: string | null;
-  /** The camt.053 schema version, e.g. "02" or "08". They differ materially. */
+  /**
+   * Which of the three account messages this came from.
+   *
+   *   statement     camt.053, end of day — the definitive record
+   *   report        camt.052, intraday and PROVISIONAL: every booking on it
+   *                 appears AGAIN on the day's statement
+   *   notification  camt.054, individual items as they happen — same caveat
+   *
+   * They share an entry structure, which is why one reader serves all three.
+   * They do not share a meaning, which is why summing across them
+   * double-counts and why queries default to statements alone.
+   */
+  source: 'statement' | 'report' | 'notification';
+  /** The ISO message name, e.g. "camt.053.001.02". */
+  message_name: string | null;
+  /** The schema version, e.g. "02" or "08". They differ materially. */
   version: string;
   message_id: string;
   statement_id: string;
@@ -394,6 +409,8 @@ export interface StatementRow {
  */
 export interface StatementEntryRow {
   statement: string;
+  /** Which account message it came from — see `StatementRow.source`. */
+  source: 'statement' | 'report' | 'notification';
   account_iban: string | null;
   seq: number;
   amount: string;

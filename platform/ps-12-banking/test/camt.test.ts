@@ -19,7 +19,7 @@ import { MockBank } from './mock-bank.js';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { hundredths, isStatementMessage, readBankStatement } from '../server/camt.js';
+import { hundredths, isAccountMessage, isStatementMessage, readBankStatement } from '../server/camt.js';
 
 /**
  * Reading a `camt.053`.
@@ -37,6 +37,23 @@ const FIXTURES = join(import.meta.dirname, 'fixtures', 'camt');
 const CASES = [
   ['statement-v02', 'camt.053.001.02.xsd'],
   ['statement-v08', 'camt.053.001.08.xsd'],
+] as const;
+
+/**
+ * The STUZZA schemas, which are stricter than the ISO ones on the same
+ * namespace — a document passing one passes the ISO original too.
+ *
+ * Skipped, loudly, until the six code-list documents they include are dropped
+ * in beside them; see `test/schema/austrian/README.md`. Those code lists are
+ * enumerations of external ISO code lists and are deliberately not
+ * reconstructed here: the whole content of a code list is the exact set of
+ * values it permits.
+ */
+const AUSTRIAN = join(SCHEMA_DIR, 'austrian');
+const AUSTRIAN_CASES = [
+  ['statement-v02', 'camt.053.001.02.austrian.004.xsd', 'RB7.0_camt.053_codelists.xsd'],
+  ['report-052', 'camt.052.001.02.austrian.004.xsd', 'RB7.0_camt.052_codelists.xsd'],
+  ['notification-054', 'camt.054.001.02.austrian.004.xsd', 'RB7.0_camt.054_codelists.xsd'],
 ] as const;
 
 const fixture = (name: string): Buffer => readFileSync(join(FIXTURES, `${name}.xml`));
@@ -57,6 +74,67 @@ const describeIf = HAVE_SCHEMAS && HAVE_XMLLINT ? describe : describe.skip;
 describeIf('the fixtures are what a conforming bank may send', () => {
   it.each(CASES)('%s', (name, schema) => {
     execFileSync('xmllint', ['--noout', '--schema', join(SCHEMA_DIR, schema), join(FIXTURES, `${name}.xml`)]);
+  });
+
+  it.each(AUSTRIAN_CASES)('%s, against the stricter Austrian subset', (name, schema, codelist) => {
+    if (!existsSync(join(AUSTRIAN, codelist))) {
+      console.warn(
+        `[camt] skipping the Austrian check for ${name}: ${schema} includes ${codelist}, which is not ` +
+          'in test/schema/austrian/. See the README there.',
+      );
+      return;
+    }
+    execFileSync('xmllint', ['--noout', '--schema', join(AUSTRIAN, schema), join(FIXTURES, `${name}.xml`)]);
+  });
+});
+
+/**
+ * The three account messages, and the one thing that must not be assumed
+ * about them.
+ *
+ * They share `ReportEntry2` and `EntryTransaction2` — identical element for
+ * element in all three Austrian schemas, which is what one reader for all
+ * three rests on. They do NOT share a meaning: an intraday report and a
+ * notification carry bookings the day's statement carries again.
+ */
+describe('camt.052 and camt.054, which share the entry structure', () => {
+  const r052 = (): NonNullable<ReturnType<typeof readBankStatement>> => readBankStatement(fixture('report-052'))!;
+  const n054 = (): NonNullable<ReturnType<typeof readBankStatement>> =>
+    readBankStatement(fixture('notification-054'))!;
+
+  it('reads each through its own envelope and container', () => {
+    expect(r052().kind).toBe('report');
+    expect(r052().messageName).toBe('camt.052.001.02');
+    expect(n054().kind).toBe('notification');
+    expect(n054().messageName).toBe('camt.054.001.02');
+    expect(v02().kind).toBe('statement');
+  });
+
+  it('reads the bookings out of them with the same reader', () => {
+    const [entry] = r052().statements[0]!.entries;
+    expect(entry).toMatchObject({
+      amount: '299.99',
+      credit: true,
+      endToEndId: 'INV-2026-0042',
+      counterpartyName: 'Muster Handels GmbH',
+      bankTransactionCode: 'PMNT/RCDT/ESCT',
+    });
+    expect(n054().statements[0]!.entries[0]!.endToEndId).toBe('INV-2026-0044');
+  });
+
+  it('copes with a notification having no balances at all', () => {
+    // AccountNotification2 omits Bal: there is no balance to report on a list
+    // of individual items.
+    expect(n054().statements[0]!.balances).toEqual([]);
+    expect(r052().statements[0]!.balances[0]!.type).toBe('ITBD');
+  });
+
+  it('knows all three from a BTF, and the definitive one apart from them', () => {
+    expect(['camt.052', 'camt.053', 'camt.054'].every(isAccountMessage)).toBe(true);
+    expect(isAccountMessage('camt.086')).toBe(false);
+    // Only camt.053 is the end-of-day record.
+    expect(isStatementMessage('camt.052')).toBe(false);
+    expect(isStatementMessage('camt.053')).toBe(true);
   });
 });
 
@@ -400,6 +478,44 @@ describe('a statement that arrives as a download', () => {
     // Second pass finds nothing pending: the file is stored and a human can
     // look at it, but the tick does not report it every minute forever.
     expect(applyStatements(db, ctx.now!)).toBe(0);
+  });
+
+  /**
+   * The reason `source` is a column and `findEntries` defaults to statements.
+   *
+   * An intraday report carries the booking the day's statement will carry
+   * again. Summing across both counts the money twice — and it is the same
+   * booking, from the same bank, on the same day, so nothing about the rows
+   * themselves would give it away.
+   */
+  it('does not count an intraday booking twice when the statement repeats it', async () => {
+    bank.enqueue({ serviceName: 'STM', msgName: 'camt.052' }, fixture('report-052'));
+    await fetchOne(ctx, 'main', { service_name: 'STM', scope: 'AT', msg_name: 'camt.052' });
+    await collect('statement-v02');
+
+    // Both are stored — the report is real data and is not thrown away.
+    expect(listStatements(db)).toHaveLength(2);
+    expect(listStatements(db).map((s) => s.source).sort()).toEqual(['report', 'statement']);
+
+    // But the default query sees the booking ONCE, from the definitive record.
+    const matched = findEntries(db, { endToEndId: 'INV-2026-0042' });
+    expect(matched).toHaveLength(1);
+    expect(matched[0]!.source).toBe('statement');
+
+    // A caller wanting to see money arriving before end of day asks for it,
+    // and then gets both — knowingly.
+    expect(findEntries(db, { endToEndId: 'INV-2026-0042', source: 'any' })).toHaveLength(2);
+    expect(findEntries(db, { endToEndId: 'INV-2026-0042', source: 'report' })).toHaveLength(1);
+  });
+
+  it('reads a notification through the same path', async () => {
+    bank.enqueue({ serviceName: 'STM', msgName: 'camt.054' }, fixture('notification-054'));
+    await fetchOne(ctx, 'main', { service_name: 'STM', scope: 'AT', msg_name: 'camt.054' });
+    expect(applyStatements(db, ctx.now!)).toBe(1);
+    expect(listStatements(db)[0]!.source).toBe('notification');
+    // Not in the default query, for the same reason as an intraday report.
+    expect(findEntries(db, {})).toHaveLength(0);
+    expect(findEntries(db, { source: 'notification' })).toHaveLength(1);
   });
 
   it('reads statements as part of the tick', async () => {

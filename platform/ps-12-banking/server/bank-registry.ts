@@ -142,7 +142,9 @@ export const REGISTRY: readonly BankProfile[] = [
     notes:
       'The AAD (EBICS 2.5) column of the Austrian table is explicitly NOT used in Austria — it is printed for ' +
       'software vendors migrating from the German order types and nothing more. Other Austrian BTFs an operator ' +
-      'may need, straight from the same table: camt.052 STM/AT/camt.052/ZIP, camt.054 STM/AT/camt.054/ZIP, ' +
+      'may need, straight from the same table: camt.052 STM/AT/camt.052/ZIP, camt.054 STM/AT/camt.054/ZIP ' +
+      '(both READ into bookings like camt.053 — but they are provisional, so GET /api/entries leaves them out ' +
+      'unless asked for; see server/camt.ts), ' +
       'MT940 EOP/AT/mt940, MT942 STM/AT/mt942, PDF statements EOP/AT/pdf/ZIP, bank fees REP/BIL/camt.086/ZIP ' +
       '(scope BIL, not AT), customer information CIM/AT/cimresp, SEPA direct debit SDD/AT/pain.008 with option ' +
       'COR or B2B, instant SCI/AT/pain.001, foreign payments XCT/AT/pain.001. Since 09.10.2025 the ServiceOption ' +

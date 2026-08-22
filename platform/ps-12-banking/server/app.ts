@@ -778,6 +778,7 @@ export function createApp(opts: AppOptions): express.Express {
       statements: listStatements(db, {
         ...(typeof req.query.connection === 'string' ? { connection: req.query.connection } : {}),
         ...(typeof req.query.account === 'string' ? { account: req.query.account } : {}),
+        ...(typeof req.query.source === 'string' ? { source: req.query.source } : {}),
         ...(queryInt(req, 'limit', 1, 500) === undefined ? {} : { limit: queryInt(req, 'limit', 1, 500) as number }),
       }),
     });
@@ -807,6 +808,8 @@ export function createApp(opts: AppOptions): express.Express {
       ...(text('reference') === undefined ? {} : { reference: text('reference') as string }),
       ...(text('search') === undefined ? {} : { search: text('search') as string }),
       ...(text('status') === undefined ? {} : { status: text('status') as string }),
+      // Defaults to `statement` server-side: see EntryQuery.source.
+      ...(text('source') === undefined ? {} : { source: text('source') as EntryQuery['source'] }),
       ...(req.query.credit === undefined ? {} : { credit: req.query.credit === '1' || req.query.credit === 'true' }),
       ...(req.query.exclude_reversals === '1' || req.query.exclude_reversals === 'true'
         ? { excludeReversals: true }

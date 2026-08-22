@@ -576,6 +576,38 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    id: 13,
+    name: 'statement-source-message',
+    up(db) {
+      // WHICH of the three account messages a statement came out of.
+      //
+      // camt.052/053/054 carry the same entry structure — verified against the
+      // Austrian schemas, which define ReportEntry2 identically in all three —
+      // so one reader serves them. But they do NOT mean the same thing, and
+      // storing them undifferentiated is a double-count waiting to happen:
+      //
+      //   statement     camt.053, end of day. The definitive record.
+      //   report        camt.052, intraday and PROVISIONAL. Every booking on
+      //                 it appears AGAIN on the day's statement.
+      //   notification  camt.054, individual items as they happen. Same.
+      //
+      // So the source is recorded and `findEntries` defaults to statements
+      // alone. A caller that wants to see money arriving before end of day has
+      // to ask for it, exactly as with pending entries.
+      //
+      // Existing rows are statements: camt.053 is all this service could read
+      // before this migration.
+      const columns = (db.prepare('PRAGMA table_info(statements)').all() as { name: string }[]).map((c) => c.name);
+      if (!columns.includes('source')) {
+        db.exec("ALTER TABLE statements ADD COLUMN source TEXT NOT NULL DEFAULT 'statement'");
+      }
+      if (!columns.includes('message_name')) {
+        db.exec('ALTER TABLE statements ADD COLUMN message_name TEXT');
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_statements_source ON statements (source)');
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {

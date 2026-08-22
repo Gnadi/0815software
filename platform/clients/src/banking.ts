@@ -80,9 +80,9 @@ export class BankingClient extends BaseClient {
   }
 
   /** The account statements the service has read into bookings. */
-  listStatements(opts: { connection?: string; account?: string; limit?: number } = {}): Promise<{
-    statements: BankStatement[];
-  }> {
+  listStatements(
+    opts: { connection?: string; account?: string; source?: BankStatement['source'] | 'any'; limit?: number } = {},
+  ): Promise<{ statements: BankStatement[] }> {
     return this.apiGet(`/api/statements${queryString(opts as Record<string, unknown>)}`);
   }
 
@@ -107,6 +107,11 @@ export class BankingClient extends BaseClient {
    *   `status: 'PDNG'` if you really want them.
    * - **Reversals are included.** An entry with `reversal: true` undoes an
    *   earlier one — pass `excludeReversals` when summing.
+   * - **Only the end-of-day statement is searched.** A camt.052 intraday report
+   *   and a camt.054 notification carry bookings the day's camt.053 carries
+   *   again, so querying across all of them counts the same money twice. Pass
+   *   `source: 'report'` to see money arriving before end of day, or
+   *   `source: 'any'` if you mean it.
    */
   findEntries(query: EntryQuery = {}): Promise<{ entries: BankEntry[] }> {
     return this.apiGet(
@@ -117,6 +122,7 @@ export class BankingClient extends BaseClient {
         to: query.to,
         credit: query.credit,
         status: query.status,
+        source: query.source,
         end_to_end_id: query.endToEndId,
         reference: query.reference,
         amount_hundredths: query.amountHundredths,
@@ -286,7 +292,20 @@ export interface BankStatement {
   connection: string;
   /** The download it was read from — the original bytes stay reachable. */
   download: string | null;
-  /** The camt.053 schema version, e.g. "02" or "08". */
+  /**
+   * Which account message it came from.
+   *
+   *   statement     camt.053, end of day — the definitive record
+   *   report        camt.052, intraday and PROVISIONAL
+   *   notification  camt.054, individual items as they happen
+   *
+   * The last two carry bookings the day's statement carries again. They share
+   * an entry structure, not a meaning.
+   */
+  source: 'statement' | 'report' | 'notification';
+  /** The ISO message name, e.g. "camt.053.001.02". */
+  message_name: string | null;
+  /** The schema version, e.g. "02" or "08". */
   version: string;
   message_id: string;
   statement_id: string;
@@ -317,6 +336,8 @@ export interface BankStatement {
  */
 export interface BankEntry {
   statement: string;
+  /** Which account message it came from — see `BankStatement.source`. */
+  source: 'statement' | 'report' | 'notification';
   account_iban: string | null;
   seq: number;
   amount: string;
@@ -361,6 +382,8 @@ export interface EntryQuery {
   credit?: boolean;
   /** Defaults to `BOOK` server-side. */
   status?: string;
+  /** Defaults to `statement` server-side. See findEntries. */
+  source?: 'statement' | 'report' | 'notification' | 'any';
   endToEndId?: string;
   reference?: string;
   /** Exact amount in hundredths. */

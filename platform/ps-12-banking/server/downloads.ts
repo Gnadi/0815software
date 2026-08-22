@@ -8,7 +8,8 @@ import { decryptTransactionKey, unpackOrderData, type EsVersion } from './ebics/
 import { parseResponse } from './ebics/parse.js';
 import { EBICS_NO_DOWNLOAD_DATA } from './ebics/codes.js';
 import { sha256Hex } from './payload.js';
-import { isStatement, isStatusReport, readStatusReports, verdictOfReports } from './reports.js';
+import { isStatusReport, readStatusReports, verdictOfReports } from './reports.js';
+import { isAccountMessage } from './camt.js';
 import { documentsIn, ZipError } from './zip.js';
 import { isCustomerInfo, readCustomerInfo } from './cim.js';
 import {
@@ -248,7 +249,10 @@ export function downloadContent(db: Database.Database, publicIdValue: string): B
 function kindOf(btf: BtfInput, documents: Buffer[]): DownloadKind {
   if (documents.some(isCustomerAcknowledgement)) return 'protocol';
   if (isStatusReport(btf.msg_name)) return 'status';
-  if (isStatement(btf.msg_name)) return 'statement';
+  // camt.052 and camt.054 are filed as statements too: they carry the same
+  // bookings and are read by the same reader. What they MEAN differs, and that
+  // is recorded per statement rather than per download — see statements.ts.
+  if (isAccountMessage(btf.msg_name)) return 'statement';
   if (isCustomerInfo(btf.msg_name)) return 'info';
   return 'other';
 }

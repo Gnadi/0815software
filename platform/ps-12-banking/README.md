@@ -649,7 +649,8 @@ produces a plausible value that never matches the bank's letter.
 | — | VEU: `HVU`, `HVZ`, `HVD`, `HVT`, `HVE`, `HVS` | **Done** |
 | — | `HTD`/`HKD`, `HCA`/`HCS`, and per-connection download subscriptions | **Done** |
 | — | `HAC`, the customer protocol, against the published examples | **Done** |
-| — | `camt.053` read into queryable bookings, against the ISO schemas | **Done** — 673 tests |
+| — | `camt.053` read into queryable bookings, against the ISO schemas | **Done** |
+| — | `camt.052`/`camt.054` too, on the Austrian schemas' evidence | **Done** — 682 tests |
 
 ## Which BTFs are supported
 
@@ -700,12 +701,11 @@ handed over untouched:
 | `pain.002` | payment statuses, folded into the order | the answer to "did that file go through?" |
 | `pain.002` with `OrgnlMsgId=EBICS` | the `HAC` protocol | a different message wearing the same name; see below |
 | `cimresp` / `BRCResp` | the Austrian customer information notices | a notice meant for a person to read |
-| `camt.053` | **bookings**, queryable — see below | reading the bank's own format is what this service is for |
+| `camt.053` `camt.052` `camt.054` | **bookings**, queryable — see below | reading the bank's own format is what this service is for |
 
-So `camt.052`, `camt.054`, `camt.086`, `mt940`, `mt942`, PDF statements and
-every national format land as `kind: 'other'`: fetched on every tick if
-subscribed, stored, digest-deduplicated, downloadable through the API — and not
-interpreted.
+So `camt.086`, `mt940`, `mt942`, PDF statements and every national format land
+as `kind: 'other'`: fetched on every tick if subscribed, stored,
+digest-deduplicated, downloadable through the API — and not interpreted.
 
 ### Account statements are read into bookings
 
@@ -757,7 +757,34 @@ bitten twice by exactly that kind of plausible transcription. A consumer working
 in euros uses it as cents and is right. It is null when the bank sent more than
 two decimal places, because rounding an amount silently is worse than declining.
 
-**Why both schema versions are vendored.** `camt.053.001.02` and `.08` are both
+### camt.052 and camt.054 read through the same reader
+
+An intraday report (`camt.052`) and a debit/credit notification (`camt.054`)
+are read by the same code as a statement. That was refused for a while, and the
+refusal was right at the time: the three obviously share ISO components, which
+is a plausible assumption and was worth nothing without a schema to check.
+
+The STUZZA schemas settle it. `ReportEntry2` and `EntryTransaction2` are
+defined in all three files and are **identical element for element**. What
+differs is two names — the envelope (`BkToCstmrStmt` / `BkToCstmrAcctRpt` /
+`BkToCstmrDbtCdtNtfctn`) and its container (`Stmt` / `Rpt` / `Ntfctn`) — plus
+one omission: a notification has no `Bal`, there being no balance to report on
+a list of individual items. That is read off the normative text, not inferred.
+
+**They share a structure and not a meaning, and the difference costs money.** A
+`camt.052` booking is provisional and appears *again* on the day's `camt.053`;
+a `camt.054` notification does the same. Summing across all three counts the
+same money two or three times, and nothing about the rows would give it away —
+same bank, same day, same amount, same reference.
+
+So every statement records which message it came from, and `GET /api/entries`
+**defaults to `source=statement`**: the definitive end-of-day record only. All
+three are stored, because an intraday report is real information; a caller that
+wants to see money arriving before end of day passes `source=report` or
+`source=any` and does so knowingly. The reasoning is the same as for `PDNG`
+entries.
+
+**Why both camt.053 schema versions are vendored.** `camt.053.001.02` and `.08` are both
 in use in the German and Austrian markets, and they differ in three places that
 are invisible in a sample file and **silent** when got wrong:
 
@@ -960,11 +987,10 @@ established with the bank that the change went through.
   records why. What did not change is the other half: deciding *which invoice a
   payment settles* depends on the invoices, so it stays with the module that
   issued them. This service holds no notion of an entry being matched.
-- **`camt.052` and `camt.054`.** Intraday reports and notifications are fetched
-  and stored like any other BTF, and not parsed. They share ISO components with
-  `camt.053`, which makes it tempting to point the same reader at them —
-  precisely the plausible assumption this service refuses to ship without a
-  schema to check it against. Their XSDs are not in this repository.
+- **SEPA direct debit collection** (`pain.008`) still needs mandates that no
+  module holds. The Austrian schema for it is now vendored
+  (`test/schema/austrian/`), so what is missing is the mandate model, not the
+  format.
 
 ## Honesty about what is proven
 

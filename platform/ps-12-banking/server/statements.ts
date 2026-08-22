@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { DomainError } from './errors.js';
 import { publicId } from './connections.js';
-import { readBankStatement, type AccountStatement, type StatementEntry } from './camt.js';
+import { readBankStatement, type AccountMessageKind, type AccountStatement, type StatementEntry } from './camt.js';
 import { documentsIn, ZipError } from './zip.js';
 import type { StatementEntryRow, StatementRow } from '../shared/types.js';
 
@@ -39,6 +39,8 @@ interface DbStatementRow {
   connection_id: number;
   download_id: number;
   public_id: string;
+  source: string;
+  message_name: string | null;
   version: string;
   message_id: string;
   statement_id: string;
@@ -107,6 +109,8 @@ export function applyStatements(db: Database.Database, now: () => string): numbe
           storeStatement(db, {
             connectionId: row.connection_id,
             downloadId: row.download_id,
+            source: message.kind,
+            messageName: message.messageName,
             version: message.version,
             messageId: message.messageId,
             statement,
@@ -130,6 +134,8 @@ function storeStatement(
   params: {
     connectionId: number;
     downloadId: number;
+    source: AccountMessageKind;
+    messageName: string;
     version: string;
     messageId: string;
     statement: AccountStatement;
@@ -139,13 +145,16 @@ function storeStatement(
   const { statement } = params;
   const iban = statement.account.iban;
 
+  // The source is part of the identity: an intraday report and the day's
+  // statement may legitimately carry the same Id, and treating the second as a
+  // duplicate of the first would silently drop the definitive record.
   const existing = db
     .prepare(
       `SELECT id FROM statements
-        WHERE connection_id = ? AND statement_id = ?
+        WHERE connection_id = ? AND statement_id = ? AND source = ?
           AND (account_iban IS ? OR (account_iban IS NULL AND ? IS NULL))`,
     )
-    .get(params.connectionId, statement.statementId, iban, iban) as { id: number } | undefined;
+    .get(params.connectionId, statement.statementId, params.source, iban, iban) as { id: number } | undefined;
   // The bank re-sent a statement we already hold. Storing it again would
   // double every booking on it for anything that sums them.
   if (existing !== undefined) return false;
@@ -162,16 +171,18 @@ function storeStatement(
     const info = db
       .prepare(
         `INSERT INTO statements
-           (download_id, connection_id, public_id, version, message_id, statement_id,
+           (download_id, connection_id, public_id, source, message_name, version, message_id, statement_id,
             electronic_seq, legal_seq, created_at, from_date, to_date,
             account_iban, account_other, account_currency, account_name, account_owner,
             opening_balance, closing_balance, balance_currency, entry_count, stored_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         params.downloadId,
         params.connectionId,
         publicId('stm'),
+        params.source,
+        params.messageName,
         params.version,
         params.messageId,
         statement.statementId,
@@ -249,6 +260,8 @@ function toStatement(db: Database.Database, row: DbStatementRow): StatementRow {
     public_id: row.public_id,
     connection: connection?.key ?? '',
     download: download?.public_id ?? null,
+    source: row.source as StatementRow['source'],
+    message_name: row.message_name,
     version: row.version,
     message_id: row.message_id,
     statement_id: row.statement_id,
@@ -273,7 +286,7 @@ function toStatement(db: Database.Database, row: DbStatementRow): StatementRow {
 
 export function listStatements(
   db: Database.Database,
-  opts: { connection?: string; account?: string; limit?: number } = {},
+  opts: { connection?: string; account?: string; source?: string; limit?: number } = {},
 ): StatementRow[] {
   const where: string[] = [];
   const args: unknown[] = [];
@@ -284,6 +297,12 @@ export function listStatements(
   if (opts.account !== undefined) {
     where.push('s.account_iban = ?');
     args.push(opts.account);
+  }
+  // Unlike findEntries this does NOT default: a list of what arrived is not a
+  // sum, so showing every message is the useful answer.
+  if (opts.source !== undefined && opts.source !== 'any') {
+    where.push('s.source = ?');
+    args.push(opts.source);
   }
   const rows = db
     .prepare(
@@ -312,6 +331,7 @@ export function statementDetail(
 function toEntry(raw: Record<string, unknown>, statement: DbStatementRow): StatementEntryRow {
   return {
     statement: statement.public_id,
+    source: statement.source as StatementEntryRow['source'],
     account_iban: statement.account_iban,
     seq: raw.seq as number,
     amount: raw.amount as string,
@@ -351,6 +371,15 @@ export interface EntryQuery {
   credit?: boolean;
   /** `BOOK` by default: a pending entry is not money and is easy to double-pay. */
   status?: string;
+  /**
+   * Which account message the bookings came from. **Defaults to `statement`.**
+   *
+   * A camt.052 report and a camt.054 notification carry the same bookings the
+   * day's camt.053 will carry again, so a query across all three counts the
+   * same money two or three times. A caller that wants to see money arriving
+   * before end of day asks for it, as with pending entries.
+   */
+  source?: 'statement' | 'report' | 'notification' | 'any';
   endToEndId?: string;
   /** Matched against the structured creditor reference, exactly. */
   reference?: string;
@@ -380,6 +409,8 @@ export function findEntries(db: Database.Database, query: EntryQuery = {}): Stat
   };
 
   if (query.connection !== undefined) add('c.key = ?', query.connection);
+  // See EntryQuery.source: NOT filtering here is a double-count.
+  if (query.source !== 'any') add('s.source = ?', query.source ?? 'statement');
   if (query.account !== undefined) add('s.account_iban = ?', query.account);
   if (query.from !== undefined) add('e.booking_date >= ?', query.from);
   if (query.to !== undefined) add('e.booking_date <= ?', query.to);
@@ -402,7 +433,8 @@ export function findEntries(db: Database.Database, query: EntryQuery = {}): Stat
 
   const rows = db
     .prepare(
-      `SELECT e.*, s.public_id AS statement_public_id, s.account_iban AS statement_iban
+      `SELECT e.*, s.public_id AS statement_public_id, s.account_iban AS statement_iban,
+              s.source AS statement_source
          FROM statement_entries e
          JOIN statements s ON s.id = e.statement_id
          JOIN bank_connections c ON c.id = s.connection_id
@@ -416,6 +448,7 @@ export function findEntries(db: Database.Database, query: EntryQuery = {}): Stat
     toEntry(raw, {
       public_id: raw.statement_public_id as string,
       account_iban: raw.statement_iban as string | null,
+      source: raw.statement_source as string,
     } as DbStatementRow),
   );
 }

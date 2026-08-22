@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- camt.054.001.02 — a debit/credit NOTIFICATION. Note there is no Bal: the
+     Austrian schema's AccountNotification2 omits it, there being no balance to
+     report on a list of individual items. -->
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.054.001.02">
+  <BkToCstmrDbtCdtNtfctn>
+    <GrpHdr>
+      <MsgId>NTF-2026-0815-01</MsgId>
+      <CreDtTm>2026-08-15T12:00:00</CreDtTm>
+    </GrpHdr>
+    <Ntfctn>
+      <Id>AT-NTF-000123</Id>
+      <CreDtTm>2026-08-15T12:00:00</CreDtTm>
+      <Acct>
+        <Id><IBAN>AT611904300234573201</IBAN></Id>
+        <Ccy>EUR</Ccy>
+      </Acct>
+      <Ntry>
+        <Amt Ccy="EUR">45.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-08-15</Dt></BookgDt>
+        <BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><EndToEndId>INV-2026-0044</EndToEndId></Refs>
+            <RltdPties><Dbtr><Nm>Kleinkunde e.U.</Nm></Dbtr></RltdPties>
+            <RmtInf><Ustrd>Rechnung 2026-0044</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+    </Ntfctn>
+  </BkToCstmrDbtCdtNtfctn>
+</Document>

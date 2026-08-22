@@ -1,7 +1,8 @@
 import { at, attrOf, childrenOf, findAll, parse, textOf, type XmlElement } from './ebics/xml.js';
 
 /**
- * `camt.053` — the bank's own record of an account, read into bookings.
+ * `camt.053`, `camt.052` and `camt.054` — the bank's record of an account,
+ * read into bookings.
  *
  * ## Why this lives in the platform service
  *
@@ -55,8 +56,37 @@ import { at, attrOf, childrenOf, findAll, parse, textOf, type XmlElement } from 
  * amount silently is worse than declining to convert it.
  */
 
-/** Every version of the statement message shares this namespace prefix. */
-const CAMT_053_PREFIX = 'urn:iso:std:iso:20022:tech:xsd:camt.053.001.';
+/**
+ * The three account messages, and what differs between them.
+ *
+ * **Their entries are the same structure — verified, not assumed.** The
+ * Austrian schemas define `ReportEntry2` and `EntryTransaction2` in all three
+ * files, and the definitions are identical element for element. That is why
+ * one reader serves all three, and why this service declined to claim `camt.052`
+ * and `camt.054` until those schemas were in hand: the structure being shared
+ * is obvious, plausible, and worth nothing until checked.
+ *
+ * What actually differs is the two container names and one omission:
+ * a notification carries no `Bal`, because there is no balance to report on a
+ * list of individual items.
+ */
+const MESSAGES = {
+  '053': { kind: 'statement', envelope: 'BkToCstmrStmt', container: 'Stmt' },
+  '052': { kind: 'report', envelope: 'BkToCstmrAcctRpt', container: 'Rpt' },
+  '054': { kind: 'notification', envelope: 'BkToCstmrDbtCdtNtfctn', container: 'Ntfctn' },
+} as const satisfies Record<string, { kind: AccountMessageKind; envelope: string; container: string }>;
+
+const NS_PREFIX = 'urn:iso:std:iso:20022:tech:xsd:camt.';
+
+/**
+ * Which of the three a document is.
+ *
+ *   statement     camt.053 — the end-of-day record. The definitive one.
+ *   report        camt.052 — intraday, PROVISIONAL. The same booking appears
+ *                 again in the day's statement, so summing both double-counts.
+ *   notification  camt.054 — individual items, typically as they happen.
+ */
+export type AccountMessageKind = 'statement' | 'report' | 'notification';
 
 /** One booking on an account. */
 export interface StatementEntry {
@@ -135,8 +165,12 @@ export interface AccountStatement {
   entries: StatementEntry[];
 }
 
-/** What one camt.053 document said. */
+/** What one account document said. */
 export interface BankStatement {
+  /** Which of the three messages this was. See `AccountMessageKind`. */
+  kind: AccountMessageKind;
+  /** The ISO message name, e.g. "camt.053.001.02". */
+  messageName: string;
   /** The schema version, e.g. "02" or "08" — worth recording, they differ. */
   version: string;
   messageId: string;
@@ -144,13 +178,20 @@ export interface BankStatement {
   statements: AccountStatement[];
 }
 
-/** True when the BTF says this download is an account statement. */
+/** True when the BTF names one of the three account messages. */
+export function isAccountMessage(msgName: string): boolean {
+  const name = msgName.toLowerCase();
+  return name.startsWith('camt.053') || name.startsWith('camt.052') || name.startsWith('camt.054');
+}
+
+/** True when the BTF names the definitive end-of-day statement specifically. */
 export function isStatementMessage(msgName: string): boolean {
   return msgName.toLowerCase().startsWith('camt.053');
 }
 
 /**
- * Read a camt.053, or null when the bytes are not one.
+ * Read a camt.052, camt.053 or camt.054, or null when the bytes are none of
+ * them.
  *
  * Null rather than a throw, for the reason every reader in this service gives:
  * the bytes are already stored, and refusing to continue would abandon a file
@@ -163,19 +204,26 @@ export function readBankStatement(content: Buffer): BankStatement | null {
   } catch {
     return null;
   }
-  if (root.uri === null || !root.uri.startsWith(CAMT_053_PREFIX)) return null;
+  if (root.uri === null || !root.uri.startsWith(NS_PREFIX)) return null;
+
+  // "052.001.02" → the message, then its version.
+  const rest = root.uri.slice(NS_PREFIX.length);
+  const match = /^(05[234])\.001\.(\d{2})$/.exec(rest);
+  if (match === null) return null;
+  const message = MESSAGES[match[1] as keyof typeof MESSAGES];
 
   const ns = root.uri;
-  const version = ns.slice(CAMT_053_PREFIX.length);
-  const body = at(root, ns, 'BkToCstmrStmt');
+  const body = at(root, ns, message.envelope);
   if (body === null) return null;
   const header = at(body, ns, 'GrpHdr');
 
   return {
-    version,
+    kind: message.kind,
+    messageName: `camt.${rest}`,
+    version: match[2] as string,
     messageId: header === null ? '' : textOf(at(header, ns, 'MsgId')).trim(),
     createdAt: header === null ? null : blank(textOf(at(header, ns, 'CreDtTm'))),
-    statements: childrenOf(body, ns, 'Stmt').map((stmt) => readStatement(stmt, ns)),
+    statements: childrenOf(body, ns, message.container).map((stmt) => readStatement(stmt, ns)),
   };
 }
 
