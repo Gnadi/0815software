@@ -439,8 +439,15 @@ describe('auth', () => {
 // ── The two Austrian special transfers, end to end ────────────────────
 
 describe('Finanzamtszahlung and Postbarzahlung', () => {
-  async function runWith(purpose: string, remittance = 'ATU00000000 U 01-06/2026'): Promise<PaymentRunDetail> {
-    const created = await addBill({ remittance });
+  // The specification's own worked example: 11/08 wage tax, employer
+  // contribution and surcharge; a 10/08 VAT credit. `269135729` is its
+  // documented tax account number, check digit and all.
+  const TAX_REMITTANCE = '0811+676850L+176800DB+23601DZ0810-563910U';
+  const TAX_ACCOUNT = '269135729';
+  const CPPP_REMITTANCE = 'K3?1234?Hirschdorf?Karl-Christian Lorenzpl.12?Heizkostenzuschuss';
+
+  async function runWith(purpose: string, reference: string, remittance: string): Promise<PaymentRunDetail> {
+    const created = await addBill({ reference, remittance });
     const res = await request(app)
       .post('/api/payment-runs')
       .set('Cookie', cookie)
@@ -449,40 +456,81 @@ describe('Finanzamtszahlung and Postbarzahlung', () => {
     return res.body as PaymentRunDetail;
   }
 
-  it('records the purpose on the run and puts it in the file', async () => {
+  it('marks a tax payment per transaction, where the specification puts it', async () => {
+    // "Eine Kodierung auf Bestandsebene … ist nicht vorgesehen" — even when
+    // every payment in the batch is a tax payment. So the run-wide flag is an
+    // operator convenience and the code still lands on each CdtTrfTxInf.
     await boot({});
-    const run = await runWith('TAXS');
+    const run = await runWith('TAXS', TAX_ACCOUNT, TAX_REMITTANCE);
     expect(run.category_purpose).toBe('TAXS');
 
-    const xml = await request(app).get(`/api/payment-runs/${run.id}/sepa.xml`).set('Cookie', cookie).expect(200);
-    expect(xml.text).toContain('<Cd>TAXS</Cd>');
+    const xml = (await request(app).get(`/api/payment-runs/${run.id}/sepa.xml`).set('Cookie', cookie).expect(200))
+      .text;
+    expect(xml).toContain('<Purp>');
+    expect(xml).toContain('<Cd>TAXS</Cd>');
+    expect(xml).not.toContain('<CtgyPurp>');
   });
 
-  it('says the remittance format was NOT checked when none is configured', async () => {
-    // The honest half of this feature. MOD-04 ships no pattern for these, so
-    // without one nothing here knows what a valid Finanzamtszahlung reference
-    // looks like — and an unallocated tax payment surfaces weeks later, by
-    // post. Better on the screen than in the drawer.
+  it('sends the tax account number as EndToEndId, unprefixed', async () => {
+    // The tax office books the payment against it, so the usual "B<id>-" bill
+    // prefix would misfile the money.
     await boot({});
-    const run = await runWith('TAXS');
-    expect(run.remittance_format_checked).toBe(false);
+    const run = await runWith('TAXS', TAX_ACCOUNT, TAX_REMITTANCE);
+    const xml = (await request(app).get(`/api/payment-runs/${run.id}/sepa.xml`).set('Cookie', cookie).expect(200))
+      .text;
+    expect(xml).toContain(`<EndToEndId>${TAX_ACCOUNT}</EndToEndId>`);
   });
 
-  it('says it WAS checked when the operator configured a pattern', async () => {
-    await boot({ austrianRemittance: { TAXS: /^AT[Uu]\d{8} [A-Z] \d{2}-\d{2}\/\d{4}$/, CPPP: null } });
-    const run = await runWith('TAXS');
-    expect(run.remittance_format_checked).toBe(true);
-  });
-
-  it('refuses a run whose reference does not match the configured pattern', async () => {
-    await boot({ austrianRemittance: { TAXS: /^TAX \d+$/, CPPP: null } });
-    const created = await addBill({ remittance: 'Rechnung 2026-0815' });
+  it('refuses a tax account number whose check digit is wrong', async () => {
+    await boot({});
+    const created = await addBill({ reference: '269135720', remittance: TAX_REMITTANCE });
     const res = await request(app)
       .post('/api/payment-runs')
       .set('Cookie', cookie)
       .send({ bill_ids: [created.id], category_purpose: 'TAXS' });
     expect(res.status).toBe(422);
-    expect(JSON.stringify(res.body)).toContain('TAXS');
+    expect(JSON.stringify(res.body)).toContain('check digit should be 9');
+  });
+
+  it('refuses a remittance line that is not in the Finanzamt format', async () => {
+    await boot({});
+    const created = await addBill({ reference: TAX_ACCOUNT, remittance: 'Rechnung 2026-0815' });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: 'TAXS' });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('Finanzamt remittance');
+  });
+
+  it('marks a Postbarzahlung with Prtry, because CPPP is not an ISO code', async () => {
+    // A bank handed <Cd>CPPP</Cd> is handed a code that appears in no ISO
+    // ExternalCategoryPurpose list.
+    await boot({});
+    const run = await runWith('CPPP', 'CPP-1', CPPP_REMITTANCE);
+    const xml = (await request(app).get(`/api/payment-runs/${run.id}/sepa.xml`).set('Cookie', cookie).expect(200))
+      .text;
+    expect(xml).toContain('<CtgyPurp>');
+    expect(xml).toContain('<Prtry>CPPP</Prtry>');
+    expect(xml).not.toContain('<Cd>CPPP</Cd>');
+  });
+
+  it('says the format WAS checked — the patterns are published and shipped', async () => {
+    await boot({});
+    const run = await runWith('TAXS', TAX_ACCOUNT, TAX_REMITTANCE);
+    expect(run.remittance_format_checked).toBe(true);
+  });
+
+  it('lets an operator tighten the pattern without loosening it', async () => {
+    // A bank may be stricter than PSA. It may not be more permissive: the
+    // override replaces the format check, not the length or the empty check.
+    await boot({ austrianRemittance: { TAXS: /^0811\+676850L.*$/, CPPP: null } });
+    const created = await addBill({ reference: TAX_ACCOUNT, remittance: '0810-563910U' });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: 'TAXS' });
+    expect(res.status).toBe(422);
   });
 
   it('leaves an ordinary run with no purpose and nothing to check', async () => {

@@ -72,12 +72,27 @@ describeIf('every file this module emits validates against pain.001.001.03', () 
     expect(validate(buildPain001(BASE))).toBeNull();
   });
 
-  it('a Finanzamtszahlung (CtgyPurp TAXS)', () => {
-    expect(validate(buildPain001({ ...BASE, category_purpose: 'TAXS' }))).toBeNull();
+  it('a Finanzamtszahlung (Purp/Cd TAXS, per transaction)', () => {
+    const taxs = { ...BASE, payments: [{ ...BASE.payments[0]!, purpose: 'TAXS' as const }] };
+    expect(validate(buildPain001(taxs))).toBeNull();
   });
 
-  it('a Postbarzahlung (CtgyPurp CPPP)', () => {
+  it('a Postbarzahlung (CtgyPurp/Prtry CPPP, per run)', () => {
     expect(validate(buildPain001({ ...BASE, category_purpose: 'CPPP' }))).toBeNull();
+  });
+
+  it('a run mixing a tax payment with an ordinary one', () => {
+    // Which the per-transaction rule permits and a batch-level flag could not
+    // express. Worth validating because Purp sits between CdtrAcct and RmtInf,
+    // so getting it wrong shows up only here.
+    const mixed = {
+      ...BASE,
+      payments: [
+        { ...BASE.payments[0]!, purpose: 'TAXS' as const, end_to_end_id: '269135729' },
+        { ...BASE.payments[0]!, end_to_end_id: 'B9-INV' },
+      ],
+    };
+    expect(validate(buildPain001(mixed))).toBeNull();
   });
 
   it('a structured ISO 11649 creditor reference', () => {
@@ -101,10 +116,10 @@ describeIf('every file this module emits validates against pain.001.001.03', () 
 
 describeIf('the validator is actually validating', () => {
   it('rejects a file with the elements out of order', () => {
-    // Guards against the check silently passing everything. CtgyPurp before
-    // SvcLvl is exactly the mistake this suite exists to catch, and it is
+    // Guards against the check silently passing everything. Element order in
+    // PmtTpInf is exactly the mistake this suite exists to catch, and it is
     // invisible to every other test in this module.
-    const broken = buildPain001({ ...BASE, category_purpose: 'TAXS' })
+    const broken = buildPain001({ ...BASE, category_purpose: 'CPPP' })
       .replace('<SvcLvl>', '<XSvcLvl>')
       .replace('</SvcLvl>', '</XSvcLvl>');
     expect(validate(broken)).not.toBeNull();

@@ -496,37 +496,67 @@ creditor (IBAN validated)
 ### The two Austrian special transfers
 
 Austria defines two SEPA credit transfers that are not ordinary ones: a
-**Finanzamtszahlung** (a payment to a tax office) and a **Postbarzahlung** (one
-collected in cash at a post office). `POST /api/payment-runs` takes a
-`category_purpose` of `TAXS` or `CPPP`, and the run's `PmtTpInf` then carries
-that code — after `SvcLvl`, where the schema puts it.
+**Finanzamtszahlung** (a payment to a tax office) and a **Postbarzahlung** /
+CashPerPost (one collected in cash at a post office). `POST /api/payment-runs`
+takes a `category_purpose` of `TAXS` or `CPPP` and applies it to every payment
+in the run.
 
-It is a property of the whole run rather than of one bill. That is how these
-are filed, and ISO 20022 allows `PmtTpInf` at one level only, so a run that
-mixed a tax payment with a supplier payment could not express both.
+**They are marked in different places, and that is the whole trap.** Both look
+like "a category purpose" and only one is:
 
-**The remittance format is not shipped, and cannot be.** Both transfers
-prescribe a structure for `RmtInf/Ustrd` carrying the tax account, the levy
-type and the period, and the Stuzza guideline defines that structure as a
-regular expression published in *PSA — Zahlen mit System — Kunde-Bank*. That
-document is not in this repository. Writing a pattern from a plausible reading
-would be inventing the format of a tax payment — the one guess in this codebase
-that costs somebody a penalty notice rather than a refused file.
+| | element | level |
+| --- | --- | --- |
+| TAXS | `Purp/Cd` | the individual `CdtTrfTxInf` |
+| CPPP | `PmtTpInf/CtgyPurp/Prtry` | the payment information block |
 
-So the rule is yours to supply. `AT_TAXS_REMITTANCE_PATTERN` and
-`AT_CPPP_REMITTANCE_PATTERN` take a regular expression from your own bank's
-documentation, anchored automatically at both ends, and a run whose references
-do not match is refused before anything is stored. With neither set a run still
-goes out — you may well have typed the right thing — but it carries
-`remittance_format_checked: false`, and the screen says so. An empty remittance
-is refused either way: no bank routes a Finanzamtszahlung without one, and that
-much needs no published document.
+*Finanzamtszahlung in EBICS* is explicit: a tax payment is marked "nur an einer
+Stelle … im Element `<Purp><Cd>TAXS</Cd></Purp>` innerhalb der
+`<CdtTrfTxInf>`", and coding it at batch level "ist nicht vorgesehen" **even
+when every payment in the batch is one**. So the run-wide flag here is an
+operator convenience; the code still lands on each transfer, and a single run
+may hold a tax payment beside an ordinary supplier payment.
 
-One smaller thing the schema check caught: an Austrian reference stays in
-`Ustrd` even when it looks like an ISO 11649 `RF…` creditor reference. The
-ordinary path promotes such a string into a structured `CdtrRefInf` block,
-which would move a tax payment's entire routing information somewhere the tax
-office does not read.
+`CPPP` goes in `Prtry`, not `Cd`. It is not an ISO `ExternalCategoryPurpose`
+code, so a bank handed `<Cd>CPPP</Cd>` is handed a code that does not exist.
+
+The remittance formats are PSA's published regular expressions, shipped in
+`shared/sepa.ts` and pinned to **every example in both documents**:
+
+```
+TAXS  (\d{2}(\d{2}(/?\d{2})?)?([-+](0|([1-9]([0-9]{0,10})?))[A-Z]{1,3})+)+
+CPPP  ((?:K1D\d{8}|K3|K4|K8D\d{8}|K21|K22|K23P43\d{9,11}|K24|K25Z\d{4})+)
+      ([^ZDPK0-9])(\d{4})\2([^\2]*?)\2([^\2]*?)\2(.*)
+```
+
+A tax remittance is a period (`YY`, `YYMM`, `YYMMDD` or `YYMM/MM`) followed by
+amounts in cents — `+` a liability, `-` a credit — each with a one-to-three
+letter kind of tax, repeated: `0811+676850L+176800DB+23601DZ0810-563910U`.
+
+One translation note. **`[^\2]` is not a backreference in JavaScript**; inside
+a character class it means "not U+0002". Used verbatim the published CPPP
+expression would let an address line contain the delimiter and mis-split the
+address. The faithful rendering is a negative lookahead, `(?:(?!\2).)*?`, which
+is what ships. Two further rules the expression cannot carry are checked
+alongside it: clauses 21–25 are mutually exclusive, and the line is capped at
+140 characters.
+
+A Finanzamtszahlung also carries its **9-digit Ordnungsbegriff in
+`EndToEndId`** — the tax account the office books against — so for a TAXS run
+the bill's reference is used verbatim rather than prefixed with the bill id,
+and its check digit is verified. There is deliberately *no* check that the
+office number matches the IBAN: after the 2020 office mergers a tax number
+outlives the office that issued it, and the specification says such checks
+"sind daher auszubauen".
+
+`AT_TAXS_REMITTANCE_PATTERN` and `AT_CPPP_REMITTANCE_PATTERN` remain, now as
+**overrides** for a bank stricter than PSA. They replace the format check only;
+the length cap, the empty-remittance refusal and the check digit stand either
+way.
+
+Finally, an Austrian reference stays in `Ustrd` even when it looks like an ISO
+11649 `RF…` creditor reference. The ordinary path promotes such a string into a
+structured `CdtrRefInf` block, which would move a tax payment's entire routing
+information somewhere the tax office does not read.
 
 ### What it does not do — and why
 

@@ -413,8 +413,14 @@ export interface RunInput {
   batchBooking?: boolean;
   /**
    * `TAXS` for a Finanzamtszahlung, `CPPP` for a Postbarzahlung, absent for an
-   * ordinary transfer. A whole run, not a mixture: these go to different
-   * places under different rules, and ISO allows one `PmtTpInf` per file.
+   * ordinary transfer. Applied to every payment in the run.
+   *
+   * The two are ENCODED differently, and this is where that is decided: TAXS
+   * becomes `Purp/Cd` on each individual transfer, because the specification
+   * says coding it at batch level "ist nicht vorgesehen" even when the whole
+   * batch is tax payments; CPPP becomes `PmtTpInf/CtgyPurp/Prtry` for the run.
+   * A run-wide flag is an operator convenience, not a claim about where the
+   * code goes on the wire.
    */
   categoryPurpose?: AustrianPurpose;
   /** The configured remittance format for that purpose, when there is one. */
@@ -507,7 +513,14 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
   const items = bills.map((bill, index) => ({
     bill_id: bill.id,
     position: index + 1,
-    end_to_end_id: endToEndId(bill.id, bill.reference),
+    // A Finanzamtszahlung's EndToEndId is the 9-digit Ordnungsbegriff, which
+    // is what the tax office books against — so the bill's reference is used
+    // verbatim rather than prefixed with the bill id. `taxAccountProblem`
+    // refuses it below if it is not one.
+    end_to_end_id:
+      input.categoryPurpose === 'TAXS'
+        ? bill.reference.replace(/\s+/g, '')
+        : endToEndId(bill.id, bill.reference),
     amount_cents: bill.amount_cents,
     creditor_name: bill.creditor_name,
     creditor_iban: bill.creditor_iban,
@@ -525,7 +538,7 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
     debtor_name: config.debtor_name,
     debtor_iban: normalizeIban(seller.iban),
     debtor_bic: config.debtor_bic,
-    ...(input.categoryPurpose === undefined ? {} : { category_purpose: input.categoryPurpose }),
+    ...(input.categoryPurpose === 'CPPP' ? { category_purpose: 'CPPP' as const } : {}),
     payments: items.map((item) => ({
       end_to_end_id: item.end_to_end_id,
       amount_cents: item.amount_cents,
@@ -533,6 +546,7 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
       creditor_iban: item.creditor_iban,
       creditor_bic: item.creditor_bic,
       remittance: item.remittance,
+      ...(input.categoryPurpose === 'TAXS' ? { purpose: 'TAXS' as const } : {}),
     })),
     },
     input.remittancePattern ?? null,
@@ -567,7 +581,11 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
         config.debtor_bic,
         input.createdBy ?? null,
         input.categoryPurpose ?? null,
-        input.categoryPurpose === undefined ? null : (input.remittancePattern ?? null) === null ? 0 : 1,
+        // 1 whenever there is a purpose: the PSA formats are published and
+        // shipped, so a run either has no Austrian format to check or has been
+        // checked against one. Runs made before those patterns arrived kept a
+        // stored 0 and keep it — the column exists to tell those apart.
+        input.categoryPurpose === undefined ? null : 1,
         createdAt,
       );
     const runId = Number(info.lastInsertRowid);
@@ -678,9 +696,7 @@ export function paymentRunXml(db: Database.Database, id: number): string {
     // Read back from the run, never recomputed: the file must be identical
     // every time it is rebuilt, and a purpose taken from today's config would
     // change a run made under a different one.
-    ...(row.category_purpose === null || row.category_purpose === undefined
-      ? {}
-      : { category_purpose: row.category_purpose as AustrianPurpose }),
+    ...(row.category_purpose === 'CPPP' ? { category_purpose: 'CPPP' as const } : {}),
     payments: detail.items.map((item) => ({
       end_to_end_id: item.end_to_end_id,
       amount_cents: item.amount_cents,
@@ -688,6 +704,7 @@ export function paymentRunXml(db: Database.Database, id: number): string {
       creditor_iban: item.creditor_iban,
       creditor_bic: item.creditor_bic,
       remittance: item.remittance,
+      ...(row.category_purpose === 'TAXS' ? { purpose: 'TAXS' as const } : {}),
     })),
   };
   // No pattern here on purpose: the run was checked against the configured

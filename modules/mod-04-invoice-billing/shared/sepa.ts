@@ -207,63 +207,172 @@ export interface SepaCreditTransfer {
   creditor_bic: string | null;
   /** The payment purpose. An ISO 11649 "RF…" reference is sent structurally. */
   remittance: string;
+  /**
+   * `Purp/Cd` — `TAXS` marks this ONE payment as a Finanzamtszahlung.
+   *
+   * Per payment because the specification allows nowhere else: coding it at
+   * batch level "ist nicht vorgesehen" even when every payment in the batch is
+   * a tax payment. So a run may hold tax payments and ordinary ones together.
+   */
+  purpose?: 'TAXS';
 }
 
 /**
- * The two Austria-specific credit transfers, as the Stuzza implementation
- * guideline names them.
+ * The two Austria-specific credit transfers, as PSA specifies them.
  *
  *   TAXS  Finanzamtszahlung — a payment to a tax office
- *   CPPP  Postbarzahlung — a payment collected in cash at a post office
+ *   CPPP  Postbarzahlung / CashPerPost — collected in cash at a post office
  *
- * Both are ordinary SEPA credit transfers carrying a category purpose, and
- * both prescribe a **structure for `RmtInf/Ustrd`** that carries the tax
- * account, the levy type and the period. That structure is defined as a
- * regular expression in *PSA — Zahlen mit System — Kunde-Bank*, a document
- * this repository does not have: see `austrianRemittanceProblem` for what
- * follows from that.
+ * They are marked in **different places**, which a first reading gets wrong
+ * because both look like "a category purpose":
  *
- * The guideline says TAXS may be sent as either `CtgyPurp` or `Purp/Cd`, and
- * CPPP only as `CtgyPurp`. Both go in `CtgyPurp` here, so there is one rule
- * rather than two, and `PmtTpInf` stays at payment-information level where it
- * already is — ISO forbids it at both levels at once.
+ * | | element | level |
+ * | --- | --- | --- |
+ * | TAXS | `Purp/Cd` | the individual `CdtTrfTxInf` |
+ * | CPPP | `PmtTpInf/CtgyPurp/Prtry` | the payment information block |
+ *
+ * *Finanzamtszahlung in EBICS* is explicit about the first: a tax payment is
+ * marked "nur an einer Stelle … im Element `<Purp><Cd>TAXS</Cd></Purp>`
+ * innerhalb der `<CdtTrfTxInf>`", and coding it at batch level "ist nicht
+ * vorgesehen" **even when every payment in the batch is one**. So TAXS is a
+ * property of a payment, not of a run.
+ *
+ * `CPPP` goes in `Prtry`, not `Cd`: it is not an ISO ExternalCategoryPurpose
+ * code, and a bank reading `<Cd>CPPP</Cd>` gets a code that does not exist.
  */
 export type AustrianPurpose = 'TAXS' | 'CPPP';
 
 /**
+ * The remittance format for a Finanzamtszahlung, exactly as PSA publishes it.
+ *
+ *   (\d{2}(\d{2}(/?\d{2})?)?([-+](0|([1-9]([0-9]{0,10})?))[A-Z]{1,3})+)+
+ *
+ * A period, then one or more amount-and-tax-kind pairs, repeated:
+ *
+ * - **period** `YY`, `YYMM`, `YYMMDD` or `YYMM/MM`;
+ * - **amount** in cents, `+` for a liability and `-` for a credit, no leading
+ *   zeros, at most 11 digits;
+ * - **kind of tax** one to three capital letters.
+ *
+ * `0811+676850L+176800DB+23601DZ0810-563910U` is the specification's own
+ * example: for 11/08, €6768.50 wage tax, €1768.00 employer contribution and
+ * €236.01 surcharge; for 10/08, a €5639.10 VAT credit. Every example in both
+ * PSA documents is a test case in `sepa.test.ts`.
+ *
+ * Non-capturing throughout and anchored, which the published form is not — it
+ * is written to be read, and an unanchored version would accept any string
+ * with a valid fragment somewhere inside it.
+ */
+export const TAXS_REMITTANCE =
+  /^(?:\d{2}(?:\d{2}(?:\/?\d{2})?)?(?:[-+](?:0|[1-9][0-9]{0,10})[A-Z]{1,3})+)+$/;
+
+/**
+ * The remittance format for a Postbarzahlung, translated to JavaScript.
+ *
+ * PSA publishes it as:
+ *
+ *   ((?:K1D\d{8}|K3|K4|K8D\d{8}|K21|K22|K23P43\d{9,11}|K24|K25Z\d{4})+)
+ *   ([^ZDPK0-9])(\d{4})\2([^\2]*?)\2([^\2]*?)\2(.*)
+ *
+ * — clauses, a delimiter chosen from characters the clauses cannot contain,
+ * the recipient's post code, two address lines and free text, each separated
+ * by that same delimiter.
+ *
+ * **`[^\2]` does not mean what it looks like in JavaScript.** A backreference
+ * inside a character class is not a backreference: `[^\2]` is "any character
+ * except U+0002". Used verbatim, the published expression would accept address
+ * lines containing the delimiter and so mis-split the address. The faithful
+ * translation is a negative lookahead — `(?:(?!\2).)*?` — which is what this
+ * uses. The published intent is preserved; only the notation changes.
+ *
+ * Two rules the expression cannot carry are checked separately in
+ * `austrianRemittanceProblem`: clauses 21 to 25 are mutually exclusive, and
+ * the whole line is capped at 140 characters.
+ */
+export const CPPP_REMITTANCE =
+  /^((?:K1D\d{8}|K3|K4|K8D\d{8}|K21|K22|K23P43\d{9,11}|K24|K25Z\d{4})+)([^ZDPK0-9])(\d{4})\2((?:(?!\2).)*?)\2((?:(?!\2).)*?)\2(.*)$/;
+
+/** The clauses that may not appear together — one of 21…25, at most. */
+const CPPP_EXCLUSIVE = /K2[1-5]/g;
+
+/**
  * Whether a remittance line is acceptable for an Austrian special payment.
  *
- * **The pattern is not shipped, and cannot be.** The Stuzza guideline defines
- * the `Ustrd` structure for TAXS and CPPP as a regular expression published at
- * `zv.psa.at`, which is not reachable from this build, so writing one here
- * would be inventing the format of a tax payment — the one place in this
- * codebase where a plausible guess costs somebody a penalty notice rather than
- * a refused file.
- *
- * So the rule is supplied by the operator, from their own bank's
- * documentation, and this only enforces it. With no pattern configured a
- * payment still goes out — the operator may well have typed the right thing —
- * but `buildPain001`'s caller is told the format was never checked, and
- * MOD-04 surfaces that on the run rather than swallowing it.
+ * The patterns come from PSA's own published documents and are the default;
+ * `override` exists because a bank may tighten them, not because this service
+ * is unsure what they are.
  */
 export function austrianRemittanceProblem(
   purpose: AustrianPurpose,
   remittance: string,
-  pattern: RegExp | null,
+  override: RegExp | null = null,
 ): SepaProblem | null {
   const text = remittance.trim();
   if (text === '') {
-    // True regardless of the pattern: neither payment can be routed without
-    // the structured reference, and an empty Ustrd is refused by every bank.
     return {
       field: 'remittance',
-      message: `a ${purpose} payment needs a structured remittance line — see your bank's Kunde-Bank documentation`,
+      message: `a ${purpose} payment needs a structured remittance line`,
     };
   }
-  if (pattern === null) return null;
-  return pattern.test(text)
-    ? null
-    : { field: 'remittance', message: `does not match the configured ${purpose} remittance format` };
+  if (text.length > MAX_REMITTANCE) {
+    return { field: 'remittance', message: `must be at most ${MAX_REMITTANCE} characters` };
+  }
+
+  const pattern = override ?? (purpose === 'TAXS' ? TAXS_REMITTANCE : CPPP_REMITTANCE);
+  if (!pattern.test(text)) {
+    return {
+      field: 'remittance',
+      message:
+        purpose === 'TAXS'
+          ? 'is not a valid Finanzamt remittance: a period (YY, YYMM, YYMMDD or YYMM/MM) followed by amounts in ' +
+            'cents with + for a liability or - for a credit and a one-to-three-letter kind of tax, e.g. ' +
+            '"0811+676850L+176800DB"'
+          : 'is not a valid Postbarzahlung remittance: clauses, then a delimiter, post code, two address lines ' +
+            'and free text, e.g. "K3?1234?Ort?Strasse 1?Verwendungszweck"',
+    };
+  }
+
+  if (purpose === 'CPPP') {
+    // The published expression allows several of K21…K25; the prose does not.
+    const exclusive = text.match(CPPP_EXCLUSIVE) ?? [];
+    if (new Set(exclusive).size > 1) {
+      return {
+        field: 'remittance',
+        message: `clauses 21 to 25 are mutually exclusive; this names ${[...new Set(exclusive)].join(' and ')}`,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Whether a 9-digit Ordnungsbegriff carries a valid check digit.
+ *
+ * The tax account number is `FA-NNNNNN-P`: the office that issued it, the tax
+ * number, and a check digit computed by doubling the digits in positions 2, 4,
+ * 6 and 8, summing the DIGITS of those results, adding the digits in positions
+ * 1, 3, 5 and 7, and completing to the next multiple of ten.
+ *
+ * There is deliberately no check that the office number matches the IBAN. The
+ * specification says so outright: after the 2020 office mergers a tax number
+ * outlives the office that issued it, and "etwaige Prüfungen der
+ * Übereinstimmung zwischen Steuernummer und IBAN sind daher auszubauen".
+ */
+export function taxAccountProblem(ordnungsbegriff: string): string | null {
+  const digits = ordnungsbegriff.trim();
+  if (!/^\d{9}$/.test(digits)) {
+    return 'must be the 9-digit tax account number (Ordnungsbegriff), with a leading zero if needed';
+  }
+  const value = [...digits].map(Number);
+  const doubled = [1, 3, 5, 7].reduce((sum, i) => sum + digitSum(value[i]! * 2), 0);
+  const plain = [0, 2, 4, 6].reduce((sum, i) => sum + value[i]!, 0);
+  const expected = (10 - ((doubled + plain) % 10)) % 10;
+  return value[8] === expected ? null : `check digit should be ${expected}`;
+}
+
+function digitSum(n: number): number {
+  return [...String(n)].reduce((sum, c) => sum + Number(c), 0);
 }
 
 /** One payment run: one debtor account, one execution date, N transfers. */
@@ -284,12 +393,12 @@ export interface SepaInstruction {
   debtor_iban: string;
   debtor_bic: string | null;
   /**
-   * `PmtTpInf/CtgyPurp/Cd` — set for an Austrian Finanzamtszahlung or
-   * Postbarzahlung, absent for an ordinary transfer. A property of the whole
-   * run, because that is how these are filed and because ISO allows
-   * `PmtTpInf` at one level only.
+   * `PmtTpInf/CtgyPurp/Prtry` — `CPPP` makes the whole run a Postbarzahlung.
+   *
+   * Only CPPP: a Finanzamtszahlung is marked per payment in `Purp/Cd`, which
+   * is a different element in a different place. See `AustrianPurpose`.
    */
-  category_purpose?: AustrianPurpose;
+  category_purpose?: 'CPPP';
   payments: SepaCreditTransfer[];
 }
 
@@ -366,13 +475,16 @@ export function validateSepaInstruction(
     if (payment.creditor_bic !== null && !isValidBic(payment.creditor_bic)) {
       push(at('creditor_bic'), 'must be a valid 8 or 11 character BIC');
     }
-    if (instruction.category_purpose !== undefined) {
-      const problem = austrianRemittanceProblem(
-        instruction.category_purpose,
-        payment.remittance,
-        austrianRemittancePattern,
-      );
+    const purpose = payment.purpose ?? instruction.category_purpose;
+    if (purpose !== undefined) {
+      const problem = austrianRemittanceProblem(purpose, payment.remittance, austrianRemittancePattern);
       if (problem !== null) push(at('remittance'), problem.message);
+      if (purpose === 'TAXS') {
+        // The Ordnungsbegriff travels in EndToEndId — the tax office books the
+        // payment against it, so a typo lands the money in the wrong account.
+        const account = taxAccountProblem(payment.end_to_end_id);
+        if (account !== null) push(at('end_to_end_id'), `is the tax account number and ${account}`);
+      }
     }
   });
 
@@ -501,9 +613,12 @@ export function buildPain001(instruction: SepaInstruction): string {
     // CtgyPurp follows SvcLvl — the schema's sequence is InstrPrty, SvcLvl,
     // LclInstrm, CtgyPurp, and element order in pain.001 is not a matter of
     // taste.
+    // Prtry, not Cd: CPPP is a proprietary Austrian code and appears in no ISO
+    // ExternalCategoryPurpose list, so a bank reading <Cd>CPPP</Cd> is handed a
+    // code that does not exist.
     ...(instruction.category_purpose === undefined
       ? []
-      : ['        <CtgyPurp>', tag(10, 'Cd', instruction.category_purpose), '        </CtgyPurp>']),
+      : ['        <CtgyPurp>', tag(10, 'Prtry', instruction.category_purpose), '        </CtgyPurp>']),
     '      </PmtTpInf>',
     tag(6, 'ReqdExctnDt', instruction.execution_date),
     '      <Dbtr>',
@@ -538,7 +653,16 @@ export function buildPain001(instruction: SepaInstruction): string {
       tag(12, 'IBAN', normalizeIban(payment.creditor_iban)),
       '          </Id>',
       '        </CdtrAcct>',
-      ...remittance(8, payment.remittance, instruction.category_purpose !== undefined),
+      // Purp comes after CdtrAcct and before RmtInf — the schema's sequence,
+      // not a preference.
+      ...(payment.purpose === undefined
+        ? []
+        : ['        <Purp>', tag(10, 'Cd', payment.purpose), '        </Purp>']),
+      ...remittance(
+        8,
+        payment.remittance,
+        payment.purpose !== undefined || instruction.category_purpose !== undefined,
+      ),
       '      </CdtTrfTxInf>',
     );
   }

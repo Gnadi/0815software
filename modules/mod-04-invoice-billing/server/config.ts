@@ -31,15 +31,17 @@ export interface ServerConfig {
   auth: AuthConfig;
   seller: SellerConfig;
   /**
-   * The remittance formats for the two Austrian special credit transfers.
+   * Optional OVERRIDES for the two Austrian remittance formats.
    *
-   * **Not shipped, and not guessable.** The Stuzza guideline defines the
-   * `RmtInf/Ustrd` structure for a Finanzamtszahlung and a Postbarzahlung as
-   * regular expressions published at `zv.psa.at`; inventing the format of a
-   * tax payment is the one guess in this codebase that would cost somebody a
-   * penalty notice rather than a refused file. Set them from your own bank's
-   * Kunde-Bank documentation and they are enforced; leave them null and a
-   * TAXS or CPPP run says on its face that its format was never checked.
+   * The formats themselves are published by PSA and shipped in `shared/sepa.ts`
+   * — `TAXS_REMITTANCE` and `CPPP_REMITTANCE` — so nothing needs configuring
+   * for a tax payment or a Postbarzahlung to be checked. These exist because a
+   * bank may be *stricter* than PSA, and a customer told so should be able to
+   * say it here rather than discover it from a rejected file.
+   *
+   * They replace the format check only. The length cap and the refusal of an
+   * empty remittance stand either way, and an override cannot make an invalid
+   * tax account number acceptable.
    */
   austrianRemittance: { TAXS: RegExp | null; CPPP: RegExp | null };
   platform: PlatformConfig;
