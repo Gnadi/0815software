@@ -643,29 +643,136 @@ produces a plausible value that never matches the bank's letter.
 | — | Validation against the official H005 schemas: six more findings | **Done** |
 | — | The Austrian market: BTF table, `Product`, CIM, payment formats | **Done** |
 | — | `SignatureFlag`, Verification of Payee, `SPR` | **Done** |
-| — | VEU: `HVU`, `HVZ`, `HVD`, `HVT`, `HVE`, `HVS` | **Done** — 531 tests |
+| — | VEU: `HVU`, `HVZ`, `HVD`, `HVT`, `HVE`, `HVS` | **Done** |
+| — | `HTD`/`HKD`, `HCA`/`HCS`, and per-connection download subscriptions | **Done** — 603 tests |
+
+## Which BTFs are supported
+
+**All of them, on both sides — and the list of what to ask for comes from the
+bank, not from this repository.**
+
+That is worth stating precisely, because "which formats do you support?" is the
+question a bank will ask and the one this service used to answer badly.
+
+**Uploads** have always been format-agnostic. `POST /api/orders` takes a BTF and
+a payload; `service_name` is free text and nothing here restricts it. A caller
+that can produce a `pain.008`, a `camt.086` request, an `mt101` or a national
+format nobody in this repository has heard of can send it today.
+
+**Downloads** were not, and that was a real gap. The tick fetched exactly two
+BTFs per connection — the bank profile's payment status report and its account
+statement — and everything else (`camt.052` intraday, `camt.054`
+notifications, `camt.086` fees, `mt940`, PDF statements, the Austrian `CIM`
+customer information) was reachable only by an operator pressing "fetch now".
+Nothing in the protocol required that; it was a hard-coded pair.
+
+It is now a per-connection **download subscription** list. One row says "fetch
+this BTF on every tick", any BTF at all:
+
+```
+GET    /api/connections/:key/subscriptions
+POST   /api/connections/:key/subscriptions      {btf, label?, lookback_days?}
+POST   /api/connections/:key/subscriptions/:id/enable · /disable
+DELETE /api/connections/:key/subscriptions/:id
+```
+
+A new connection is seeded with its profile's two, so nothing changes for an
+existing installation. Everything beyond that is a decision an operator makes
+once — and `HTD` is where the legitimate choices come from.
+
+### Why the catalogue question is the wrong question
+
+The obvious way to "support every BTF in the standard" is to transcribe the
+national mapping tables — roughly ninety rows between the German and Austrian
+ones — into a registry. This service deliberately does not, and the reason is
+recorded in `server/bank-registry.ts`: an earlier version of that file shipped
+invented values for four countries, including a service name that does not
+exist, and they were plausible enough that only the published tables caught
+them. A wrong catalogue is worse than none, because it is quoted with
+confidence.
+
+`HTD` removes the need for one. It asks the bank which order types and BTFs it
+has enabled **for this contract**, which accounts they apply to, how many
+signatures each needs, and — per subscriber — the signature class held and any
+ceiling the bank itself enforces. That is authoritative in a way no published
+table can be: specific to one customer, at one bank, on the day it is asked.
+
+```
+GET /api/connections/:key/customer-data          HTD — this subscriber
+GET /api/connections/:key/customer-data?scope=customer   HKD — the whole customer
+```
+
+The response includes `available_downloads`: the `BTD` entries from the bank's
+own list, in exactly the shape `POST .../subscriptions` takes. So the workflow
+is ask, then subscribe — never transcribe.
+
+`bank-registry.ts` remains what it always was: a starting point for an operator
+who has not connected yet, transcribed from published tables and marked with
+where each value came from.
 
 ## What is not implemented
 
-Thirteen order types are built: `HEV`, `INI`, `HIA`, `HPB`, `SPR`, `BTU`, `BTD`
-and the six VEU ones. That covers the whole payment path and then some. Eight
-order types the H005 schema defines are **not** here, and two of them matter
-before this runs for long:
+Nineteen order types are built: `HEV`, `INI`, `HIA`, `HPB`, `SPR`, `BTU`, `BTD`,
+the six VEU ones (`HVU`, `HVZ`, `HVD`, `HVT`, `HVE`, `HVS`), the four
+administrative downloads (`HTD`, `HKD`, `HPD`, `HAA`) and the two key changes
+(`HCA`, `HCS`). Three of the H005 schema set's order types are **not** here:
 
-| | | why it matters |
+| | | why it is not here |
 | --- | --- | --- |
-| `HCA` | change the authentication and encryption keys | **key renewal.** Today the only way to replace a key is `SPR` and a fresh INI letter — on paper, with a gap in service. Certificates last ten years, so this is not urgent; a compromised key makes it urgent immediately. |
-| `HCS` | change all three keys, ES included | as above, for the key that authorises payments |
-| `HTD` | subscriber data | what the bank thinks *this subscriber* may do: accounts, permitted order types, signature class. Several banks expect a client to fetch it; it is also the cheapest possible first live request. |
-| `HKD` | customer data | the same for the whole customer |
-| `HPD` | bank parameters | what the bank supports — segment sizes, versions |
-| `HAA` | available order types | a shortcut for part of `HPD`/`HTD` |
-| `H3K` | one-step initialisation with certificates | an alternative to INI + HIA + HPB, not a replacement for it |
-| `PUB` | change the ES key alone | superseded by `HCS` |
+| `H3K` | one-step initialisation with certificates | an alternative to INI + HIA + HPB, not a replacement for it. Everything it does can be done today, in three requests instead of one. |
+| `PUB` | change the ES key alone | superseded by `HCS`, which changes it along with the other two |
+| `HAC` | the customer protocol | **its request is built and its bytes can be fetched; its answer cannot be parsed.** See below. |
 
-None of these blocks a payment. `HTD` is the one worth having before the first
-bank conversation, because it is a read-only download that answers "does this
-bank agree about who I am and what I may send" without any money moving.
+### `HAC`, specifically
+
+`HAC` is the *Kundenprotokoll* — the bank's own log of what it did with each
+order, and the natural place to look when a payment file disappears. It is
+referenced by name in the national mapping tables, so it is reasonable to
+expect it here.
+
+It is **not in the H005 schema set**. The EBICS Working Group's published
+`EBICS_3.0_schema_H005` archive contains ten files, and none of them defines
+`HACResponseOrderData`; the format is specified in the national annexes
+instead. `buildAdminDownload` accepts `'HAC'` and produces a schema-valid
+request, and a subscription to it would store the bytes — but this service will
+not claim to read them, because the last time a reader was written from prose
+rather than a schema (the Austrian `CIM` message) it matched nothing, fell back
+to the whole document, and returned a confident answer that was wrong.
+
+Adding `HAC` properly means obtaining its national schema and validating a
+fixture against it first. That is the same order every other message here was
+built in.
+
+### Key renewal, which is now available
+
+`HCA` replaces the authentication and encryption keys; `HCS` replaces those and
+the ES key — the one that authorises payments, and therefore the one that
+matters after a compromise. Both are signed with the keys the bank already
+holds, and that signature is the authorisation: no second paper letter.
+
+```
+GET    /api/connections/:key/key-change            what is pending
+POST   /api/connections/:key/key-change            {include_signature?: bool}
+POST   /api/connections/:key/key-change/complete   the recovery, below
+DELETE /api/connections/:key/key-change            discard a refused change
+```
+
+The ordering is the design, and it is deliberate:
+
+1. Generate the replacements and **commit them as pending**.
+2. Send the request, signed with the current keys.
+3. Only on the bank's acceptance, retire the old and promote the pending.
+
+Step 1 before step 2 is not an optimisation. The unrecoverable failure is the
+bank moving to a key this service does not hold — from that point nothing we
+can send is valid and the fix is re-initialising on paper. A pending set nobody
+activates is a row to delete.
+
+That leaves exactly one gap: the bank accepts and this service dies before step
+3. The keys are on disk, so nothing is lost, but the two sides disagree about
+which key is live. `POST .../key-change/complete` is the door out, and it is
+deliberately explicit rather than inferred — an operator has to have
+established with the bank that the change went through.
 
 ## Scripts
 
@@ -684,9 +791,10 @@ bank agree about who I am and what I may send" without any money moving.
   A bank that insists on one signed by a certificate authority needs an
   operator-supplied certificate and key; requesting one from a CA is not
   something this service does.
-- **Distributed signature (VEU) management.** Signature class E means an upload
-  is already authorised; managing multi-signature release queues is a different
-  feature.
+- **A VEU screen in a module.** The distributed-signature queue is fully
+  implemented in this service (`HVU`, `HVZ`, `HVD`, `HVT`, `HVE`, `HVS`), and
+  reached through the admin session. Putting a "co-sign these bills" list into
+  MOD-04 is a module feature that has not been built.
 - **SEPA direct debit collection** (`pain.008`), which needs mandates that no
   module currently holds.
 - **Parsing account statements.** A `camt.053` is downloaded, stored whole and

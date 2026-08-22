@@ -67,6 +67,19 @@ import {
   type VeuContext,
   type VeuOrderInput,
 } from './veu.js';
+import {
+  availableDownloads,
+  fetchAvailableOrderData,
+  fetchBankParameters,
+  fetchCustomerData,
+} from './customer-data.js';
+import {
+  addSubscription,
+  listSubscriptions,
+  removeSubscription,
+  setSubscriptionEnabled,
+} from './subscriptions.js';
+import { changeKeys, completeKeyChange, discardKeyChange, pendingKeyChange } from './key-change.js';
 import type { BtfInput } from '../shared/types.js';
 
 /**
@@ -513,6 +526,109 @@ export function createApp(opts: AppOptions): express.Express {
     veuCancel(exchangeCtx(req), req.params.key as string, veuOrderInput(body(req)))
       .then((result) => res.json(result))
       .catch(next);
+  });
+
+  // ── What the bank says this customer may do ────────────────────────
+  //
+  // HTD (this subscriber) or HKD (the whole customer). Read-only, moves no
+  // money, and the answer is worth more than any table in this repository:
+  // it is the bank's own list of the order types and BTFs it has enabled for
+  // this contract, with the signature class and ceilings it enforces.
+  app.get('/api/connections/:key/customer-data', requireAdmin, (req, res, next) => {
+    const scope = req.query.scope === 'customer' ? 'customer' : 'subscriber';
+    fetchCustomerData(exchangeCtx(req), req.params.key as string, scope)
+      .then((data) => res.json({ scope, ...data, available_downloads: availableDownloads(data) }))
+      .catch(next);
+  });
+
+  // HPD — the bank's own parameters. The cheapest compatibility check there
+  // is, and the one whose absence turns into an obscure return code later.
+  app.get('/api/connections/:key/bank-parameters', requireAdmin, (req, res, next) => {
+    fetchBankParameters(exchangeCtx(req), req.params.key as string)
+      .then((parameters) => res.json(parameters))
+      .catch(next);
+  });
+
+  // HAA — what the bank has waiting RIGHT NOW, as opposed to what this
+  // customer is permitted to fetch. Different question, different answer.
+  app.get('/api/connections/:key/waiting', requireAdmin, (req, res, next) => {
+    fetchAvailableOrderData(exchangeCtx(req), req.params.key as string)
+      .then((btfs) => res.json({ waiting: btfs }))
+      .catch(next);
+  });
+
+  // ── What the tick fetches, per connection ──────────────────────────
+  //
+  // Any BTF, not the two this service used to hard-code. `available_downloads`
+  // above is where the legitimate values come from.
+  app.get('/api/connections/:key/subscriptions', requireAdmin, (req, res) => {
+    res.json({ subscriptions: listSubscriptions(db, req.params.key as string) });
+  });
+
+  app.post('/api/connections/:key/subscriptions', requireAdmin, (req, res) => {
+    const b = body(req);
+    const btf = btfFrom(b);
+    if (btf === undefined) {
+      throw new DomainError(422, 'Validation failed', [
+        { field: 'btf', message: 'is required — name what to fetch on every tick' },
+      ]);
+    }
+    res.status(201).json(
+      addSubscription(
+        db,
+        req.params.key as string,
+        {
+          btf,
+          ...(typeof b.label === 'string' ? { label: b.label.slice(0, 120) } : {}),
+          ...(optionalInt(b, 'lookback_days', 1, 3650) === undefined
+            ? {}
+            : { lookbackDays: optionalInt(b, 'lookback_days', 1, 3650) as number }),
+          ...(b.enabled === false ? { enabled: false } : {}),
+        },
+        now,
+      ),
+    );
+  });
+
+  app.post('/api/connections/:key/subscriptions/:id/enable', requireAdmin, (req, res) => {
+    res.json(setSubscriptionEnabled(db, req.params.key as string, Number(req.params.id), true));
+  });
+
+  app.post('/api/connections/:key/subscriptions/:id/disable', requireAdmin, (req, res) => {
+    res.json(setSubscriptionEnabled(db, req.params.key as string, Number(req.params.id), false));
+  });
+
+  app.delete('/api/connections/:key/subscriptions/:id', requireAdmin, (req, res) => {
+    removeSubscription(db, req.params.key as string, Number(req.params.id));
+    res.status(204).end();
+  });
+
+  // ── Key rotation over the wire: HCA and HCS ────────────────────────
+  //
+  // Admin session only, and never a service token. A module that could rotate
+  // the ES key could rotate it to a key it holds, which is the whole security
+  // model handed over in one request.
+  app.get('/api/connections/:key/key-change', requireAdmin, (req, res) => {
+    res.json({ pending: pendingKeyChange(exchangeCtx(req), req.params.key as string) });
+  });
+
+  app.post('/api/connections/:key/key-change', requireAdmin, (req, res, next) => {
+    const b = body(req);
+    changeKeys(exchangeCtx(req), req.params.key as string, { includeSignature: b.include_signature === true })
+      .then((result) => res.json(result))
+      .catch(next);
+  });
+
+  // The recovery for a crash between the bank's acceptance and our commit.
+  // Deliberately explicit: an operator must have established with the bank
+  // that the change actually went through.
+  app.post('/api/connections/:key/key-change/complete', requireAdmin, (req, res) => {
+    res.json({ keys: completeKeyChange(exchangeCtx(req), req.params.key as string) });
+  });
+
+  app.delete('/api/connections/:key/key-change', requireAdmin, (req, res) => {
+    discardKeyChange(exchangeCtx(req), req.params.key as string);
+    res.status(204).end();
   });
 
   app.post('/api/connections/:key/suspend', requireAdmin, (req, res) => {

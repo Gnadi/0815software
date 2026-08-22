@@ -557,3 +557,283 @@ function intOf(scope: XmlElement, name: string): number {
 function nullIfBlank(value: string): string | null {
   return value.trim() === '' ? null : value.trim();
 }
+
+// ── HTD and HKD: what this subscriber and this customer may do ────────
+
+/** One order type the bank says is available, from `PartnerInfo/OrderInfo`. */
+export interface AvailableOrder {
+  /** `BTU`, `BTD`, `HAC`, … */
+  adminOrderType: string;
+  /** The BTF, for `BTU`/`BTD`. Absent on an administrative order type. */
+  service: VeuOrder['service'] | null;
+  description: string;
+  /** How many signatures the bank requires for it. */
+  signaturesRequired: number | null;
+}
+
+/** One thing this subscriber is permitted to do, from `UserInfo/Permission`. */
+export interface UserPermission {
+  adminOrderType: string;
+  service: VeuOrder['service'] | null;
+  accountId: string | null;
+  /** Per-order ceiling the BANK enforces, in the file's own units. */
+  maxAmount: string | null;
+  /** `E`, `A`, `B` or `T` — which signature class this subscriber holds. */
+  authorisationLevel: string | null;
+}
+
+/**
+ * An account the customer holds, as the bank lists it.
+ *
+ * The schema carries the account number twice over — `AccountNumber` with
+ * `international="true"` is an IBAN, without it a national number, and both
+ * may be present (the choice allows two). Same for `BankCode`/BIC. So they are
+ * split here rather than folded into one field, because "the account number"
+ * is not one thing.
+ */
+export interface CustomerAccount {
+  /** The bank's own id for it, which a `Permission/AccountID` refers to. */
+  id: string;
+  iban: string | null;
+  /** A national account number, or one in a free format the bank names. */
+  nationalNumber: string | null;
+  bic: string | null;
+  nationalBankCode: string | null;
+  holder: string | null;
+  /** Attributes on the account, not elements — `Currency` defaults to EUR. */
+  currency: string;
+  description: string | null;
+}
+
+/** One subscriber, and what the bank lets them do. */
+export interface SubscriberInfo {
+  userId: string;
+  /** `Ready`, `New`, `Suspended` — the bank's own word for this subscriber. */
+  status: string;
+  name: string | null;
+  permissions: UserPermission[];
+}
+
+/**
+ * What `HTD` (one subscriber) or `HKD` (the whole customer) answered.
+ *
+ * This is the bank telling you what it thinks you may do — which is worth
+ * more than any transcribed table, because it is specific to this contract and
+ * cannot go stale. `orders` is the definitive list of BTFs available to this
+ * customer; `subscribers[].permissions` narrows it per person, with the
+ * signature class and any per-order ceiling the bank enforces.
+ */
+export interface CustomerData {
+  partner: {
+    name: string | null;
+    addressLines: string[];
+    hostId: string;
+  };
+  accounts: CustomerAccount[];
+  /** Every order type the bank offers this customer. */
+  orders: AvailableOrder[];
+  /** One entry for HTD, potentially many for HKD. */
+  subscribers: SubscriberInfo[];
+}
+
+export function parseCustomerData(xml: string): CustomerData {
+  const root = parse(xml);
+  const partner = at(root, EBICS_NS, 'PartnerInfo');
+  const address = partner === null ? null : at(partner, EBICS_NS, 'AddressInfo');
+  const bank = partner === null ? null : at(partner, EBICS_NS, 'BankInfo');
+
+  return {
+    partner: {
+      name: address === null ? null : nullIfBlank(textOf(at(address, EBICS_NS, 'Name'))),
+      addressLines:
+        address === null
+          ? []
+          : (['Street', 'PostCode', 'City', 'Region', 'Country'] as const)
+              .map((name) => textOf(at(address, EBICS_NS, name)).trim())
+              .filter((line) => line !== ''),
+      hostId: bank === null ? '' : textOf(at(bank, EBICS_NS, 'HostID')).trim(),
+    },
+    accounts: partner === null ? [] : childrenOf(partner, EBICS_NS, 'AccountInfo').map(readAccountInfo),
+    orders: partner === null ? [] : childrenOf(partner, EBICS_NS, 'OrderInfo').map(readOrderInfo),
+    // HTD carries one UserInfo, HKD carries one per subscriber. Same reader.
+    subscribers: childrenOf(root, EBICS_NS, 'UserInfo').map(readSubscriber),
+  };
+}
+
+function readAccountInfo(account: XmlElement): CustomerAccount {
+  // `international="true"` is what makes an AccountNumber an IBAN. Reading the
+  // first AccountNumber as one would put a German account number in an IBAN
+  // field, which every consumer downstream would then treat as payable.
+  const numbers = childrenOf(account, EBICS_NS, 'AccountNumber');
+  const codes = childrenOf(account, EBICS_NS, 'BankCode');
+  const iban = numbers.find((n) => attrOf(n, 'international') === 'true');
+  const bic = codes.find((c) => attrOf(c, 'international') === 'true');
+  const nationalNumber =
+    numbers.find((n) => attrOf(n, 'international') !== 'true') ??
+    at(account, EBICS_NS, 'NationalAccountNumber');
+  const nationalBankCode =
+    codes.find((c) => attrOf(c, 'international') !== 'true') ?? at(account, EBICS_NS, 'NationalBankCode');
+
+  return {
+    id: attrOf(account, 'ID') ?? '',
+    iban: iban === undefined ? null : nullIfBlank(textOf(iban)),
+    nationalNumber: nationalNumber === undefined || nationalNumber === null ? null : nullIfBlank(textOf(nationalNumber)),
+    bic: bic === undefined ? null : nullIfBlank(textOf(bic)),
+    nationalBankCode:
+      nationalBankCode === undefined || nationalBankCode === null ? null : nullIfBlank(textOf(nationalBankCode)),
+    holder: nullIfBlank(textOf(at(account, EBICS_NS, 'AccountHolder'))),
+    // Both are ATTRIBUTES on AccountType, not elements, and Currency has a
+    // schema default of EUR that an absent attribute means literally.
+    currency: attrOf(account, 'Currency') ?? 'EUR',
+    description: attrOf(account, 'Description') ?? null,
+  };
+}
+
+function readOrderInfo(info: XmlElement): AvailableOrder {
+  const required = textOf(at(info, EBICS_NS, 'NumSigRequired')).trim();
+  return {
+    adminOrderType: textOf(at(info, EBICS_NS, 'AdminOrderType')).trim(),
+    service: readService(at(info, EBICS_NS, 'Service')),
+    description: textOf(at(info, EBICS_NS, 'Description')).trim(),
+    signaturesRequired: required === '' ? null : Number.parseInt(required, 10),
+  };
+}
+
+function readSubscriber(user: XmlElement): SubscriberInfo {
+  const id = at(user, EBICS_NS, 'UserID');
+  return {
+    userId: textOf(id).trim(),
+    // Required by the schema; empty means the bank sent something it forbids.
+    status: id === null ? '' : (attrOf(id, 'Status') ?? ''),
+    name: nullIfBlank(textOf(at(user, EBICS_NS, 'Name'))),
+    permissions: childrenOf(user, EBICS_NS, 'Permission').map((permission) => ({
+      adminOrderType: textOf(at(permission, EBICS_NS, 'AdminOrderType')).trim(),
+      service: readService(at(permission, EBICS_NS, 'Service')),
+      accountId: nullIfBlank(textOf(at(permission, EBICS_NS, 'AccountID'))),
+      maxAmount: nullIfBlank(textOf(at(permission, EBICS_NS, 'MaxAmount'))),
+      authorisationLevel: attrOf(permission, 'AuthorisationLevel') ?? null,
+    })),
+  };
+}
+
+/** A `Service` element, shared by OrderInfo and Permission. */
+function readService(service: XmlElement | null): VeuOrder['service'] | null {
+  if (service === null) return null;
+  const container = at(service, EBICS_NS, 'Container');
+  return {
+    serviceName: textOf(at(service, EBICS_NS, 'ServiceName')).trim(),
+    scope: nullIfBlank(textOf(at(service, EBICS_NS, 'Scope'))),
+    option: nullIfBlank(textOf(at(service, EBICS_NS, 'ServiceOption'))),
+    msgName: textOf(at(service, EBICS_NS, 'MsgName')).trim(),
+    container: container === null ? null : (attrOf(container, 'containerType') ?? null),
+  };
+}
+
+// ── HPD and HAA: what the bank supports, and what it has waiting ──────
+
+/** One URL the bank publishes for itself, with the date it takes effect. */
+export interface BankUrl {
+  url: string;
+  validFrom: string | null;
+}
+
+/**
+ * What `HPD` answered: the bank's own access and protocol parameters.
+ *
+ * The versions are the useful part. This service speaks H005/X002/E002 and
+ * A005 or A006, and a bank that does not list one of those will refuse
+ * everything later with a code that says less than this does. `optionalFeatures`
+ * says whether recovery, pre-validation, `HKD`/`HTD` and `HAA` are available at
+ * all — the last two being exactly the reads a client would otherwise discover
+ * are unsupported by trying them.
+ */
+export interface BankParameters {
+  access: {
+    institute: string;
+    hostId: string | null;
+    urls: BankUrl[];
+  };
+  versions: {
+    /** Space-separated lists in the schema; split here. */
+    protocol: string[];
+    authentication: string[];
+    encryption: string[];
+    signature: string[];
+  };
+  /**
+   * Each flag defaults to TRUE when its element is present without the
+   * attribute, and is absent from this map when the element is missing — the
+   * schema's own distinction between "supported" and "not stated".
+   */
+  optionalFeatures: {
+    recovery?: boolean;
+    preValidation?: boolean;
+    clientDataDownload?: boolean;
+    downloadableOrderData?: boolean;
+  };
+}
+
+export function parseBankParameters(xml: string): BankParameters {
+  const root = parse(xml);
+  const access = at(root, EBICS_NS, 'AccessParams');
+  const protocol = at(root, EBICS_NS, 'ProtocolParams');
+  const versions = protocol === null ? null : at(protocol, EBICS_NS, 'Version');
+
+  // Present without the attribute means supported: the schema's default is
+  // `true`, and reading an absent attribute as `false` would report a working
+  // feature as missing.
+  const flag = (name: string): boolean | undefined => {
+    const element = protocol === null ? null : at(protocol, EBICS_NS, name);
+    if (element === null) return undefined;
+    return (attrOf(element, 'supported') ?? 'true') === 'true';
+  };
+  const list = (name: string): string[] =>
+    versions === null ? [] : textOf(at(versions, EBICS_NS, name)).trim().split(/\s+/).filter((v) => v !== '');
+
+  const features: BankParameters['optionalFeatures'] = {};
+  for (const [key, element] of [
+    ['recovery', 'Recovery'],
+    ['preValidation', 'PreValidation'],
+    ['clientDataDownload', 'ClientDataDownload'],
+    ['downloadableOrderData', 'DownloadableOrderData'],
+  ] as const) {
+    const value = flag(element);
+    if (value !== undefined) features[key] = value;
+  }
+
+  return {
+    access: {
+      institute: access === null ? '' : textOf(at(access, EBICS_NS, 'Institute')).trim(),
+      hostId: access === null ? null : nullIfBlank(textOf(at(access, EBICS_NS, 'HostID'))),
+      urls:
+        access === null
+          ? []
+          : childrenOf(access, EBICS_NS, 'URL').map((url) => ({
+              url: textOf(url).trim(),
+              validFrom: attrOf(url, 'valid_from') ?? null,
+            })),
+    },
+    versions: {
+      protocol: list('Protocol'),
+      authentication: list('Authentication'),
+      encryption: list('Encryption'),
+      signature: list('Signature'),
+    },
+    optionalFeatures: features,
+  };
+}
+
+/**
+ * What `HAA` answered: the BTFs the bank has data waiting for, right now.
+ *
+ * Different from `HTD`'s order list, and the difference is worth keeping
+ * straight: `HTD` says what this customer is *permitted* to fetch, `HAA` says
+ * what is *actually waiting*. A tick driven by `HAA` asks only for files that
+ * exist, instead of asking for everything and being told `090005` most of the
+ * time.
+ */
+export function parseAvailableOrderData(xml: string): NonNullable<AvailableOrder['service']>[] {
+  return childrenOf(parse(xml), EBICS_NS, 'Service')
+    .map(readService)
+    .filter((service): service is NonNullable<AvailableOrder['service']> => service !== null);
+}

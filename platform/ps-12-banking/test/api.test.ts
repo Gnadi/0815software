@@ -115,6 +115,17 @@ describe('who may do what', () => {
     ['post', '/api/connections/main/verify-bank-keys'],
     ['post', '/api/connections/main/suspend'],
     ['post', '/api/connections/main/resume'],
+    ['get', '/api/connections/main/customer-data'],
+    ['get', '/api/connections/main/bank-parameters'],
+    ['get', '/api/connections/main/waiting'],
+    ['get', '/api/connections/main/subscriptions'],
+    ['post', '/api/connections/main/subscriptions'],
+    ['delete', '/api/connections/main/subscriptions/1'],
+    // A module that could rotate the ES key could rotate it to a key it holds.
+    ['get', '/api/connections/main/key-change'],
+    ['post', '/api/connections/main/key-change'],
+    ['post', '/api/connections/main/key-change/complete'],
+    ['delete', '/api/connections/main/key-change'],
   ];
 
   it.each(OPERATOR_ROUTES)('%s %s needs a credential', async (method, path) => {
@@ -747,5 +758,83 @@ describe('downloads', () => {
 
   it('404s an unknown download', async () => {
     await request(app).get('/api/downloads/dl_nope').set(SERVICE).expect(404);
+  });
+});
+
+// ── The BTFs the tick fetches, and the keys it signs with ─────────────
+
+describe('customer data, subscriptions and key rotation over HTTP', () => {
+  beforeEach(async () => {
+    await bringUp();
+  });
+
+  it('answers HTD with the bank’s own list of what it has enabled', async () => {
+    const res = await request(app)
+      .get('/api/connections/main/customer-data')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+    expect(res.body.scope).toBe('subscriber');
+    expect(res.body.partner.name).toBe('0815 Software GmbH');
+    // The field that makes the BTF question answerable without a transcribed
+    // table: what this bank will actually hand over.
+    expect(res.body.available_downloads.length).toBeGreaterThan(0);
+  });
+
+  it('subscribes the tick to a BTF no profile in this repository names', async () => {
+    const created = await request(app)
+      .post('/api/connections/main/subscriptions')
+      .set('Authorization', `Bearer ${session}`)
+      .send({ btf: { service_name: 'REP', scope: 'BIL', msg_name: 'camt.086', container: 'ZIP' }, label: 'fees' })
+      .expect(201);
+    expect(created.body.btf.msg_name).toBe('camt.086');
+
+    const list = await request(app)
+      .get('/api/connections/main/subscriptions')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+    expect(list.body.subscriptions.map((s: { btf: { msg_name: string } }) => s.btf.msg_name)).toContain('camt.086');
+
+    await request(app)
+      .delete(`/api/connections/main/subscriptions/${created.body.id}`)
+      .set('Authorization', `Bearer ${session}`)
+      .expect(204);
+  });
+
+  it('rotates the keys and keeps talking to the bank afterwards', async () => {
+    const before = await request(app)
+      .get('/api/connections/main')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+
+    const changed = await request(app)
+      .post('/api/connections/main/key-change')
+      .set('Authorization', `Bearer ${session}`)
+      .send({})
+      .expect(200);
+    expect(changed.body.orderType).toBe('HCA');
+
+    const after = await request(app)
+      .get('/api/connections/main')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+    const digest = (body: { keys: { purpose: string; digest: string }[] }, purpose: string): string =>
+      body.keys.find((k) => k.purpose === purpose)!.digest;
+    expect(digest(after.body, 'AUTH')).not.toBe(digest(before.body, 'AUTH'));
+
+    // The proof both sides moved together: the next signed request works.
+    await request(app)
+      .get('/api/connections/main/customer-data')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+  });
+
+  it('never puts key material in a key-change response', async () => {
+    const res = await request(app)
+      .post('/api/connections/main/key-change')
+      .set('Authorization', `Bearer ${session}`)
+      .send({ include_signature: true })
+      .expect(200);
+    expect(JSON.stringify(res.body)).not.toMatch(/PRIVATE KEY/);
+    expect(JSON.stringify(res.body)).not.toMatch(/BEGIN/);
   });
 });

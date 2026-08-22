@@ -1,8 +1,8 @@
 import type Database from 'better-sqlite3';
 import { DomainError } from './errors.js';
 import { listConnections, nowIso, productOf, publicId, requireReady } from './connections.js';
+import { activeSubscriptions, recordPoll } from './subscriptions.js';
 import { privatePemFor } from './keystore.js';
-import { bankProfile } from './bank-registry.js';
 import { buildDownloadInit, buildDownloadSegment, buildReceipt, type Btf, type Subscriber, type SubscriberKeys } from './ebics/envelopes.js';
 import { decryptTransactionKey, unpackOrderData, type EsVersion } from './ebics/crypto.js';
 import { parseResponse } from './ebics/parse.js';
@@ -471,22 +471,24 @@ export async function tick(ctx: DownloadContext): Promise<TickResult> {
 
   for (const connection of listConnections(ctx.db)) {
     if (connection.state !== 'ready') continue;
-    const profile = bankProfile(connection.bank_key);
-    if (profile === undefined) {
-      result.problems.push({ connection: connection.key, message: `unknown bank profile "${connection.bank_key}"` });
-      continue;
-    }
 
-    // Status reports first: they are the answers to what we sent, and an
-    // operator looking at a screen mid-tick would rather see those land.
-    for (const btf of [profile.paymentStatus, profile.statement]) {
+    // WHAT gets fetched is the connection's own subscription list, not a pair
+    // hard-coded here. A connection with no enabled subscriptions polls
+    // nothing, deliberately: that is an operator's choice, and inventing a
+    // fallback would make an emptied list silently un-emptiable.
+    const row = ctx.db.prepare('SELECT id FROM bank_connections WHERE key = ?').get(connection.key) as { id: number };
+    for (const subscription of activeSubscriptions(ctx.db, row.id)) {
+      const at = now();
       try {
-        const fetched = await fetchOne(ctx, connection.key, btf);
+        const fetched = await fetchOne(ctx, connection.key, subscription.btf, lookback(subscription.lookback_days, at));
         if (fetched.download !== null && !fetched.duplicate) result.downloads_fetched += 1;
+        recordPoll(ctx.db, subscription.id, at, null);
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        recordPoll(ctx.db, subscription.id, at, message);
         result.problems.push({
           connection: connection.key,
-          message: `${btf.msg_name}: ${err instanceof Error ? err.message : String(err)}`,
+          message: `${subscription.btf.msg_name}: ${message}`,
         });
       }
     }
@@ -494,4 +496,20 @@ export async function tick(ctx: DownloadContext): Promise<TickResult> {
 
   result.orders_updated = applyReports(ctx.db, now);
   return result;
+}
+
+/**
+ * The `DateRange` a subscription's lookback asks for, or none.
+ *
+ * Deliberately inclusive of today and of the whole lookback window: banks
+ * differ on whether an absent range means "everything not yet collected" or
+ * "today", and re-asking for a file already collected costs a duplicate the
+ * digest index absorbs, while asking for one day too few loses a statement.
+ */
+function lookback(days: number | null, at: string): { from: string; to: string } | undefined {
+  if (days === null) return undefined;
+  const to = new Date(at);
+  const from = new Date(to);
+  from.setUTCDate(from.getUTCDate() - days);
+  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
 }

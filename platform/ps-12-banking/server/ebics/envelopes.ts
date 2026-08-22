@@ -688,6 +688,194 @@ function downloadInitialisation(params: {
   return signed(root, keys.authPrivatePem);
 }
 
+// ── Asking the bank about itself ──────────────────────────────────────
+
+/**
+ * The read-only administrative downloads.
+ *
+ * | | asks |
+ * | --- | --- |
+ * | `HTD` | what THIS subscriber may do — accounts, order types, signature class |
+ * | `HKD` | the same for the whole customer, every subscriber included |
+ * | `HPD` | the bank's own parameters and capabilities |
+ * | `HAA` | which order types are available at all |
+ * | `HAC` | the customer protocol: what the bank did with each order |
+ *
+ * All five are `ebicsRequest` downloads with `StandardOrderParams` — the
+ * catch-all the schema defines for admin order types that carry no BTF — so
+ * they differ only in the three letters. That is why they are one function.
+ *
+ * `HTD` is the cheapest useful request there is: read-only, no money, and it
+ * answers "does this bank agree about who I am and what I may send" before a
+ * payment is ever built. It is the sensible first live call after `HPB`.
+ *
+ * **`HAC` is here but its answer cannot be parsed.** The customer protocol's
+ * order data is specified outside the H005 schema set — it is not in the ten
+ * files the EBICS Working Group publishes — so this service fetches it and
+ * stores the bytes without claiming to understand them. See `downloads.ts`.
+ */
+export type AdminDownloadType = 'HTD' | 'HKD' | 'HPD' | 'HAA' | 'HAC';
+
+export function buildAdminDownload(params: {
+  subscriber: Subscriber;
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  timestamp: string;
+  orderType: AdminDownloadType;
+  /** Inclusive ISO dates. `HAC` is the one where this is usually wanted. */
+  dateRange?: { from: string; to: string };
+}): string {
+  return downloadInitialisation({
+    ...params,
+    orderDetails: [
+      el('e:AdminOrderType', {}, [params.orderType]),
+      el(
+        'e:StandardOrderParams',
+        {},
+        params.dateRange === undefined
+          ? []
+          : [
+              el('e:DateRange', {}, [
+                el('e:Start', {}, [params.dateRange.from]),
+                el('e:End', {}, [params.dateRange.to]),
+              ]),
+            ],
+      ),
+    ],
+  });
+}
+
+// ── Renewing the subscriber keys ──────────────────────────────────────
+
+/**
+ * `HCA` and `HCS` — replace our own keys without another paper INI letter.
+ *
+ * Without these the only way to change a key is `SPR` and a fresh
+ * initialisation on paper, with a gap in service while the bank processes it.
+ * With them a compromised or expiring key is replaced over the wire in one
+ * request.
+ *
+ * | | replaces |
+ * | --- | --- |
+ * | `HCA` | the authentication (X002) and encryption (E002) keys |
+ * | `HCS` | those two AND the ES key that authorises payments |
+ *
+ * **The old keys sign the change; that is what authorises it.** The request is
+ * an ordinary signed upload built with the keys currently on file, and its
+ * order data carries the NEW public keys as certificates. A bank that accepts
+ * it has verified, with the key it already trusts, that the holder of that key
+ * asked for the replacement — which is exactly the property that makes a paper
+ * letter unnecessary the second time.
+ *
+ * So the caller passes both sets, and the distinction matters: `keys` are the
+ * ones in use today, `replacement` are the ones that take over if the bank
+ * says yes. Swapping them produces a request signed by a key the bank has
+ * never seen, which it will refuse.
+ */
+export interface KeyChange {
+  subscriber: Subscriber;
+  /** The keys currently registered with the bank. These sign the request. */
+  keys: SubscriberKeys;
+  bank: BankKeys;
+  transactionKey: Buffer;
+  timestamp: string;
+  /** Certificates over the NEW keys that are to take over. */
+  replacement: {
+    /** Required for HCS, ignored for HCA — only HCS replaces the ES key. */
+    esCertificatePem?: string;
+    esVersion?: EsVersion;
+    authCertificatePem: string;
+    encCertificatePem: string;
+  };
+}
+
+/**
+ * `HCA` — new authentication and encryption keys, ES key unchanged.
+ *
+ * The order data is an `HCARequestOrderData`, whose shape is `HIA`'s: the two
+ * key infos and the partner and user ids. The difference is entirely in what
+ * signs the envelope — `HIA` is unsecured because the bank has nothing of ours
+ * yet, and this is fully signed because by now it has.
+ */
+export function buildKeyChangeAuth(params: KeyChange): VeuUpload {
+  const orderData = Buffer.from(
+    document(
+      el('e:HCARequestOrderData', {}, [
+        el('e:AuthenticationPubKeyInfo', {}, [
+          x509Data(params.replacement.authCertificatePem),
+          el('e:AuthenticationVersion', {}, ['X002']),
+        ]),
+        el('e:EncryptionPubKeyInfo', {}, [
+          x509Data(params.replacement.encCertificatePem),
+          el('e:EncryptionVersion', {}, ['E002']),
+        ]),
+        el('e:PartnerID', {}, [params.subscriber.partnerId]),
+        el('e:UserID', {}, [params.subscriber.userId]),
+      ]),
+      NS,
+    ),
+    'utf8',
+  );
+
+  return keyChangeUpload(params, 'HCA', orderData);
+}
+
+/**
+ * `HCS` — new keys for all three purposes, the ES key included.
+ *
+ * The one that matters after a compromise: `HCA` leaves the key that
+ * authorises payments exactly where it was.
+ */
+export function buildKeyChangeAll(params: KeyChange): VeuUpload {
+  const { esCertificatePem, esVersion } = params.replacement;
+  if (esCertificatePem === undefined) {
+    throw new Error('HCS replaces the ES key as well, so a certificate over the new ES key is required');
+  }
+
+  const orderData = Buffer.from(
+    document(
+      el('e:HCSRequestOrderData', {}, [
+        el('e:AuthenticationPubKeyInfo', {}, [
+          x509Data(params.replacement.authCertificatePem),
+          el('e:AuthenticationVersion', {}, ['X002']),
+        ]),
+        el('e:EncryptionPubKeyInfo', {}, [
+          x509Data(params.replacement.encCertificatePem),
+          el('e:EncryptionVersion', {}, ['E002']),
+        ]),
+        // In the S002 namespace, like every other signature key info.
+        el('esig:SignaturePubKeyInfo', {}, [
+          x509Data(esCertificatePem),
+          el('esig:SignatureVersion', {}, [esVersion ?? 'A005']),
+        ]),
+        el('e:PartnerID', {}, [params.subscriber.partnerId]),
+        el('e:UserID', {}, [params.subscriber.userId]),
+      ]),
+      NS,
+    ),
+    'utf8',
+  );
+
+  return keyChangeUpload(params, 'HCS', orderData);
+}
+
+function keyChangeUpload(params: KeyChange, orderType: 'HCA' | 'HCS', orderData: Buffer): VeuUpload {
+  return {
+    orderData,
+    init: uploadInitialisation({
+      subscriber: params.subscriber,
+      // The CURRENT keys. See the note on KeyChange.
+      keys: params.keys,
+      bank: params.bank,
+      orderData,
+      transactionKey: params.transactionKey,
+      timestamp: params.timestamp,
+      segments: 1,
+      orderDetails: [el(`e:AdminOrderType`, {}, [orderType]), el('e:StandardOrderParams', {})],
+    }),
+  };
+}
+
 // ── VEU: the distributed-signature queue ──────────────────────────────
 
 /**

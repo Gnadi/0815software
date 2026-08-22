@@ -1,33 +1,18 @@
-import type Database from 'better-sqlite3';
 import { DomainError } from './errors.js';
-import { nowIso, requireReady } from './connections.js';
-import { privatePemFor } from './keystore.js';
-import { Transport } from './transport.js';
+import { collectDownload, openSession, type SessionContext } from './bank-session.js';
 import {
-  buildDownloadSegment,
-  buildReceipt,
   buildTransfer,
   buildVeuCancel,
   buildVeuDetail,
   buildVeuOverview,
   buildVeuSignature,
   buildVeuTransactions,
-  type BankKeys,
   type Btf,
   type Subscriber,
-  type SubscriberKeys,
   type VeuOrderRef,
 } from './ebics/envelopes.js';
-import {
-  decryptTransactionKey,
-  newTransactionKey,
-  packOrderData,
-  unpackOrderData,
-  type EsVersion,
-} from './ebics/crypto.js';
+import { newTransactionKey, packOrderData } from './ebics/crypto.js';
 import { parseResponse, parseVeuDetail, parseVeuOverview, parseVeuTransactions } from './ebics/parse.js';
-import { EBICS_NO_DOWNLOAD_DATA } from './ebics/codes.js';
-import { productOf } from './connections.js';
 import type { BtfInput } from '../shared/types.js';
 import type { VeuDetail, VeuOrder, VeuTransactions } from './ebics/parse.js';
 
@@ -55,26 +40,7 @@ import type { VeuDetail, VeuOrder, VeuTransactions } from './ebics/parse.js';
  * another signatory acts. `downloads` is for files we are meant to keep.
  */
 
-export interface VeuContext {
-  db: Database.Database;
-  keySecret: Buffer;
-  transport: Transport;
-  actor?: string;
-  now?: () => string;
-}
-
-interface ConnectionRow {
-  id: number;
-  key: string;
-  url: string;
-  host_id: string;
-  partner_id: string;
-  user_id: string;
-  es_version: string;
-  product_name: string | null;
-  product_language: string | null;
-  product_institute_id: string | null;
-}
+export type VeuContext = SessionContext;
 
 /** Which order a per-order request is about, as the API takes it. */
 export interface VeuOrderInput {
@@ -90,7 +56,8 @@ export async function overview(
   connectionKey: string,
   options: { orderType?: 'HVU' | 'HVZ'; serviceFilter?: BtfInput[] } = {},
 ): Promise<VeuOrder[]> {
-  const { connection, subscriber, keys, bank, at } = load(ctx, connectionKey);
+  const session = openSession(ctx, connectionKey);
+  const { subscriber, keys, bank, at } = session;
   const body = buildVeuOverview({
     subscriber,
     keys,
@@ -100,16 +67,17 @@ export async function overview(
     ...(options.serviceFilter === undefined ? {} : { serviceFilter: options.serviceFilter.map(toBtf) }),
   });
 
-  const data = await collect(ctx, connection, subscriber, keys, bank, body);
+  const data = await collectDownload(ctx, session, body);
   // An empty queue is the ordinary case and answers EBICS_NO_DOWNLOAD_DATA.
   return data === null ? [] : parseVeuOverview(data.toString('utf8'));
 }
 
 /** `HVD` — one order's digest, display file and signers. */
 export async function detail(ctx: VeuContext, connectionKey: string, order: VeuOrderInput): Promise<VeuDetail> {
-  const { connection, subscriber, keys, bank, at } = load(ctx, connectionKey);
+  const session = openSession(ctx, connectionKey);
+  const { subscriber, keys, bank, at } = session;
   const body = buildVeuDetail({ subscriber, keys, bank, timestamp: at, order: toRef(subscriber, order) });
-  const data = await collect(ctx, connection, subscriber, keys, bank, body);
+  const data = await collectDownload(ctx, session, body);
   if (data === null) throw new DomainError(404, 'the bank has no such order waiting for a signature');
   return parseVeuDetail(data.toString('utf8'));
 }
@@ -121,7 +89,8 @@ export async function transactions(
   order: VeuOrderInput,
   options: { completeOrderData?: boolean; fetchLimit?: number; fetchOffset?: number } = {},
 ): Promise<VeuTransactions> {
-  const { connection, subscriber, keys, bank, at } = load(ctx, connectionKey);
+  const session = openSession(ctx, connectionKey);
+  const { subscriber, keys, bank, at } = session;
   const body = buildVeuTransactions({
     subscriber,
     keys,
@@ -130,7 +99,7 @@ export async function transactions(
     order: toRef(subscriber, order),
     ...options,
   });
-  const data = await collect(ctx, connection, subscriber, keys, bank, body);
+  const data = await collectDownload(ctx, session, body);
   if (data === null) return { total: 0, transactions: [] };
   return parseVeuTransactions(data.toString('utf8'));
 }
@@ -167,16 +136,14 @@ async function act(
   order: VeuOrderInput,
   what: 'sign' | 'cancel',
 ): Promise<VeuActionResult> {
-  const { connection, subscriber, keys, bank, at } = load(ctx, connectionKey);
+  const session = openSession(ctx, connectionKey);
+  const { connection, subscriber, keys, bank, at } = session;
   const ref = toRef(subscriber, order);
 
   // THE DIGEST COMES FROM THE BANK, NOT FROM THE CALLER. See the file header.
-  const hvd = await collect(
+  const hvd = await collectDownload(
     ctx,
-    connection,
-    subscriber,
-    keys,
-    bank,
+    session,
     buildVeuDetail({ subscriber, keys, bank, timestamp: at, order: ref }),
   );
   if (hvd === null) throw new DomainError(404, 'the bank has no such order waiting for a signature');
@@ -219,114 +186,6 @@ async function act(
     code: transfer.verdict.business.code,
     message: transfer.verdict.message,
   };
-}
-
-// ── Shared machinery ──────────────────────────────────────────────────
-
-/**
- * Run a download to completion and give back the plaintext, or null when the
- * bank had nothing.
- *
- * The receipt is sent last and its failure is swallowed, for the same reason
- * as in `downloads.ts`: a receipt that did not land makes the bank offer the
- * answer again, which for a queue view costs one extra request and nothing
- * else. Unlike a statement, there is nothing here that can be lost.
- */
-async function collect(
-  ctx: VeuContext,
-  connection: ConnectionRow,
-  subscriber: Subscriber,
-  keys: SubscriberKeys,
-  bank: BankKeys,
-  body: string,
-): Promise<Buffer | null> {
-  const init = parseResponse(await ctx.transport.send(connection.url, body), bank.authPublicPem);
-  if (!init.verified) {
-    throw new DomainError(502, `the bank's response could not be verified: ${init.verificationError}`);
-  }
-  if (init.verdict.technical.code === EBICS_NO_DOWNLOAD_DATA || init.verdict.business.code === EBICS_NO_DOWNLOAD_DATA) {
-    return null;
-  }
-  if (!init.verdict.ok) throw new DomainError(502, init.verdict.message);
-  if (init.transactionId === null || init.transactionKey === null || init.orderData === null) {
-    throw new DomainError(502, 'the bank started a download but did not send the data');
-  }
-
-  const transactionKey = decryptTransactionKey(keys.encPrivatePem, Buffer.from(init.transactionKey, 'base64'));
-  const parts: string[] = [init.orderData];
-  const total = init.segments ?? 1;
-  for (let number = 2; number <= total && !init.lastSegment; number += 1) {
-    const next = parseResponse(
-      await ctx.transport.send(
-        connection.url,
-        buildDownloadSegment({
-          subscriber,
-          keys,
-          transactionId: init.transactionId,
-          segmentNumber: number,
-          lastSegment: number === total,
-        }),
-      ),
-      bank.authPublicPem,
-    );
-    if (!next.verified) {
-      throw new DomainError(502, `the bank's response could not be verified: ${next.verificationError}`);
-    }
-    if (!next.verdict.ok) throw new DomainError(502, next.verdict.message);
-    if (next.orderData === null) throw new DomainError(502, `the bank sent no data for segment ${number}`);
-    parts.push(next.orderData);
-    if (next.lastSegment) break;
-  }
-
-  const content = unpackOrderData(transactionKey, parts.join(''));
-  try {
-    await ctx.transport.send(
-      connection.url,
-      buildReceipt({ subscriber, keys, transactionId: init.transactionId, positive: true }),
-    );
-  } catch {
-    // See above: re-offering a queue view is free.
-  }
-  return content;
-}
-
-function load(
-  ctx: VeuContext,
-  connectionKey: string,
-): { connection: ConnectionRow; subscriber: Subscriber; keys: SubscriberKeys; bank: BankKeys; at: string } {
-  const connection = requireReady(ctx.db, connectionKey) as unknown as ConnectionRow;
-  return {
-    connection,
-    subscriber: {
-      hostId: connection.host_id,
-      partnerId: connection.partner_id,
-      userId: connection.user_id,
-      ...productOf(connection),
-    },
-    keys: {
-      esPrivatePem: privatePemFor(ctx.db, { connectionId: connection.id, purpose: 'ES', keySecret: ctx.keySecret }).pem,
-      esVersion: connection.es_version as EsVersion,
-      authPrivatePem: privatePemFor(ctx.db, { connectionId: connection.id, purpose: 'AUTH', keySecret: ctx.keySecret })
-        .pem,
-      encPrivatePem: privatePemFor(ctx.db, { connectionId: connection.id, purpose: 'ENC', keySecret: ctx.keySecret })
-        .pem,
-    },
-    bank: bankKeysOf(ctx.db, connection.id),
-    at: (ctx.now ?? nowIso)(),
-  };
-}
-
-function bankKeysOf(db: Database.Database, connectionId: number): BankKeys {
-  const rows = db
-    .prepare('SELECT purpose, public_pem, verified_at FROM bank_keys WHERE connection_id = ?')
-    .all(connectionId) as { purpose: string; public_pem: string; verified_at: string | null }[];
-  const auth = rows.find((r) => r.purpose === 'AUTH');
-  const enc = rows.find((r) => r.purpose === 'ENC');
-  if (auth === undefined || enc === undefined) throw new DomainError(409, 'the bank keys are missing');
-  if (auth.verified_at === null || enc.verified_at === null) {
-    throw new DomainError(409, 'the bank keys have not been confirmed by a human');
-  }
-  return { authPublicPem: auth.public_pem, encPublicPem: enc.public_pem };
 }
 
 /** A queued order usually belongs to our own customer, so the partner defaults. */

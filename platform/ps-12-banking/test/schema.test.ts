@@ -20,6 +20,9 @@ import {
   buildReceipt,
   buildDownloadInit,
   buildDownloadSegment,
+  buildAdminDownload,
+  buildKeyChangeAuth,
+  buildKeyChangeAll,
   EBICS_NS,
   type Subscriber,
 } from '../server/ebics/envelopes.js';
@@ -261,6 +264,67 @@ function everyMessage(subscriber: Subscriber): { name: string; xml: string; sche
       schema: 'ebics_request_H005.xsd',
     },
     {
+      name: 'HTD customer data',
+      xml: buildAdminDownload({ subscriber, keys, bank, timestamp: TIMESTAMP, orderType: 'HTD' }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HKD customer data',
+      xml: buildAdminDownload({ subscriber, keys, bank, timestamp: TIMESTAMP, orderType: 'HKD' }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HAC customer protocol over a date range',
+      xml: buildAdminDownload({
+        subscriber,
+        keys,
+        bank,
+        timestamp: TIMESTAMP,
+        orderType: 'HAC',
+        dateRange: { from: '2026-08-01', to: '2026-08-21' },
+      }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HPD bank parameters',
+      xml: buildAdminDownload({ subscriber, keys, bank, timestamp: TIMESTAMP, orderType: 'HPD' }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HAA available order types',
+      xml: buildAdminDownload({ subscriber, keys, bank, timestamp: TIMESTAMP, orderType: 'HAA' }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HCA key change (authentication and encryption)',
+      xml: buildKeyChangeAuth({
+        subscriber,
+        keys,
+        bank,
+        transactionKey,
+        timestamp: TIMESTAMP,
+        replacement: { authCertificatePem: CERT.auth, encCertificatePem: CERT.enc },
+      }).init,
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HCS key change (all three keys)',
+      xml: buildKeyChangeAll({
+        subscriber,
+        keys,
+        bank,
+        transactionKey,
+        timestamp: TIMESTAMP,
+        replacement: {
+          esCertificatePem: CERT.es,
+          esVersion: 'A005',
+          authCertificatePem: CERT.auth,
+          encCertificatePem: CERT.enc,
+        },
+      }).init,
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
       name: 'BTD segment request',
       xml: buildDownloadSegment({ subscriber, keys, transactionId: TX_ID, segmentNumber: 2 }),
       schema: 'ebics_request_H005.xsd',
@@ -307,6 +371,35 @@ function everyPayload(): { name: string; xml: string; schema: string }[] {
       xml: orderDataOf(
         buildHia({ subscriber, authCertificatePem: CERT.auth, encCertificatePem: CERT.enc, timestamp: TIMESTAMP }),
       ),
+      schema: 'ebics_orders_H005.xsd',
+    },
+    {
+      name: 'HCA order data (HCARequestOrderData)',
+      xml: buildKeyChangeAuth({
+        subscriber,
+        keys,
+        bank,
+        transactionKey,
+        timestamp: TIMESTAMP,
+        replacement: { authCertificatePem: CERT.auth, encCertificatePem: CERT.enc },
+      }).orderData.toString('utf8'),
+      schema: 'ebics_orders_H005.xsd',
+    },
+    {
+      name: 'HCS order data (HCSRequestOrderData)',
+      xml: buildKeyChangeAll({
+        subscriber,
+        keys,
+        bank,
+        transactionKey,
+        timestamp: TIMESTAMP,
+        replacement: {
+          esCertificatePem: CERT.es,
+          esVersion: 'A005',
+          authCertificatePem: CERT.auth,
+          encCertificatePem: CERT.enc,
+        },
+      }).orderData.toString('utf8'),
       schema: 'ebics_orders_H005.xsd',
     },
     {

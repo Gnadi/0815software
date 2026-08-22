@@ -71,6 +71,10 @@ export interface MockBankOptions {
   allowHpbBeforeInit?: boolean;
   /** Base64 characters per download segment, to exercise reassembly. */
   downloadSegmentLimit?: number;
+  /** Refuse HTD/HKD, the way a bank that has not enabled them would. */
+  refuseCustomerData?: boolean;
+  /** Refuse a key change, so the client's pending-key handling is exercised. */
+  refuseKeyChange?: boolean;
 }
 
 interface Subscriber {
@@ -124,6 +128,8 @@ interface OpenTransaction {
   signatureValue: Buffer;
   /** Set for an HVE or HVS transaction, so the transfer phase knows what it is. */
   veu?: { orderType: 'HVE' | 'HVS'; orderId: string };
+  /** Set for an HCA or HCS transaction, for the same reason. */
+  keyChange?: { orderType: 'HCA' | 'HCS'; subscriberKey: string };
   /** The ES key this transaction's signature must verify against. */
   esPublicPem: string;
   btf: ReceivedOrder['btf'];
@@ -170,12 +176,32 @@ export class MockBank {
   readonly received: ReceivedOrder[] = [];
   /** Every request body it was sent, for tests about what went on the wire. */
   readonly requests: string[] = [];
+  /**
+   * The PLAINTEXT of every document this bank has served, newest last.
+   *
+   * So a test can put the bank's own output in front of `xmllint`. A mock that
+   * emits a document no real bank could is the failure mode a parser test
+   * cannot see: the parser and the mock agree, and both are wrong.
+   */
+  readonly served: Buffer[] = [];
 
   private readonly subscribers = new Map<string, Subscriber>();
   /** Subscribers this bank has locked after an SPR — a test can assert on it. */
   readonly locked = new Set<string>();
   /** Orders waiting for a second signature. A test seeds this directly. */
   readonly veuQueue: QueuedForSignature[] = [];
+  /** The accounts HTD and HKD report. A test may replace them. */
+  readonly accounts: { id: string; iban: string; bic: string; currency: string; description: string; holder: string }[] =
+    [
+      {
+        id: 'ACC1',
+        iban: 'AT611904300234573201',
+        bic: 'BKAUATWW',
+        currency: 'EUR',
+        description: 'Girokonto',
+        holder: '0815 Software GmbH',
+      },
+    ];
   private readonly transactions = new Map<string, OpenTransaction>();
   /** Files waiting to be collected, in order. */
   private readonly queue: Queued[] = [];
@@ -364,6 +390,10 @@ export class MockBank {
       if (orderType === 'SPR') return this.subscriberLock(root);
       if (VEU_READS.has(orderType)) return this.veuRead(root, orderType);
       if (orderType === 'HVE' || orderType === 'HVS') return this.veuWriteInit(root, orderType);
+      if (orderType === 'HTD' || orderType === 'HKD') return this.customerData(root, orderType);
+      if (orderType === 'HPD') return this.bankParameters(root);
+      if (orderType === 'HAA') return this.availableOrderData(root);
+      if (orderType === 'HCA' || orderType === 'HCS') return this.keyChangeInit(root, orderType);
       return this.uploadInit(root);
     }
     if (phase === 'Transfer') {
@@ -550,6 +580,7 @@ export class MockBank {
     }
 
     if (open.veu !== undefined) return this.veuWriteFinish(id, open, orderData);
+    if (open.keyChange !== undefined) return this.keyChangeFinish(id, open, orderData);
 
     const signatureValid = verifyOrderData(
       open.esPublicPem,
@@ -793,6 +824,7 @@ export class MockBank {
    * key pair rather than a shared secret.
    */
   private serveDownload(subscriber: Subscriber, content: Buffer, queued?: Queued): string {
+    this.served.push(content);
     const transactionKey = newTransactionKey();
     const packed = packOrderData(transactionKey, content);
     const limit = this.options.downloadSegmentLimit ?? packed.length;
@@ -810,6 +842,248 @@ export class MockBank {
       segmentNumber: 1,
       lastSegment: segments.length === 1,
     });
+  }
+
+  // ── HTD / HKD: what this customer may do ─────────────────────────────
+
+  /**
+   * The bank's own statement of what it has enabled for this contract.
+   *
+   * Deliberately NOT a fixed document: the order list is built from what this
+   * mock actually implements, and the accounts from `this.accounts`. A test
+   * that asserts on the parsed answer is then asserting on something the bank
+   * half decided, which is the only way a parser bug shows up.
+   */
+  private customerData(root: XmlElement, orderType: 'HTD' | 'HKD'): string {
+    const statics = at(root, EBICS_NS, 'header', 'static')!;
+    const subscriber = this.authenticated(root, statics);
+    if (typeof subscriber === 'string') return subscriber;
+    if (this.options.refuseCustomerData === true) {
+      return this.response({ technical: '091006', reportText: `${orderType} is not enabled for you` });
+    }
+
+    const service = (name: string, scope: string | null, option: string | null, msgName: string, container: string | null): XmlElement =>
+      el('e:Service', {}, [
+        el('e:ServiceName', {}, [name]),
+        ...(scope === null ? [] : [el('e:Scope', {}, [scope])]),
+        ...(option === null ? [] : [el('e:ServiceOption', {}, [option])]),
+        ...(container === null ? [] : [el('e:Container', { containerType: container }, [])]),
+        el('e:MsgName', {}, [msgName]),
+      ]);
+
+    // What this bank offers. BTU is what a payment file goes up as; the BTDs
+    // are what a download subscription can legitimately name.
+    const offered: { admin: string; service: XmlElement | null; description: string; sigs: string }[] = [
+      { admin: 'BTU', service: service('SCT', 'AT', null, 'pain.001', null), description: 'SEPA credit transfer', sigs: '1' },
+      { admin: 'BTD', service: service('REP', 'AT', 'SCT', 'pain.002', 'ZIP'), description: 'payment status report', sigs: '0' },
+      { admin: 'BTD', service: service('EOP', 'AT', null, 'camt.053', 'ZIP'), description: 'account statement', sigs: '0' },
+      { admin: 'BTD', service: service('STM', 'AT', null, 'camt.052', 'ZIP'), description: 'intraday statement', sigs: '0' },
+      { admin: 'BTD', service: service('CIM', 'AT', null, 'cimresp', null), description: 'customer information', sigs: '0' },
+      { admin: 'HTD', service: null, description: 'customer and subscriber data', sigs: '0' },
+      { admin: 'HCA', service: null, description: 'change the authentication and encryption keys', sigs: '0' },
+    ];
+
+    const partnerInfo = el('e:PartnerInfo', {}, [
+      el('e:AddressInfo', {}, [
+        el('e:Name', {}, ['0815 Software GmbH']),
+        el('e:Street', {}, ['Musterstraße 1']),
+        el('e:PostCode', {}, ['1010']),
+        el('e:City', {}, ['Wien']),
+        el('e:Country', {}, ['AT']),
+      ]),
+      el('e:BankInfo', {}, [el('e:HostID', {}, [this.hostId])]),
+      ...this.accounts.map((account) =>
+        el('e:AccountInfo', { ID: account.id, Currency: account.currency, Description: account.description }, [
+          // international="true" is what makes this an IBAN rather than a
+          // national account number — the distinction the client has to read.
+          el('e:AccountNumber', { international: 'true' }, [account.iban]),
+          el('e:BankCode', { international: 'true' }, [account.bic]),
+          el('e:AccountHolder', {}, [account.holder]),
+        ]),
+      ),
+      ...offered.map((entry) =>
+        el('e:OrderInfo', {}, [
+          el('e:AdminOrderType', {}, [entry.admin]),
+          ...(entry.service === null ? [] : [entry.service]),
+          el('e:Description', {}, [entry.description]),
+          el('e:NumSigRequired', {}, [entry.sigs]),
+        ]),
+      ),
+    ]);
+
+    const userInfo = (user: Subscriber): XmlElement =>
+      el('e:UserInfo', {}, [
+        el('e:UserID', { Status: '5' }, [user.userId]),
+        el('e:Name', {}, [user.userId]),
+        ...offered.map((entry) =>
+          el(
+            'e:Permission',
+            entry.admin === 'BTU' ? { AuthorisationLevel: 'E' } : {},
+            [
+              el('e:AdminOrderType', {}, [entry.admin]),
+              ...(entry.service === null ? [] : [entry.service]),
+              ...(entry.admin === 'BTU' && this.accounts[0] !== undefined
+                ? [el('e:AccountID', {}, [this.accounts[0].id]), el('e:MaxAmount', {}, ['500000.00'])]
+                : []),
+            ],
+          ),
+        ),
+      ]);
+
+    // HTD describes the asking subscriber; HKD describes every one of them.
+    const users = orderType === 'HTD' ? [subscriber] : [...this.subscribers.values()];
+    const body = document(
+      el(`e:${orderType}ResponseOrderData`, {}, [partnerInfo, ...users.map(userInfo)]),
+      NS,
+    );
+    return this.serveDownload(subscriber, Buffer.from(body, 'utf8'));
+  }
+
+  // ── HPD / HAA: the bank's parameters, and what is waiting ────────────
+
+  /** `HPD` — what this bank supports, in the versions it names. */
+  private bankParameters(root: XmlElement): string {
+    const statics = at(root, EBICS_NS, 'header', 'static')!;
+    const subscriber = this.authenticated(root, statics);
+    if (typeof subscriber === 'string') return subscriber;
+
+    const body = document(
+      el('e:HPDResponseOrderData', {}, [
+        el('e:AccessParams', {}, [
+          el('e:URL', { valid_from: '2026-01-01T00:00:00Z' }, ['https://bank.example/ebics']),
+          el('e:Institute', {}, ['Mock Bank AG']),
+          el('e:HostID', {}, [this.hostId]),
+        ]),
+        el('e:ProtocolParams', {}, [
+          el('e:Version', {}, [
+            el('e:Protocol', {}, ['H005']),
+            el('e:Authentication', {}, ['X002']),
+            el('e:Encryption', {}, ['E002']),
+            el('e:Signature', {}, ['A005 A006']),
+          ]),
+          // Present WITHOUT the attribute: the schema default is true, and a
+          // client reading that as false would report a working feature as
+          // missing. Worth having one of each in the fixture.
+          el('e:Recovery', {}, []),
+          el('e:PreValidation', { supported: 'false' }, []),
+          el('e:ClientDataDownload', { supported: 'true' }, []),
+          el('e:DownloadableOrderData', { supported: 'true' }, []),
+        ]),
+      ]),
+      NS,
+    );
+    return this.serveDownload(subscriber, Buffer.from(body, 'utf8'));
+  }
+
+  /** `HAA` — the BTFs this bank has files waiting for, from the real queue. */
+  private availableOrderData(root: XmlElement): string {
+    const statics = at(root, EBICS_NS, 'header', 'static')!;
+    const subscriber = this.authenticated(root, statics);
+    if (typeof subscriber === 'string') return subscriber;
+
+    // Built from what is ACTUALLY queued, so HAA and a subsequent BTD agree —
+    // a fixed list would let a client "confirm" a file that is not there.
+    const seen = new Map<string, [string, string]>();
+    for (const item of this.queue) {
+      const [serviceName, msgName] = item.btfKey.split('/') as [string, string];
+      seen.set(item.btfKey, [serviceName, msgName]);
+    }
+    const body = document(
+      el(
+        'e:HAAResponseOrderData',
+        {},
+        [...seen.values()].map(([serviceName, msgName]) =>
+          el('e:Service', {}, [el('e:ServiceName', {}, [serviceName]), el('e:MsgName', {}, [msgName])]),
+        ),
+      ),
+      NS,
+    );
+    return this.serveDownload(subscriber, Buffer.from(body, 'utf8'));
+  }
+
+  // ── HCA / HCS: replacing the subscriber keys ─────────────────────────
+
+  /**
+   * A key change, verified with the keys the bank ALREADY holds.
+   *
+   * That is the whole authorisation model, so `authenticated` doing its
+   * ordinary job here is the check that matters: a request signed with the
+   * replacement keys — the plausible way to get this backwards — fails at
+   * exactly this line.
+   */
+  private keyChangeInit(root: XmlElement, orderType: 'HCA' | 'HCS'): string {
+    const statics = at(root, EBICS_NS, 'header', 'static')!;
+    const subscriber = this.authenticated(root, statics);
+    if (typeof subscriber === 'string') return subscriber;
+    if (this.options.refuseKeyChange === true) {
+      return this.response({ technical: '091006', reportText: `${orderType} is not enabled for you` });
+    }
+
+    const dataTransfer = at(root, EBICS_NS, 'body', 'DataTransfer')!;
+    const transactionKey = decryptTransactionKey(
+      BANK_ENC.privatePem,
+      Buffer.from(
+        textOf(at(dataTransfer, EBICS_NS, 'DataEncryptionInfo', 'TransactionKey')).replace(/\s+/g, ''),
+        'base64',
+      ),
+    );
+    const id = `MOCKKEY-${++this.counter}`;
+    this.transactions.set(id, {
+      id,
+      segmentsExpected: 1,
+      segmentsReceived: 0,
+      transactionKey,
+      orderDataParts: [],
+      promisedDigest: textOf(at(dataTransfer, EBICS_NS, 'DataDigest')).replace(/\s+/g, ''),
+      esVersion: subscriber.esVersion ?? 'A005',
+      signatureValue: Buffer.alloc(0),
+      esPublicPem: subscriber.esPublicPem!,
+      btf: { serviceName: orderType, scope: null, option: null, msgName: '', msgVersion: null },
+      signature: { flagPresent: true, requestEDS: false },
+      keyChange: { orderType, subscriberKey: this.subscriberKey(subscriber.partnerId, subscriber.userId) },
+    });
+    return this.response({ transactionId: id, segments: 1 });
+  }
+
+  /**
+   * Adopt the new keys.
+   *
+   * From this moment the bank verifies against them and the old ones are
+   * refused — which is exactly what makes the client's ordering testable: a
+   * client that changed keys and kept signing with the old ones is dead on its
+   * next request, here, rather than in production.
+   */
+  private keyChangeFinish(id: string, open: OpenTransaction, orderData: Buffer): string {
+    const change = open.keyChange!;
+    this.transactions.delete(id);
+    const subscriber = this.subscribers.get(change.subscriberKey);
+    if (subscriber === undefined) {
+      return this.response({ transactionId: id, technical: '091002', reportText: 'subscriber gone' });
+    }
+
+    const root = parse(orderData.toString('utf8'));
+    const pemOf = (scope: XmlElement | null): string | null => {
+      if (scope === null) return null;
+      const cert = at(scope, 'http://www.w3.org/2000/09/xmldsig#', 'X509Data', 'X509Certificate');
+      if (cert === null) return null;
+      return publicPemFromCertificate(certificateFromBase64(textOf(cert).replace(/\s+/g, '')));
+    };
+
+    const auth = pemOf(at(root, EBICS_NS, 'AuthenticationPubKeyInfo'));
+    const enc = pemOf(at(root, EBICS_NS, 'EncryptionPubKeyInfo'));
+    if (auth === null || enc === null) {
+      return this.response({ transactionId: id, technical: '091113', reportText: 'missing a replacement key' });
+    }
+    if (change.orderType === 'HCS') {
+      const es = pemOf(at(root, ESIG_NS, 'SignaturePubKeyInfo'));
+      if (es === null) {
+        return this.response({ transactionId: id, technical: '091113', reportText: 'HCS without a new ES key' });
+      }
+      subscriber.esPublicPem = es;
+    }
+    subscriber.authPublicPem = auth;
+    subscriber.encPublicPem = enc;
+    return this.response({ transactionId: id });
   }
 
   /**

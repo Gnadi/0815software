@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { DomainError } from './errors.js';
 import { bankProfile } from './bank-registry.js';
+import { seedSubscriptions } from './subscriptions.js';
 import type { VopMode } from './orders.js';
 import {
   assertKeyStoreReadable,
@@ -331,6 +332,11 @@ export function createConnection(db: Database.Database, input: ConnectionInput, 
     recordEvent(db, { connectionId, type: 'created', actor, at: now });
     return connectionId;
   })();
+
+  // What the tick will fetch: the profile's status report and statement, the
+  // pair every connection used to poll unconditionally. A starting point — the
+  // rest comes from asking the bank with HTD. See subscriptions.ts.
+  seedSubscriptions(db, input.key, input.bankKey, () => now);
 
   return toConnection(db, db.prepare('SELECT * FROM bank_connections WHERE id = ?').get(id) as ConnectionRow);
 }
