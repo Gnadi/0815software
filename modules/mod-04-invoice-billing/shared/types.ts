@@ -251,6 +251,25 @@ export interface PaymentRunRow {
    */
   bank_status: string | null;
   bank_message: string | null;
+  /**
+   * `TAXS` for a Finanzamtszahlung, `CPPP` for a Postbarzahlung, null for an
+   * ordinary SEPA credit transfer — which is every run made before this
+   * existed, and most runs after it.
+   */
+  category_purpose: 'TAXS' | 'CPPP' | null;
+  /**
+   * Whether the remittance lines were checked against a configured format.
+   *
+   * Null on an ordinary run: there is no Austrian format to check. **False on
+   * a TAXS or CPPP run means the payments went out with their structured
+   * reference unverified** — MOD-04 ships no pattern for these (see
+   * `config.ts`), so unless the operator configured one, nothing here knows
+   * what a valid Finanzamtszahlung reference looks like. Recorded at creation
+   * rather than derived, because it is a fact about the run and the
+   * configuration may since have changed. Shown rather than hidden: an
+   * unallocated tax payment is discovered weeks later, by post.
+   */
+  remittance_format_checked: boolean | null;
 }
 
 export interface PaymentRunDetail extends PaymentRunRow {

@@ -26,6 +26,7 @@ import {
   sepaControlSum,
   sepaText,
   validateSepaInstruction,
+  type AustrianPurpose,
   type SepaInstruction,
 } from '../shared/sepa.js';
 import { DomainError, likeTerm, nowIso, todayIso } from './invoices.js';
@@ -410,6 +411,14 @@ export interface RunInput {
   executionDate?: string;
   createdBy?: string | null;
   batchBooking?: boolean;
+  /**
+   * `TAXS` for a Finanzamtszahlung, `CPPP` for a Postbarzahlung, absent for an
+   * ordinary transfer. A whole run, not a mixture: these go to different
+   * places under different rules, and ISO allows one `PmtTpInf` per file.
+   */
+  categoryPurpose?: AustrianPurpose;
+  /** The configured remittance format for that purpose, when there is one. */
+  remittancePattern?: RegExp | null;
   createdAt?: string;
   today?: string;
 }
@@ -431,6 +440,8 @@ interface RunStoredRow {
   banking_order_id: string | null;
   bank_status: string | null;
   bank_message: string | null;
+  category_purpose: string | null;
+  remittance_checked: number | null;
 }
 
 /**
@@ -505,7 +516,8 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
   }));
 
   // The bank's own file check, run here where the fields can still be fixed.
-  const problems = validateSepaInstruction({
+  const problems = validateSepaInstruction(
+    {
     message_id: 'PREFLIGHT',
     created_at: input.createdAt ?? nowIso(),
     execution_date: executionDate,
@@ -513,6 +525,7 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
     debtor_name: config.debtor_name,
     debtor_iban: normalizeIban(seller.iban),
     debtor_bic: config.debtor_bic,
+    ...(input.categoryPurpose === undefined ? {} : { category_purpose: input.categoryPurpose }),
     payments: items.map((item) => ({
       end_to_end_id: item.end_to_end_id,
       amount_cents: item.amount_cents,
@@ -521,7 +534,9 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
       creditor_bic: item.creditor_bic,
       remittance: item.remittance,
     })),
-  });
+    },
+    input.remittancePattern ?? null,
+  );
   if (problems.length > 0) {
     // Name the bill, not the array index: "payments[2]" means nothing on a
     // screen that lists bills by their supplier's reference.
@@ -539,8 +554,9 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
     const info = db
       .prepare(
         `INSERT INTO payment_runs
-           (message_id, execution_date, batch_booking, debtor_name, debtor_iban, debtor_bic, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (message_id, execution_date, batch_booking, debtor_name, debtor_iban, debtor_bic, created_by,
+            category_purpose, remittance_checked, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         newMessageId(today),
@@ -550,6 +566,8 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
         normalizeIban(seller.iban),
         config.debtor_bic,
         input.createdBy ?? null,
+        input.categoryPurpose ?? null,
+        input.categoryPurpose === undefined ? null : (input.remittancePattern ?? null) === null ? 0 : 1,
         createdAt,
       );
     const runId = Number(info.lastInsertRowid);
@@ -608,6 +626,9 @@ function runRow(db: Database.Database, row: RunStoredRow): PaymentRunRow {
     banking_order_id: row.banking_order_id ?? null,
     bank_status: row.bank_status ?? null,
     bank_message: row.bank_message ?? null,
+    category_purpose: (row.category_purpose ?? null) as 'TAXS' | 'CPPP' | null,
+    remittance_format_checked:
+      row.remittance_checked === null || row.remittance_checked === undefined ? null : row.remittance_checked === 1,
   };
 }
 
@@ -654,6 +675,12 @@ export function paymentRunXml(db: Database.Database, id: number): string {
     debtor_name: row.debtor_name,
     debtor_iban: row.debtor_iban,
     debtor_bic: row.debtor_bic,
+    // Read back from the run, never recomputed: the file must be identical
+    // every time it is rebuilt, and a purpose taken from today's config would
+    // change a run made under a different one.
+    ...(row.category_purpose === null || row.category_purpose === undefined
+      ? {}
+      : { category_purpose: row.category_purpose as AustrianPurpose }),
     payments: detail.items.map((item) => ({
       end_to_end_id: item.end_to_end_id,
       amount_cents: item.amount_cents,
@@ -663,6 +690,9 @@ export function paymentRunXml(db: Database.Database, id: number): string {
       remittance: item.remittance,
     })),
   };
+  // No pattern here on purpose: the run was checked against the configured
+  // format when it was made, and re-checking it against a format that may have
+  // been changed since would make a stored run unbuildable.
   const problems = validateSepaInstruction(instruction);
   if (problems.length > 0) {
     // Unreachable through the API — createPaymentRun validates the same

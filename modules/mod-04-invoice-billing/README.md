@@ -493,6 +493,41 @@ creditor (IBAN validated)
    mark paid / cancel     bills open again / bills paid
 ```
 
+### The two Austrian special transfers
+
+Austria defines two SEPA credit transfers that are not ordinary ones: a
+**Finanzamtszahlung** (a payment to a tax office) and a **Postbarzahlung** (one
+collected in cash at a post office). `POST /api/payment-runs` takes a
+`category_purpose` of `TAXS` or `CPPP`, and the run's `PmtTpInf` then carries
+that code — after `SvcLvl`, where the schema puts it.
+
+It is a property of the whole run rather than of one bill. That is how these
+are filed, and ISO 20022 allows `PmtTpInf` at one level only, so a run that
+mixed a tax payment with a supplier payment could not express both.
+
+**The remittance format is not shipped, and cannot be.** Both transfers
+prescribe a structure for `RmtInf/Ustrd` carrying the tax account, the levy
+type and the period, and the Stuzza guideline defines that structure as a
+regular expression published in *PSA — Zahlen mit System — Kunde-Bank*. That
+document is not in this repository. Writing a pattern from a plausible reading
+would be inventing the format of a tax payment — the one guess in this codebase
+that costs somebody a penalty notice rather than a refused file.
+
+So the rule is yours to supply. `AT_TAXS_REMITTANCE_PATTERN` and
+`AT_CPPP_REMITTANCE_PATTERN` take a regular expression from your own bank's
+documentation, anchored automatically at both ends, and a run whose references
+do not match is refused before anything is stored. With neither set a run still
+goes out — you may well have typed the right thing — but it carries
+`remittance_format_checked: false`, and the screen says so. An empty remittance
+is refused either way: no bank routes a Finanzamtszahlung without one, and that
+much needs no published document.
+
+One smaller thing the schema check caught: an Austrian reference stays in
+`Ustrd` even when it looks like an ISO 11649 `RF…` creditor reference. The
+ordinary path promotes such a string into a structured `CdtrRefInf` block,
+which would move a tax payment's entire routing information somewhere the tax
+office does not read.
+
 ### What it does not do — and why
 
 **This module holds no bank credentials and speaks no bank protocol.** It

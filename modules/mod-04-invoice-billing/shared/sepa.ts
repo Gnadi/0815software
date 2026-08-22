@@ -209,6 +209,63 @@ export interface SepaCreditTransfer {
   remittance: string;
 }
 
+/**
+ * The two Austria-specific credit transfers, as the Stuzza implementation
+ * guideline names them.
+ *
+ *   TAXS  Finanzamtszahlung — a payment to a tax office
+ *   CPPP  Postbarzahlung — a payment collected in cash at a post office
+ *
+ * Both are ordinary SEPA credit transfers carrying a category purpose, and
+ * both prescribe a **structure for `RmtInf/Ustrd`** that carries the tax
+ * account, the levy type and the period. That structure is defined as a
+ * regular expression in *PSA — Zahlen mit System — Kunde-Bank*, a document
+ * this repository does not have: see `austrianRemittanceProblem` for what
+ * follows from that.
+ *
+ * The guideline says TAXS may be sent as either `CtgyPurp` or `Purp/Cd`, and
+ * CPPP only as `CtgyPurp`. Both go in `CtgyPurp` here, so there is one rule
+ * rather than two, and `PmtTpInf` stays at payment-information level where it
+ * already is — ISO forbids it at both levels at once.
+ */
+export type AustrianPurpose = 'TAXS' | 'CPPP';
+
+/**
+ * Whether a remittance line is acceptable for an Austrian special payment.
+ *
+ * **The pattern is not shipped, and cannot be.** The Stuzza guideline defines
+ * the `Ustrd` structure for TAXS and CPPP as a regular expression published at
+ * `zv.psa.at`, which is not reachable from this build, so writing one here
+ * would be inventing the format of a tax payment — the one place in this
+ * codebase where a plausible guess costs somebody a penalty notice rather than
+ * a refused file.
+ *
+ * So the rule is supplied by the operator, from their own bank's
+ * documentation, and this only enforces it. With no pattern configured a
+ * payment still goes out — the operator may well have typed the right thing —
+ * but `buildPain001`'s caller is told the format was never checked, and
+ * MOD-04 surfaces that on the run rather than swallowing it.
+ */
+export function austrianRemittanceProblem(
+  purpose: AustrianPurpose,
+  remittance: string,
+  pattern: RegExp | null,
+): SepaProblem | null {
+  const text = remittance.trim();
+  if (text === '') {
+    // True regardless of the pattern: neither payment can be routed without
+    // the structured reference, and an empty Ustrd is refused by every bank.
+    return {
+      field: 'remittance',
+      message: `a ${purpose} payment needs a structured remittance line — see your bank's Kunde-Bank documentation`,
+    };
+  }
+  if (pattern === null) return null;
+  return pattern.test(text)
+    ? null
+    : { field: 'remittance', message: `does not match the configured ${purpose} remittance format` };
+}
+
 /** One payment run: one debtor account, one execution date, N transfers. */
 export interface SepaInstruction {
   /** `GrpHdr/MsgId` — unique per file, and the bank's duplicate check. */
@@ -226,6 +283,13 @@ export interface SepaInstruction {
   debtor_name: string;
   debtor_iban: string;
   debtor_bic: string | null;
+  /**
+   * `PmtTpInf/CtgyPurp/Cd` — set for an Austrian Finanzamtszahlung or
+   * Postbarzahlung, absent for an ordinary transfer. A property of the whole
+   * run, because that is how these are filed and because ISO allows
+   * `PmtTpInf` at one level only.
+   */
+  category_purpose?: AustrianPurpose;
   payments: SepaCreditTransfer[];
 }
 
@@ -249,7 +313,15 @@ export function sepaControlSum(payments: { amount_cents: number }[]): number {
  * is writing a file the bank refuses, at a point where the operator has
  * already left the screen.
  */
-export function validateSepaInstruction(instruction: SepaInstruction): SepaProblem[] {
+export function validateSepaInstruction(
+  instruction: SepaInstruction,
+  /**
+   * The remittance format for the run's Austrian purpose, when the operator
+   * has configured one. Null means "not checked" — see
+   * `austrianRemittanceProblem` for why this service does not ship a pattern.
+   */
+  austrianRemittancePattern: RegExp | null = null,
+): SepaProblem[] {
   const problems: SepaProblem[] = [];
   const push = (field: string, message: string): void => void problems.push({ field, message });
 
@@ -293,6 +365,14 @@ export function validateSepaInstruction(instruction: SepaInstruction): SepaProbl
     if (iban) push(at('creditor_iban'), iban);
     if (payment.creditor_bic !== null && !isValidBic(payment.creditor_bic)) {
       push(at('creditor_bic'), 'must be a valid 8 or 11 character BIC');
+    }
+    if (instruction.category_purpose !== undefined) {
+      const problem = austrianRemittanceProblem(
+        instruction.category_purpose,
+        payment.remittance,
+        austrianRemittancePattern,
+      );
+      if (problem !== null) push(at('remittance'), problem.message);
     }
   });
 
@@ -349,10 +429,13 @@ function agent(indent: number, name: 'DbtrAgt' | 'CdtrAgt', bic: string | null):
  * block as `SCOR`, which is what the creditor's accounting system reads to
  * match the payment automatically; everything else is unstructured text.
  */
-function remittance(indent: number, text: string): string[] {
+function remittance(indent: number, text: string, forceUnstructured = false): string[] {
   const pad = ' '.repeat(indent);
   const trimmed = text.trim();
-  if (trimmed !== '' && isCreditorReference(trimmed)) {
+  // A Finanzamtszahlung's reference is a structured Ustrd STRING, not an ISO
+  // 11649 reference. Letting the RF test win would move a tax payment's whole
+  // routing information into a block the tax office does not read.
+  if (!forceUnstructured && trimmed !== '' && isCreditorReference(trimmed)) {
     const ref = trimmed.replace(/\s+/g, '').toUpperCase();
     return [
       `${pad}<RmtInf>`,
@@ -415,6 +498,12 @@ export function buildPain001(instruction: SepaInstruction): string {
     '        <SvcLvl>',
     tag(10, 'Cd', 'SEPA'),
     '        </SvcLvl>',
+    // CtgyPurp follows SvcLvl — the schema's sequence is InstrPrty, SvcLvl,
+    // LclInstrm, CtgyPurp, and element order in pain.001 is not a matter of
+    // taste.
+    ...(instruction.category_purpose === undefined
+      ? []
+      : ['        <CtgyPurp>', tag(10, 'Cd', instruction.category_purpose), '        </CtgyPurp>']),
     '      </PmtTpInf>',
     tag(6, 'ReqdExctnDt', instruction.execution_date),
     '      <Dbtr>',
@@ -449,7 +538,7 @@ export function buildPain001(instruction: SepaInstruction): string {
       tag(12, 'IBAN', normalizeIban(payment.creditor_iban)),
       '          </Id>',
       '        </CdtrAcct>',
-      ...remittance(8, payment.remittance),
+      ...remittance(8, payment.remittance, instruction.category_purpose !== undefined),
       '      </CdtTrfTxInf>',
     );
   }

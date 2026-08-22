@@ -244,6 +244,13 @@ export interface AppOptions {
    * must not offer a button that always errors.
    */
   bankingConfigured?: boolean;
+  /**
+   * The remittance formats for the two Austrian special credit transfers, from
+   * `ServerConfig`. Null means the operator has configured none, and a TAXS or
+   * CPPP run then goes out with its `Ustrd` unchecked — see `config.ts` for
+   * why this service ships no pattern of its own.
+   */
+  austrianRemittance?: { TAXS: RegExp | null; CPPP: RegExp | null };
   verifyLogin?: LoginVerifier;
   /**
    * The platform machine token (PLATFORM_SERVICE_TOKEN). When set, it is the
@@ -266,7 +273,7 @@ export interface AppOptions {
   loginMode?: LoginMode;
 }
 
-export function createApp({ db, hardening, auth, seller, staticDir, platform = noopPlatform, bankingConfigured = false, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [] }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, seller, staticDir, platform = noopPlatform, bankingConfigured = false, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [], austrianRemittance = { TAXS: null, CPPP: null } }: AppOptions): express.Express {
   const app = express();
   const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
 
@@ -756,12 +763,24 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
     if (rawIds.length === 0) errors.push({ field: 'bill_ids', message: 'Select at least one bill to pay' });
     const billIds = rawIds.map((raw, i) => id(raw, `bill_ids[${i}]`, errors));
     const executionDate = optDate(input.execution_date, 'execution_date', errors);
+
+    // TAXS = Finanzamtszahlung, CPPP = Postbarzahlung. A whole run rather than
+    // a mixture: they go to different places under different rules, and ISO
+    // allows one PmtTpInf per file.
+    const rawPurpose = typeof input.category_purpose === 'string' ? input.category_purpose.trim() : '';
+    if (rawPurpose !== '' && rawPurpose !== 'TAXS' && rawPurpose !== 'CPPP') {
+      errors.push({ field: 'category_purpose', message: 'must be "TAXS" (Finanzamtszahlung) or "CPPP" (Postbarzahlung)' });
+    }
     if (errors.length > 0) fail(errors);
+    const categoryPurpose = rawPurpose === '' ? undefined : (rawPurpose as 'TAXS' | 'CPPP');
 
     const runId = createPaymentRun(db, seller, {
       billIds,
       executionDate: executionDate ?? undefined,
       createdBy: actorOf(res, auth),
+      ...(categoryPurpose === undefined
+        ? {}
+        : { categoryPurpose, remittancePattern: austrianRemittance[categoryPurpose] }),
     });
     const detail = paymentRunDetail(db, runId);
     await platform.paymentRunEvent({

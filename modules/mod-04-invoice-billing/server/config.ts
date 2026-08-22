@@ -30,8 +30,37 @@ export interface ServerConfig {
   shellOrigins: string[];
   auth: AuthConfig;
   seller: SellerConfig;
+  /**
+   * The remittance formats for the two Austrian special credit transfers.
+   *
+   * **Not shipped, and not guessable.** The Stuzza guideline defines the
+   * `RmtInf/Ustrd` structure for a Finanzamtszahlung and a Postbarzahlung as
+   * regular expressions published at `zv.psa.at`; inventing the format of a
+   * tax payment is the one guess in this codebase that would cost somebody a
+   * penalty notice rather than a refused file. Set them from your own bank's
+   * Kunde-Bank documentation and they are enforced; leave them null and a
+   * TAXS or CPPP run says on its face that its format was never checked.
+   */
+  austrianRemittance: { TAXS: RegExp | null; CPPP: RegExp | null };
   platform: PlatformConfig;
   sso: SsoConfig;
+}
+
+/**
+ * Read a regular expression from the environment, refusing a malformed one.
+ *
+ * Anchored on both ends, because a remittance format that matched a substring
+ * would accept a correct reference with anything at all appended — which is
+ * precisely how a tax payment ends up unallocated.
+ */
+function patternFromEnv(name: string, raw: string | undefined): RegExp | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const source = raw.trim();
+  try {
+    return new RegExp(`^(?:${source})$`);
+  } catch (err) {
+    throw new Error(`${name} is not a valid regular expression: ${(err as Error).message}`);
+  }
 }
 
 /**
@@ -86,6 +115,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       vatId: env.SELLER_VAT_ID ?? 'ATU00000000',
       iban: env.SELLER_IBAN ?? 'AT00 0000 0000 0000 0000',
       bic: env.SELLER_BIC ?? 'EXAMPLEX',
+    },
+    austrianRemittance: {
+      TAXS: patternFromEnv('AT_TAXS_REMITTANCE_PATTERN', env.AT_TAXS_REMITTANCE_PATTERN),
+      CPPP: patternFromEnv('AT_CPPP_REMITTANCE_PATTERN', env.AT_CPPP_REMITTANCE_PATTERN),
     },
     // Platform Services — all optional; unset means standalone (no calls out).
     sso: {

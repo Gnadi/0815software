@@ -78,7 +78,11 @@ async function login(target: Express): Promise<string> {
 }
 
 /** Build an app with a given banking posture, and log in against it. */
-async function boot(options: { hooks?: PlatformHooks; configured?: boolean } = {}): Promise<void> {
+async function boot(options: {
+  hooks?: PlatformHooks;
+  configured?: boolean;
+  austrianRemittance?: { TAXS: RegExp | null; CPPP: RegExp | null };
+} = {}): Promise<void> {
   db = openDb(':memory:');
   app = createApp({
     db,
@@ -86,6 +90,7 @@ async function boot(options: { hooks?: PlatformHooks; configured?: boolean } = {
     seller,
     platform: options.hooks ?? noopPlatform,
     bankingConfigured: options.configured ?? options.hooks !== undefined,
+    ...(options.austrianRemittance === undefined ? {} : { austrianRemittance: options.austrianRemittance }),
   });
   cookie = await login(app);
 }
@@ -428,5 +433,75 @@ describe('auth', () => {
     expect((await request(app).post(`/api/payment-runs/${run.id}/submit`).send({})).status).toBe(401);
     expect((await request(app).post(`/api/payment-runs/${run.id}/refresh`).send({})).status).toBe(401);
     expect(stub.sent).toEqual([]);
+  });
+});
+
+// ── The two Austrian special transfers, end to end ────────────────────
+
+describe('Finanzamtszahlung and Postbarzahlung', () => {
+  async function runWith(purpose: string, remittance = 'ATU00000000 U 01-06/2026'): Promise<PaymentRunDetail> {
+    const created = await addBill({ remittance });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: purpose });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    return res.body as PaymentRunDetail;
+  }
+
+  it('records the purpose on the run and puts it in the file', async () => {
+    await boot({});
+    const run = await runWith('TAXS');
+    expect(run.category_purpose).toBe('TAXS');
+
+    const xml = await request(app).get(`/api/payment-runs/${run.id}/sepa.xml`).set('Cookie', cookie).expect(200);
+    expect(xml.text).toContain('<Cd>TAXS</Cd>');
+  });
+
+  it('says the remittance format was NOT checked when none is configured', async () => {
+    // The honest half of this feature. MOD-04 ships no pattern for these, so
+    // without one nothing here knows what a valid Finanzamtszahlung reference
+    // looks like — and an unallocated tax payment surfaces weeks later, by
+    // post. Better on the screen than in the drawer.
+    await boot({});
+    const run = await runWith('TAXS');
+    expect(run.remittance_format_checked).toBe(false);
+  });
+
+  it('says it WAS checked when the operator configured a pattern', async () => {
+    await boot({ austrianRemittance: { TAXS: /^AT[Uu]\d{8} [A-Z] \d{2}-\d{2}\/\d{4}$/, CPPP: null } });
+    const run = await runWith('TAXS');
+    expect(run.remittance_format_checked).toBe(true);
+  });
+
+  it('refuses a run whose reference does not match the configured pattern', async () => {
+    await boot({ austrianRemittance: { TAXS: /^TAX \d+$/, CPPP: null } });
+    const created = await addBill({ remittance: 'Rechnung 2026-0815' });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: 'TAXS' });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('TAXS');
+  });
+
+  it('leaves an ordinary run with no purpose and nothing to check', async () => {
+    await boot({});
+    const run = await makeRun();
+    expect(run.category_purpose).toBeNull();
+    // Null, not false: there is no Austrian format to check on an ordinary
+    // transfer, and "unchecked" would read as a warning where none applies.
+    expect(run.remittance_format_checked).toBeNull();
+  });
+
+  it('refuses a purpose that is not one of the two', async () => {
+    await boot({});
+    const created = await addBill();
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: 'TAX' });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('category_purpose');
   });
 });

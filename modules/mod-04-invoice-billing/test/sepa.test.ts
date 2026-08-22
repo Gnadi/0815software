@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  austrianRemittanceProblem,
   buildPain001,
   formatIban,
   ibanProblem,
@@ -359,5 +360,110 @@ describe('the pain.001.001.03 file', () => {
   it('books each payment separately, so every transfer keeps its own trail', () => {
     expect(xml).toContain('<BtchBookg>false</BtchBookg>');
     expect(buildPain001(instruction({ batch_booking: true }))).toContain('<BtchBookg>true</BtchBookg>');
+  });
+});
+
+// ── The two Austrian special transfers ────────────────────────────────
+
+describe('Finanzamtszahlung and Postbarzahlung', () => {
+  const BASE = {
+    message_id: 'MOD04-20260821-0001',
+    created_at: '2026-08-21T10:00:00Z',
+    execution_date: '2026-08-21',
+    batch_booking: false,
+    debtor_name: '0815software GmbH',
+    debtor_iban: 'AT611904300234573201',
+    debtor_bic: 'BKAUATWW',
+    payments: [
+      {
+        end_to_end_id: 'BILL-1',
+        amount_cents: 42180,
+        creditor_name: 'Finanzamt Oesterreich',
+        creditor_iban: 'AT830100000005504109',
+        creditor_bic: null,
+        remittance: 'ATU00000000 U 01-06/2026',
+      },
+    ],
+  };
+
+  it('carries the category purpose, after SvcLvl where the schema puts it', () => {
+    const xml = buildPain001({ ...BASE, category_purpose: 'TAXS' });
+    expect(xml).toContain('<CtgyPurp>');
+    expect(xml).toContain('<Cd>TAXS</Cd>');
+    // Order is the schema's: InstrPrty, SvcLvl, LclInstrm, CtgyPurp.
+    expect(xml.indexOf('<CtgyPurp>')).toBeGreaterThan(xml.indexOf('</SvcLvl>'));
+    expect(xml.indexOf('<CtgyPurp>')).toBeLessThan(xml.indexOf('</PmtTpInf>'));
+  });
+
+  it('emits nothing extra for an ordinary transfer', () => {
+    // Every run made before this existed, and most runs after it.
+    expect(buildPain001(BASE)).not.toContain('CtgyPurp');
+  });
+
+  it('keeps an Austrian reference in Ustrd even when it looks like RF', () => {
+    // The RF test would otherwise move a tax payment's entire routing
+    // information into a structured block the tax office does not read.
+    const rfLike = { ...BASE.payments[0]!, remittance: 'RF18 5390 0754 7034' };
+    const plain = buildPain001({ ...BASE, payments: [rfLike] });
+    const taxs = buildPain001({ ...BASE, category_purpose: 'TAXS', payments: [rfLike] });
+    expect(plain).toContain('<CdtrRefInf>');
+    expect(taxs).not.toContain('<CdtrRefInf>');
+    expect(taxs).toContain('<Ustrd>RF18 5390 0754 7034</Ustrd>');
+  });
+});
+
+describe('checking an Austrian remittance line', () => {
+  it('refuses an empty one whether or not a format is configured', () => {
+    // Neither payment can be routed without its structured reference, and no
+    // bank accepts an empty Ustrd — that much needs no published document.
+    expect(austrianRemittanceProblem('TAXS', '   ', null)).toMatchObject({ field: 'remittance' });
+    expect(austrianRemittanceProblem('CPPP', '', /^.+$/)).not.toBeNull();
+  });
+
+  it('accepts anything else when no format is configured', () => {
+    // MOD-04 ships no pattern for these: the Stuzza guideline defines them as
+    // regular expressions published at zv.psa.at, and inventing the format of
+    // a tax payment is the one guess here that costs a penalty notice rather
+    // than a refused file. Silence is honest; a made-up rule would not be.
+    expect(austrianRemittanceProblem('TAXS', 'anything at all', null)).toBeNull();
+  });
+
+  it('enforces the operator’s own pattern when there is one', () => {
+    const pattern = /^AT[Uu]\d{8} [A-Z] \d{2}-\d{2}\/\d{4}$/;
+    expect(austrianRemittanceProblem('TAXS', 'ATU00000000 U 01-06/2026', pattern)).toBeNull();
+    expect(austrianRemittanceProblem('TAXS', 'Rechnung 2026-0815', pattern)).toMatchObject({
+      message: expect.stringContaining('TAXS'),
+    });
+  });
+
+  it('reports the problem through validateSepaInstruction, per payment', () => {
+    const pattern = /^TAX \d+$/;
+    const problems = validateSepaInstruction(
+      {
+        message_id: 'M1',
+        created_at: '2026-08-21T10:00:00Z',
+        execution_date: '2026-08-21',
+        batch_booking: false,
+        debtor_name: '0815software GmbH',
+        debtor_iban: 'AT611904300234573201',
+        debtor_bic: null,
+        category_purpose: 'TAXS',
+        payments: [
+          {
+            end_to_end_id: 'E1',
+            amount_cents: 100,
+            creditor_name: 'Finanzamt',
+            creditor_iban: 'AT830100000005504109',
+            creditor_bic: null,
+            remittance: 'not the format',
+          },
+        ],
+      },
+      pattern,
+    );
+    expect(problems).toContainEqual({
+      field: 'payments[0].remittance',
+      message: expect.stringContaining('TAXS'),
+    });
   });
 });
