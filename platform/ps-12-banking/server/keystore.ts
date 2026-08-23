@@ -331,8 +331,9 @@ export function privatePemFor(
  * The X.509 certificate for one purpose.
  *
  * EBICS 3.0 sends keys only as certificates, so INI and HIA read from here.
- * Empty for a connection whose keys predate migration 4: those cannot produce
- * a valid H005 key exchange and have to be re-initialised with the bank.
+ * Empty only for a connection whose keys were written without one — those
+ * cannot produce a valid H005 key exchange and have to be re-initialised with
+ * the bank rather than repaired here.
  */
 export function certificatePemFor(
   db: Database.Database,

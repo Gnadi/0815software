@@ -702,8 +702,11 @@ log shipper or a backup manifest or an operator's note, is a value the rewrite
 would have to match and cannot. Write it down; the chain is worth what its
 anchor is worth.
 
-A chain backfilled by the upgrade migration attests to what the database said
-at upgrade time, not to what it said when those payments happened.
+There is no backfill and no way to make a broken chain green again from
+inside this service: a link is written in the same transaction as the record
+it stands for, or it is never written. A repair tool that could re-link
+records after the fact would attest to what the database says now, which is
+exactly the claim the chain exists to refuse.
 
 ## Trust, and where it actually comes from
 
@@ -1035,7 +1038,7 @@ Two things this required that were missing:
   the bank assigns to an upload — which arrives in the response's *mutable*
   header, and which `parseResponse` never read. Without it a log entry saying
   "signature refused, order A445" is readable but not actionable. Orders now
-  record it (migration 7).
+  record it as `ebics_order_id`.
 - **Case-insensitive key lookup.** A `HAC` entry's details are name/value pairs
   where `SchmeNm/Prtry` is the name — unordered, the examples say so explicitly.
   And the EBICS Working Group's own example file spells the key `OrderID`

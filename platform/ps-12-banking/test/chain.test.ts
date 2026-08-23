@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
@@ -323,17 +326,47 @@ describe('the ordinary work of running this service', () => {
     expect(verifyChain(db).valid).toBe(true);
   });
 
-  it('carries the chain across a restart, since it lives in the database', async () => {
-    await history();
-    const head = chainHead(db);
-    expect(typeof head).toBe('string');
-    // Reopening runs the migrations again; a backfill must not re-link what is
-    // already linked, or every restart would grow the chain out of nothing.
-    const before = (db.prepare('SELECT COUNT(*) AS n FROM event_chain').get() as { n: number }).n;
-    const { backfillChain } = await import('../server/chain.js');
-    expect(backfillChain(db, () => '2026-08-20T13:00:00Z')).toBe(0);
-    expect((db.prepare('SELECT COUNT(*) AS n FROM event_chain').get() as { n: number }).n).toBe(before);
-    expect(chainHead(db)).toBe(head);
+  it('survives an actual restart, on an actual file', async () => {
+    // Every other test here runs against `:memory:`, which cannot show that
+    // the head marker is durable — it lives in a table, but a table is only
+    // as convincing as the process that outlives it. So this one writes to
+    // disk, closes the database, and opens it again the way a restart does.
+    const dir = mkdtempSync(join(tmpdir(), 'ps12-chain-'));
+    const path = join(dir, 'restart.db');
+    try {
+      db = openDb(path);
+      ctx = {
+        db,
+        keySecret: KEY_SECRET,
+        transport: new Transport({
+          post: async (_url, body) => bank.post(body),
+          record: sqliteRecorder(db),
+          now: movingClock(),
+        }),
+        actor: 'mod-04',
+        now: movingClock(),
+      };
+      await history();
+      const head = chainHead(db);
+      const links = (db.prepare('SELECT COUNT(*) AS n FROM event_chain').get() as { n: number }).n;
+      expect(typeof head).toBe('string');
+      expect(links).toBeGreaterThan(0);
+      db.close();
+
+      // Reopening runs the migrations again. They must be a no-op: a schema
+      // step that re-ran and rewrote anything chained would break the chain
+      // on every single boot.
+      const reopened = openDb(path);
+      try {
+        expect(chainHead(reopened)).toBe(head);
+        expect((reopened.prepare('SELECT COUNT(*) AS n FROM event_chain').get() as { n: number }).n).toBe(links);
+        expect(verifyChain(reopened).valid).toBe(true);
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -601,9 +601,9 @@ export function applyCustomerProtocol(db: Database.Database, now: () => string, 
         const entries = entriesForOrder(log, orderId);
         if (verdictOfEntries(entries) !== 'failed') continue;
 
-        // The bank's order number, which only exists on orders submitted since
-        // migration 7. An older order cannot be matched, and inventing a
-        // match on anything else would attach a stranger's failure to a real
+        // The bank's order number, which is null on an order the bank never
+        // gave one for. Such an order cannot be matched, and inventing a match
+        // on anything else would attach a stranger's failure to a real
         // payment.
         const order = db
           .prepare('SELECT id FROM orders WHERE connection_id = ? AND ebics_order_id = ?')

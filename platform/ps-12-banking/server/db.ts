@@ -1,9 +1,8 @@
 import Database from 'better-sqlite3';
-import { backfillChain } from './chain.js';
 import { runMigrations, type Migration } from './migrations.js';
 
 /**
- * The schema, and the two rules it encodes.
+ * The schema, and the three rules it encodes.
  *
  * 1. **Nothing derivable is stored.** A connection's state and an order's
  *    status are folded from their append-only event streams at read time — the
@@ -14,9 +13,21 @@ import { runMigrations, type Migration } from './migrations.js';
  *    caller retrying, and `UNIQUE (connection_id, msg_id)` catches a caller who
  *    forgot to send one. Two layers, because the cost of the mistake is a
  *    supplier paid twice and weeks of recovering it.
+ * 3. **What happened can be shown, not just asserted.** `bank_exchanges` keeps
+ *    the bytes of every conversation with a bank, and `event_chain` links every
+ *    appended record so an edit to any of it is detectable. See
+ *    `server/exchanges.ts` and `server/chain.ts`.
  *
- * Migrations are append-only and never edited once shipped: a new change is a
- * new migration, so a deployed database can always roll forward.
+ * **One migration, on purpose.** PS-12 has never been deployed: no database
+ * anywhere has applied a schema older than this one. Migrations exist to move
+ * a database somebody already has, and there is none — so the whole schema is
+ * one baseline in its final shape, rather than a replay of how it was built.
+ *
+ * From the first real installation onwards the usual rule takes over:
+ * migrations are append-only and never edited once shipped, so a deployed
+ * database can always roll forward. The machinery in `migrations.ts` is
+ * unchanged and ready for migration 2 — there is simply nothing yet for it to
+ * carry.
  */
 export const MIGRATIONS: Migration[] = [
   {
@@ -24,6 +35,8 @@ export const MIGRATIONS: Migration[] = [
     name: 'baseline',
     up(db) {
       db.exec(`
+      -- ── The bank access ──────────────────────────────────────────────
+
       -- One bank access: the EBICS contract's three ids, plus the ceilings
       -- that limit what a compromised module token could ever send.
       CREATE TABLE IF NOT EXISTS bank_connections (
@@ -46,11 +59,40 @@ export const MIGRATIONS: Migration[] = [
         max_amount_minor  INTEGER NOT NULL DEFAULT 100000000
                             CHECK (max_amount_minor > 0),
         max_transfers     INTEGER NOT NULL DEFAULT 500 CHECK (max_transfers > 0),
-        created_at        TEXT    NOT NULL
+        created_at        TEXT    NOT NULL,
+        -- The Product element: which client software is talking, and under
+        -- which id the bank knows it. Optional in H005, but the Austrian
+        -- specification's worked example carries it and some banks ask for the
+        -- id they issued, so it is a per-connection property — one customer
+        -- can have a product id at one bank and none at another. Null means
+        -- emit no Product element at all.
+        product_name          TEXT,
+        product_language      TEXT,
+        product_institute_id  TEXT,
+        -- Whether uploads ask the bank to spool into its distributed-signature
+        -- (VEU/EDS) queue. A property of the account's bank agreement — how
+        -- many signatures it requires — so it belongs on the connection and
+        -- not on the individual order. Default 0 is signature class E: the ES
+        -- this service attaches is the whole authorisation, and a bank wanting
+        -- more rejects the order rather than parking it.
+        request_eds       INTEGER NOT NULL DEFAULT 0,
+        -- Verification of Payee. Since 09.10.2025 the ServiceOption VOO/VOI on
+        -- a SEPA credit transfer selects opt-out/opt-in; leaving it off means
+        -- the market's default decides, and both published tables set that
+        -- default to OPT-OUT for SCT and SCI. 'default' is exactly that — no
+        -- option, the bank decides. The point of the column is that an
+        -- installation which cares can say so rather than inherit it.
+        vop               TEXT    NOT NULL DEFAULT 'default'
       );
+
+      -- ── Keys ─────────────────────────────────────────────────────────
 
       -- Our three key pairs. The private PEM is AES-256-GCM ciphertext and is
       -- never returned by any endpoint (keystore.ts).
+      --
+      -- EBICS 3.0 carries public keys as X.509 certificates and nothing else:
+      -- PubKeyValue does not exist in the H005 schema set, and PubKeyInfoType
+      -- requires ds:X509Data. So every key has a certificate beside it.
       CREATE TABLE IF NOT EXISTS subscriber_keys (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
         connection_id   INTEGER NOT NULL REFERENCES bank_connections(id) ON DELETE CASCADE,
@@ -62,12 +104,29 @@ export const MIGRATIONS: Migration[] = [
         exponent        TEXT    NOT NULL,
         digest          TEXT    NOT NULL,           -- base64 SHA-256, the INI letter value
         created_at      TEXT    NOT NULL,
-        retired_at      TEXT
+        retired_at      TEXT,
+        certificate_pem TEXT,
+        -- Key rotation over the wire (HCA/HCS) needs two live keys per purpose
+        -- for the length of one request: the one the bank still knows, which
+        -- signs the change, and the one that takes over if it says yes.
+        --
+        -- THE ORDERING THIS COLUMN EXISTS FOR. The new keys are generated and
+        -- COMMITTED — as pending — before the request goes out. Generating them
+        -- in memory and writing them only after the bank accepts would leave a
+        -- window where the bank has moved to a key this service no longer
+        -- holds, and the recovery from that is re-initialising on paper. A
+        -- pending row nobody activated costs nothing; a lost private key costs
+        -- days.
+        pending         INTEGER NOT NULL DEFAULT 0
       );
       -- One live key per purpose. A second would make "which key signed this?"
       -- unanswerable, which is not a question to be vague about.
       CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriber_keys_live
-        ON subscriber_keys (connection_id, purpose) WHERE retired_at IS NULL;
+        ON subscriber_keys (connection_id, purpose) WHERE retired_at IS NULL AND pending = 0;
+      -- And at most one pending key per purpose, for the same reason: "which
+      -- key is taking over?" must have one answer.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriber_keys_pending
+        ON subscriber_keys (connection_id, purpose) WHERE retired_at IS NULL AND pending = 1;
 
       -- The bank's keys, as HPB delivered them. verified_at is set only when a
       -- HUMAN confirmed the digests against the bank's published letter —
@@ -81,7 +140,8 @@ export const MIGRATIONS: Migration[] = [
         digest        TEXT    NOT NULL,
         fetched_at    TEXT    NOT NULL,
         verified_at   TEXT,
-        verified_by   TEXT
+        verified_by   TEXT,
+        certificate_pem TEXT
       );
       CREATE UNIQUE INDEX IF NOT EXISTS idx_bank_keys_purpose
         ON bank_keys (connection_id, purpose);
@@ -98,6 +158,8 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_connection_events_conn
         ON connection_events (connection_id, id);
 
+      -- ── Uploads ──────────────────────────────────────────────────────
+
       -- One submitted file.
       CREATE TABLE IF NOT EXISTS orders (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,8 +170,21 @@ export const MIGRATIONS: Migration[] = [
         payload_sha256  TEXT    NOT NULL,
         amount_minor    INTEGER,
         tx_count        INTEGER,
-        idempotency_key TEXT    UNIQUE,
-        transaction_id  TEXT,                        -- assigned by the bank
+        -- NOT globally unique. An idempotency key is the CALLER'S word, and
+        -- MOD-04 builds it from a payment run's MsgId; two connections
+        -- legitimately carry the same run to two banks. A UNIQUE column here
+        -- was wrong twice over — the lookup answered the second submission
+        -- with the first bank's order and dropped the file, and the constraint
+        -- would have refused it anyway. Scoped on the index below instead.
+        idempotency_key TEXT,
+        transaction_id  TEXT,                        -- assigned by the bank, names one conversation
+        -- The BANK's order number, from the mutable header of the response
+        -- that accepted the upload. Not the same thing as transaction_id,
+        -- which is meaningless once the conversation ends. This is the handle
+        -- the customer protocol (HAC) logs every action under: without it a
+        -- HAC entry saying "signature refused, order A445" cannot be tied to
+        -- the payment file it refused.
+        ebics_order_id  TEXT,
         created_by      TEXT,
         created_at      TEXT    NOT NULL
       );
@@ -117,25 +192,30 @@ export const MIGRATIONS: Migration[] = [
       -- twice, even by a caller that forgot its idempotency key.
       CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_msg
         ON orders (connection_id, msg_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idempotency
+        ON orders (connection_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+      -- Not unique: a bank may reuse an order number across customers, and
+      -- orders are looked up per connection anyway.
+      CREATE INDEX IF NOT EXISTS idx_orders_ebics_order
+        ON orders (connection_id, ebics_order_id);
 
-      -- APPEND-ONLY: the order's status is folded from this stream.
+      -- APPEND-ONLY: the order's status is folded from this stream. Each row
+      -- carries its OWN timestamp — a twelve-segment upload is twelve moments,
+      -- not one — and the actor that caused it: an operator's username,
+      -- 'service' for a module, 'ticker' for the tick loop.
       CREATE TABLE IF NOT EXISTS order_events (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         order_id    INTEGER NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
         type        TEXT    NOT NULL,
         ebics_code  TEXT,
         meta        TEXT    NOT NULL DEFAULT '{}',
+        actor       TEXT,
         created_at  TEXT    NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events (order_id, id);
-      `);
-    },
-  },
-  {
-    id: 2,
-    name: 'downloads',
-    up(db) {
-      db.exec(`
+
+      -- ── Downloads ────────────────────────────────────────────────────
+
       -- One file the bank handed us: a camt.053 statement, a pain.002 status
       -- report, anything a BTF names. Stored whole and unparsed.
       --
@@ -147,7 +227,7 @@ export const MIGRATIONS: Migration[] = [
       -- offering it), so throwing away the bytes after reading them once
       -- means a parser bug is unrecoverable rather than a re-run.
       --
-      -- \acknowledged_at\ is when we sent the POSITIVE RECEIPT, and it is
+      -- acknowledged_at is when we sent the POSITIVE RECEIPT, and it is
       -- deliberately set AFTER the row is committed. A receipt sent before
       -- the file is safely stored is how a bank statement disappears: the
       -- bank marks it collected and we crashed before writing it.
@@ -189,278 +269,15 @@ export const MIGRATIONS: Migration[] = [
         created_at    TEXT    NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_download_reports_msg ON download_reports (msg_id);
-      `);
-    },
-  },
-  {
-    id: 3,
-    name: 'scope-idempotency-keys-to-their-connection',
-    up(db) {
-      // An idempotency key is the CALLER'S word, and MOD-04 builds it from a
-      // payment run's MsgId. Two connections legitimately carry the same run
-      // to two banks — so a globally UNIQUE column was wrong twice over: the
-      // lookup answered the second submission with the first bank's order and
-      // dropped the file, and the constraint would have refused it anyway.
-      //
-      // The column was declared `TEXT UNIQUE` inline, which in SQLite creates
-      // an implicit index that cannot be dropped. Rebuilding the table is the
-      // only way to remove it, which is why this migration is long for what it
-      // does.
-      //
-      // And the trap in that rebuild, which this repository's upgrade test
-      // caught on the first run: `order_events` references `orders(id)` with
-      // ON DELETE CASCADE, so `DROP TABLE orders` silently empties it. The
-      // usual remedy — `PRAGMA foreign_keys=OFF` — is a no-op here because
-      // migrations run inside a transaction, so the events are copied aside
-      // and put back instead. Ids are preserved exactly, so every reference
-      // still resolves.
-      //
-      // AND the second trap, which only showed up once the event chain made a
-      // silent column loss visible: a rebuild with a hard-coded column list
-      // drops every column a LATER migration added. This migration runs again
-      // whenever migrations are replayed from scratch over a populated
-      // database, and by then `orders` has `ebics_order_id` (migration 11) and
-      // `order_events` has `actor` (17) — the bank's own order reference and
-      // the record of who caused each step, both quietly emptied. So the
-      // copies are driven by the columns that are actually there.
-      const columnsOf = (table: string): { name: string; type: string }[] =>
-        db.prepare(`PRAGMA table_info(${table})`).all() as { name: string; type: string }[];
-      const quoted = (names: string[]): string => names.map((n) => `"${n}"`).join(', ');
 
-      db.exec(`
-      CREATE TEMP TABLE order_events_backup AS SELECT * FROM order_events;
-
-      CREATE TABLE orders_rebuilt (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        connection_id   INTEGER NOT NULL REFERENCES bank_connections(id),
-        public_id       TEXT    NOT NULL UNIQUE,
-        msg_id          TEXT    NOT NULL,
-        btf             TEXT    NOT NULL,
-        payload_sha256  TEXT    NOT NULL,
-        amount_minor    INTEGER,
-        tx_count        INTEGER,
-        idempotency_key TEXT,
-        transaction_id  TEXT,
-        created_by      TEXT,
-        created_at      TEXT    NOT NULL
-      );
-      `);
-
-      // Carry across anything the live table has that the canonical shape does
-      // not. On a fresh install there is nothing to carry, so the resulting
-      // schema is identical either way — which the upgrade suite checks.
-      const rebuiltColumns = new Set(columnsOf('orders_rebuilt').map((c) => c.name));
-      for (const column of columnsOf('orders')) {
-        if (rebuiltColumns.has(column.name)) continue;
-        // Unquoted, so the stored DDL is byte-identical to the one a fresh
-        // install gets from the `ALTER TABLE` in the later migration — the
-        // upgrade suite compares those strings. Anything that would need
-        // quoting is not a name this service's own migrations produce, and
-        // silently mangling it would be worse than stopping.
-        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(column.name)) {
-          throw new Error(`cannot carry the column "${column.name}" across the orders rebuild`);
-        }
-        db.exec(`ALTER TABLE orders_rebuilt ADD COLUMN ${column.name} ${column.type || 'TEXT'}`);
-        rebuiltColumns.add(column.name);
-      }
-      const orderColumns = columnsOf('orders')
-        .map((c) => c.name)
-        .filter((name) => rebuiltColumns.has(name));
-
-      db.exec(`
-      INSERT INTO orders_rebuilt (${quoted(orderColumns)})
-      SELECT ${quoted(orderColumns)} FROM orders;
-
-      DROP TABLE orders;
-      ALTER TABLE orders_rebuilt RENAME TO orders;
-
-      -- Both invariants, restated on the rebuilt table.
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_msg
-        ON orders (connection_id, msg_id);
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idempotency
-        ON orders (connection_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
-      `);
-
-      // Put the cascade's casualties back — every column both sides share.
-      const liveEventColumns = new Set(columnsOf('order_events').map((c) => c.name));
-      const eventColumns = columnsOf('order_events_backup')
-        .map((c) => c.name)
-        .filter((name) => liveEventColumns.has(name));
-      db.exec(`
-      INSERT INTO order_events (${quoted(eventColumns)})
-      SELECT ${quoted(eventColumns)} FROM order_events_backup;
-      DROP TABLE order_events_backup;
-      `);
-    },
-  },
-  {
-    id: 4,
-    name: 'subscriber-and-bank-certificates',
-    up(db) {
-      // EBICS 3.0 carries public keys as X.509 certificates and nothing else:
-      // `PubKeyValue` does not exist in the H005 schema set, and
-      // `PubKeyInfoType` requires `<ds:X509Data>`. So both our own keys and the
-      // bank's now have a certificate beside them.
-      //
-      // Nullable rather than NOT NULL because a database written before this
-      // migration has keys with no certificate. Those connections cannot send
-      // a valid INI or HIA and must be re-initialised with the bank — which is
-      // a conversation, not something a migration can do — so the column is
-      // left empty and `generateKeys` refuses to overwrite live keys.
-      // Guarded, because the upgrade test replays every migration over a
-      // database that has already had them — which is what an old
-      // installation meeting a new build looks like.
-      const hasColumn = (table: string): boolean =>
-        (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(
-          (c) => c.name === 'certificate_pem',
-        );
-      if (!hasColumn('subscriber_keys')) db.exec('ALTER TABLE subscriber_keys ADD COLUMN certificate_pem TEXT');
-      if (!hasColumn('bank_keys')) db.exec('ALTER TABLE bank_keys ADD COLUMN certificate_pem TEXT');
-    },
-  },
-  {
-    id: 5,
-    name: 'connection-product',
-    up(db) {
-      // The `Product` element: which client software is talking, and under
-      // which id the bank knows it. Optional in H005, but the Austrian
-      // specification's worked example carries it and some banks ask for the
-      // id they issued, so it is a per-connection property — one customer can
-      // have a product id at one bank and none at another.
-      //
-      // Nullable, and null means "emit no Product element", which is exactly
-      // what every message this service sent before this migration did.
-      const columns = (db.prepare('PRAGMA table_info(bank_connections)').all() as { name: string }[]).map(
-        (c) => c.name,
-      );
-      if (!columns.includes('product_name')) db.exec('ALTER TABLE bank_connections ADD COLUMN product_name TEXT');
-      if (!columns.includes('product_language')) {
-        db.exec('ALTER TABLE bank_connections ADD COLUMN product_language TEXT');
-      }
-      if (!columns.includes('product_institute_id')) {
-        db.exec('ALTER TABLE bank_connections ADD COLUMN product_institute_id TEXT');
-      }
-    },
-  },
-  {
-    id: 6,
-    name: 'connection-request-eds',
-    up(db) {
-      // Whether uploads ask the bank to spool into its distributed-signature
-      // (VEU/EDS) queue. A property of the account's bank agreement — how many
-      // signatures it requires — so it belongs on the connection, not on the
-      // individual order.
-      //
-      // Default 0, which is signature class E: the ES this service attaches is
-      // the whole authorisation, and a bank wanting more rejects the order
-      // rather than parking it.
-      const columns = (db.prepare('PRAGMA table_info(bank_connections)').all() as { name: string }[]).map(
-        (c) => c.name,
-      );
-      if (!columns.includes('request_eds')) {
-        db.exec('ALTER TABLE bank_connections ADD COLUMN request_eds INTEGER NOT NULL DEFAULT 0');
-      }
-    },
-  },
-  {
-    id: 7,
-    name: 'downloads-statements-and-the-audit-trail',
-    up(db) {
-      // Everything phase B added, as one step.
-      //
-      // It was written as twelve migrations while it was being built, which is
-      // a record of how the work went and not of any database: PS-12 shipped
-      // to `main` at migration 6, and no installation has ever seen 7 through
-      // 18. Migrations exist to move a database somebody already has; three of
-      // those twelve added a column to a table two of the others had created
-      // days earlier. Squashing them is not tidying — it removes eleven
-      // upgrade paths that would otherwise have to keep working forever.
-      //
-      // Migrations 1–6 are untouched, because those a real database may have
-      // applied. This is the line: everything at or below 6 is history,
-      // everything above it is the current shape.
-
-      const columnsOf = (table: string): string[] =>
-        (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
-
-      // ── Columns on tables that migrations 1–6 created ────────────────
-
-      // Verification of Payee. Since 09.10.2025 the ServiceOption VOO/VOI on a
-      // SEPA credit transfer selects opt-out/opt-in; leaving it off means the
-      // market's default decides, and both published tables set that default
-      // to OPT-OUT for SCT and SCI. "default" keeps exactly that behaviour —
-      // no option, the bank decides — and is what every existing connection
-      // gets. The point of the column is that an installation which cares can
-      // say so rather than inherit it.
-      if (!columnsOf('bank_connections').includes('vop')) {
-        db.exec("ALTER TABLE bank_connections ADD COLUMN vop TEXT NOT NULL DEFAULT 'default'");
-      }
-
-      // Key rotation over the wire (HCA/HCS) needs two live keys per purpose
-      // for the length of one request: the one the bank still knows, which
-      // signs the change, and the one that takes over if it says yes.
-      //
-      // THE ORDERING THIS COLUMN EXISTS FOR. The new keys are generated and
-      // COMMITTED — as pending — before the request goes out. Generating them
-      // in memory and writing them only after the bank accepts would leave a
-      // window where the bank has moved to a key this service no longer holds,
-      // and the recovery from that is re-initialising on paper. A pending row
-      // nobody activated costs nothing; a lost private key costs days.
-      if (!columnsOf('subscriber_keys').includes('pending')) {
-        db.exec('ALTER TABLE subscriber_keys ADD COLUMN pending INTEGER NOT NULL DEFAULT 0');
-      }
-      db.exec(`
-      -- The live-key index has to make room for the pending one. Named
-      -- explicitly at creation (migration 1), so it can be replaced.
-      DROP INDEX IF EXISTS idx_subscriber_keys_live;
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriber_keys_live
-        ON subscriber_keys (connection_id, purpose) WHERE retired_at IS NULL AND pending = 0;
-      -- And at most one pending key per purpose, for the same reason: "which
-      -- key is taking over?" must have one answer.
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriber_keys_pending
-        ON subscriber_keys (connection_id, purpose) WHERE retired_at IS NULL AND pending = 1;
-      `);
-
-      // The BANK's order number, from the mutable header of the response that
-      // accepted the upload. Not the same thing as `transaction_id`, which
-      // names one conversation and is meaningless once it ends.
-      //
-      // This is the handle the customer protocol (HAC) logs every action
-      // under. Without it a HAC entry saying "signature refused, order A445"
-      // cannot be tied to the payment file it refused, which makes the whole
-      // protocol readable but not actionable.
-      if (!columnsOf('orders').includes('ebics_order_id')) {
-        db.exec('ALTER TABLE orders ADD COLUMN ebics_order_id TEXT');
-      }
-      // Not unique: a bank may reuse an order number across customers, and
-      // orders are looked up per connection anyway.
-      db.exec('CREATE INDEX IF NOT EXISTS idx_orders_ebics_order ON orders (connection_id, ebics_order_id)');
-
-      // Who caused this step. `connection_events` has carried an actor since
-      // migration 1; `order_events` did not, so a payment's own history could
-      // say what happened and when but never on whose behalf — an operator
-      // retrying by hand and the ticker looked identical.
-      if (!columnsOf('order_events').includes('actor')) {
-        db.exec('ALTER TABLE order_events ADD COLUMN actor TEXT');
-      }
-
-      // ── What the tick polls ──────────────────────────────────────────
-
-      // WHAT THE TICK POLLS, per connection, instead of two hard-coded BTFs.
-      //
-      // Until this table, `tick()` fetched exactly `profile.paymentStatus` and
-      // `profile.statement` — a payment status report and a camt.053 — and
-      // nothing else, on every connection. Every other BTF a bank offers
-      // (camt.052 intraday, camt.054 notifications, camt.086 fees, MT940, the
-      // Austrian CIM customer information, PDF statements) was reachable only
-      // by an operator pressing "fetch now". That is not a protocol limitation
-      // and never was; the upload side has always taken any BTF the caller
-      // names.
-      //
-      // A row here is one standing instruction: fetch this BTF on every tick.
-      // `HTD` is where the list of legitimate values comes from — the bank's
-      // own statement of what it has enabled for this contract.
-      db.exec(`
+      -- WHAT THE TICK POLLS, per connection, rather than two hard-coded BTFs.
+      --
+      -- A row here is one standing instruction: fetch this BTF on every tick.
+      -- Anything a bank offers belongs here — camt.052 intraday, camt.054
+      -- notifications, camt.086 fees, MT940, the Austrian CIM customer
+      -- information, PDF statements — and HTD is where the list of legitimate
+      -- values comes from: the bank's own statement of what it has enabled for
+      -- this contract.
       CREATE TABLE IF NOT EXISTS download_subscriptions (
         id             INTEGER PRIMARY KEY AUTOINCREMENT,
         connection_id  INTEGER NOT NULL REFERENCES bank_connections(id) ON DELETE CASCADE,
@@ -480,64 +297,21 @@ export const MIGRATIONS: Migration[] = [
       );
       CREATE UNIQUE INDEX IF NOT EXISTS idx_download_subscriptions_btf
         ON download_subscriptions (connection_id, btf_key);
-      `);
 
-      // Every connection created under migrations 1–6 keeps polling exactly
-      // what it polled before — its profile's status report and statement.
-      // Written out as literal JSON rather than read from `bank-registry.ts`
-      // because a migration must produce the same result forever, and that
-      // file is edited whenever a published mapping table changes.
-      const profiles: Record<string, { label: string; btf: Record<string, string> }[]> = {
-        'de-sepa': [
-          { label: 'payment status reports', btf: { service_name: 'REP', scope: 'DE', option: 'SCT', msg_name: 'pain.002', container: 'ZIP' } },
-          { label: 'account statements', btf: { service_name: 'EOP', scope: 'DE', msg_name: 'camt.053', container: 'ZIP' } },
-        ],
-        'at-sepa': [
-          { label: 'payment status reports', btf: { service_name: 'REP', scope: 'AT', option: 'SCT', msg_name: 'pain.002', container: 'ZIP' } },
-          { label: 'account statements', btf: { service_name: 'EOP', scope: 'AT', msg_name: 'camt.053', container: 'ZIP' } },
-        ],
-        generic: [
-          { label: 'payment status reports', btf: { service_name: 'REP', option: 'SCT', msg_name: 'pain.002', container: 'ZIP' } },
-          { label: 'account statements', btf: { service_name: 'EOP', msg_name: 'camt.053', container: 'ZIP' } },
-        ],
-      };
-      // The same canonical ordering `subscriptions.ts` uses. Repeated here
-      // rather than imported for the reason above.
-      const order = ['service_name', 'scope', 'option', 'msg_name', 'msg_version', 'msg_variant', 'msg_format', 'container'];
-      const canonical = (btf: Record<string, string>): string =>
-        JSON.stringify(order.filter((k) => btf[k] !== undefined).map((k) => [k, btf[k]]));
+      -- ── The statement read model ─────────────────────────────────────
 
-      const connections = db.prepare('SELECT id, bank_key, created_at FROM bank_connections').all() as {
-        id: number;
-        bank_key: string;
-        created_at: string;
-      }[];
-      const subscribe = db.prepare(
-        `INSERT OR IGNORE INTO download_subscriptions
-           (connection_id, btf, btf_key, label, enabled, created_at)
-         VALUES (?, ?, ?, ?, 1, ?)`,
-      );
-      for (const connection of connections) {
-        for (const entry of profiles[connection.bank_key] ?? profiles.generic) {
-          subscribe.run(connection.id, JSON.stringify(entry.btf), canonical(entry.btf), entry.label, connection.created_at);
-        }
-      }
-
-      // ── The statement read model ─────────────────────────────────────
-
-      // Bookings, read out of an account message and made queryable.
-      //
-      // This is the one place the "nothing derivable is stored" rule is bent,
-      // and deliberately: a consumer asking "was invoice 42 paid?" needs to
-      // search across every statement ever collected, by reference, by amount
-      // and by date. Re-parsing every stored blob on each such question is not
-      // a read model, it is a full scan.
-      //
-      // The bytes remain the record. These rows are rebuilt by clearing
-      // `downloads.processed_at`, which is exactly what a fix to the parser
-      // needs — so a better reader improves every statement already collected
-      // rather than only the next one.
-      db.exec(`
+      -- Bookings, read out of an account message and made queryable.
+      --
+      -- This is the one place the "nothing derivable is stored" rule is bent,
+      -- and deliberately: a consumer asking "was invoice 42 paid?" needs to
+      -- search across every statement ever collected, by reference, by amount
+      -- and by date. Re-parsing every stored blob on each such question is not
+      -- a read model, it is a full scan.
+      --
+      -- The bytes remain the record. These rows are rebuilt by clearing
+      -- downloads.processed_at, which is exactly what a fix to the parser
+      -- needs — so a better reader improves every statement already collected
+      -- rather than only the next one.
       CREATE TABLE IF NOT EXISTS statements (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
         download_id     INTEGER NOT NULL REFERENCES downloads(id) ON DELETE CASCADE,
@@ -556,9 +330,9 @@ export const MIGRATIONS: Migration[] = [
         --                 it appears AGAIN on the day's statement.
         --   notification  camt.054, individual items as they happen. Same.
         --
-        -- So findEntries defaults to statements alone. A caller that wants
-        -- to see money arriving before end of day has to ask for it, exactly
-        -- as with pending entries.
+        -- So findEntries defaults to statements alone. A caller that wants to
+        -- see money arriving before end of day has to ask for it, exactly as
+        -- with pending entries.
         source          TEXT    NOT NULL DEFAULT 'statement',
         message_name    TEXT,
         -- The schema version the bank sent. Worth keeping: .02 and .08 differ
@@ -613,11 +387,11 @@ export const MIGRATIONS: Migration[] = [
         account_servicer_ref TEXT,
         bank_transaction_code TEXT,
         -- The bank's OWN transaction code, beside the ISO domain code. The
-        -- Austrian schemas make both Domn and Prtry mandatory on every
-        -- entry, so an Austrian bank always sends both — a reader that
-        -- preferred the ISO code and fell back to the proprietary one would
-        -- never reach the fallback, dropping the code the bank actually keys
-        -- on from every single booking.
+        -- Austrian schemas make both Domn and Prtry mandatory on every entry,
+        -- so an Austrian bank always sends both — a reader that preferred the
+        -- ISO code and fell back to the proprietary one would never reach the
+        -- fallback, dropping the code the bank actually keys on from every
+        -- single booking.
         proprietary_transaction_code TEXT,
         -- How many payments one entry covers — null or 1 for the ordinary
         -- case. A collective credit is ONE movement carrying many customer
@@ -645,21 +419,19 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_entries_e2e ON statement_entries (end_to_end_id);
       CREATE INDEX IF NOT EXISTS idx_entries_reference ON statement_entries (creditor_reference);
       CREATE INDEX IF NOT EXISTS idx_entries_booking ON statement_entries (booking_date);
-      `);
 
-      // ── The record of what was said, and whether it still holds ──────
+      -- ── What was said, and whether it still holds ────────────────────
 
-      // APPEND-ONLY: every HTTP round-trip with a bank, with the bytes.
-      //
-      // Without this table a submitted payment leaves behind only the parsed
-      // verdict. That is enough while everything works and useless in the one
-      // conversation that matters: the bank says the signature was wrong, or
-      // that nothing ever arrived, and there is nothing to put on the table.
-      // The envelopes carry the ES signature and the encrypted order data —
-      // never a private key, which never leaves `keystore.ts` in plaintext —
-      // so keeping them is safe and is what makes a dispute arguable from the
-      // record instead of from memory.
-      db.exec(`
+      -- APPEND-ONLY: every HTTP round-trip with a bank, with the bytes.
+      --
+      -- Without this table a submitted payment leaves behind only the parsed
+      -- verdict. That is enough while everything works and useless in the one
+      -- conversation that matters: the bank says the signature was wrong, or
+      -- that nothing ever arrived, and there is nothing to put on the table.
+      -- The envelopes carry the ES signature and the encrypted order data —
+      -- never a private key, which never leaves keystore.ts in plaintext — so
+      -- keeping them is safe and is what makes a dispute arguable from the
+      -- record instead of from memory.
       CREATE TABLE IF NOT EXISTS bank_exchanges (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
         connection_id INTEGER REFERENCES bank_connections(id) ON DELETE CASCADE,
@@ -704,13 +476,6 @@ export const MIGRATIONS: Migration[] = [
         value TEXT NOT NULL
       );
       `);
-
-      // Link what a migration-6 database already holds. Last, so it covers
-      // everything above it. A backfilled chain attests to what the database
-      // said at upgrade time, not to what it said when those payments
-      // happened — `chain.ts` says so where a reader of a green verdict will
-      // find it.
-      backfillChain(db, () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'));
     },
   },
 ];
