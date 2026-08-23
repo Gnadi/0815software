@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MIGRATIONS, openDb } from '../server/db.js';
+import { verifyChain } from '../server/chain.js';
 import { pendingCount, runMigrations } from '../server/migrations.js';
 import { Transport } from '../server/transport.js';
 import { loadKeySecret } from '../server/keystore.js';
@@ -108,6 +109,44 @@ describe('upgrading an existing installation', () => {
 
     expect(pendingCount(db, MIGRATIONS)).toBe(0);
     expect(census(db)).toEqual(before);
+
+    // The chain was backfilled over records that predate it, and the replay
+    // did not double-link any of them. It attests to what the database said at
+    // upgrade time and no more — `server/chain.ts` says so where a reader of a
+    // green verdict will find it — but it must at least hold.
+    expect(verifyChain(db).valid).toBe(true);
+    db.close();
+  });
+
+  /**
+   * The rebuild in migration 3 drops and recreates `orders`, and copies
+   * `order_events` aside and back. Written with hard-coded column lists, it
+   * silently emptied every column a LATER migration added — `ebics_order_id`,
+   * the reference the bank's own customer protocol keys on, and `actor`, the
+   * record of who caused each step. Both survived a fresh install and both
+   * vanished on a replay, with no error anywhere.
+   *
+   * The event chain is what made it visible: the digests stopped matching. The
+   * assertion is here rather than there because the loss is the bug and the
+   * chain only noticed.
+   */
+  it('keeps columns that later migrations added when the rebuild replays', async () => {
+    const db = openDb(':memory:');
+    await fill(db);
+    db.prepare("UPDATE orders SET ebics_order_id = 'N001'").run();
+
+    const before = {
+      orderIds: db.prepare('SELECT id, ebics_order_id FROM orders ORDER BY id').all(),
+      actors: db.prepare('SELECT id, actor FROM order_events ORDER BY id').all(),
+    };
+    expect(before.orderIds.length).toBeGreaterThan(0);
+    expect(before.actors.some((r) => (r as { actor: string | null }).actor !== null)).toBe(true);
+
+    db.prepare('DELETE FROM schema_migrations').run();
+    runMigrations(db, MIGRATIONS);
+
+    expect(db.prepare('SELECT id, ebics_order_id FROM orders ORDER BY id').all()).toEqual(before.orderIds);
+    expect(db.prepare('SELECT id, actor FROM order_events ORDER BY id').all()).toEqual(before.actors);
     db.close();
   });
 

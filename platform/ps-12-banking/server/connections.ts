@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { DomainError } from './errors.js';
+import { chainAppend } from './chain.js';
 import { bankProfile } from './bank-registry.js';
 import { seedSubscriptions } from './subscriptions.js';
 import type { VopMode } from './orders.js';
@@ -104,15 +105,14 @@ export function recordEvent(
   db: Database.Database,
   params: { connectionId: number; type: string; actor?: string | null; meta?: Record<string, unknown>; at?: string },
 ): void {
-  db.prepare(
-    'INSERT INTO connection_events (connection_id, type, actor, meta, created_at) VALUES (?, ?, ?, ?, ?)',
-  ).run(
-    params.connectionId,
-    params.type,
-    params.actor ?? null,
-    JSON.stringify(params.meta ?? {}),
-    params.at ?? nowIso(),
-  );
+  const at = params.at ?? nowIso();
+  // Insert and chain link in one transaction — see `recordOrderEvent`.
+  db.transaction(() => {
+    const info = db
+      .prepare('INSERT INTO connection_events (connection_id, type, actor, meta, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(params.connectionId, params.type, params.actor ?? null, JSON.stringify(params.meta ?? {}), at);
+    chainAppend(db, 'connection_events', Number(info.lastInsertRowid), () => at);
+  })();
 }
 
 function eventsOf(db: Database.Database, connectionId: number): ConnectionEvent[] {

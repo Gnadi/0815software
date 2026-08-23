@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 
 import { DomainError } from './errors.js';
+import { chainAppend, markPruned } from './chain.js';
 
 /**
  * The bank conversation log.
@@ -66,21 +67,26 @@ export function sqliteRecorder(db: Database.Database): ExchangeRecorder {
         started_at, finished_at, duration_ms)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
+  const append = db.transaction((record: ExchangeRecord) => {
+    const info = insert.run(
+      record.connection ?? null,
+      record.order ?? null,
+      record.phase,
+      record.url,
+      record.request,
+      record.response,
+      record.httpStatus,
+      record.error,
+      record.startedAt,
+      record.finishedAt,
+      record.durationMs,
+    );
+    // Insert and chain link together — see `recordOrderEvent`.
+    chainAppend(db, 'bank_exchanges', Number(info.lastInsertRowid), () => record.finishedAt);
+  });
   return (record) => {
     try {
-      insert.run(
-        record.connection ?? null,
-        record.order ?? null,
-        record.phase,
-        record.url,
-        record.request,
-        record.response,
-        record.httpStatus,
-        record.error,
-        record.startedAt,
-        record.finishedAt,
-        record.durationMs,
-      );
+      append(record);
     } catch (err) {
       console.warn(`[ps-12] a bank exchange could not be recorded: ${err instanceof Error ? err.message : err}`);
     }
@@ -187,7 +193,14 @@ export function exchangeDetail(db: Database.Database, id: number): ExchangeDetai
  */
 export function pruneExchanges(db: Database.Database, retentionDays: number, now: () => string): number {
   if (retentionDays <= 0) return 0;
-  const cutoff = new Date(new Date(now()).getTime() - retentionDays * 86_400_000).toISOString();
-  const result = db.prepare('DELETE FROM bank_exchanges WHERE started_at < ?').run(cutoff);
-  return result.changes;
+  const at = now();
+  const cutoff = new Date(new Date(at).getTime() - retentionDays * 86_400_000).toISOString();
+  return db.transaction(() => {
+    const result = db.prepare('DELETE FROM bank_exchanges WHERE started_at < ?').run(cutoff);
+    // The links stay — removing them would break every link after — but they
+    // are marked, so verification stops expecting content that was aged out
+    // on purpose and can still tell that from a row somebody deleted.
+    markPruned(db, 'bank_exchanges', at);
+    return result.changes;
+  })();
 }

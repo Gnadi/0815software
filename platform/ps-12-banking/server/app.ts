@@ -50,6 +50,7 @@ import {
   type VopMode,
 } from './orders.js';
 import { exchangeDetail, listExchanges, sqliteRecorder } from './exchanges.js';
+import { chainHead, verifyChain } from './chain.js';
 import {
   downloadContent,
   downloadDetail,
@@ -340,7 +341,21 @@ export function createApp(opts: AppOptions): express.Express {
     res.json({ ok: true });
   });
 
+  // Verifying walks every link and every record it stands for, so the verdict
+  // is cached for a minute: a scrape every fifteen seconds must not turn the
+  // integrity check into the service's own load problem.
+  let chainCheck: { at: number; valid: boolean } | null = null;
+
   const gauges: Gauge[] = [
+    {
+      name: 'banking_chain_valid',
+      help: 'Tamper-evidence over this service’s own history (1 = holds, 0 = broken); rechecked at most once a minute.',
+      value: () => {
+        const t = Date.now();
+        if (!chainCheck || t - chainCheck.at >= 60_000) chainCheck = { at: t, valid: verifyChain(db).valid };
+        return chainCheck.valid ? 1 : 0;
+      },
+    },
     {
       name: 'banking_connections_ready',
       help: 'Bank connections a human has activated — the only ones that can carry an order.',
@@ -381,6 +396,28 @@ export function createApp(opts: AppOptions): express.Express {
     } catch {
       res.status(503).json({ ready: false });
     }
+  });
+
+  /**
+   * Does this service's own history still hold?
+   *
+   * Admin only, and answered here rather than by asking PS-07: a platform
+   * service that needs a second service running to answer for its own records
+   * is not independent, and "the audit trail was unavailable" is not an answer
+   * anybody accepts about a payment.
+   *
+   * The `head` in the response is the point. A hash chain proves nothing in
+   * the middle changed; it cannot prove the whole database was not rewritten.
+   * Copy this head somewhere outside the container — a log shipper, a backup
+   * manifest, a note — and the remaining hole becomes one an outsider can see.
+   */
+  app.get('/api/audit/chain', requireAdmin, (_req, res) => {
+    res.json(verifyChain(db));
+  });
+
+  /** The cheap version: the head hash, without walking the chain to get it. */
+  app.get('/api/audit/head', requireAdmin, (_req, res) => {
+    res.json({ head: chainHead(db) ?? null });
   });
 
   app.get('/api/metrics', (_req, res) => {

@@ -594,6 +594,28 @@ paths:
       responses:
         '200': { description: Success }
         '404': { description: No such order }
+  /api/audit/chain:
+    get:
+      summary: Does this service's own history still hold?
+      description: >-
+        Walks the hash chain over `connection_events`, `order_events`,
+        `bank_exchanges` and `downloads` and reports the first break — an
+        edited record, a deleted one, one written past the log, a rewritten
+        link, or a truncated end. The `head` in the response is worth copying
+        somewhere outside this container: a chain cannot prove the whole
+        database was not rewritten, and an external head hash can.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: The verdict, valid or not }
+  /api/audit/head:
+    get:
+      summary: The chain head
+      description: The head hash alone, without walking the chain to get it.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
   /api/orders/{public_id}/exchanges:
     parameters:
       - name: public_id

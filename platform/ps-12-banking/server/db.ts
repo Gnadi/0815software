@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { backfillChain } from './chain.js';
 import { runMigrations, type Migration } from './migrations.js';
 
 /**
@@ -213,6 +214,19 @@ export const MIGRATIONS: Migration[] = [
       // migrations run inside a transaction, so the events are copied aside
       // and put back instead. Ids are preserved exactly, so every reference
       // still resolves.
+      //
+      // AND the second trap, which only showed up once the event chain made a
+      // silent column loss visible: a rebuild with a hard-coded column list
+      // drops every column a LATER migration added. This migration runs again
+      // whenever migrations are replayed from scratch over a populated
+      // database, and by then `orders` has `ebics_order_id` (migration 11) and
+      // `order_events` has `actor` (17) — the bank's own order reference and
+      // the record of who caused each step, both quietly emptied. So the
+      // copies are driven by the columns that are actually there.
+      const columnsOf = (table: string): { name: string; type: string }[] =>
+        db.prepare(`PRAGMA table_info(${table})`).all() as { name: string; type: string }[];
+      const quoted = (names: string[]): string => names.map((n) => `"${n}"`).join(', ');
+
       db.exec(`
       CREATE TEMP TABLE order_events_backup AS SELECT * FROM order_events;
 
@@ -230,13 +244,32 @@ export const MIGRATIONS: Migration[] = [
         created_by      TEXT,
         created_at      TEXT    NOT NULL
       );
+      `);
 
-      INSERT INTO orders_rebuilt
-        (id, connection_id, public_id, msg_id, btf, payload_sha256, amount_minor,
-         tx_count, idempotency_key, transaction_id, created_by, created_at)
-      SELECT id, connection_id, public_id, msg_id, btf, payload_sha256, amount_minor,
-             tx_count, idempotency_key, transaction_id, created_by, created_at
-        FROM orders;
+      // Carry across anything the live table has that the canonical shape does
+      // not. On a fresh install there is nothing to carry, so the resulting
+      // schema is identical either way — which the upgrade suite checks.
+      const rebuiltColumns = new Set(columnsOf('orders_rebuilt').map((c) => c.name));
+      for (const column of columnsOf('orders')) {
+        if (rebuiltColumns.has(column.name)) continue;
+        // Unquoted, so the stored DDL is byte-identical to the one a fresh
+        // install gets from the `ALTER TABLE` in the later migration — the
+        // upgrade suite compares those strings. Anything that would need
+        // quoting is not a name this service's own migrations produce, and
+        // silently mangling it would be worse than stopping.
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(column.name)) {
+          throw new Error(`cannot carry the column "${column.name}" across the orders rebuild`);
+        }
+        db.exec(`ALTER TABLE orders_rebuilt ADD COLUMN ${column.name} ${column.type || 'TEXT'}`);
+        rebuiltColumns.add(column.name);
+      }
+      const orderColumns = columnsOf('orders')
+        .map((c) => c.name)
+        .filter((name) => rebuiltColumns.has(name));
+
+      db.exec(`
+      INSERT INTO orders_rebuilt (${quoted(orderColumns)})
+      SELECT ${quoted(orderColumns)} FROM orders;
 
       DROP TABLE orders;
       ALTER TABLE orders_rebuilt RENAME TO orders;
@@ -246,10 +279,16 @@ export const MIGRATIONS: Migration[] = [
         ON orders (connection_id, msg_id);
       CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_idempotency
         ON orders (connection_id, idempotency_key) WHERE idempotency_key IS NOT NULL;
+      `);
 
-      -- Put the cascade's casualties back.
-      INSERT INTO order_events (id, order_id, type, ebics_code, meta, created_at)
-      SELECT id, order_id, type, ebics_code, meta, created_at FROM order_events_backup;
+      // Put the cascade's casualties back — every column both sides share.
+      const liveEventColumns = new Set(columnsOf('order_events').map((c) => c.name));
+      const eventColumns = columnsOf('order_events_backup')
+        .map((c) => c.name)
+        .filter((name) => liveEventColumns.has(name));
+      db.exec(`
+      INSERT INTO order_events (${quoted(eventColumns)})
+      SELECT ${quoted(eventColumns)} FROM order_events_backup;
       DROP TABLE order_events_backup;
       `);
     },
@@ -694,6 +733,45 @@ export const MIGRATIONS: Migration[] = [
       if (!columns.includes('actor')) {
         db.exec('ALTER TABLE order_events ADD COLUMN actor TEXT');
       }
+    },
+  },
+  {
+    id: 18,
+    name: 'event-chain',
+    up(db) {
+      // Tamper-evidence, owned here rather than borrowed from PS-07.
+      //
+      // A platform service that cannot answer for its own history without a
+      // second service running is not independent, and "the audit trail was
+      // unavailable" is not an answer anybody accepts about a payment. See
+      // `server/chain.ts` for what this catches and — just as important —
+      // what it does not.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS event_chain (
+          seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+          source      TEXT    NOT NULL,   -- which stream the record lives in
+          source_id   INTEGER NOT NULL,   -- its id there
+          digest      TEXT    NOT NULL,   -- hash of the record's immutable content
+          prev_hash   TEXT,               -- the link before this one
+          hash        TEXT    NOT NULL,   -- this link
+          recorded_at TEXT    NOT NULL,
+          -- Set when retention removed the record on purpose, so verification
+          -- stops expecting the content and the link still holds.
+          pruned_at   TEXT
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_event_chain_record
+          ON event_chain (source, source_id);
+        CREATE TABLE IF NOT EXISTS chain_meta (
+          key   TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        );
+      `);
+
+      // Link what is already there. A backfilled chain attests to what the
+      // database said at upgrade time, not to what it said when the payments
+      // happened — `chain.ts` says so where somebody reading a green verdict
+      // will find it.
+      backfillChain(db, () => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'));
     },
   },
 ];

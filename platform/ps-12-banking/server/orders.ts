@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { DomainError } from './errors.js';
+import { chainAppend } from './chain.js';
 import { nowIso, productOf, publicId, requireReady } from './connections.js';
 import { privatePemFor } from './keystore.js';
 import { Transport } from './transport.js';
@@ -183,16 +184,22 @@ export function recordOrderEvent(
     actor?: string | null;
   },
 ): void {
-  db.prepare(
-    'INSERT INTO order_events (order_id, type, ebics_code, meta, actor, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(
-    params.orderId,
-    params.type,
-    params.code ?? null,
-    JSON.stringify(params.meta ?? {}),
-    params.actor ?? null,
-    params.at,
-  );
+  // The insert and its chain link are one transaction. A record committed
+  // without a link is indistinguishable from one written past the log, and
+  // `verifyChain` reports it as exactly that.
+  db.transaction(() => {
+    const info = db
+      .prepare('INSERT INTO order_events (order_id, type, ebics_code, meta, actor, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(
+        params.orderId,
+        params.type,
+        params.code ?? null,
+        JSON.stringify(params.meta ?? {}),
+        params.actor ?? null,
+        params.at,
+      );
+    chainAppend(db, 'order_events', Number(info.lastInsertRowid), () => params.at);
+  })();
 }
 
 function eventsOf(db: Database.Database, orderId: number): OrderEvent[] {

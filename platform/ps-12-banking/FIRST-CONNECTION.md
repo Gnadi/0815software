@@ -320,6 +320,26 @@ bank will ask for. The second is the one their customer protocol keys on.
 
 ---
 
+## Write down the chain head
+
+Do this once the connection is live, and then whenever an auditor asks.
+
+```
+GET /api/audit/head    ->  { "head": "9f2c…" }
+```
+
+PS-12 keeps its own history in a hash chain, so an edited, deleted or
+back-inserted record is detectable — `GET /api/audit/chain` gives the verdict,
+and `banking_chain_valid` carries it to a monitor. What a chain cannot prove is
+that the whole database was not rewritten, head marker included.
+
+A head hash that has already left the container closes that. The service prints
+one at every boot, so a log shipper collects them for free; copy one into the
+connection's own notes as well. It costs nothing and it is the difference
+between "our records say" and something an outsider can check.
+
+---
+
 ## What to write down afterwards
 
 The first connection is the only chance to capture things nobody documents:

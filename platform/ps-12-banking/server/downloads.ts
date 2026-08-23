@@ -22,6 +22,7 @@ import {
 } from './hac.js';
 import { foldStatus, recordOrderEvent } from './orders.js';
 import type { ExchangeScope } from './exchanges.js';
+import { chainAppend } from './chain.js';
 import { applyStatements } from './statements.js';
 import type {
   BtfInput,
@@ -425,6 +426,10 @@ export async function fetchOne(
           at,
         );
       const downloadId = Number(info.lastInsertRowid);
+      // Chained inside the same transaction that stored it: an order later
+      // says `settled, source: dl_…`, and the link is what stops the file
+      // behind that verdict from being swapped afterwards.
+      chainAppend(ctx.db, 'downloads', downloadId, () => at);
       // A HAC's entries are NOT payment verdicts, and the kind check above is
       // what keeps them out of this table.
       for (const report of kind === 'protocol' ? [] : documents.flatMap(readStatusReports)) {

@@ -667,10 +667,43 @@ pruned**: what expires is the evidence, not the record of what happened.
 **`connection_events`** does the same for the connection itself — who generated
 the keys, who confirmed the bank's digests, who suspended it.
 
-What this does *not* give you: a tamper-evident trail. All three tables are
-append-only by this service's own convention, in this service's own SQLite. If
-an installation needs an auditor to be able to prove the history was not
-edited, that is PS-07's job and PS-12 does not yet write to it.
+**The chain — would we know if somebody changed it.** The three tables above
+plus `downloads` are append-only by convention, and a convention is not
+evidence. So every appended record is linked into one hash chain, in the same
+transaction as the insert. PS-07 Audit Log does this for the catalogue and
+PS-12 deliberately does not call it: a platform service that needs a second
+service running to answer for its own records is not independent, and "the
+audit trail was unavailable" is not an answer anybody accepts about a payment.
+
+```
+GET /api/audit/chain     the verdict, and where it broke if it did
+GET /api/audit/head      just the head hash
+```
+
+`banking_chain_valid` is on `/api/metrics` (rechecked at most once a minute —
+verifying walks every link), and the head is printed at boot.
+
+| The edit | What names it |
+| --- | --- |
+| A field changed on a past record | its digest no longer matches |
+| A record deleted | its link has no record, and was not marked pruned |
+| A record inserted past the log | it has no link at all |
+| Links reordered or rewritten | the hashes stop chaining |
+| The end cut off, link and record together | the head marker is no longer reached |
+
+Retention marks a pruned link rather than deleting it, so ageing envelopes out
+stays valid while a hand-written `DELETE` does not.
+
+**What it does not prove, said plainly.** Somebody who rewrites the *whole*
+database — every record, every link, and the head marker — produces a
+consistent chain. No in-process design prevents that. That is why the head is
+published and logged: a head hash that has already left the container, into a
+log shipper or a backup manifest or an operator's note, is a value the rewrite
+would have to match and cannot. Write it down; the chain is worth what its
+anchor is worth.
+
+A chain backfilled by the upgrade migration attests to what the database said
+at upgrade time, not to what it said when those payments happened.
 
 ## Trust, and where it actually comes from
 
