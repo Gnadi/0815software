@@ -5,6 +5,10 @@
 14 modules. July 2026. Updated after the composability campaign — see
 [what that closed](#what-the-composability-campaign-closed).*
 
+> **PS-12 Banking** arrived after this review was written and is not assessed
+> below. It has its own acceptance plan — [TEST-PLAN-PS-12.md](TEST-PLAN-PS-12.md)
+> — and its own blocking gate: nothing in it has ever spoken to a real bank.
+
 ## Verdict
 
 **Pilot-ready. Not yet ready for a paying customer with a promise attached.**

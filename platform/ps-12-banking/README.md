@@ -1128,6 +1128,12 @@ established with the bank that the change went through.
 
 ## Going live with a real bank
 
+Two documents, and they do different jobs. `FIRST-CONNECTION.md` is the runbook
+for the connection itself; **`../../docs/TEST-PLAN-PS-12.md`** is the acceptance
+plan for the whole change — 52 cases, tagged by whether they need only a local
+mock, a provisioned stack, or a real bank, with an explicit stop rule on each.
+
+
 [`FIRST-CONNECTION.md`](FIRST-CONNECTION.md) is the runbook: what to ask the
 bank for before you start, the eleven steps in order, what each failure
 usually means, and how to recover from each one.
