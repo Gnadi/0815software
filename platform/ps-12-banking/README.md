@@ -680,8 +680,26 @@ GET /api/audit/chain     the verdict, and where it broke if it did
 GET /api/audit/head      just the head hash
 ```
 
-`banking_chain_valid` is on `/api/metrics` (rechecked at most once a minute —
-verifying walks every link), and the head is printed at boot.
+**Two passes, and the difference is not cosmetic.** Re-deriving each record's
+digest reads and re-hashes every stored envelope, so it costs in proportion to
+the bytes kept — measured at 2.5 s for 20 000 conversations, which a
+tick-driven connection reaches in about two weeks. Walking the links alone
+takes 0.2 s on the same data.
+
+So `GET /api/audit/chain` runs the full pass, because asking is a deliberate
+act; `?quick=1` runs the cheap one. `banking_chain_valid` on `/api/metrics`
+and the line printed at boot run the **cheap** pass — a full check on a
+scrape timer would block the event loop for seconds, once a minute, forever.
+Every verdict carries `content_checked`, so a green answer never claims more
+than it looked at.
+
+| | links only | full |
+| --- | --- | --- |
+| A rewritten or reordered link | ✓ | ✓ |
+| A truncated end | ✓ | ✓ |
+| A record written past the log | ✓ | ✓ |
+| A record edited in place | — | ✓ |
+| A record deleted | — | ✓ |
 
 | The edit | What names it |
 | --- | --- |

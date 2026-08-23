@@ -595,15 +595,26 @@ paths:
         '200': { description: Success }
         '404': { description: No such order }
   /api/audit/chain:
+    parameters:
+      - name: quick
+        in: query
+        required: false
+        schema: { type: string, enum: ['1', 'true'] }
+        description: >-
+          Walk the links only, without re-deriving each record's digest. Much
+          cheaper — the full pass re-hashes every stored envelope — but it
+          cannot see a record edited or deleted in place. The response's
+          `content_checked` says which pass answered.
     get:
       summary: Does this service's own history still hold?
       description: >-
         Walks the hash chain over `connection_events`, `order_events`,
         `bank_exchanges` and `downloads` and reports the first break — an
         edited record, a deleted one, one written past the log, a rewritten
-        link, or a truncated end. The `head` in the response is worth copying
-        somewhere outside this container: a chain cannot prove the whole
-        database was not rewritten, and an external head hash can.
+        link, or a truncated end. Full by default, and slow in proportion to
+        the bytes kept. The `head` in the response is worth copying somewhere
+        outside this container: a chain cannot prove the whole database was
+        not rewritten, and an external head hash can.
       tags: [ps-12-banking]
       security: [{adminSession: []}]
       responses:

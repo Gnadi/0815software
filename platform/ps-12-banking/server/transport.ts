@@ -64,7 +64,10 @@ export class Transport {
     this.egress = options.egress;
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.record = options.record;
-    this.now = options.now ?? (() => new Date().toISOString());
+    // The same shape the rest of the service writes (`connections.nowIso`),
+    // so one column does not carry two timestamp formats depending on which
+    // clock produced the row.
+    this.now = options.now ?? (() => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'));
   }
 
   /**

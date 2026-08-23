@@ -341,18 +341,30 @@ export function createApp(opts: AppOptions): express.Express {
     res.json({ ok: true });
   });
 
-  // Verifying walks every link and every record it stands for, so the verdict
-  // is cached for a minute: a scrape every fifteen seconds must not turn the
-  // integrity check into the service's own load problem.
+  // The LINKS ONLY, and cached for a minute on top of that.
+  //
+  // The full verification re-hashes every stored envelope, which scales with
+  // the bytes kept rather than the number of links: 2.5 s at 20 000
+  // conversations, which a tick-driven connection reaches in about two weeks.
+  // Running that on a scrape timer would block the event loop for seconds,
+  // once a minute, forever — the integrity check would become the outage.
+  //
+  // So the gauge answers the cheap half: the chain still holds together and
+  // still reaches its head, and nothing was written past the log. An edit to a
+  // record whose link was left alone is NOT covered here — that is what
+  // `GET /api/audit/chain` is for, and the help text says so rather than
+  // letting a green gauge imply more than it checked.
   let chainCheck: { at: number; valid: boolean } | null = null;
 
   const gauges: Gauge[] = [
     {
       name: 'banking_chain_valid',
-      help: 'Tamper-evidence over this service’s own history (1 = holds, 0 = broken); rechecked at most once a minute.',
+      help: 'Audit chain links intact and reaching the recorded head (1 = yes, 0 = no); cheap pass only — record contents are re-derived by GET /api/audit/chain, not here. Rechecked at most once a minute.',
       value: () => {
         const t = Date.now();
-        if (!chainCheck || t - chainCheck.at >= 60_000) chainCheck = { at: t, valid: verifyChain(db).valid };
+        if (!chainCheck || t - chainCheck.at >= 60_000) {
+          chainCheck = { at: t, valid: verifyChain(db, { content: false }).valid };
+        }
         return chainCheck.valid ? 1 : 0;
       },
     },
@@ -411,8 +423,13 @@ export function createApp(opts: AppOptions): express.Express {
    * Copy this head somewhere outside the container — a log shipper, a backup
    * manifest, a note — and the remaining hole becomes one an outsider can see.
    */
-  app.get('/api/audit/chain', requireAdmin, (_req, res) => {
-    res.json(verifyChain(db));
+  app.get('/api/audit/chain', requireAdmin, (req, res) => {
+    // Full by default — this route is a deliberate act, not a timer. It reads
+    // and re-hashes every stored body, so it is slow in proportion to what is
+    // kept; `?quick=1` runs the links-only pass instead, and the response says
+    // which one answered.
+    const quick = (req.query as Record<string, unknown>).quick;
+    res.json(verifyChain(db, { content: quick !== '1' && quick !== 'true' }));
   });
 
   /** The cheap version: the head hash, without walking the chain to get it. */

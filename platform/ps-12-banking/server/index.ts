@@ -78,10 +78,16 @@ app.listen(config.port, () => {
    * value the rewrite would have to match and cannot. This one line is the
    * cheapest external anchor there is.
    */
-  const verdict = verifyChain(db);
+  // The cheap pass: boot must not block for seconds re-hashing every stored
+  // envelope. A link that no longer chains, or a chain that no longer reaches
+  // its head, is the loud case and this catches it; the full check is
+  // `GET /api/audit/chain`.
+  const verdict = verifyChain(db, { content: false });
   console.log(`[ps-12] audit chain: ${verdict.count} links, head ${chainHead(db) ?? '(empty)'}`);
   if (!verdict.valid) {
     console.error(`[ps-12] WARNING: the audit chain does not hold — ${verdict.message ?? 'unknown break'}`);
+  } else {
+    console.log('[ps-12] note: that is the links-only check — GET /api/audit/chain re-derives the records too');
   }
 
   if (config.tickIntervalMs > 0) {

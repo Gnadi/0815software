@@ -194,13 +194,22 @@ export function exchangeDetail(db: Database.Database, id: number): ExchangeDetai
 export function pruneExchanges(db: Database.Database, retentionDays: number, now: () => string): number {
   if (retentionDays <= 0) return 0;
   const at = now();
-  const cutoff = new Date(new Date(at).getTime() - retentionDays * 86_400_000).toISOString();
+  const cutoff = new Date(new Date(at).getTime() - retentionDays * 86_400_000)
+    .toISOString()
+    .replace(/\.\d{3}Z$/, 'Z');
   return db.transaction(() => {
+    // Read the ids BEFORE deleting them, and mark exactly those. Marking
+    // whatever turned out to be missing afterwards would let this pass adopt a
+    // deletion it did not make — see `markPruned`.
+    const doomed = (
+      db.prepare('SELECT id FROM bank_exchanges WHERE started_at < ?').all(cutoff) as { id: number }[]
+    ).map((r) => r.id);
+    if (doomed.length === 0) return 0;
     const result = db.prepare('DELETE FROM bank_exchanges WHERE started_at < ?').run(cutoff);
     // The links stay — removing them would break every link after — but they
     // are marked, so verification stops expecting content that was aged out
     // on purpose and can still tell that from a row somebody deleted.
-    markPruned(db, 'bank_exchanges', at);
+    markPruned(db, 'bank_exchanges', doomed, at);
     return result.changes;
   })();
 }

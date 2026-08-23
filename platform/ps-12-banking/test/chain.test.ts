@@ -153,6 +153,49 @@ describe('an untouched history', () => {
     expect(verifyChain(db).valid).toBe(true);
   });
 
+  /**
+   * The digest used to be the fields joined by a separator, which is an
+   * ambiguous encoding: a field containing that separator re-splits, so two
+   * different records could hash to the same value. `error` carries
+   * `err.message` — the one field a network stack or a bank's error page will
+   * put a newline in — so this was reachable, not theoretical.
+   *
+   * (The separator was also a literal NUL byte written by accident, which made
+   * `chain.ts` binary to git: `git diff` said "Bin" and showed nothing at all.
+   * The most security-sensitive file in the change would have reached a pull
+   * request unreviewable.)
+   */
+  it('cannot be made to hash two different records the same way', () => {
+    const digestOf = (over: Partial<Parameters<ReturnType<typeof sqliteRecorder>>[0]>): string => {
+      const fresh = openDb(':memory:');
+      try {
+        sqliteRecorder(fresh)({
+          connection: null,
+          order: null,
+          phase: 'p',
+          url: 'u',
+          request: 'r',
+          response: null,
+          httpStatus: null,
+          error: null,
+          startedAt: 's',
+          finishedAt: 'f',
+          durationMs: 0,
+          ...over,
+        });
+        return (fresh.prepare('SELECT digest FROM event_chain WHERE seq = 1').get() as { digest: string }).digest;
+      } finally {
+        fresh.close();
+      }
+    };
+
+    // The same characters, split differently between two fields.
+    expect(digestOf({ error: 'x\ny', startedAt: 'z' })).not.toBe(digestOf({ error: 'x', startedAt: 'y\nz' }));
+    // An absent field and a field that happens to hold the marker for absent.
+    expect(digestOf({ error: null })).not.toBe(digestOf({ error: ' ' }));
+    expect(digestOf({ error: null })).not.toBe(digestOf({ error: '\u0000' }));
+  });
+
   it('links every record exactly once', async () => {
     await history();
     const counted = db
@@ -305,6 +348,54 @@ describe('the ordinary work of running this service', () => {
     expect(verifyChain(db).broken_kind).toBe('missing');
   });
 
+  /**
+   * The finding this test exists for, which held for three commits: retention
+   * used to mark every link whose record was missing, rather than the ones it
+   * had just deleted — and it runs on EVERY tick, whether or not there is
+   * anything inside the window to delete.
+   *
+   * So a deleted envelope was caught, and then the next ordinary tick adopted
+   * the deletion as its own and the chain went green. `missing` was not a
+   * finding, it was a countdown. Nothing else in the suite noticed, because
+   * every other test verified before a prune had run.
+   */
+  it('does not let an ordinary tick adopt somebody else’s deletion', async () => {
+    await history();
+    db.prepare("DELETE FROM bank_exchanges WHERE phase = 'order.initialisation'").run();
+    expect(verifyChain(db).broken_kind).toBe('missing');
+
+    // A tick, on a service whose retention window nothing is old enough to
+    // reach: it deletes nothing at all.
+    expect(pruneExchanges(db, 730, () => '2026-08-20T12:00:00Z')).toBe(0);
+
+    const verdict = verifyChain(db);
+    expect(verdict.valid).toBe(false);
+    expect(verdict.broken_kind).toBe('missing');
+    // And nothing was marked, since nothing was aged out.
+    const marked = db.prepare('SELECT COUNT(*) AS n FROM event_chain WHERE pruned_at IS NOT NULL').get() as {
+      n: number;
+    };
+    expect(marked.n).toBe(0);
+  });
+
+  it('marks only what it aged out, when a real prune runs beside a deletion', async () => {
+    await history();
+    const [oldest, ...rest] = db.prepare('SELECT id FROM bank_exchanges ORDER BY id').all() as { id: number }[];
+    expect(rest.length).toBeGreaterThan(0);
+
+    // One row is genuinely old; another is deleted by hand on the same day.
+    db.prepare("UPDATE bank_exchanges SET started_at = '2020-01-01T00:00:00Z' WHERE id = ?").run(oldest!.id);
+    db.prepare('DELETE FROM bank_exchanges WHERE id = ?').run(rest[0]!.id);
+
+    expect(pruneExchanges(db, 365, () => '2026-08-20T12:00:00Z')).toBe(1);
+
+    // The aged-out link is marked; the hand-deleted one is still a finding.
+    const verdict = verifyChain(db);
+    expect(verdict.valid).toBe(false);
+    expect(verdict.broken_kind).toBe('missing');
+    expect(verdict.broken_at?.source_id).toBe(rest[0]!.id);
+  });
+
   it('stays valid when a download is marked processed afterwards', async () => {
     await history();
     db.prepare(
@@ -370,6 +461,61 @@ describe('the ordinary work of running this service', () => {
   });
 });
 
+// ── The cheap pass, and what it honestly does not cover ───────────────
+
+describe('verifying without re-reading every stored body', () => {
+  /**
+   * The full check re-hashes every envelope, so it costs in proportion to the
+   * bytes kept: 2.5 s at 20 000 conversations, which a tick-driven connection
+   * reaches in about two weeks. It ran on the metrics gauge every minute and
+   * at boot, which would have blocked the event loop for seconds on a timer.
+   *
+   * The gauge and boot now run the links-only pass. These tests pin exactly
+   * where the line falls, in both directions — a cheap check that quietly
+   * claimed the expensive one would be worse than no check.
+   */
+  it('still catches a rewritten link', async () => {
+    await history();
+    const tail = db.prepare('SELECT seq FROM event_chain ORDER BY seq DESC LIMIT 1').get() as { seq: number };
+    db.prepare('UPDATE event_chain SET digest = ? WHERE seq = ?').run('0'.repeat(64), tail.seq);
+    expect(verifyChain(db, { content: false }).valid).toBe(false);
+  });
+
+  it('still catches a truncated end and a record written past the log', async () => {
+    await history();
+    db.prepare(
+      `INSERT INTO order_events (order_id, type, ebics_code, meta, actor, created_at)
+       VALUES (1, 'accepted', '000000', '{}', 'nobody', '2026-08-20T12:00:00Z')`,
+    ).run();
+    expect(verifyChain(db, { content: false }).broken_kind).toBe('unchained');
+  });
+
+  it('does NOT catch an edited record — and says so in the verdict', async () => {
+    await history();
+    db.prepare("UPDATE order_events SET type = 'accepted' WHERE type = 'queued'").run();
+
+    const cheap = verifyChain(db, { content: false });
+    expect(cheap.valid).toBe(true);
+    // The flag is the point: a caller must be able to tell a cheap pass from a
+    // full one, or a green gauge reads as a guarantee it never made.
+    expect(cheap.content_checked).toBe(false);
+
+    const full = verifyChain(db);
+    expect(full.valid).toBe(false);
+    expect(full.content_checked).toBe(true);
+  });
+
+  it('reads nothing from the tables it is not checking', async () => {
+    await history();
+    // Drop the evidence entirely. The links still stand on their own, which is
+    // what makes the cheap pass cheap — and is why it cannot speak for the
+    // content.
+    db.prepare('DELETE FROM bank_exchanges').run();
+    expect(verifyChain(db, { content: false }).valid).toBe(true);
+    expect(verifyChain(db).broken_kind).toBe('missing');
+  });
+});
+
 // ── Over HTTP ─────────────────────────────────────────────────────────
 
 describe('asking the service whether its own history holds', () => {
@@ -406,6 +552,21 @@ describe('asking the service whether its own history holds', () => {
     await history();
     const ok = await request(app).get('/api/metrics').expect(200);
     expect(ok.text).toContain('banking_chain_valid{service="ps-12"} 1');
+    // And the help text admits which half it checked, so nobody wires an
+    // alert believing it covers more than it does.
+    expect(ok.text).toContain('cheap pass only');
+  });
+
+  it('runs the full check on the route, and the cheap one only when asked', async () => {
+    await history();
+    const full = await request(app).get('/api/audit/chain').set('Authorization', `Bearer ${session}`).expect(200);
+    expect(full.body.content_checked).toBe(true);
+
+    const quick = await request(app)
+      .get('/api/audit/chain?quick=1')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+    expect(quick.body.content_checked).toBe(false);
   });
 
   it('is admin-only — a module may pay, not audit', async () => {
