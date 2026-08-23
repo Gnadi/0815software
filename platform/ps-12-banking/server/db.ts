@@ -627,6 +627,26 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    id: 15,
+    name: 'entry-batch-count',
+    up(db) {
+      // How many payments one entry covers — null or 1 for the ordinary case.
+      //
+      // A collective credit is ONE movement on the account carrying many
+      // customer payments. Its per-transaction references belong to the
+      // individual payments and NOT to the entry, so `server/camt.ts` leaves
+      // them null and records the count here instead. Without that, the first
+      // transaction's invoice number was reported as the whole entry's, which
+      // is the strongest possible evidence for a wrong conclusion.
+      const columns = (db.prepare('PRAGMA table_info(statement_entries)').all() as { name: string }[]).map(
+        (c) => c.name,
+      );
+      if (!columns.includes('batch_count')) {
+        db.exec('ALTER TABLE statement_entries ADD COLUMN batch_count INTEGER');
+      }
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {

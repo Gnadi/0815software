@@ -528,6 +528,49 @@ describe('the tick', () => {
     expect(result.downloads_fetched).toBe(1);
   });
 
+  /**
+   * A pass is serial and network-bound: connections times subscriptions times
+   * three round trips, each with a 30-second ceiling. A scheduler calling this
+   * on a fixed interval WILL eventually call it while one is still running,
+   * and a second pass would ask the same bank for the same files again.
+   */
+  it('refuses to start a second pass while one is running', async () => {
+    await bringUp();
+    let release: (() => void) | null = null;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: (() => void) | null = null;
+    const inRequest = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const slow = {
+      ...ctx,
+      transport: new Transport({
+        post: async (_url: string, body: string) => {
+          entered!();
+          await held;
+          return bank.post(body);
+        },
+      }),
+    };
+
+    const first = tick(slow);
+    // Wait until the first pass is genuinely inside a request.
+    await inRequest;
+
+    const second = await tick(slow);
+    expect(second.downloads_fetched).toBe(0);
+    expect(second.problems[0]?.message).toMatch(/already running/);
+
+    release!();
+    await first;
+
+    // And the guard releases: the next pass runs normally.
+    const third = await tick(ctx);
+    expect(third.problems.filter((p) => /already running/.test(p.message))).toEqual([]);
+  });
+
   it('is a no-op on a stack with no connections at all', async () => {
     expect(await tick(ctx)).toEqual({ downloads_fetched: 0, orders_updated: 0, statements_read: 0, problems: [] });
   });

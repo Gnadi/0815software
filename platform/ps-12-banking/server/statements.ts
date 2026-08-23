@@ -208,10 +208,10 @@ function storeStatement(
       `INSERT INTO statement_entries
          (statement_id, seq, amount, amount_hundredths, currency, credit, reversal, status,
           booking_date, value_date, entry_ref, account_servicer_ref, bank_transaction_code,
-          proprietary_transaction_code, end_to_end_id, mandate_id, msg_id, payment_info_id, instruction_id,
+          proprietary_transaction_code, batch_count, end_to_end_id, mandate_id, msg_id, payment_info_id, instruction_id,
           counterparty_name, counterparty_iban, remittance, creditor_reference, purpose,
           return_reason, additional_info)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const entry of statement.entries) {
       insert.run(
@@ -229,6 +229,7 @@ function storeStatement(
         entry.accountServicerRef,
         entry.bankTransactionCode,
         entry.proprietaryTransactionCode,
+        entry.batch?.count ?? null,
         entry.endToEndId,
         entry.mandateId,
         entry.msgId,
@@ -347,6 +348,7 @@ function toEntry(raw: Record<string, unknown>, statement: DbStatementRow): State
     account_servicer_ref: raw.account_servicer_ref as string | null,
     bank_transaction_code: raw.bank_transaction_code as string | null,
     proprietary_transaction_code: raw.proprietary_transaction_code as string | null,
+    batch_count: (raw.batch_count as number | null) ?? null,
     end_to_end_id: raw.end_to_end_id as string | null,
     mandate_id: raw.mandate_id as string | null,
     msg_id: raw.msg_id as string | null,

@@ -434,6 +434,15 @@ export interface StatementEntryRow {
    * drop this on every booking in the market that keys on it.
    */
   proprietary_transaction_code: string | null;
+  /**
+   * How many payments a COLLECTIVE booking covers; null for an ordinary one.
+   *
+   * When this is set the reference and counterparty fields below are null on
+   * purpose: they describe an individual payment inside the batch, not the
+   * entry, and treating one of them as the entry's own attributes the whole
+   * sum to a single customer.
+   */
+  batch_count: number | null;
   end_to_end_id: string | null;
   mandate_id: string | null;
   msg_id: string | null;

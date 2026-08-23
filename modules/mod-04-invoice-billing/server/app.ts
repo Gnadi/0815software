@@ -670,7 +670,11 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
       // What the operator still has to place by hand, which is the number that
       // actually says whether this is working.
       unmatched_count: result.unmatched.filter(
-        (u) => u.why === 'no_candidate' || u.why === 'ambiguous' || u.why === 'amount_unreadable',
+        (u) =>
+          u.why === 'no_candidate' ||
+          u.why === 'ambiguous' ||
+          u.why === 'amount_unreadable' ||
+          u.why === 'collective',
       ).length,
     });
   });

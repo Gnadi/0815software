@@ -351,6 +351,80 @@ describe('the version differences between .02 and .08', () => {
   });
 });
 
+/**
+ * A collective credit — one movement on the account, many customer payments.
+ *
+ * The reader used to expose the FIRST transaction's reference, counterparty
+ * and remittance as though they belonged to the entry. A 10 000,00 credit
+ * covering forty customers was then reported as a 10 000,00 payment from the
+ * first of them, quoting the first one's invoice number — which is the
+ * strongest evidence a matcher can be given, for a conclusion that is wrong
+ * about thirty-nine fortieths of the money.
+ */
+describe('a collective booking', () => {
+  const collective = (): NonNullable<ReturnType<typeof readBankStatement>> =>
+    readBankStatement(
+      Buffer.from(
+        `<?xml version="1.0"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">` +
+          `<BkToCstmrStmt><GrpHdr><MsgId>M</MsgId></GrpHdr><Stmt><Id>S</Id>` +
+          `<Acct><Id><IBAN>AT611904300234573201</IBAN></Id></Acct>` +
+          `<Ntry><Amt Ccy="EUR">10000.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts><BkTxCd/>` +
+          `<NtryDtls><Btch><MsgId>SAMMEL-1</MsgId><NbOfTxs>3</NbOfTxs></Btch>` +
+          `<TxDtls><Refs><EndToEndId>INV-0001</EndToEndId></Refs>` +
+          `<RltdPties><Dbtr><Nm>Kunde Eins</Nm></Dbtr></RltdPties>` +
+          `<RmtInf><Ustrd>Rechnung 0001</Ustrd></RmtInf></TxDtls>` +
+          `<TxDtls><Refs><EndToEndId>INV-0002</EndToEndId></Refs></TxDtls>` +
+          `<TxDtls><Refs><EndToEndId>INV-0003</EndToEndId></Refs></TxDtls>` +
+          `</NtryDtls></Ntry></Stmt></BkToCstmrStmt></Document>`,
+        'utf8',
+      ),
+    )!;
+
+  it('reports the whole movement, which is what hit the account', () => {
+    expect(collective().statements[0]!.entries[0]!.amount).toBe('10000.00');
+  });
+
+  it('does NOT borrow the first payment’s identity for the whole entry', () => {
+    const entry = collective().statements[0]!.entries[0]!;
+    expect(entry.endToEndId).toBeNull();
+    expect(entry.counterpartyName).toBeNull();
+    expect(entry.remittance).toBeNull();
+  });
+
+  it('says instead how many payments it covers', () => {
+    expect(collective().statements[0]!.entries[0]!.batch).toEqual({
+      count: 3,
+      messageId: 'SAMMEL-1',
+      paymentInfoId: null,
+    });
+  });
+
+  it('trusts the stated count over the transactions actually sent', () => {
+    // A bank may state NbOfTxs without repeating every transaction.
+    const one = readBankStatement(
+      Buffer.from(
+        `<?xml version="1.0"?><Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">` +
+          `<BkToCstmrStmt><GrpHdr><MsgId>M</MsgId></GrpHdr><Stmt><Id>S</Id>` +
+          `<Acct><Id><IBAN>AT61</IBAN></Id></Acct>` +
+          `<Ntry><Amt Ccy="EUR">99.00</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts><BkTxCd/>` +
+          `<NtryDtls><Btch><NbOfTxs>12</NbOfTxs></Btch>` +
+          `<TxDtls><Refs><EndToEndId>ONLY-ONE</EndToEndId></Refs></TxDtls>` +
+          `</NtryDtls></Ntry></Stmt></BkToCstmrStmt></Document>`,
+        'utf8',
+      ),
+    )!.statements[0]!.entries[0]!;
+    expect(one.batch?.count).toBe(12);
+    expect(one.endToEndId).toBeNull();
+  });
+
+  it('leaves an ordinary single payment exactly as it was', () => {
+    const [incoming] = v02().statements[0]!.entries;
+    expect(incoming!.batch).toBeNull();
+    expect(incoming!.endToEndId).toBe('INV-2026-0042');
+    expect(incoming!.counterpartyName).toBe('Muster Handels GmbH');
+  });
+});
+
 describe('amounts', () => {
   it('multiplies by a hundred exactly, without floating point', () => {
     // Number('19.99') * 100 is 1998.9999999999998. Rounding that works on

@@ -61,6 +61,15 @@ export interface BankBooking {
   counterparty_iban: string | null;
   /** Free text the payer wrote. Usually where the invoice number is. */
   remittance: string | null;
+  /**
+   * How many payments a COLLECTIVE booking covers; null for an ordinary one.
+   *
+   * One movement on the account carrying many customers' payments. The
+   * reference fields are null on such a booking — they belong to the
+   * individual payments inside it — so there is nothing here to match on, and
+   * pretending otherwise would attribute the whole sum to one customer.
+   */
+  batch_count: number | null;
   /** A structured creditor reference, when the payer used one. */
   creditor_reference: string | null;
   /** The reference from the original instruction, when the bank passes it on. */
@@ -138,7 +147,14 @@ export interface MatchProposal {
 /** A booking nothing could be proposed for, and the reason it was skipped. */
 export interface UnmatchedBooking {
   booking: BankBooking;
-  why: 'debit' | 'reversal' | 'already_applied' | 'no_candidate' | 'ambiguous' | 'amount_unreadable';
+  why:
+    | 'debit'
+    | 'reversal'
+    | 'already_applied'
+    | 'no_candidate'
+    | 'ambiguous'
+    | 'amount_unreadable'
+    | 'collective';
 }
 
 export interface MatchResult {
@@ -234,6 +250,14 @@ export function matchBookings(
     }
     if (appliedKeys.has(booking.key)) {
       unmatched.push({ booking, why: 'already_applied' });
+      continue;
+    }
+    if (booking.batch_count !== null && booking.batch_count > 1) {
+      // A collective credit is real money and needs splitting across the
+      // customers inside it — work no rule here can do, because the bank did
+      // not say which payment was whose in a form this booking carries. It is
+      // surfaced so an operator splits it, never guessed at.
+      unmatched.push({ booking, why: 'collective' });
       continue;
     }
     if (booking.amount_cents === null || booking.amount_cents <= 0) {

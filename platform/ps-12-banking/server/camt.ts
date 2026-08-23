@@ -133,6 +133,28 @@ export interface StatementEntry {
   instructionId: string | null;
   counterpartyName: string | null;
   counterpartyIban: string | null;
+  /**
+   * A COLLECTIVE booking, when the bank sent one — several payments in a
+   * single entry on the account.
+   *
+   * Null for the ordinary case of one entry, one payment.
+   *
+   * When this is set, the reference and counterparty fields above are **null
+   * on purpose**. They describe an individual transaction inside the batch,
+   * not the entry, and an earlier version of this reader exposed the first
+   * one as though it belonged to the whole amount: a €10,000 collective credit
+   * covering forty customers was reported as a €10,000 payment from the first
+   * of them, quoting the first one's invoice number. A consumer matching on
+   * that gets the strongest possible evidence for a conclusion that is wrong
+   * about thirty-nine fortieths of the money.
+   */
+  batch: {
+    /** How many payments the entry covers, as the bank stated or counted. */
+    count: number;
+    /** `Btch/MsgId` — the file the batch came from, when named. */
+    messageId: string | null;
+    paymentInfoId: string | null;
+  } | null;
   /** `RmtInf/Ustrd`, every line joined with a newline. */
   remittance: string | null;
   /**
@@ -278,11 +300,21 @@ function readEntry(entry: XmlElement, ns: string, seq: number): StatementEntry {
   const amount = at(entry, ns, 'Amt');
   const raw = textOf(amount).trim();
 
-  // The first TxDtls under the first NtryDtls. A batched entry has several,
-  // and this deliberately does not flatten them into separate bookings: the
-  // ENTRY is what hit the account, and inventing one booking per underlying
-  // transaction would double the money on any consumer that sums them.
-  const details = at(entry, ns, 'NtryDtls', 'TxDtls');
+  // How many payments this entry covers.
+  //
+  // NOT flattened into separate bookings: the ENTRY is what hit the account,
+  // and inventing one booking per underlying transaction would double the
+  // money for anything that sums them. But a batch's per-transaction fields
+  // are equally not the entry's — see `batch` on StatementEntry — so they are
+  // read only when there is exactly one transaction to read them from.
+  const allDetails = childrenOf(entry, ns, 'NtryDtls').flatMap((d) => childrenOf(d, ns, 'TxDtls'));
+  const batchInfo = at(entry, ns, 'NtryDtls', 'Btch');
+  const statedCount = batchInfo === null ? null : numberOr(textOf(at(batchInfo, ns, 'NbOfTxs')));
+  // A bank may state the count without repeating every transaction, so trust
+  // the larger of what it said and what it sent.
+  const count = Math.max(statedCount ?? 0, allDetails.length);
+  const batched = count > 1;
+  const details = batched ? null : (allDetails[0] ?? null);
   const refs = details === null ? null : at(details, ns, 'Refs');
   const parties = details === null ? null : at(details, ns, 'RltdPties');
   const remittance = details === null ? null : at(details, ns, 'RmtInf');
@@ -314,6 +346,13 @@ function readEntry(entry: XmlElement, ns: string, seq: number): StatementEntry {
     instructionId: refs === null ? null : blank(textOf(at(refs, ns, 'InstrId'))),
     counterpartyName: counterparty === null ? null : partyName(counterparty, ns),
     counterpartyIban: counterpartyAccount === null ? null : blank(textOf(at(counterpartyAccount, ns, 'Id', 'IBAN'))),
+    batch: batched
+      ? {
+          count,
+          messageId: batchInfo === null ? null : blank(textOf(at(batchInfo, ns, 'MsgId'))),
+          paymentInfoId: batchInfo === null ? null : blank(textOf(at(batchInfo, ns, 'PmtInfId'))),
+        }
+      : null,
     remittance: remittanceText(remittance, ns),
     creditorReference:
       remittance === null ? null : blank(textOf(at(remittance, ns, 'Strd', 'CdtrRefInf', 'Ref'))),

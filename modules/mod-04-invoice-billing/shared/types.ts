@@ -328,6 +328,8 @@ export interface ReceivableProposal {
     remittance: string | null;
     creditor_reference: string | null;
     end_to_end_id: string | null;
+    /** How many payments a collective booking covers; null for an ordinary one. */
+    batch_count: number | null;
   };
   invoice: {
     id: number;
@@ -354,7 +356,14 @@ export interface ReceivableProposal {
 /** A booking nothing was proposed for, and why. */
 export interface UnmatchedReceivable {
   booking: ReceivableProposal['booking'];
-  why: 'debit' | 'reversal' | 'already_applied' | 'no_candidate' | 'ambiguous' | 'amount_unreadable';
+  why:
+    | 'debit'
+    | 'reversal'
+    | 'already_applied'
+    | 'no_candidate'
+    | 'ambiguous'
+    | 'amount_unreadable'
+    | 'collective';
 }
 
 export interface ReceivableSuggestions {

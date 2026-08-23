@@ -636,9 +636,37 @@ export function applyCustomerProtocol(db: Database.Database, now: () => string):
  * down must not stop the others from being polled, and a scheduler calling
  * this every minute needs an answer rather than a 500.
  */
+let tickInFlight = false;
+
 export async function tick(ctx: DownloadContext): Promise<TickResult> {
   const now = ctx.now ?? nowIso;
   const result: TickResult = { downloads_fetched: 0, orders_updated: 0, statements_read: 0, problems: [] };
+
+  // ONE PASS AT A TIME.
+  //
+  // A pass is network-bound and serial: connections times subscriptions times
+  // three round trips, each with a 30-second ceiling. A slow bank can push it
+  // past the interval a scheduler calls this on, and a second pass starting on
+  // top of the first would ask the same bank for the same files again — twice
+  // the round trips on a payment connection, and a receipt for a transaction
+  // the other pass already closed.
+  //
+  // Nothing would be corrupted: the digest index absorbs the duplicate bytes.
+  // But a bank is not a resource to hammer by accident, so an overlapping call
+  // is told the truth and returns immediately rather than queueing.
+  if (tickInFlight) {
+    result.problems.push({ connection: '', message: 'a tick is already running — this pass was skipped' });
+    return result;
+  }
+  tickInFlight = true;
+  try {
+    return await runTick(ctx, now, result);
+  } finally {
+    tickInFlight = false;
+  }
+}
+
+async function runTick(ctx: DownloadContext, now: () => string, result: TickResult): Promise<TickResult> {
 
   for (const connection of listConnections(ctx.db)) {
     if (connection.state !== 'ready') continue;

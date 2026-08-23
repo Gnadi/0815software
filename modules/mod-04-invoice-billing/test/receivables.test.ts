@@ -37,6 +37,7 @@ let cookie: string;
 function booking(over: Partial<BankBooking> = {}): BankBooking {
   return {
     key: 'AT61|BANKREF-1',
+    amount_text: '120.00',
     amount_cents: 12000,
     currency: 'EUR',
     credit: true,
@@ -47,6 +48,7 @@ function booking(over: Partial<BankBooking> = {}): BankBooking {
     remittance: null,
     creditor_reference: null,
     end_to_end_id: null,
+    batch_count: null,
     ...over,
   };
 }

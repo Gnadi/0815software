@@ -42,11 +42,12 @@ const UNMATCHED_LABEL: Record<UnmatchedReceivable['why'], string> = {
   no_candidate: 'No open invoice fits',
   ambiguous: 'Several invoices fit — needs a decision',
   amount_unreadable: 'The amount could not be read as cents — record it by hand',
+  collective: 'A collective credit — split it across the customers by hand',
 };
 
 /** The two that are an operator's problem; the rest are just noise. */
 function needsAttention(why: UnmatchedReceivable['why']): boolean {
-  return why === 'no_candidate' || why === 'ambiguous' || why === 'amount_unreadable';
+  return why === 'no_candidate' || why === 'ambiguous' || why === 'amount_unreadable' || why === 'collective';
 }
 
 export function IncomingPaymentsView({ onAuthLost }: { onAuthLost: () => void }) {

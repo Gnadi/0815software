@@ -505,6 +505,7 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
         booking_date: entry.booking_date,
         counterparty_name: entry.counterparty_name,
         counterparty_iban: entry.counterparty_iban,
+        batch_count: entry.batch_count,
         remittance: entry.remittance,
         creditor_reference: entry.creditor_reference,
         end_to_end_id: entry.end_to_end_id,

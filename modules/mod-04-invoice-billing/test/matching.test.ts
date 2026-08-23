@@ -30,6 +30,7 @@ function booking(over: Partial<BankBooking> = {}): BankBooking {
     remittance: null,
     creditor_reference: null,
     end_to_end_id: null,
+    batch_count: null,
     ...over,
   };
 }
@@ -150,6 +151,27 @@ describe('what it refuses to guess', () => {
     const { proposals, unmatched } = matchBookings([booking({ credit: false })], [invoice()]);
     expect(proposals).toEqual([]);
     expect(unmatched[0]!.why).toBe('debit');
+  });
+
+  /**
+   * A collective credit — one movement carrying many customers' payments.
+   *
+   * PS-12 nulls its reference fields on purpose (they belong to the payments
+   * inside it), so there is nothing to match on. Guessing would attribute the
+   * whole sum to whichever customer happened to be first in the file.
+   */
+  it('refuses a collective credit outright, rather than matching part of it', () => {
+    const { proposals, unmatched } = matchBookings(
+      [booking({ amount_cents: 1000000, batch_count: 40 })],
+      [invoice()],
+    );
+    expect(proposals).toEqual([]);
+    expect(unmatched[0]!.why).toBe('collective');
+  });
+
+  it('treats a batch of one as the ordinary payment it is', () => {
+    const { proposals } = matchBookings([booking({ batch_count: 1, creditor_reference: '2026-0042' })], [invoice()]);
+    expect(proposals).toHaveLength(1);
   });
 
   it('never proposes anything for a reversal', () => {
