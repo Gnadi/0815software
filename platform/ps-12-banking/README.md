@@ -987,6 +987,24 @@ which key is live. `POST .../key-change/complete` is the door out, and it is
 deliberately explicit rather than inferred — an operator has to have
 established with the bank that the change went through.
 
+## Going live with a real bank
+
+[`FIRST-CONNECTION.md`](FIRST-CONNECTION.md) is the runbook: what to ask the
+bank for before you start, the eleven steps in order, what each failure
+usually means, and how to recover from each one.
+
+Two things from it worth repeating here, because they are the ones that cost
+days rather than minutes:
+
+- **`EBICS_KEY_SECRET` must be backed up before any key is generated.** It
+  encrypts the private keys and nothing can reconstruct it. `provision.mjs`
+  mints a fresh value for every secret on every provision, so re-provisioning
+  without pinning this one orphans the keys and means re-initialising with the
+  bank on paper.
+- **Start at signature class T if the bank allows it.** Everything else is
+  identical, and a first-week mistake then costs a release that did not happen
+  rather than a payment that did.
+
 ## Scripts
 
 | Script          | What it does                                  |

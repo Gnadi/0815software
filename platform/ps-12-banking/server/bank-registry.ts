@@ -50,6 +50,20 @@ export interface BankProfile {
   /** Downloading a payment status report. */
   paymentStatus: BtfInput;
   /**
+   * Intraday account report (`camt.052`) and debit/credit notification
+   * (`camt.054`), where the market's published table names them.
+   *
+   * **Suggestions, and deliberately not seeded.** PS-12 reads all three
+   * account messages, but a report and a notification carry bookings the day's
+   * statement carries again — so polling them is a choice an operator makes,
+   * not a default that quietly doubles what a naive consumer sums. Absent
+   * where this repository has no published table row to transcribe: an
+   * invented BTF is worse than none, and `HTD` answers the question properly
+   * anyway.
+   */
+  intradayReport?: BtfInput;
+  notification?: BtfInput;
+  /**
    * The EBICS 2.5 order types these replace. Not sent anywhere — banks still
    * talk in them ("we've enabled CCT and C53 for you"), and an operator on the
    * phone needs the translation.
@@ -135,6 +149,9 @@ export const REGISTRY: readonly BankProfile[] = [
     // Present for the shape's sake only — see `notes`. Austria does not use
     // them, and an operator quoting them at an Austrian bank will get a blank
     // look rather than an account.
+    // Straight from the same Austrian table as the rest of this entry.
+    intradayReport: { service_name: 'STM', scope: 'AT', msg_name: 'camt.052', container: 'ZIP' },
+    notification: { service_name: 'STM', scope: 'AT', msg_name: 'camt.054', container: 'ZIP' },
     legacyOrderTypes: { creditTransfer: 'CCT', statement: 'C53', paymentStatus: 'CRZ' },
     segmentLimit: PROTOCOL_SEGMENT_LIMIT,
     confirmed: true,
@@ -195,10 +212,15 @@ export function publicRegistry(): BankProfile[] {
     if (entry.segmentLimit < 1 || entry.segmentLimit > PROTOCOL_SEGMENT_LIMIT) {
       throw new Error(`bank-registry: "${entry.key}" has a segment limit outside 1..${PROTOCOL_SEGMENT_LIMIT}`);
     }
+    const optional: [string, BtfInput | undefined][] = [
+      ['intradayReport', entry.intradayReport],
+      ['notification', entry.notification],
+    ];
     for (const [label, btf] of [
       ['creditTransfer', entry.creditTransfer],
       ['statement', entry.statement],
       ['paymentStatus', entry.paymentStatus],
+      ...optional.filter((pair): pair is [string, BtfInput] => pair[1] !== undefined),
     ] as const) {
       if (btf.service_name.trim() === '') throw new Error(`bank-registry: "${entry.key}".${label} has no service name`);
       if (btf.msg_name.trim() === '') throw new Error(`bank-registry: "${entry.key}".${label} has no message name`);

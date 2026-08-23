@@ -188,6 +188,7 @@ const presentation: Record<string, ModulePresentation> = {
       'Or send it straight to the bank over EBICS, when PS-12 Banking is wired',
       'Austrian Finanzamtszahlung: the tax structure, the check digit, and every tax office',
       'Structured remittance (EACT) so the supplier’s ledger matches the payment by itself',
+      'Incoming payments matched to open invoices, when a bank connection is wired',
     ],
     screen: {
       variant: 'detail',
