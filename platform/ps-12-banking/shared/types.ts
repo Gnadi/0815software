@@ -188,6 +188,8 @@ export interface OrderEvent {
   type: string;
   ebics_code: string | null;
   meta: Record<string, unknown>;
+  /** Who caused this step: an operator's username, `service`, or `ticker`. */
+  actor: string | null;
   created_at: string;
 }
 

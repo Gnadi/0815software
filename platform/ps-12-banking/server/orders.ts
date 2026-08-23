@@ -164,25 +164,52 @@ interface OrderRow {
 
 export function recordOrderEvent(
   db: Database.Database,
-  params: { orderId: number; type: string; code?: string | null; meta?: Record<string, unknown>; at: string },
+  params: {
+    orderId: number;
+    type: string;
+    code?: string | null;
+    meta?: Record<string, unknown>;
+    /**
+     * When this step happened — its OWN moment, not the conversation's.
+     *
+     * This used to be one timestamp computed once per submission and stamped
+     * on every event of it, so a twelve-segment upload read as twelve things
+     * happening in the same instant. Nobody could then say how long the bank
+     * took, or which segment it was on when it stopped answering, which is
+     * exactly the question asked about the upload that did not come back.
+     */
+    at: string;
+    /** Who caused it: an operator's username, `service`, or `ticker`. */
+    actor?: string | null;
+  },
 ): void {
-  db.prepare('INSERT INTO order_events (order_id, type, ebics_code, meta, created_at) VALUES (?, ?, ?, ?, ?)').run(
+  db.prepare(
+    'INSERT INTO order_events (order_id, type, ebics_code, meta, actor, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(
     params.orderId,
     params.type,
     params.code ?? null,
     JSON.stringify(params.meta ?? {}),
+    params.actor ?? null,
     params.at,
   );
 }
 
 function eventsOf(db: Database.Database, orderId: number): OrderEvent[] {
   const rows = db
-    .prepare('SELECT type, ebics_code, meta, created_at FROM order_events WHERE order_id = ? ORDER BY id')
-    .all(orderId) as { type: string; ebics_code: string | null; meta: string; created_at: string }[];
+    .prepare('SELECT type, ebics_code, meta, actor, created_at FROM order_events WHERE order_id = ? ORDER BY id')
+    .all(orderId) as {
+    type: string;
+    ebics_code: string | null;
+    meta: string;
+    actor: string | null;
+    created_at: string;
+  }[];
   return rows.map((row) => ({
     type: row.type,
     ebics_code: row.ebics_code,
     meta: JSON.parse(row.meta) as Record<string, unknown>,
+    actor: row.actor,
     created_at: row.created_at,
   }));
 }
@@ -405,7 +432,13 @@ export async function submitOrder(ctx: OrderContext, input: SubmitInput): Promis
         at,
       );
     const id = Number(info.lastInsertRowid);
-    recordOrderEvent(ctx.db, { orderId: id, type: 'queued', at, meta: { sha256: facts.sha256 } });
+    recordOrderEvent(ctx.db, {
+      orderId: id,
+      type: 'queued',
+      at,
+      actor: ctx.actor ?? null,
+      meta: { sha256: facts.sha256 },
+    });
     return id;
   })();
 
@@ -440,7 +473,12 @@ async function transmit(
   input: { payload: Buffer; btf: BtfInput },
   facts: PayloadFacts,
 ): Promise<void> {
-  const at = (ctx.now ?? nowIso)();
+  // `at` is the ENVELOPE's timestamp: it is signed into every request of this
+  // conversation and must therefore be one value. `clock()` is the log's, read
+  // fresh for each event, so the history records when each step actually
+  // happened rather than when the conversation began.
+  const clock = ctx.now ?? nowIso;
+  const at = clock();
   const subscriber: Subscriber = {
     hostId: connection.host_id,
     partnerId: connection.partner_id,
@@ -495,7 +533,7 @@ async function transmit(
   } catch (err) {
     // Nothing has been signed and nothing has been sent, but the order exists,
     // so it has to carry an outcome a human can act on.
-    return fail(ctx, order, at, `could not prepare the order: ${err instanceof Error ? err.message : String(err)}`);
+    return fail(ctx, order, clock(), `could not prepare the order: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   let transactionId: string;
@@ -512,18 +550,25 @@ async function transmit(
       segments: segments.length,
       requestEDS: connection.request_eds === 1,
     });
-    const response = parseResponse(await ctx.transport.send(connection.url, initBody), bank.authPublicPem);
+    const response = parseResponse(
+      await ctx.transport.send(connection.url, initBody, {
+        connection: connection.id,
+        order: order.id,
+        phase: 'order.initialisation',
+      }),
+      bank.authPublicPem,
+    );
 
     if (!response.verified) {
       // A response we cannot attribute to the bank is not an answer. Refusing
       // to act on it is the whole reason the key was verified by a human.
-      return fail(ctx, order, at, `the bank's response could not be verified: ${response.verificationError}`);
+      return fail(ctx, order, clock(), `the bank's response could not be verified: ${response.verificationError}`);
     }
     if (!response.verdict.ok) {
-      return reject(ctx, order, at, response.verdict);
+      return reject(ctx, order, clock(), response.verdict);
     }
     if (response.transactionId === null) {
-      return fail(ctx, order, at, 'the bank accepted the initialisation but returned no transaction id');
+      return fail(ctx, order, clock(), 'the bank accepted the initialisation but returned no transaction id');
     }
     transactionId = response.transactionId;
     // The bank's own order number, when it sends one. Optional in H005, so an
@@ -533,7 +578,7 @@ async function transmit(
   } catch (err) {
     // The request never completed. Whether the bank has the file is UNKNOWN,
     // which is precisely why this is `failed` and not `rejected`.
-    return fail(ctx, order, at, err instanceof Error ? err.message : String(err));
+    return fail(ctx, order, clock(), err instanceof Error ? err.message : String(err));
   }
 
   ctx.db
@@ -542,7 +587,8 @@ async function transmit(
   recordOrderEvent(ctx.db, {
     orderId: order.id,
     type: 'initialised',
-    at,
+    at: clock(),
+    actor: ctx.actor ?? null,
     meta: {
       transaction_id: transactionId,
       ...(ebicsOrderId === null ? {} : { ebics_order_id: ebicsOrderId }),
@@ -564,24 +610,44 @@ async function transmit(
         lastSegment: last,
         segment,
       });
-      const response = parseResponse(await ctx.transport.send(connection.url, body), bank.authPublicPem);
+      const response = parseResponse(
+        await ctx.transport.send(connection.url, body, {
+          connection: connection.id,
+          order: order.id,
+          phase: `order.transfer.segment-${number}`,
+        }),
+        bank.authPublicPem,
+      );
       if (!response.verified) {
-        return fail(ctx, order, at, `the bank's response could not be verified: ${response.verificationError}`);
+        return fail(ctx, order, clock(), `the bank's response could not be verified: ${response.verificationError}`);
       }
       if (!response.verdict.ok) {
-        return reject(ctx, order, at, response.verdict);
+        return reject(ctx, order, clock(), response.verdict);
       }
-      recordOrderEvent(ctx.db, { orderId: order.id, type: 'segment_sent', at, meta: { segment: number, last } });
+      recordOrderEvent(ctx.db, {
+        orderId: order.id,
+        type: 'segment_sent',
+        at: clock(),
+        actor: ctx.actor ?? null,
+        meta: { segment: number, last },
+      });
     } catch (err) {
-      return fail(ctx, order, at, err instanceof Error ? err.message : String(err));
+      return fail(ctx, order, clock(), err instanceof Error ? err.message : String(err));
     }
   }
 
-  recordOrderEvent(ctx.db, { orderId: order.id, type: 'transferred', at, meta: { segments: segments.length } });
+  recordOrderEvent(ctx.db, {
+    orderId: order.id,
+    type: 'transferred',
+    at: clock(),
+    actor: ctx.actor ?? null,
+    meta: { segments: segments.length },
+  });
   recordOrderEvent(ctx.db, {
     orderId: order.id,
     type: 'accepted',
-    at,
+    at: clock(),
+    actor: ctx.actor ?? null,
     code: '000000',
     meta: { message: 'the bank accepted the order' },
   });
@@ -599,13 +665,14 @@ function reject(ctx: OrderContext, order: OrderRow, at: string, verdict: Verdict
     orderId: order.id,
     type: verdict.severity === 'retryable' ? 'failed' : 'rejected',
     at,
+    actor: ctx.actor ?? null,
     code: deciding.code,
     meta: { message: verdict.message, severity: verdict.severity },
   });
 }
 
 function fail(ctx: OrderContext, order: OrderRow, at: string, message: string): void {
-  recordOrderEvent(ctx.db, { orderId: order.id, type: 'failed', at, meta: { message } });
+  recordOrderEvent(ctx.db, { orderId: order.id, type: 'failed', at, actor: ctx.actor ?? null, meta: { message } });
 }
 
 function bankKeysOf(db: Database.Database, connectionId: number): { authPublicPem: string; encPublicPem: string } {

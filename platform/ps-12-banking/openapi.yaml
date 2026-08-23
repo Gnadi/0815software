@@ -594,6 +594,50 @@ paths:
       responses:
         '200': { description: Success }
         '404': { description: No such order }
+  /api/orders/{public_id}/exchanges:
+    parameters:
+      - name: public_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: The bank conversations behind an order
+      description: >-
+        Every HTTP round-trip this order caused, in order, with the phase, the
+        timing window and the sizes. Admin only: the envelope carries the
+        payment file. Use `/api/exchanges/{id}` for the bytes themselves.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '404': { description: No such order }
+  /api/exchanges:
+    get:
+      summary: List bank conversations
+      description: >-
+        Filterable by `connection` and `order`. Covers the key exchange as well
+        as payments, since `server/transport.ts` is the only place a bank is
+        spoken to.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+  /api/exchanges/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    get:
+      summary: One conversation, with the bytes
+      description: >-
+        The envelope as sent and the answer as received — the evidence for a
+        dispute with a bank, which a parsed verdict cannot be. Admin only.
+      tags: [ps-12-banking]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '404': { description: No such exchange }
   /api/connections/{key}/fetch:
     parameters:
       - name: key

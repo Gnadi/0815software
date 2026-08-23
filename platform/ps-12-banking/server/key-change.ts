@@ -131,7 +131,13 @@ export async function changeKeys(
           replacement: { authCertificatePem: certificate('AUTH'), encCertificatePem: certificate('ENC') },
         });
 
-  const init = parseResponse(await ctx.transport.send(connection.url, upload.init), bank.authPublicPem);
+  const init = parseResponse(
+    await ctx.transport.send(connection.url, upload.init, {
+      connection: connection.id,
+      phase: `${orderType.toLowerCase()}.initialisation`,
+    }),
+    bank.authPublicPem,
+  );
   refuse(ctx, connection.id, orderType, init, at);
   if (init.transactionId === null) {
     throw new DomainError(502, 'the bank accepted the request but opened no transaction');
@@ -149,6 +155,7 @@ export async function changeKeys(
         lastSegment: true,
         segment: packOrderData(transactionKey, upload.orderData),
       }),
+      { connection: connection.id, phase: `${orderType.toLowerCase()}.transfer` },
     ),
     bank.authPublicPem,
   );

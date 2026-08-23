@@ -387,7 +387,10 @@ export async function probeVersions(
   key: string,
 ): Promise<{ hostId: string; versions: { protocol: string; revision: string }[] }> {
   const { row } = loaded(ctx.db, key);
-  const body = await ctx.transport.send(row.url, buildHev(row.host_id));
+  const body = await ctx.transport.send(row.url, buildHev(row.host_id), {
+    connection: row.id,
+    phase: 'hev',
+  });
   return { hostId: row.host_id, versions: parseHev(body).versions };
 }
 
@@ -404,7 +407,7 @@ export async function sendIni(ctx: ExchangeContext, key: string): Promise<Connec
     esVersion: row.es_version as EsVersion,
     timestamp: at,
   });
-  await exchange(ctx, row, body, 'ini_sent', at);
+  await exchange(ctx, row, body, 'ini_sent', at, 'ini');
   return connectionDetail(ctx.db, key);
 }
 
@@ -421,7 +424,7 @@ export async function sendHia(ctx: ExchangeContext, key: string): Promise<Connec
     encCertificatePem: certificatePemFor(ctx.db, { connectionId: row.id, purpose: 'ENC' }),
     timestamp: at,
   });
-  await exchange(ctx, row, body, 'hia_sent', at);
+  await exchange(ctx, row, body, 'hia_sent', at, 'hia');
   return connectionDetail(ctx.db, key);
 }
 
@@ -459,7 +462,7 @@ export async function fetchBankKeys(ctx: ExchangeContext, key: string): Promise<
     timestamp: at,
   });
 
-  const raw = await ctx.transport.send(row.url, body);
+  const raw = await ctx.transport.send(row.url, body, { connection: row.id, phase: 'hpb' });
   // Not verified against a bank key: this is the request that fetches them.
   const response = parseResponse(raw);
   if (!response.verdict.ok) {
@@ -618,7 +621,10 @@ export async function sendSpr(ctx: ExchangeContext, key: string, reason: string)
     timestamp: at,
   });
 
-  const response = parseResponse(await ctx.transport.send(row.url, body), bank.authPublicPem);
+  const response = parseResponse(
+    await ctx.transport.send(row.url, body, { connection: row.id, phase: 'spr' }),
+    bank.authPublicPem,
+  );
   if (!response.verdict.ok) {
     recordEvent(ctx.db, {
       connectionId: row.id,
@@ -751,8 +757,9 @@ async function exchange(
   body: string,
   successEvent: string,
   at: string,
+  phase: string,
 ): Promise<void> {
-  const raw = await ctx.transport.send(row.url, body);
+  const raw = await ctx.transport.send(row.url, body, { connection: row.id, phase });
   const response = parseResponse(raw);
   if (!response.verdict.ok) {
     recordEvent(ctx.db, {

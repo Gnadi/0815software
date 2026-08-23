@@ -8,6 +8,7 @@ import { assertKeyStoreReadable, loadKeySecret } from './keystore.js';
 import { Transport, httpPost } from './transport.js';
 import { tick } from './downloads.js';
 import { nowIso } from './connections.js';
+import { pruneExchanges, sqliteRecorder } from './exchanges.js';
 
 const config = configFromEnv();
 assertProductionConfig([
@@ -33,16 +34,25 @@ assertKeyStoreReadable(db, loadKeySecret(config.keySecret));
 
 await seed(db);
 
+/**
+ * Every conversation with a bank is written down, whole.
+ *
+ * One recorder for both transports, so nothing reaches a bank without leaving
+ * a copy of what was sent and what came back. See `server/exchanges.ts` for
+ * why the bytes and not just the verdict.
+ */
+const record = sqliteRecorder(db);
+
 const app = createApp({
   db,
   auth: config.auth,
   keySecret: config.keySecret,
-  transport: new Transport({ post: httpPost, egress: config.egress }),
+  transport: new Transport({ post: httpPost, egress: config.egress, record }),
   hardening: hardeningFromEnv(),
   logRequests: true,
 });
 
-const transport = new Transport({ post: httpPost, egress: config.egress });
+const transport = new Transport({ post: httpPost, egress: config.egress, record });
 
 app.listen(config.port, () => {
   console.log(`[ps-12] banking API on http://localhost:${config.port}`);
@@ -73,6 +83,10 @@ app.listen(config.port, () => {
           for (const problem of result.problems) {
             console.warn(`[ps-12] tick: ${problem.connection}: ${problem.message}`);
           }
+          // Age out the conversation log on the same beat, so a long-running
+          // deployment does not need a second scheduled job to stay small.
+          const pruned = pruneExchanges(db, config.exchangeRetentionDays, nowIso);
+          if (pruned > 0) console.log(`[ps-12] pruned ${pruned} bank exchanges past the retention window`);
         })
         .catch((err: unknown) => console.error('[ps-12] tick error', err));
     }, config.tickIntervalMs);

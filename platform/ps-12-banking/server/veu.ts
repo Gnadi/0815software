@@ -153,7 +153,13 @@ async function act(
   const shared = { subscriber, keys, bank, timestamp: at, transactionKey, order: ref, dataDigest: found.dataDigest };
   const upload = what === 'sign' ? buildVeuSignature(shared) : buildVeuCancel(shared);
 
-  const init = parseResponse(await ctx.transport.send(connection.url, upload.init), bank.authPublicPem);
+  const init = parseResponse(
+    await ctx.transport.send(connection.url, upload.init, {
+      connection: connection.id,
+      phase: `veu.${what}.initialisation`,
+    }),
+    bank.authPublicPem,
+  );
   if (!init.verified) {
     throw new DomainError(502, `the bank's response could not be verified: ${init.verificationError}`);
   }
@@ -172,6 +178,7 @@ async function act(
         lastSegment: true,
         segment: packOrderData(transactionKey, upload.orderData),
       }),
+      { connection: connection.id, phase: `veu.${what}.transfer` },
     ),
     bank.authPublicPem,
   );

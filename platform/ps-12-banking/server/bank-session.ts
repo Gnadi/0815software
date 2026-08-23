@@ -133,7 +133,10 @@ export async function collectDownload(
   body: string,
 ): Promise<Buffer | null> {
   const { connection, subscriber, keys, bank } = session;
-  const init = parseResponse(await ctx.transport.send(connection.url, body), bank.authPublicPem);
+  const init = parseResponse(
+    await ctx.transport.send(connection.url, body, { connection: connection.id, phase: 'download.initialisation' }),
+    bank.authPublicPem,
+  );
   if (!init.verified) {
     throw new DomainError(502, `the bank's response could not be verified: ${init.verificationError}`);
   }
@@ -160,6 +163,7 @@ export async function collectDownload(
           segmentNumber: number,
           lastSegment: number === total,
         }),
+        { connection: connection.id, phase: `download.segment-${number}` },
       ),
       bank.authPublicPem,
     );
@@ -177,6 +181,7 @@ export async function collectDownload(
     await ctx.transport.send(
       connection.url,
       buildReceipt({ subscriber, keys, transactionId: init.transactionId, positive: true }),
+      { connection: connection.id, phase: 'download.receipt' },
     );
   } catch {
     // See above: being re-offered a view is free.

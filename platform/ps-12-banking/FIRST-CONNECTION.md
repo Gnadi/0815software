@@ -280,6 +280,29 @@ wrong meaning next to a payment is worse than no meaning.
 | Segments rejected | The bank publishes a smaller segment limit than 1 MB. Set `segmentLimit` on the profile |
 | A download is `kind: 'other'` | The BTF is right but nothing here parses that format. The bytes are stored and downloadable |
 
+### When the bank asks about a specific file
+
+This is the reason the conversation log exists, and it is the one thing you
+cannot reconstruct after the fact if it was not kept.
+
+```
+GET /api/orders/{public_id}                 the history: every step, its own
+                                            timestamp, the code, who caused it
+GET /api/orders/{public_id}/exchanges       the round-trips it caused
+GET /api/exchanges/{id}                     one of them, with the bytes
+```
+
+Read them in that order. The history tells you where it stopped; the exchange
+for that step is what you send the bank when they ask what you transmitted.
+A step that shows `error` with no response is the ambiguous case — the request
+left, nothing came back, and whether the bank has the file is genuinely
+unknown. Do **not** resubmit on a hunch: ask the bank, or fetch `HAC`
+(`POST /api/connections/main/fetch` with the customer-protocol BTF), which is
+the bank's own log of what it did with your orders.
+
+`transaction_id` and `ebics_order_id` on the order are the two references a
+bank will ask for. The second is the one their customer protocol keys on.
+
 ### Recovering
 
 - **A failed setup step** → `POST /api/connections/main/clear-failure`. Steps

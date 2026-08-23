@@ -49,6 +49,7 @@ import {
   type OrderContext,
   type VopMode,
 } from './orders.js';
+import { exchangeDetail, listExchanges, sqliteRecorder } from './exchanges.js';
 import {
   downloadContent,
   downloadDetail,
@@ -274,7 +275,7 @@ function payloadFrom(source: Record<string, unknown>): Buffer {
 export function createApp(opts: AppOptions): express.Express {
   const { db, auth } = opts;
   const now = opts.now ?? nowIso;
-  const transport = opts.transport ?? new Transport();
+  const transport = opts.transport ?? new Transport({ record: sqliteRecorder(db) });
   const keySecret = loadKeySecret(opts.keySecret);
 
   const app = express();
@@ -702,6 +703,39 @@ export function createApp(opts: AppOptions): express.Express {
 
   app.get('/api/orders/:public_id', requireCaller, (req, res) => {
     res.json(orderDetail(db, req.params.public_id as string));
+  });
+
+  /**
+   * The bank conversations behind an order — what was actually sent and said.
+   *
+   * Admin only, and deliberately not open to `X-Service-Token`: the envelope
+   * carries the payment file, and a module that submitted an order already
+   * knows what it submitted. This route exists for the human reconstructing a
+   * transfer after the fact, which is the one job the folded status cannot do.
+   */
+  app.get('/api/orders/:public_id/exchanges', requireAdmin, (req, res) => {
+    // Resolves the order first, so an unknown id is a 404 rather than a
+    // convincing empty list.
+    const order = orderDetail(db, req.params.public_id as string);
+    res.json({ exchanges: listExchanges(db, { order: order.public_id, limit: 500 }) });
+  });
+
+  app.get('/api/exchanges', requireAdmin, (req, res) => {
+    const query = req.query as Record<string, unknown>;
+    res.json({
+      exchanges: listExchanges(db, {
+        connection: optionalText(query, 'connection'),
+        order: optionalText(query, 'order'),
+        limit: optionalInt(query, 'limit', 1, 1_000),
+      }),
+    });
+  });
+
+  /** One conversation with its bodies. The evidence, not the summary. */
+  app.get('/api/exchanges/:id', requireAdmin, (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) throw new DomainError(400, 'the exchange id must be a whole number');
+    res.json(exchangeDetail(db, id));
   });
 
   // ── Downloads — what the bank has for us ───────────────────────────

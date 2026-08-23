@@ -21,6 +21,7 @@ import {
   type HacEntry,
 } from './hac.js';
 import { foldStatus, recordOrderEvent } from './orders.js';
+import type { ExchangeScope } from './exchanges.js';
 import { applyStatements } from './statements.js';
 import type {
   BtfInput,
@@ -59,7 +60,7 @@ import type {
 export interface DownloadContext {
   db: Database.Database;
   keySecret: Buffer;
-  transport: { send(url: string, body: string): Promise<string> };
+  transport: { send(url: string, body: string, scope?: ExchangeScope): Promise<string> };
   actor?: string;
   now?: () => string;
 }
@@ -338,6 +339,7 @@ export async function fetchOne(
     await ctx.transport.send(
       connection.url,
       buildDownloadInit({ subscriber, keys, bank, btf: toBtf(btf), timestamp: at, dateRange }),
+      { connection: connection.id, phase: `btd.initialisation.${btf.msg_name ?? btf.service_name ?? 'unnamed'}` },
     ),
     bank.authPublicPem,
   );
@@ -370,6 +372,7 @@ export async function fetchOne(
           segmentNumber: number,
           lastSegment: number === total,
         }),
+        { connection: connection.id, phase: `btd.segment-${number}` },
       ),
       bank.authPublicPem,
     );
@@ -440,6 +443,7 @@ export async function fetchOne(
       await ctx.transport.send(
         connection.url,
         buildReceipt({ subscriber, keys, transactionId: init.transactionId, positive: true }),
+        { connection: connection.id, phase: 'btd.receipt' },
       ),
       bank.authPublicPem,
     );
@@ -465,7 +469,7 @@ export async function fetchOne(
  * order's status is skipped, so a re-processed download cannot fill the stream
  * with duplicates.
  */
-export function applyReports(db: Database.Database, now: () => string): number {
+export function applyReports(db: Database.Database, now: () => string, actor?: string): number {
   const pending = db
     .prepare(
       `SELECT d.id AS download_id, d.public_id, d.connection_id
@@ -505,7 +509,13 @@ export function applyReports(db: Database.Database, now: () => string): number {
         .prepare('SELECT type, ebics_code, meta, created_at FROM order_events WHERE order_id = ? ORDER BY id')
         .all(order.id) as { type: string; ebics_code: string | null; meta: string; created_at: string }[];
       const current = foldStatus(
-        events.map((e) => ({ type: e.type, ebics_code: e.ebics_code, meta: {}, created_at: e.created_at })),
+        events.map((e) => ({
+          type: e.type,
+          ebics_code: e.ebics_code,
+          meta: {},
+          actor: null,
+          created_at: e.created_at,
+        })),
       );
       // Nothing to say: the order already knows. Skipping keeps a
       // re-processed download from filling the stream with duplicates.
@@ -517,6 +527,7 @@ export function applyReports(db: Database.Database, now: () => string): number {
         orderId: order.id,
         type,
         at: now(),
+        actor: actor ?? null,
         code: reason?.reason_code ?? null,
         meta: {
           message:
@@ -558,7 +569,7 @@ export function applyReports(db: Database.Database, now: () => string): number {
  * A failure is the other way round. It is information nothing else will ever
  * carry, so it is recorded.
  */
-export function applyCustomerProtocol(db: Database.Database, now: () => string): number {
+export function applyCustomerProtocol(db: Database.Database, now: () => string, actor?: string): number {
   const pending = db
     .prepare(
       `SELECT d.id AS download_id, d.public_id, d.connection_id
@@ -598,7 +609,13 @@ export function applyCustomerProtocol(db: Database.Database, now: () => string):
           .prepare('SELECT type, ebics_code, meta, created_at FROM order_events WHERE order_id = ? ORDER BY id')
           .all(order.id) as { type: string; ebics_code: string | null; meta: string; created_at: string }[];
         const current = foldStatus(
-          events.map((e) => ({ type: e.type, ebics_code: e.ebics_code, meta: {}, created_at: e.created_at })),
+          events.map((e) => ({
+          type: e.type,
+          ebics_code: e.ebics_code,
+          meta: {},
+          actor: null,
+          created_at: e.created_at,
+        })),
         );
         // Already known to have gone wrong. Re-processing a protocol file must
         // not fill the stream with duplicates.
@@ -609,6 +626,7 @@ export function applyCustomerProtocol(db: Database.Database, now: () => string):
           orderId: order.id,
           type: 'rejected',
           at: now(),
+          actor: actor ?? null,
           code: failure?.reasonCode ?? null,
           meta: {
             message: `the bank's protocol records this order as failed at ${failure?.action ?? 'an unnamed step'}`,
@@ -693,7 +711,7 @@ async function runTick(ctx: DownloadContext, now: () => string, result: TickResu
     }
   }
 
-  result.orders_updated = applyReports(ctx.db, now) + applyCustomerProtocol(ctx.db, now);
+  result.orders_updated = applyReports(ctx.db, now, ctx.actor) + applyCustomerProtocol(ctx.db, now, ctx.actor);
   // Statements last: they are the slowest to read and nothing else waits on
   // them, so an operator watching a tick sees the payment answers first.
   result.statements_read = applyStatements(ctx.db, now);

@@ -614,6 +614,64 @@ status ladder keeps them apart: `accepted` then `settled`.
 MOD-04 is the consumer: a run whose order reaches `settled` settles its bills
 on the bank's own word, with nobody coming back to press "mark executed".
 
+## Reconstructing one transfer, months later
+
+A folded status answers "did it work". It answers nothing at all in the
+conversation this service actually has to survive — the bank saying *we have no
+record of that file*, or *your signature did not verify*, about money that has
+already left. Three records exist for that, and they do different jobs.
+
+**`order_events` — what happened, and to whom.** Append-only, folded into the
+status at read time, never pruned. Every step carries its own timestamp (so a
+twelve-segment upload shows where it stopped, not one instant), the EBICS code
+that decided it, the bank's own `ReportText`, and the actor — an operator's
+username, `service` for a module, `ticker` for the tick loop.
+
+```
+queued        actor=mod-04  sha256 of the file as submitted
+initialised   actor=mod-04  transaction_id, ebics_order_id, segments, tx_count
+segment_sent  actor=mod-04  segment 1 of 3
+segment_sent  actor=mod-04  segment 2 of 3
+segment_sent  actor=mod-04  segment 3 of 3
+transferred   actor=mod-04
+accepted      actor=mod-04  000000
+settled       actor=ticker  from pain.002, source=dl_9f1c…   ← days later
+```
+
+The last line is the point of the tick loop: an order's history keeps growing
+after the upload, from the bank's own answers. Each such event names the
+download it was read out of, and that download's bytes are still on disk at
+`GET /api/downloads/{id}/content`.
+
+**`bank_exchanges` — what was actually said.** Every POST to a bank, whole: the
+envelope as sent, the answer as received, the HTTP status, the wall-clock
+window, and — for the conversation that never completed — why. `transport.ts`
+is the only place a bank is spoken to, which is what makes "every" a claim
+rather than a hope; the key exchange is in there alongside the payments.
+
+```
+GET /api/orders/{public_id}/exchanges   the round-trips behind one order
+GET /api/exchanges?connection=main      everything said to one bank
+GET /api/exchanges/{id}                 one conversation, with the bytes
+```
+
+Admin only, all three: the envelope carries the payment file. An envelope never
+carries a private key — `keystore.ts` decrypts one into memory to sign and
+nothing serialises it — so keeping the bytes adds no secret to the database
+that was not already in it, and `test/traceability.test.ts` pins that.
+
+Envelopes are large, so they age out on `EBICS_EXCHANGE_RETENTION_DAYS` (730 by
+default, 0 to keep forever), pruned on the tick. **`order_events` is never
+pruned**: what expires is the evidence, not the record of what happened.
+
+**`connection_events`** does the same for the connection itself — who generated
+the keys, who confirmed the bank's digests, who suspended it.
+
+What this does *not* give you: a tamper-evident trail. All three tables are
+append-only by this service's own convention, in this service's own SQLite. If
+an installation needs an auditor to be able to prove the history was not
+edited, that is PS-07's job and PS-12 does not yet write to it.
+
 ## Trust, and where it actually comes from
 
 INI and HIA are **unsecured messages** — they cannot be otherwise, because the

@@ -647,6 +647,55 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    id: 16,
+    name: 'bank-exchanges',
+    up(db) {
+      // APPEND-ONLY: every HTTP round-trip with a bank, with the bytes.
+      //
+      // Until this table existed, a submitted payment left behind only the
+      // parsed verdict. That is enough while everything works and useless in
+      // the one conversation that matters: the bank says the signature was
+      // wrong, or that nothing ever arrived, and there is nothing to put on
+      // the table. The envelopes carry the ES signature and the encrypted
+      // order data — never a private key, which never leaves `keystore.ts` in
+      // plaintext — so keeping them is safe and is what makes a dispute
+      // arguable from the record instead of from memory.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS bank_exchanges (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          connection_id INTEGER REFERENCES bank_connections(id) ON DELETE CASCADE,
+          order_id      INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+          phase         TEXT    NOT NULL,   -- "order.initialisation", "hpb", "download.transfer", ...
+          url           TEXT    NOT NULL,
+          request       TEXT    NOT NULL,   -- the envelope as sent, byte for byte
+          response      TEXT,               -- null when the bank never answered
+          http_status   INTEGER,
+          error         TEXT,               -- why it did not complete, when it did not
+          started_at    TEXT    NOT NULL,
+          finished_at   TEXT    NOT NULL,
+          duration_ms   INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_bank_exchanges_order ON bank_exchanges (order_id, id);
+        CREATE INDEX IF NOT EXISTS idx_bank_exchanges_conn ON bank_exchanges (connection_id, id);
+        CREATE INDEX IF NOT EXISTS idx_bank_exchanges_started ON bank_exchanges (started_at);
+      `);
+    },
+  },
+  {
+    id: 17,
+    name: 'order-event-actor',
+    up(db) {
+      // Who caused this step. `connection_events` has carried an actor since
+      // migration 1; `order_events` did not, so a payment's own history could
+      // say what happened and when but never on whose behalf — an operator
+      // retrying by hand and the ticker looked identical.
+      const columns = (db.prepare('PRAGMA table_info(order_events)').all() as { name: string }[]).map((c) => c.name);
+      if (!columns.includes('actor')) {
+        db.exec('ALTER TABLE order_events ADD COLUMN actor TEXT');
+      }
+    },
+  },
 ];
 
 export function openDb(path: string): Database.Database {
