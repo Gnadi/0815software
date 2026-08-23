@@ -1035,7 +1035,7 @@ Two things this required that were missing:
   the bank assigns to an upload — which arrives in the response's *mutable*
   header, and which `parseResponse` never read. Without it a log entry saying
   "signature refused, order A445" is readable but not actionable. Orders now
-  record it (migration 11).
+  record it (migration 7).
 - **Case-insensitive key lookup.** A `HAC` entry's details are name/value pairs
   where `SchmeNm/Prtry` is the name — unordered, the examples say so explicitly.
   And the EBICS Working Group's own example file spells the key `OrderID`

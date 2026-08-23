@@ -119,16 +119,18 @@ describe('upgrading an existing installation', () => {
   });
 
   /**
-   * The rebuild in migration 3 drops and recreates `orders`, and copies
-   * `order_events` aside and back. Written with hard-coded column lists, it
-   * silently emptied every column a LATER migration added — `ebics_order_id`,
-   * the reference the bank's own customer protocol keys on, and `actor`, the
-   * record of who caused each step. Both survived a fresh install and both
-   * vanished on a replay, with no error anywhere.
+   * Migration 3 — which shipped, so it stays — drops and recreates `orders`
+   * and copies `order_events` aside and back. Written with hard-coded column
+   * lists, it silently emptied every column a LATER migration adds:
+   * `ebics_order_id`, the reference the bank's own customer protocol keys on,
+   * and `actor`, the record of who caused each step. Both survived a fresh
+   * install and both vanished on a replay, with no error anywhere.
    *
    * The event chain is what made it visible: the digests stopped matching. The
    * assertion is here rather than there because the loss is the bug and the
-   * chain only noticed.
+   * chain only noticed. Squashing 7–18 into one migration did not remove the
+   * hazard — the rebuild still runs before the migration that adds those
+   * columns — so the fix and this test both stay.
    */
   it('keeps columns that later migrations added when the rebuild replays', async () => {
     const db = openDb(':memory:');

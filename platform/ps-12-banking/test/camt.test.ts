@@ -581,7 +581,7 @@ describe('a statement that arrives as a download', () => {
   });
 
   /**
-   * The invariant migration 12 exists for: a bank re-offering a statement whose
+   * The invariant the statements table exists for: a bank re-offering a statement whose
    * receipt it never saw must not double every booking on it.
    */
   it('stores a statement once, however often the bank sends it', async () => {

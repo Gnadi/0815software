@@ -602,7 +602,7 @@ export function applyCustomerProtocol(db: Database.Database, now: () => string, 
         if (verdictOfEntries(entries) !== 'failed') continue;
 
         // The bank's order number, which only exists on orders submitted since
-        // migration 11. An older order cannot be matched, and inventing a
+        // migration 7. An older order cannot be matched, and inventing a
         // match on anything else would attach a stranger's failure to a real
         // payment.
         const order = db
