@@ -41,11 +41,12 @@ const UNMATCHED_LABEL: Record<UnmatchedReceivable['why'], string> = {
   already_applied: 'Already recorded',
   no_candidate: 'No open invoice fits',
   ambiguous: 'Several invoices fit — needs a decision',
+  amount_unreadable: 'The amount could not be read as cents — record it by hand',
 };
 
 /** The two that are an operator's problem; the rest are just noise. */
 function needsAttention(why: UnmatchedReceivable['why']): boolean {
-  return why === 'no_candidate' || why === 'ambiguous';
+  return why === 'no_candidate' || why === 'ambiguous' || why === 'amount_unreadable';
 }
 
 export function IncomingPaymentsView({ onAuthLost }: { onAuthLost: () => void }) {
@@ -170,7 +171,9 @@ export function IncomingPaymentsView({ onAuthLost }: { onAuthLost: () => void })
                     />
                   </td>
                   <td>
-                    {fmtEur(p.booking.amount_cents)}
+                    {p.booking.amount_cents === null
+                      ? `${p.booking.amount_text} ${p.booking.currency}`
+                      : fmtEur(p.booking.amount_cents)}
                     <br />
                     <span className="muted">{p.booking.booking_date ?? ''}</span>
                   </td>
@@ -224,7 +227,11 @@ export function IncomingPaymentsView({ onAuthLost }: { onAuthLost: () => void })
               {attention.map((u) => (
                 <tr key={u.booking.key}>
                   <td>
-                    {fmtEur(u.booking.amount_cents)}
+                    {/* The bank's own string: an amount this could not convert
+                        is exactly the one an operator has to read here. */}
+                    {u.booking.amount_cents === null
+                      ? `${u.booking.amount_text} ${u.booking.currency}`
+                      : fmtEur(u.booking.amount_cents)}
                     <br />
                     <span className="muted">{u.booking.booking_date ?? ''}</span>
                   </td>

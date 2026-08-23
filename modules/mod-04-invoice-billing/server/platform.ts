@@ -485,15 +485,20 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
           account_iban: entry.account_iban,
           account_servicer_ref: entry.account_servicer_ref,
           booking_date: entry.booking_date,
-          amount_cents: entry.amount_hundredths ?? 0,
+          // The exact string, never the converted number — a conversion that
+          // failed would fold every such booking onto one identity.
+          amount_text: entry.amount,
           credit: entry.credit,
           end_to_end_id: entry.end_to_end_id,
           seq: entry.seq,
         }),
+        amount_text: entry.amount,
         // PS-12 keeps the exact string the bank wrote and, beside it, that
         // amount times a hundred — deliberately not called "minor units",
-        // because those need the currency's exponent. In euros it is cents.
-        amount_cents: entry.amount_hundredths ?? 0,
+        // because those need the currency's exponent. In euros it is cents,
+        // and NULL where the bank sent something finer. Passed through as
+        // null: defaulting to zero would say no money arrived.
+        amount_cents: entry.amount_hundredths,
         currency: entry.currency,
         credit: entry.credit,
         reversal: entry.reversal,

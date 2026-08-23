@@ -32,8 +32,25 @@ export interface BankBooking {
    * the bookings being fetched again, or re-read from stored bytes.
    */
   key: string;
-  /** Positive, in cents. Direction is `credit`, never a sign. */
-  amount_cents: number;
+  /**
+   * Exactly what the bank wrote, unsigned. Always present.
+   *
+   * The authority on how much arrived, and what the identity is built from —
+   * because it is the only amount that cannot have been lost in a conversion.
+   */
+  amount_text: string;
+  /**
+   * The same amount in cents, or **null when the source could not express it**
+   * — more than two decimal places, or a currency whose minor unit is not a
+   * hundredth.
+   *
+   * Null rather than zero. An earlier version defaulted to `0`, which made a
+   * booking look like no money at all AND collapsed the identity of every such
+   * booking to the same string: two of them on one day, and the second was
+   * silently treated as already recorded. A number that might be wrong is
+   * worse here than an absent one.
+   */
+  amount_cents: number | null;
   currency: string;
   /** True when money came IN. Only credits can settle a receivable. */
   credit: boolean;
@@ -121,7 +138,7 @@ export interface MatchProposal {
 /** A booking nothing could be proposed for, and the reason it was skipped. */
 export interface UnmatchedBooking {
   booking: BankBooking;
-  why: 'debit' | 'reversal' | 'already_applied' | 'no_candidate' | 'ambiguous';
+  why: 'debit' | 'reversal' | 'already_applied' | 'no_candidate' | 'ambiguous' | 'amount_unreadable';
 }
 
 export interface MatchResult {
@@ -147,7 +164,8 @@ export function bookingKey(input: {
   account_iban: string | null;
   account_servicer_ref: string | null;
   booking_date: string | null;
-  amount_cents: number;
+  /** Exactly what the bank wrote. See the note inside. */
+  amount_text: string;
   credit: boolean;
   end_to_end_id: string | null;
   /** Position within the statement — the last resort for telling two apart. */
@@ -157,10 +175,12 @@ export function bookingKey(input: {
   if (input.account_servicer_ref !== null && input.account_servicer_ref.trim() !== '') {
     return `${account}|${input.account_servicer_ref.trim()}`;
   }
+  // The amount as the BANK wrote it, not a converted one: a conversion that
+  // failed would otherwise fold every unconvertible booking onto one identity.
   return [
     account,
     input.booking_date ?? 'undated',
-    String(input.amount_cents),
+    input.amount_text,
     input.credit ? 'C' : 'D',
     input.end_to_end_id ?? '',
     String(input.seq),
@@ -214,6 +234,13 @@ export function matchBookings(
     }
     if (appliedKeys.has(booking.key)) {
       unmatched.push({ booking, why: 'already_applied' });
+      continue;
+    }
+    if (booking.amount_cents === null || booking.amount_cents <= 0) {
+      // The money is real and the amount is on the screen; what is missing is
+      // a cent figure to record. Surfaced rather than dropped, so an operator
+      // can enter it by hand instead of wondering where it went.
+      unmatched.push({ booking, why: 'amount_unreadable' });
       continue;
     }
 

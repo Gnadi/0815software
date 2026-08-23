@@ -315,7 +315,10 @@ export interface PaymentConfig {
 export interface ReceivableProposal {
   booking: {
     key: string;
-    amount_cents: number;
+    /** Exactly what the bank wrote, unsigned. Always present. */
+    amount_text: string;
+    /** The same in cents, or null where the bank sent something finer. */
+    amount_cents: number | null;
     currency: string;
     credit: boolean;
     reversal: boolean;
@@ -351,7 +354,7 @@ export interface ReceivableProposal {
 /** A booking nothing was proposed for, and why. */
 export interface UnmatchedReceivable {
   booking: ReceivableProposal['booking'];
-  why: 'debit' | 'reversal' | 'already_applied' | 'no_candidate' | 'ambiguous';
+  why: 'debit' | 'reversal' | 'already_applied' | 'no_candidate' | 'ambiguous' | 'amount_unreadable';
 }
 
 export interface ReceivableSuggestions {

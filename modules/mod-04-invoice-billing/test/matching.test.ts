@@ -19,6 +19,7 @@ import {
 function booking(over: Partial<BankBooking> = {}): BankBooking {
   return {
     key: 'AT61|BANKREF-1',
+    amount_text: '299.99',
     amount_cents: 29999,
     currency: 'EUR',
     credit: true,
@@ -49,8 +50,8 @@ function invoice(over: Partial<OpenInvoice> = {}): OpenInvoice {
 describe('a booking’s identity', () => {
   it('uses the bank’s own reference, scoped to the account', () => {
     // Two accounts may legitimately carry the same bank reference.
-    const a = bookingKey({ account_iban: 'AT61', account_servicer_ref: 'REF-1', booking_date: '2026-08-15', amount_cents: 100, credit: true, end_to_end_id: null, seq: 1 });
-    const b = bookingKey({ account_iban: 'DE02', account_servicer_ref: 'REF-1', booking_date: '2026-08-15', amount_cents: 100, credit: true, end_to_end_id: null, seq: 1 });
+    const a = bookingKey({ account_iban: 'AT61', account_servicer_ref: 'REF-1', booking_date: '2026-08-15', amount_text: '1.00', credit: true, end_to_end_id: null, seq: 1 });
+    const b = bookingKey({ account_iban: 'DE02', account_servicer_ref: 'REF-1', booking_date: '2026-08-15', amount_text: '1.00', credit: true, end_to_end_id: null, seq: 1 });
     expect(a).not.toBe(b);
   });
 
@@ -62,14 +63,14 @@ describe('a booking’s identity', () => {
    * same money be recorded twice.
    */
   it('does not change when the delivering row does', () => {
-    const bank = { account_iban: 'AT61', account_servicer_ref: 'REF-1', booking_date: '2026-08-15', amount_cents: 100, credit: true, end_to_end_id: 'E2E', seq: 3 };
+    const bank = { account_iban: 'AT61', account_servicer_ref: 'REF-1', booking_date: '2026-08-15', amount_text: '1.00', credit: true, end_to_end_id: 'E2E', seq: 3 };
     expect(bookingKey(bank)).toBe(bookingKey({ ...bank, seq: 99 }));
   });
 
   it('falls back to the movement itself when a bank sends no reference', () => {
-    const base = { account_iban: 'AT61', account_servicer_ref: null, booking_date: '2026-08-15', amount_cents: 100, credit: true, end_to_end_id: null, seq: 1 };
+    const base = { account_iban: 'AT61', account_servicer_ref: null, booking_date: '2026-08-15', amount_text: '1.00', credit: true, end_to_end_id: null, seq: 1 };
     expect(bookingKey(base)).toBe(bookingKey({ ...base }));
-    expect(bookingKey(base)).not.toBe(bookingKey({ ...base, amount_cents: 200 }));
+    expect(bookingKey(base)).not.toBe(bookingKey({ ...base, amount_text: '2.00' }));
     expect(bookingKey(base)).not.toBe(bookingKey({ ...base, seq: 2 }));
     // A credit and a debit of the same amount on the same day are different.
     expect(bookingKey(base)).not.toBe(bookingKey({ ...base, credit: false }));
@@ -169,8 +170,32 @@ describe('what it refuses to guess', () => {
   });
 
   it('leaves a booking alone when nothing is open for it', () => {
-    const { unmatched } = matchBookings([booking({ amount_cents: 777 })], [invoice()]);
+    const { unmatched } = matchBookings([booking({ amount_cents: 777, amount_text: '7.77' })], [invoice()]);
     expect(unmatched[0]!.why).toBe('no_candidate');
+  });
+
+  /**
+   * An amount the source could not put into cents — more than two decimals,
+   * or a currency whose minor unit is not a hundredth.
+   *
+   * Reported, never invented. An earlier version defaulted it to zero, which
+   * said no money had arrived AND collapsed the identity of every such booking
+   * onto one string: two of them in a day, and the second was silently treated
+   * as already recorded.
+   */
+  it('refuses to invent an amount it could not read, and says so', () => {
+    const odd = booking({ amount_cents: null, amount_text: '1.005', creditor_reference: '2026-0042' });
+    const { proposals, unmatched } = matchBookings([odd], [invoice()]);
+    expect(proposals).toEqual([]);
+    expect(unmatched[0]!.why).toBe('amount_unreadable');
+    // And the exact figure is still there for a human to read.
+    expect(unmatched[0]!.booking.amount_text).toBe('1.005');
+  });
+
+  it('keeps two unreadable bookings apart, which zero would not have', () => {
+    const key = (seq: number, text: string): string =>
+      bookingKey({ account_iban: 'AT61', account_servicer_ref: null, booking_date: '2026-08-15', amount_text: text, credit: true, end_to_end_id: null, seq });
+    expect(key(1, '1.005')).not.toBe(key(1, '2.005'));
   });
 });
 
