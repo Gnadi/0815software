@@ -573,7 +573,7 @@ paths:
       parameters:
         - name: validate
           in: query
-          description: '`1` for a dry run — reports what would be sent, signs nothing and stores nothing.'
+          description: '`1` for a dry run — reports what would be sent, signs nothing and stores nothing'
           schema: { type: string, enum: ['1'] }
       responses:
         '200': { description: An earlier submission of this file }
@@ -588,7 +588,12 @@ paths:
         schema: { type: string }
     get:
       summary: Get order
-      description: The folded status and the full event stream, including the bank's return codes.
+      description: >-
+        The folded status and the full event stream, including the bank's
+        return codes. A status of `contested` means the bank has said both
+        `settled` and `rejected` about this order: PS-12 refuses to pick, and a
+        consumer must release nothing and re-pay nothing on it. Resolve it from
+        the event stream, which holds both answers.
       tags: [ps-12-banking]
       security: [{serviceToken: []}, {adminSession: []}]
       responses:

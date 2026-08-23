@@ -242,7 +242,33 @@ export function foldStatus(events: OrderEvent[]): OrderStatus {
 
   for (const event of events) {
     if (DECISIONS.has(event.type)) {
-      status = event.type as OrderStatus;
+      // TWO ANSWERS THAT CANNOT BOTH BE TRUE.
+      //
+      // `settled` says the money moved; `rejected` says it did not. Either
+      // order of arrival is reachable and both are ordinary bank behaviour: a
+      // SEPA return lands days after a settlement, and a bank that refused an
+      // order in its customer protocol can still send a status report for the
+      // same MsgId. Taking the later one picks a side on recency alone.
+      //
+      // That is not a cosmetic choice. MOD-04 sets a run's items back to
+      // inactive on `rejected` — releasing those bills into the pool for
+      // another payment run — and marks the run executed on `settled`. So
+      // resolving this silently decides between paying a supplier twice and
+      // leaving a real invoice unpaid. Neither is a decision to make from the
+      // order of two rows.
+      //
+      // `accepted` is NOT part of this: it means the bank took the file, not
+      // that the payment succeeded, so `accepted` → `rejected` is the ordinary
+      // path and not a contradiction. `failed` means UNKNOWN — the
+      // conversation broke — so any later definite answer resolves it rather
+      // than contradicting it.
+      const opposes =
+        (status === 'settled' && event.type === 'rejected') ||
+        (status === 'rejected' && event.type === 'settled');
+      if (opposes) status = 'contested';
+      // Terminal: once the record holds both answers, nothing later un-holds
+      // them. A third event is more to read, not a resolution.
+      else if (status !== 'contested') status = event.type as OrderStatus;
       decided = true;
       continue;
     }

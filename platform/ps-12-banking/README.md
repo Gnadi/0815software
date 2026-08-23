@@ -614,6 +614,33 @@ status ladder keeps them apart: `accepted` then `settled`.
 MOD-04 is the consumer: a run whose order reaches `settled` settles its bills
 on the bank's own word, with nobody coming back to press "mark executed".
 
+## When the bank says both yes and no
+
+`settled` says the money moved; `rejected` says it did not. Both can arrive
+for one order, in either sequence, and both sequences are ordinary bank
+behaviour — a SEPA return lands days after a settlement, and a bank that
+refused an order in its customer protocol can still send a status report for
+the same MsgId.
+
+PS-12 folds that to **`contested`** and refuses to choose. Which answer came
+last is not evidence for which is true, and the choice is not cosmetic:
+MOD-04 puts a run's items back into the pool on `rejected` — so calling a
+returned payment "refused" invites a second payment for an invoice the bank
+already took the money for — and marks the run executed on `settled`, so
+calling a refused payment "paid" leaves a supplier unpaid. Both mistakes cost
+money, in opposite directions.
+
+`contested` is terminal. A human resolves it against the order's own event
+stream, which holds both answers and names the download each was read out of.
+A consumer must release nothing and re-pay nothing on it; MOD-04 stores the
+status and touches neither the run nor its bills.
+
+`accepted` is deliberately not part of this — it means the bank took the
+*file*, not that the payment succeeded, so `accepted` → `rejected` is the
+ordinary path. And `failed` means the conversation broke and the outcome is
+UNKNOWN, so any later definite answer resolves it rather than contradicting
+it.
+
 ## Reconstructing one transfer, months later
 
 A folded status answers "did it work". It answers nothing at all in the

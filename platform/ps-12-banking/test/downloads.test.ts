@@ -571,6 +571,50 @@ describe('the tick', () => {
     expect(third.problems.filter((p) => /already running/.test(p.message))).toEqual([]);
   });
 
+  /**
+   * The guard used to be one module-level boolean, which is a per-PROCESS
+   * flag for a per-pass property. Two databases in the same process — a second
+   * deployment, or two suites running side by side — refused each other's
+   * ticks and reported a pass as skipped that had never started.
+   */
+  it('guards each database on its own, not the whole process', async () => {
+    await bringUp();
+    const other = openDb(':memory:');
+    try {
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let entered!: () => void;
+      const inRequest = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const slow = {
+        ...ctx,
+        transport: new Transport({
+          post: async (_url: string, body: string) => {
+            entered();
+            await held;
+            return bank.post(body);
+          },
+        }),
+      };
+
+      const first = tick(slow);
+      await inRequest;
+
+      // A different database, mid-pass on the first one. It has nothing to do
+      // and must say so, not report itself skipped.
+      const elsewhere = await tick({ ...ctx, db: other });
+      expect(elsewhere.problems.filter((p) => /already running/.test(p.message))).toEqual([]);
+
+      release();
+      await first;
+    } finally {
+      other.close();
+    }
+  });
+
   it('is a no-op on a stack with no connections at all', async () => {
     expect(await tick(ctx)).toEqual({ downloads_fetched: 0, orders_updated: 0, statements_read: 0, problems: [] });
   });

@@ -242,7 +242,18 @@ export type BankOrderStatus =
   | 'settled'
   | 'rejected'
   /** The conversation broke; whether the bank holds the file is unknown. */
-  | 'failed';
+  | 'failed'
+  /**
+   * The bank has said both yes and no about this payment.
+   *
+   * A settlement and a refusal for the same order cannot both be true, and
+   * which arrived last is not evidence for which is. PS-12 refuses to pick,
+   * because the choice decides whether a consumer treats the bills as paid or
+   * puts them back in the pool — and both mistakes cost money. Terminal: a
+   * human resolves it against the order's event stream, which holds both
+   * answers. **A consumer must not release or re-pay anything on this.**
+   */
+  | 'contested';
 
 export interface BankOrder {
   public_id: string;

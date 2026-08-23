@@ -659,7 +659,14 @@ export function applyCustomerProtocol(db: Database.Database, now: () => string, 
  * down must not stop the others from being polled, and a scheduler calling
  * this every minute needs an answer rather than a 500.
  */
-let tickInFlight = false;
+// Keyed by DATABASE, not by module.
+//
+// A single boolean here is a per-PROCESS guard, and this is a per-pass
+// property: two databases in one process — a second deployment, two suites
+// running side by side — refused each other's ticks and reported a pass that
+// had never started. A WeakMap keys the flag to the handle the pass is
+// actually about, and drops it with the database.
+const ticksInFlight = new WeakSet<Database.Database>();
 
 export async function tick(ctx: DownloadContext): Promise<TickResult> {
   const now = ctx.now ?? nowIso;
@@ -677,15 +684,15 @@ export async function tick(ctx: DownloadContext): Promise<TickResult> {
   // Nothing would be corrupted: the digest index absorbs the duplicate bytes.
   // But a bank is not a resource to hammer by accident, so an overlapping call
   // is told the truth and returns immediately rather than queueing.
-  if (tickInFlight) {
+  if (ticksInFlight.has(ctx.db)) {
     result.problems.push({ connection: '', message: 'a tick is already running — this pass was skipped' });
     return result;
   }
-  tickInFlight = true;
+  ticksInFlight.add(ctx.db);
   try {
     return await runTick(ctx, now, result);
   } finally {
-    tickInFlight = false;
+    ticksInFlight.delete(ctx.db);
   }
 }
 

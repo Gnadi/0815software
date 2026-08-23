@@ -141,6 +141,47 @@ beforeEach(() => {
   };
 });
 
+/**
+ * Two answers that cannot both be true.
+ *
+ * `settled` says the money moved and `rejected` says it did not. Both orders
+ * of arrival are reachable and both are ordinary bank behaviour — a SEPA
+ * return lands days after a settlement, and a bank that refused an order in
+ * its customer protocol can still send a status report for the same MsgId.
+ *
+ * Folding to whichever came last picks a side on recency alone, and that
+ * choice is not cosmetic: MOD-04 releases a run's items back into the pool on
+ * `rejected` and marks the run executed on `settled`. So the fold decides
+ * between paying a supplier twice and leaving a real invoice unpaid.
+ */
+describe('an order the bank has answered twice, in opposite directions', () => {
+  const stream = (...types: string[]) =>
+    types.map((type) => ({ type, ebics_code: null, meta: {}, actor: null, created_at: '' }));
+
+  it('does not call a returned payment refused, nor a refused one paid', () => {
+    // A settlement, then a return days later.
+    expect(foldStatus(stream('queued', 'accepted', 'settled', 'rejected'))).toBe('contested');
+    // A refusal in the customer protocol, then a status report saying settled.
+    expect(foldStatus(stream('queued', 'accepted', 'rejected', 'settled'))).toBe('contested');
+  });
+
+  it('is terminal — a third answer is more to read, not a resolution', () => {
+    expect(foldStatus(stream('accepted', 'settled', 'rejected', 'settled'))).toBe('contested');
+    expect(foldStatus(stream('accepted', 'settled', 'rejected', 'failed'))).toBe('contested');
+  });
+
+  it('leaves the ordinary paths alone', () => {
+    // `accepted` means the bank took the FILE, not that the payment worked, so
+    // a later refusal is the normal path and not a contradiction.
+    expect(foldStatus(stream('queued', 'initialised', 'transferred', 'accepted', 'rejected'))).toBe('rejected');
+    expect(foldStatus(stream('queued', 'accepted', 'settled'))).toBe('settled');
+    // `failed` means UNKNOWN — the conversation broke — so a later definite
+    // answer resolves it rather than contradicting it.
+    expect(foldStatus(stream('queued', 'initialised', 'failed', 'settled'))).toBe('settled');
+    expect(foldStatus(stream('queued', 'initialised', 'failed', 'rejected'))).toBe('rejected');
+  });
+});
+
 // ── The happy path ────────────────────────────────────────────────────
 
 describe('submitting a payment file', () => {

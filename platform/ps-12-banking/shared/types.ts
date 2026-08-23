@@ -165,6 +165,22 @@ export const ORDER_STATUSES = [
   'settled',
   'rejected',
   'failed',
+  /**
+   * The bank has said both yes and no about this payment.
+   *
+   * A settlement and a refusal for the same order contradict each other, and
+   * which one arrived last is not evidence for which one is true. Folding to
+   * the later answer picks a side silently — and that choice decides, in
+   * MOD-04, whether the bills go back into the pool for another payment run.
+   * Both directions of that mistake cost money: releasing a bill that was in
+   * fact paid invites a second payment, and holding one that was refused
+   * leaves a supplier unpaid.
+   *
+   * So neither is chosen. Terminal, and a human resolves it against the
+   * order's own event stream, which holds both answers and where each came
+   * from.
+   */
+  'contested',
 ] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 

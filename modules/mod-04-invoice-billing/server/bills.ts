@@ -808,6 +808,17 @@ export function recordBankSubmission(
 ): void {
   const row = getRun(db, id);
   const when = at ?? nowIso();
+  // Both are exact matches, and that is deliberate rather than incidental.
+  //
+  // PS-12 reports `contested` when the bank has said both yes and no about one
+  // order — a settlement and a refusal for the same MsgId, in either order,
+  // which is ordinary bank behaviour (a SEPA return lands days after a
+  // settlement). It refuses to pick a side because the choice lands HERE: a
+  // `rejected` releases this run's items back into the pool, so treating a
+  // contested order as refused invites a second payment for an invoice that
+  // was in fact paid. Anything that is neither of these two words stores the
+  // status and touches nothing — which is exactly right for `contested`, and
+  // for any status a later PS-12 adds.
   const rejected = submission.status === 'rejected';
   const settled = submission.status === 'settled';
 

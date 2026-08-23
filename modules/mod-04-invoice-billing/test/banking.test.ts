@@ -281,6 +281,35 @@ describe('when the bank refuses the file', () => {
     expect((await billRow(billId)).status).toBe('open');
   });
 
+  /**
+   * The finding this test exists for: PS-12 used to fold a bank's two
+   * contradicting answers to whichever arrived last. A settlement followed by
+   * a SEPA return — ordinary, days apart — folded to `rejected`, and this
+   * module released the run's bills back into the pool. The next run would
+   * have paid an invoice the bank had already taken the money for.
+   *
+   * PS-12 now reports `contested` and refuses to pick. The property here is
+   * that this module treats an answer it does not recognise as "touch
+   * nothing", which is the only safe default when money has already moved.
+   */
+  it('does not release the bills when the bank has said both yes and no', async () => {
+    const stub = stubBanking(() => ({
+      orderId: 'ord_both',
+      status: 'contested',
+      message: 'a settlement and a refusal for the same order',
+    }));
+    await boot({ hooks: stub.hooks });
+    const run = await makeRun();
+    const billId = run.items[0]!.bill_id;
+
+    const res = await submit(run.id).expect(200);
+    expect(res.body.bank_status).toBe('contested');
+    // NOT released: `open` would put this bill in the next run.
+    expect((await billRow(billId)).status).toBe('scheduled');
+    // And not silently marked paid either — a human resolves it.
+    expect(res.body.status).not.toBe('executed');
+  });
+
   it('lets a corrected run be built from the released bills', async () => {
     const stub = stubBanking((run) =>
       run.messageId.endsWith('X')
