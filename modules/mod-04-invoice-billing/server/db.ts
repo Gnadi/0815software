@@ -210,6 +210,23 @@ export function openDb(path: string): Database.Database {
     );
   }
 
+  // Where a payment came from, when it was not typed in by hand.
+  //
+  // `external_ref` is a BANK booking's identity (shared/matching.ts), and the
+  // UNIQUE index on it is the whole point: one arrival can become at most one
+  // payment, however many times the bookings are fetched, re-read from stored
+  // bytes, or offered again by a bank that never saw our receipt.
+  //
+  // Null for every payment entered by hand, which is every payment in a
+  // standalone deployment — and a partial index, so those nulls do not collide
+  // with each other.
+  if (!columns('payments').includes('external_ref')) {
+    db.exec('ALTER TABLE payments ADD COLUMN external_ref TEXT');
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_external ON payments (external_ref) WHERE external_ref IS NOT NULL',
+    );
+  }
+
   // The Austrian special credit transfers: a Finanzamtszahlung (TAXS) or a
   // Postbarzahlung (CPPP) carries a category purpose that an ordinary transfer
   // does not. A property of the whole run rather than of one bill, because

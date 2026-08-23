@@ -65,6 +65,7 @@ import { BILL_STATUSES, type BillStatus } from '../shared/types.js';
 import { renderInvoicePdf } from './pdf.js';
 import { fmtEur } from '../shared/money.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
+import { apply as applyReceivables, suggest } from './receivables.js';
 import { importTransfer, MODULE_ID } from './transfer-import.js';
 import type { DocumentTransfer } from '../shared/transfer.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
@@ -630,6 +631,84 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
     if (errors.length > 0) fail(errors);
     recordPayment(db, Number(req.params.id), { date, amountCents, note });
     res.status(201).json(invoiceDetail(db, Number(req.params.id)));
+  });
+
+  // ── Incoming payments from the bank ────────────────────────────────
+  //
+  // A CONVENIENCE, not a requirement. Recording a payment by hand above works
+  // in every deployment and always will; this removes the typing where a bank
+  // connection exists. 501 without one, and the UI hides the screen — see
+  // `banking_configured`.
+  //
+  // Nothing here records anything. `/suggestions` proposes and `/apply` writes
+  // what a human confirmed, deliberately as two calls: the bank is certain
+  // about the money and never about which invoice it settles.
+  app.get('/api/receivables/suggestions', async (req, res) => {
+    const errors: FieldError[] = [];
+    const from = optDate(req.query.from, 'from', errors);
+    const to = optDate(req.query.to, 'to', errors);
+    if (errors.length > 0) fail(errors);
+
+    // `optDate` answers null for "absent", which is not the same as undefined
+    // to an exactOptionalPropertyTypes build.
+    const bookings = await platform.fetchBankBookings({
+      ...(from === undefined || from === null ? {} : { from }),
+      ...(to === undefined || to === null ? {} : { to }),
+    });
+    if (bookings === null) {
+      res.status(501).json({
+        error:
+          'No bank connection is configured (BANKING_URL is unset) — record incoming payments on the invoice itself',
+      });
+      return;
+    }
+
+    const result = suggest(db, bookings);
+    res.json({
+      proposals: result.proposals,
+      unmatched: result.unmatched,
+      // What the operator still has to place by hand, which is the number that
+      // actually says whether this is working.
+      unmatched_count: result.unmatched.filter((u) => u.why === 'no_candidate' || u.why === 'ambiguous').length,
+    });
+  });
+
+  app.post('/api/receivables/apply', (req, res) => {
+    const input = body(req);
+    const raw = Array.isArray(input.applications) ? input.applications : null;
+    if (raw === null || raw.length === 0) {
+      fail([{ field: 'applications', message: 'Name at least one proposal to record' }]);
+      return;
+    }
+    if (raw.length > 200) {
+      fail([{ field: 'applications', message: 'At most 200 payments at a time' }]);
+      return;
+    }
+
+    const errors: FieldError[] = [];
+    const applications = raw.map((entry, index) => {
+      const item = (entry ?? {}) as Record<string, unknown>;
+      const bookingKey = typeof item.booking_key === 'string' ? item.booking_key.trim() : '';
+      if (bookingKey === '') errors.push({ field: `applications[${index}].booking_key`, message: 'is required' });
+      const invoiceId = Number(item.invoice_id);
+      if (!Number.isInteger(invoiceId) || invoiceId <= 0) {
+        errors.push({ field: `applications[${index}].invoice_id`, message: 'must be an invoice id' });
+      }
+      const amountCents = Number(item.amount_cents);
+      if (!Number.isInteger(amountCents) || amountCents <= 0) {
+        errors.push({ field: `applications[${index}].amount_cents`, message: 'must be a positive amount in cents' });
+      }
+      return {
+        bookingKey,
+        invoiceId,
+        amountCents,
+        date: optDate(item.date, `applications[${index}].date`, errors) ?? todayIso(),
+        note: optText(item.note, `applications[${index}].note`, errors, 200),
+      };
+    });
+    if (errors.length > 0) fail(errors);
+
+    res.json({ outcomes: applyReceivables(db, applications) });
   });
 
   // Collect payment for an invoice's open balance via PS-08 Payments. When the

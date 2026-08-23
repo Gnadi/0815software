@@ -8,6 +8,15 @@ import {
   PaymentsClient,
 } from '@0815software/platform-clients';
 import type { SelfParty } from './seller.js';
+import { bookingKey, type BankBooking } from '../shared/matching.js';
+
+/** Which period of bookings to ask the bank for. */
+export interface BookingRange {
+  /** Inclusive ISO dates, on the booking date. */
+  from?: string;
+  to?: string;
+  limit?: number;
+}
 
 /**
  * Optional integration with the Platform Services. Every hook is best-effort
@@ -20,9 +29,10 @@ import type { SelfParty } from './seller.js';
  *   - PS-06 File Storage      — archive the rendered invoice PDF
  *   - PS-07 Audit Log         — record the issue event on the tamper-evident trail
  *   - PS-08 Payments          — collect payment for an invoice's open balance
- *   - PS-12 Banking           — send a payment run to the bank over EBICS,
- *                               instead of a human downloading the file and
- *                               uploading it in online banking
+ *   - PS-12 Banking           — send a payment run to the bank over EBICS
+ *                               instead of a human downloading the file, AND
+ *                               read back what arrived on the account so
+ *                               incoming payments can be matched to invoices
  *   - PS-11 Customers         — resolve an imported customer against the
  *                               stack's party master data, so billing an offer
  *                               bills the same party the quote was for
@@ -171,6 +181,19 @@ export interface PlatformHooks {
   /** Record a payment-run event on PS-07, when configured. Best-effort. */
   paymentRunEvent(info: PaymentRunEventInfo): Promise<void>;
   /**
+   * What arrived on the bank account, for matching against open invoices.
+   *
+   * **Null when BANKING_URL is unset** — the standalone posture, in which
+   * payments are entered by hand exactly as they always were. Nothing about
+   * receivables depends on having a bank connection; this only removes the
+   * typing.
+   *
+   * NOT best-effort: a configured bank that fails must surface, because an
+   * empty list silently returned would read as "nobody paid you" — which is a
+   * worse lie than an error.
+   */
+  fetchBankBookings(range: BookingRange): Promise<BankBooking[] | null>;
+  /**
    * Hand a payment run to the bank over EBICS. Null when BANKING_URL is unset —
    * the standalone posture, in which the download is the only path.
    *
@@ -212,6 +235,10 @@ export const noopPlatform: PlatformHooks = {
     /* standalone: nothing to do */
   },
   async fetchSelf() {
+    return null;
+  },
+  async fetchBankBookings() {
+    // Standalone: payments are entered by hand, exactly as they always were.
     return null;
   },
   async paymentRunEvent() {
@@ -436,6 +463,47 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
       if (!banking) return null;
       const order = await banking.getOrder(orderId);
       return { orderId: order.public_id, status: order.status, message: order.message };
+    },
+
+    async fetchBankBookings(range: BookingRange): Promise<BankBooking[] | null> {
+      if (!banking) return null;
+      const { entries } = await banking.findEntries({
+        connection: bankConnection,
+        // Money IN only. A debit is a payment WE made, and the payment-run
+        // machinery already knows about those.
+        credit: true,
+        // Reversals are asked for and filtered by the matcher rather than
+        // hidden here, so an operator can see that one arrived.
+        from: range.from,
+        to: range.to,
+        limit: range.limit ?? 200,
+      });
+      // Mapped into THIS module's own shape. The matcher must not depend on
+      // the platform's types — see shared/matching.ts.
+      return entries.map((entry) => ({
+        key: bookingKey({
+          account_iban: entry.account_iban,
+          account_servicer_ref: entry.account_servicer_ref,
+          booking_date: entry.booking_date,
+          amount_cents: entry.amount_hundredths ?? 0,
+          credit: entry.credit,
+          end_to_end_id: entry.end_to_end_id,
+          seq: entry.seq,
+        }),
+        // PS-12 keeps the exact string the bank wrote and, beside it, that
+        // amount times a hundred — deliberately not called "minor units",
+        // because those need the currency's exponent. In euros it is cents.
+        amount_cents: entry.amount_hundredths ?? 0,
+        currency: entry.currency,
+        credit: entry.credit,
+        reversal: entry.reversal,
+        booking_date: entry.booking_date,
+        counterparty_name: entry.counterparty_name,
+        counterparty_iban: entry.counterparty_iban,
+        remittance: entry.remittance,
+        creditor_reference: entry.creditor_reference,
+        end_to_end_id: entry.end_to_end_id,
+      }));
     },
   };
 }

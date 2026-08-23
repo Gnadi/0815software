@@ -6,6 +6,7 @@ import { CustomerLedger } from './components/CustomerLedger';
 import { CustomersView } from './components/CustomersView';
 import { InvoiceDetail } from './components/InvoiceDetail';
 import { InvoiceEditor } from './components/InvoiceEditor';
+import { IncomingPaymentsView } from './components/IncomingPaymentsView';
 import { InvoicesView } from './components/InvoicesView';
 import { Login } from './components/Login';
 import { PaymentRunDetailView, PaymentRunsView } from './components/PaymentRunsView';
@@ -19,11 +20,16 @@ export type View =
   | { name: 'bills' }
   | { name: 'creditors' }
   | { name: 'runs' }
-  | { name: 'run'; id: number };
+  | { name: 'run'; id: number }
+  | { name: 'incoming' };
 
 const NAV: { view: View; label: string }[] = [
   { view: { name: 'invoices' }, label: 'Invoices' },
   { view: { name: 'customers' }, label: 'Customers' },
+  // Money coming in. Present in every deployment: without a bank connection
+  // the screen says so and points back at the invoice, which is where a
+  // payment has always been recorded.
+  { view: { name: 'incoming' }, label: 'Incoming payments' },
   // Money going out. The same module, the other direction.
   { view: { name: 'bills' }, label: 'Bills' },
   { view: { name: 'runs' }, label: 'Payment runs' },
@@ -55,6 +61,7 @@ export function initialView(path: string, search: string): View {
   if (path === '/customers') return { name: 'customers' };
   const run = /^\/payment-runs\/(\d+)$/.exec(path);
   if (run) return { name: 'run', id: Number(run[1]) };
+  if (path === '/incoming-payments') return { name: 'incoming' };
   if (path === '/payment-runs') return { name: 'runs' };
   if (path === '/bills') return { name: 'bills' };
   if (path === '/creditors') return { name: 'creditors' };
@@ -173,6 +180,7 @@ export function App() {
           <BillsView onOpenRun={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />
         )}
         {view.name === 'creditors' && <CreditorsView onAuthLost={onAuthLost} />}
+        {view.name === 'incoming' && <IncomingPaymentsView onAuthLost={onAuthLost} />}
         {view.name === 'runs' && (
           <PaymentRunsView onOpen={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />
         )}

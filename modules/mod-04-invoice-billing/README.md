@@ -327,7 +327,13 @@ POST   /api/payment-runs/:id/submit    send it to the bank via PS-12 (BANKING_UR
 POST   /api/payment-runs/:id/refresh   re-read the bank's word on a sent run
 POST   /api/payment-runs/:id/mark-executed  the bank executed it → bills settled
 POST   /api/payment-runs/:id/discard   not uploaded → bills back to open
+
+GET    /api/receivables/suggestions    what arrived, matched to open invoices
+POST   /api/receivables/apply          record what a human confirmed
 ```
+
+The last two answer **501 without a bank connection**, which is not a failure:
+a payment is recorded on the invoice itself, exactly as it always was.
 
 Validation failures return `422` with `{error, details: [{field,
 message}]}`; state conflicts (editing/deleting a sent invoice, paying a
@@ -412,6 +418,45 @@ the only path — which is the default and what most installations want.
 Unlike every other hook here, **this one is not best-effort**: an error
 propagates instead of becoming a warning, because a swallowed failure would
 leave an operator believing a payment was sent.
+
+### Incoming payments — the other direction, and equally optional
+
+With `BANKING_URL` set, the same connection can be read back: what actually
+arrived on the account, matched against invoices that are still open.
+**Incoming payments** in the navigation shows the proposals; ticking one
+records an ordinary payment on the invoice.
+
+Three things are worth being explicit about, because they are what stops this
+becoming a liability rather than a convenience.
+
+**It is a convenience.** `POST /api/invoices/:id/payments` — a human typing the
+amount — is the primary path and always will be. Without a bank connection the
+screen says so and points back at the invoice; nothing about getting paid
+depends on having one. This only removes the typing.
+
+**The matching rules are this module's own.** They live in
+[`shared/matching.ts`](shared/matching.ts), which imports nothing at all and
+works on a `BankBooking` shape defined here, not on the platform service's
+type. Taking PS-12's type would have quietly made receivables matching a
+feature of having a platform. Bookings from a bank connection today; from a CSV
+somebody exports, or a second source, without touching the rules.
+
+**Nothing is recorded without a person.** `suggestions` proposes and `apply`
+writes, deliberately as two calls. Every proposal carries HOW it was matched —
+the payer quoting the invoice number is not the same evidence as "this is the
+only open invoice for that amount", and the screen starts the two weak kinds
+unticked. Ambiguity is reported rather than resolved: two open invoices for the
+same amount is ordinary, and "the oldest" is a tie-break that would be wrong
+about half the time.
+
+What it does handle without asking: a collective payment naming several
+invoices is spent across them in order; a part payment is proposed as a part
+payment; a debit and a reversal are never proposed at all.
+
+**One arrival becomes at most one payment.** `payments.external_ref` holds the
+booking's identity under a UNIQUE index, and that identity is built from what
+the *bank* said — not from the row that delivered it, because a statement can
+be re-read from its stored bytes and row ids change underneath.
 
 With `AUDIT_URL` set, every payment-run event — `payment_run.created`,
 `payment_run.submitted`, `payment_run.rejected`, `payment_run.executed`,

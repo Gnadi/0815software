@@ -303,3 +303,67 @@ export interface PaymentConfig {
    */
   banking_configured: boolean;
 }
+
+// ── Incoming payments matched against open invoices ───────────────────
+
+/**
+ * A proposal: this money looks like it settles that invoice.
+ *
+ * Nothing is recorded until a person confirms one. The bank is certain about
+ * the money and never about which invoice it belongs to.
+ */
+export interface ReceivableProposal {
+  booking: {
+    key: string;
+    amount_cents: number;
+    currency: string;
+    credit: boolean;
+    reversal: boolean;
+    booking_date: string | null;
+    counterparty_name: string | null;
+    counterparty_iban: string | null;
+    remittance: string | null;
+    creditor_reference: string | null;
+    end_to_end_id: string | null;
+  };
+  invoice: {
+    id: number;
+    number: string;
+    customer_id: number;
+    customer_name: string;
+    open_cents: number;
+    issue_date: string | null;
+    due_date: string | null;
+  };
+  /**
+   * How it was arrived at, strongest first. Worth showing: "the payer quoted
+   * the invoice number" and "this is the only open invoice for that amount"
+   * deserve very different amounts of attention.
+   */
+  reason: 'creditor_reference' | 'end_to_end_id' | 'remittance_number' | 'customer_and_amount' | 'amount_only';
+  amount_cents: number;
+  /** True when this proposal closes the invoice. */
+  settles_invoice: boolean;
+  /** True when the whole booking goes into this one proposal. */
+  uses_whole_booking: boolean;
+}
+
+/** A booking nothing was proposed for, and why. */
+export interface UnmatchedReceivable {
+  booking: ReceivableProposal['booking'];
+  why: 'debit' | 'reversal' | 'already_applied' | 'no_candidate' | 'ambiguous';
+}
+
+export interface ReceivableSuggestions {
+  proposals: ReceivableProposal[];
+  unmatched: UnmatchedReceivable[];
+  /** Credits still needing a human — the number that says whether this works. */
+  unmatched_count: number;
+}
+
+export interface ReceivableOutcome {
+  bookingKey: string;
+  invoiceId: number;
+  status: 'recorded' | 'already_applied' | 'refused';
+  message?: string;
+}

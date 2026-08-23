@@ -346,6 +346,14 @@ export interface PaymentInput {
   amountCents: number;
   note: string | null;
   createdAt?: string;
+  /**
+   * A bank booking's identity, when this payment came from one.
+   *
+   * Null for a payment typed in by hand — which is every payment in a
+   * standalone deployment. When set, the UNIQUE index makes recording the
+   * same arrival twice impossible rather than merely unlikely.
+   */
+  externalRef?: string | null;
 }
 
 /**
@@ -375,9 +383,9 @@ export function recordPayment(db: Database.Database, id: number, input: PaymentI
     }
     const info = db
       .prepare(
-        'INSERT INTO payments (invoice_id, date, amount_cents, note, created_at) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO payments (invoice_id, date, amount_cents, note, created_at, external_ref) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .run(id, input.date, input.amountCents, input.note, input.createdAt ?? nowIso());
+      .run(id, input.date, input.amountCents, input.note, input.createdAt ?? nowIso(), input.externalRef ?? null);
     return Number(info.lastInsertRowid);
   })();
 }
