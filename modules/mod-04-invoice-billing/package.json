@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-04-invoice-billing",
   "version": "0.1.0",
-  "description": "MOD-04 Invoice & Billing \u2014 generate, send, and track invoices. PDF export, payment status, customer ledger.",
+  "description": "MOD-04 Invoice & Billing — generate, send, and track invoices. PDF export, payment status, customer ledger.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -13,7 +13,8 @@
     "start": "node dist/server/server/index.js",
     "backup": "node scripts/backup.mjs",
     "test": "vitest run",
-    "preview": "npm run build && npm start"
+    "preview": "npm run build && npm start",
+    "acceptance": "tsx scripts/acceptance.mts"
   },
   "dependencies": {
     "@0815software/platform-clients": "file:../../platform/clients",

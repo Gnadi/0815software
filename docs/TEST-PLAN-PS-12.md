@@ -618,66 +618,105 @@ Production-ready means all of:
 
 ## 15 · Record sheet
 
+**Run on 2026-08-24.** 30 cases executed, 6 partly, 17 still needing a bank.
+
+The L cases are automated by `npm run acceptance` in `platform/ps-12-banking`
+and `modules/mod-04-invoice-billing` — the harness drives the services' own
+HTTP routes rather than re-running the unit suites, and prints PASS/FAIL with
+the evidence quoted below. `S` cases go through `deploy/smoke-stack.mjs`.
+
+**What this run found** (three things, none of them in the L cases):
+
+1. **J6 — nothing watched PS-12.** The generated Prometheus scrapes `ps12:4012`
+   and no alert rule named a single PS-12 gauge, so `banking_orders_failed`
+   (each one a payment whose outcome is unknown) and `banking_chain_valid`
+   arrived where nobody read them. Rules added to `deploy/provision.mjs`, plus
+   the converse test that was missing: every service publishing domain gauges
+   must have a rule, with informational gauges listed by name rather than
+   pattern-matched away.
+2. **A pre-existing repo defect, surfaced by running S.** `smoke-stack.mjs`
+   matched the boot guard on "refusing to start in production with **default**
+   secrets" while all 28 guards say "**unusable** secrets — still set to a
+   shipped default". The check could never pass. Unrelated to this branch —
+   `guard.ts` and `smoke-stack.mjs` are both untouched by it — and fixed here
+   because leaving a permanently-failing check is worse than the one-line
+   correction.
+3. **K1 — a claim phrased as more than it is.** Both the README and the
+   landing page said "every order type the H005 schema set defines but one".
+   The schema set defines no such list: `OrderTBaseType` is a bare
+   `[A-Z0-9]{3}` pattern. What it does define is a dedicated order-data
+   structure for twelve order types, of which eleven are built. Corrected in
+   the README and in both language blocks.
+
+Four assertion mistakes were mine, not the code's, and are recorded because
+they are what a first run costs: the HTTP surface returns the order directly
+(a replay is 200, not a `replayed` field), the INI letter prints hex rather
+than base64, `/api/receivables/apply` takes a batch whose refusals are
+per-application, and the invoice route is `/finalize`, not `/issue`.
+
 A run of this plan should leave an artefact, not a memory.
 
 | Case | Env | Date | Who | Result | Evidence |
 | --- | --- | --- | --- | --- | --- |
-| A1 | L | | | | |
-| A2 | L | | | | |
-| A3 | L | | | | |
-| A4 | L | | | | |
-| A5 | B | | | | |
-| B1 | B | | | | |
-| B2 | B | | | | |
-| B3 | L | | | | |
-| B4 | L/B | | | | |
-| B5 | B | | | | |
-| B6 | B | | | | |
-| C1 | B | | | | |
-| C2 | B | | | | |
-| C3 | L | | | | |
-| C4 | B | | | | |
-| D1 | B | | | | |
-| D2 | B | | | | |
-| D3 | B | | | | |
-| D4 | B | | | | |
-| D5 | B | | | | |
-| D6 | L/B | | | | |
-| E1 | L | | | | |
-| E2 | L | | | | |
-| E3 | L | | | | |
-| E4 | L | | | | |
-| F1 | B | | | | |
-| F2 | B | | | | |
-| F3 | L | | | | |
-| F4 | L | | | | |
-| F5 | L | | | | |
-| F6 | S | | | | |
-| G1 | L | | | | |
-| G2 | L | | | | |
-| G3 | S | | | | |
-| G4 | S | | | | |
-| G5 | L | | | | |
-| H1 | B | | | | |
-| H2 | B | | | | |
-| H3 | L | | | | |
-| I1 | L | | | | |
-| I2 | L | | | | |
-| I3 | S | | | | |
-| J1 | S | | | | |
-| J2 | L | 2026-08-23 | — | pass | message verified verbatim |
-| J3 | S | | | | |
-| J4 | L | 2026-08-23 | — | pass | restore opened keys, chain valid, head unchanged |
-| J5 | S | | | | |
-| J6 | S | | | | |
-| J7 | S | | | | |
-| J8 | L | | | | |
-| J9 | L | | | | |
-| K1 | L | | | | |
-| K2 | L | | | | |
+| A1 | L | 2026-08-24 | acceptance run | pass | structurally valid PDF, 9067 bytes; naming Host/Partner/User. Opening it in a PDF reader is still outstanding |
+| A2 | L | 2026-08-24 | acceptance run | pass | all 3 stored digests found on the letter as uppercase hex |
+| A3 | L | 2026-08-24 | acceptance run | pass | order before verification 409; wrong digest 409; only the right pair reaches ready |
+| A4 | L | 2026-08-24 | acceptance run | pass | lock 200 → locked; resume 409; clear-failure 409 |
+| A5 | B | | | not run (needs a bank) | |
+| B1 | B | | | not run (needs a bank) | |
+| B2 | B | | | not run (needs a bank) | |
+| B3 | L | 2026-08-24 | acceptance run | pass | 422, exchanges unchanged, 0 orders — nothing reached the network |
+| B4 | L/B | 2026-08-24 | acceptance run | pass | 201 then 200 then 200, one order; replay is the status code |
+| B5 | B | | | not run (needs a bank) | |
+| B6 | B | | | not run (needs a bank) | |
+| C1 | B | | | not run (needs a bank) | |
+| C2 | B | | | not run (needs a bank) | |
+| C3 | L | 2026-08-24 | acceptance run | pass | kind "other", bytes recoverable from /content |
+| C4 | B | | | not run (needs a bank) | |
+| D1 | B | | | not run (needs a bank) | |
+| D2 | B | | | not run (needs a bank) | |
+| D3 | B | | | not run (needs a bank) | |
+| D4 | B | | | not run (needs a bank) | |
+| D5 | B | | | not run (needs a bank) | |
+| D6 | L/B | 2026-08-24 | acceptance run | pass | collective refused as "collective"; the ordinary credit still proposed |
+| E1 | L | 2026-08-24 | acceptance run | pass | bank_status contested, bill stays scheduled, run not executed |
+| E2 | L | 2026-08-24 | acceptance run | pass | contested both ways round, and terminal |
+| E3 | L | 2026-08-24 | acceptance run | pass | accepted→rejected stays rejected; failed→settled resolves |
+| E4 | L | 2026-08-24 | acceptance run | pass | bill released, new run has a different MsgId |
+| F1 | B | | | not run (needs a bank) | |
+| F2 | B | | | not run (needs a bank) | |
+| F3 | L | 2026-08-24 | acceptance run | pass | HTTP 201 status failed, 1 exchange, error kept, request present |
+| F4 | L | 2026-08-24 | acceptance run | pass | 5 exchanges scanned, no PEM material |
+| F5 | L | 2026-08-24 | acceptance run | pass | still "missing" after a tick that pruned 0 and marked 0 |
+| F6 | S | 2026-08-24 | acceptance run | partial | stack booted; retention not aged out over a real window |
+| G1 | L | 2026-08-24 | acceptance run | pass | content break, names order_events #1 |
+| G2 | L | 2026-08-24 | acceptance run | pass | quick content_checked=false valid; full invalid; gauge says "cheap pass only" |
+| G3 | S | 2026-08-24 | acceptance run | partial | reference measured (2.5 s / 0.2 s at 20 000); not re-measured at stack volume |
+| G4 | S | 2026-08-24 | acceptance run | partial | the boot line prints the head; shipping it off-box is an operator step |
+| G5 | L | 2026-08-24 | acceptance run | pass | 9 links, same head after stop/start on a file |
+| H1 | B | | | not run (needs a bank) | |
+| H2 | B | | | not run (needs a bank) | |
+| H3 | L | 2026-08-24 | acceptance run | pass | sha256 equal on the transmitted and downloaded XML |
+| I1 | L | 2026-08-24 | acceptance run | pass | submit 409, download 200, suggestions 501 naming the alternative |
+| I2 | L | 2026-08-24 | acceptance run | pass | recorded then already_applied; 1 payment row; paid once |
+| I3 | S | 2026-08-24 | acceptance run | partial | needs a browser and a real month of bookings |
+| J1 | S | 2026-08-24 | acceptance run | pass | 1 migration (baseline), 16 tables, ready, chain valid |
+| J2 | L | 2026-08-24 | acceptance run | pass | boot refused; message quoted verbatim in §10 |
+| J3 | S | 2026-08-24 | acceptance run | pass | runbook carries the ⚠️ section and the --force warning |
+| J4 | L | 2026-08-24 | acceptance run | pass | restore opened the key store, chain valid, head unchanged |
+| J5 | S | 2026-08-24 | acceptance run | partial | off-host copy and restore-from-it are operator steps |
+| J6 | S | 2026-08-24 | acceptance run | FIXED | was FAIL: PS-12 scraped but no rule watched its gauges. Rules added + converse test |
+| J7 | S | 2026-08-24 | acceptance run | partial | stack lists PS-12 as tick-driven; not idled for three intervals |
+| J8 | L | 2026-08-24 | acceptance run | pass | 422, recorded "refused by the egress policy: 127.0.0.1 is an internal address" |
+| J9 | L | 2026-08-24 | acceptance run | pass | order read 200; service token 403 elsewhere; anonymous 401 |
+| K1 | L | 2026-08-24 | acceptance run | NOTE | wording corrected: the H005 set does not enumerate order types |
+| K2 | L | 2026-08-24 | acceptance run | pass | config + construct + submitOrder; token sent; 11 payload-agnostic methods |
 
 **Totals:** 53 cases — 25 **L**, 9 **S**, 17 **B**, 2 runnable in both (**B4**,
-**D6**). Two are already run, both **L**.
+**D6**). After the run of 2026-08-24: **30 executed, 6 partial, 17 waiting on a
+bank.** The six partial ones need an operator or a browser rather than more
+code — an off-host restore, a log shipper, a month of real bookings, three tick
+intervals of patience.
 
 **34 of the 53 can be run today**, before any bank exists. That number is the
 honest measure of how much of this change can be accepted right now, and the

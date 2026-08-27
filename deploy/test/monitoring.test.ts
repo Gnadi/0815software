@@ -112,6 +112,44 @@ describe('alert rules mean something', () => {
     }
   });
 
+  /**
+   * The converse check, and the one that was missing.
+   *
+   * The test above proves every metric we alert on is really exported. It says
+   * nothing about a service that exports gauges nobody alerts on — which is
+   * how PS-12 shipped: `banking_orders_failed` (each one a payment whose
+   * outcome is UNKNOWN) and `banking_chain_valid` were served, scraped by the
+   * generated Prometheus, and watched by nothing. Metrics arriving where no
+   * rule reads them is indistinguishable from health.
+   */
+  it('alerts on every service that publishes domain gauges of its own', () => {
+    // Not every gauge is a health signal. These are inventory counts — how
+    // many parties exist — and paging on them would be noise. Listed rather
+    // than pattern-matched so that adding a gauge nobody watches is a visible
+    // decision with a name on it, not an omission.
+    const INFORMATIONAL = new Set(['customers_parties_total', 'customers_suppliers_total']);
+
+    const everything = planStack(options({ allServices: true }));
+    const watched = new Set(
+      alertExprs(renderAlerts(everything)).flatMap((expr) => expr.match(/[a-z][a-z0-9_]*_[a-z0-9_]+/g) ?? []),
+    );
+
+    const unwatched: string[] = [];
+    for (const { service } of everything.services) {
+      const src = readFileSync(`${root}/platform/${service.id}/server/app.ts`, 'utf8');
+      // A domain gauge is any name declared in this service's own gauge list.
+      // `http_requests_total` comes from the shared telemetry module, not from
+      // the service, so it does not count as something this service publishes.
+      const gauges = [...src.matchAll(/name: '([a-z][a-z0-9_]*_[a-z0-9_]+)'/g)]
+        .map((m) => m[1]!)
+        .filter((n) => !n.startsWith('http_requests') && !INFORMATIONAL.has(n));
+      if (gauges.length > 0 && !gauges.some((g) => watched.has(g))) {
+        unwatched.push(`${service.id} publishes ${gauges.join(', ')} and nothing alerts on any of them`);
+      }
+    }
+    expect(unwatched).toEqual([]);
+  });
+
   it('leaves out rules for services this stack does not run', () => {
     // PS-02 and PS-05 are not in this selection, so their rules must be absent:
     // a rule nobody can ever satisfy reads as permanent good news.

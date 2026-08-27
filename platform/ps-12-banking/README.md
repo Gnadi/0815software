@@ -1013,7 +1013,12 @@ the six VEU ones (`HVU`, `HVZ`, `HVD`, `HVT`, `HVE`, `HVS`), the five
 administrative downloads (`HTD`, `HKD`, `HPD`, `HAA`, `HAC`) and the two key
 changes (`HCA`, `HCS`).
 
-**Exactly one order type the H005 schema set defines is missing: `H3K`** — the
+**One order type is missing: `H3K`.** The H005 schema set does not enumerate
+order types at all — `OrderTBaseType` is a bare `[A-Z0-9]{3}` pattern, so any
+three characters validate. What it *does* define is a dedicated order-data
+structure for twelve of them: `H3K`, `HAA`, `HIA`, `HKD`, `HPB`, `HPD`, `HTD`,
+`HVD`, `HVS`, `HVT`, `HVU`, `HVZ`. Eleven of those twelve are built, and the
+twelfth is `H3K` — the
 one-step initialisation that sends all three certificates together instead of
 `INI` + `HIA` and then fetching the bank's keys with `HPB`. It is an
 alternative to that sequence, not a capability beyond it: everything it does

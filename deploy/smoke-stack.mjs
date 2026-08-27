@@ -516,7 +516,12 @@ async function checkBootGuard({ group, id, label, port, env }) {
   const text = output.join('');
   check(
     `${label} refuses to boot on a default SESSION_SECRET`,
-    code !== null && code !== 0 && /refusing to start in production with default secrets/.test(text),
+    // Matched against what the guards actually print. This read "default
+    // secrets" while all 28 of them say "unusable secrets — still set to a
+    // shipped default", so the check could never pass: the guard fired
+    // correctly every time and the smoke test called it a failure. Found by
+    // running docs/TEST-PLAN-PS-12.md; the drift predates that branch.
+    code !== null && code !== 0 && /refusing to start in production with unusable secrets/.test(text),
     code === null
       ? 'it was still running after 20s — the guard did not fire'
       : `exit ${code}; output: ${text.trim().split('\n').slice(-2).join(' ') || '(none)'}`,
