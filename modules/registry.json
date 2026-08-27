@@ -308,6 +308,7 @@
           "SELLER_VAT_ID"
         ],
         "optional": [
+          "AT_TAXS_REMITTANCE_PATTERN",
           "BANK_CONNECTION",
           "NOTIFICATION_INVOICE_CHANNEL",
           "SELLER_BIC",

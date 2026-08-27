@@ -16,6 +16,7 @@ import {
   publicKeyParts,
   sha256,
   signAuth,
+  signDigest,
   signOrderData,
   unpackOrderData,
   unpadX923,
@@ -113,6 +114,50 @@ describe('signatures', () => {
     expect(signOrderData(ES.privatePem, payload, 'A005').toString('hex')).toBe(openssl);
     // And the other direction: we accept what openssl produced.
     expect(verifyOrderData(ES.publicPem, payload, Buffer.from(openssl, 'hex'), 'A005')).toBe(true);
+  });
+
+  /**
+   * The second golden vector, for the one place a digest arrives from outside.
+   *
+   * A co-signatory approving an order in the bank's VEU queue signs the
+   * `DataDigest` that `HVD` returned — they may not have the order data at
+   * all. That is the exact shape of the double-hash bug above, so it gets the
+   * same treatment: a value produced by an implementation that has never read
+   * this repository.
+   *
+   *   openssl pkeyutl -sign -inkey es-priv.pem -in digest.bin -pkeyopt digest:sha256
+   */
+  it('signs a digest the way openssl does, and the way signOrderData does', () => {
+    const preimage = Buffer.from('the collective order awaiting a second signature', 'utf8');
+    const digest = sha256(preimage);
+    const openssl =
+      '1fd859d9fc3a3b5748555e9e83b39db500ab14722f3f762d6188b55c83b1adf4b6123a2d66fd' +
+      '0d04b98f3c0150f092eceaa173a492958efd9f4eaf9ee34d94e131a255dac9ca573d546543d4' +
+      'a226c5ebe7a5209c8814707b732e200148681b7749a443f78546a8fe59ed930eaa724599f248' +
+      'b3b3b6800e1100fed9b42ec601da7af3276752d9dd98ab5665a658454c135695cc7254af5d20' +
+      '3f5b1c67cd4c0ba3515d7def45a286b550d9ab2bf46de405ed232de0f7d41d187a8e7f235d47' +
+      '6dab21889c12c3d9907ac40c364aeb92c196f1bf6685459af72b60550be31ea602337fb64204' +
+      '98e044ba09b97fdce66d5bafc6aaec82e0d5ad143f72b6ef5a659c2c';
+    expect(signDigest(ES.privatePem, digest, 'A005').toString('hex')).toBe(openssl);
+
+    // And the invariant that makes the whole thing safe to reason about:
+    // signing a digest produces the SAME bytes as signing its preimage. If
+    // these two ever disagree, one of them is hashing an extra time.
+    expect(signDigest(ES.privatePem, digest, 'A005').equals(signOrderData(ES.privatePem, preimage, 'A005'))).toBe(true);
+    expect(verifyOrderData(ES.publicPem, preimage, signDigest(ES.privatePem, digest, 'A005'), 'A005')).toBe(true);
+  });
+
+  it('refuses to co-sign with A006 rather than approximating PSS', () => {
+    // PSS encoding needs the hash function, not merely its output, and
+    // node:crypto offers no way to supply one. Saying so beats emitting a
+    // signature that is quietly not one.
+    expect(() => signDigest(ES.privatePem, sha256(Buffer.from('x')), 'A006')).toThrow(/A006/);
+  });
+
+  it('refuses anything that is not a 32-byte SHA-256 digest', () => {
+    // A caller passing base64 text, or a truncated hash, would otherwise get a
+    // valid-looking signature over the wrong DigestInfo.
+    expect(() => signDigest(ES.privatePem, Buffer.alloc(20), 'A005')).toThrow(/32-byte/);
   });
 
   it('signs the order data ONCE — not the digest of the digest', () => {

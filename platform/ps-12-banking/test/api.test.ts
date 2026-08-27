@@ -115,6 +115,19 @@ describe('who may do what', () => {
     ['post', '/api/connections/main/verify-bank-keys'],
     ['post', '/api/connections/main/suspend'],
     ['post', '/api/connections/main/resume'],
+    ['get', '/api/connections/main/customer-data'],
+    ['get', '/api/connections/main/bank-parameters'],
+    ['get', '/api/connections/main/waiting'],
+    ['get', '/api/connections/main/subscriptions'],
+    ['post', '/api/connections/main/subscriptions'],
+    ['delete', '/api/connections/main/subscriptions/1'],
+    // A module that could rotate the ES key could rotate it to a key it holds.
+    ['get', '/api/connections/main/key-change'],
+    ['post', '/api/connections/main/key-change'],
+    ['post', '/api/connections/main/key-change/complete'],
+    ['delete', '/api/connections/main/key-change'],
+    // Dropping and rebuilding derived rows is not a module's call.
+    ['post', '/api/statements/reparse'],
   ];
 
   it.each(OPERATOR_ROUTES)('%s %s needs a credential', async (method, path) => {
@@ -139,6 +152,10 @@ describe('who may do what', () => {
     ['post', '/api/orders'],
     ['post', '/api/tick'],
     ['get', '/api/banks'],
+    // Bookings are what a MODULE consumes: reading them moves no money and
+    // needs no human, unlike everything under /connections.
+    ['get', '/api/statements'],
+    ['get', '/api/entries'],
   ] as [string, string][])('%s %s accepts a service token', async (method, path) => {
     const res = await (request(app) as unknown as Record<string, (p: string) => request.Test>)
       [method]!(path)
@@ -207,6 +224,80 @@ describe('GET /api/banks', () => {
     const res = await request(app).get('/api/banks').set(SERVICE).expect(200);
     const serialised = JSON.stringify(res.body);
     expect(serialised).not.toMatch(/https?:\/\//);
+  });
+});
+
+// ── Verification of Payee ─────────────────────────────────────────────
+
+describe('verification of payee', () => {
+  it('sends no ServiceOption by default, leaving the market default in force', async () => {
+    // Both published tables read an absent option as OPT-OUT for SCT. Saying
+    // nothing is a real choice, and it is the one every existing connection
+    // has — so it must stay the default rather than become opt-in by accident.
+    await bringUp('main');
+    await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'main', payload_base64: pain001('V0') })
+      .expect(201);
+
+    expect(bank.received[0]!.btf.option).toBeNull();
+  });
+
+  it('says VOO when the connection opts out deliberately', async () => {
+    await bringUp('voo', { vop: 'opt_out' });
+    const res = await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'voo', payload_base64: pain001('V1') })
+      .expect(201);
+
+    expect(res.body.btf.option).toBe('VOO');
+    expect(bank.received[0]!.btf.option).toBe('VOO');
+  });
+
+  it('says VOI when the connection opts in', async () => {
+    await bringUp('voi', { vop: 'opt_in' });
+    await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'voi', payload_base64: pain001('V2') })
+      .expect(201);
+
+    expect(bank.received[0]!.btf.option).toBe('VOI');
+  });
+
+  it('leaves a caller-supplied BTF alone — that caller owns all of it', async () => {
+    // Overriding the BTF is how a bank that wants something unusual stays
+    // reachable. Quietly rewriting its ServiceOption would defeat that.
+    await bringUp('voi2', { vop: 'opt_in' });
+    await request(app)
+      .post('/api/orders')
+      .set(SERVICE)
+      .send({ connection: 'voi2', btf: { ...BTF, option: 'CFDVOO' }, payload_base64: pain001('V3') })
+      .expect(201);
+
+    expect(bank.received[0]!.btf.option).toBe('CFDVOO');
+  });
+
+  it('refuses a value that is not one of the three', async () => {
+    // A typo'd "optout" would otherwise store as nothing and leave the
+    // connection on the market default while claiming a choice was made.
+    const res = await request(app)
+      .post('/api/connections')
+      .set('Authorization', `Bearer ${session}`)
+      .send({
+        key: 'badvop',
+        display_name: 'Test Bank',
+        bank_key: 'at-sepa',
+        url: 'https://bank.example/ebics',
+        host_id: bank.hostId,
+        partner_id: 'PARTNER1',
+        user_id: 'USER1',
+        vop: 'optout',
+      })
+      .expect(422);
+    expect(res.body.details[0].field).toBe('vop');
   });
 });
 
@@ -618,7 +709,7 @@ describe('POST /api/orders', () => {
 describe('POST /api/tick', () => {
   it('is a quiet no-op on a stack with no connections', async () => {
     const res = await request(app).post('/api/tick').set(SERVICE).expect(200);
-    expect(res.body).toEqual({ downloads_fetched: 0, orders_updated: 0, problems: [] });
+    expect(res.body).toEqual({ downloads_fetched: 0, orders_updated: 0, statements_read: 0, problems: [] });
   });
 
   it('fetches what is waiting and reports what it did', async () => {
@@ -673,5 +764,83 @@ describe('downloads', () => {
 
   it('404s an unknown download', async () => {
     await request(app).get('/api/downloads/dl_nope').set(SERVICE).expect(404);
+  });
+});
+
+// ── The BTFs the tick fetches, and the keys it signs with ─────────────
+
+describe('customer data, subscriptions and key rotation over HTTP', () => {
+  beforeEach(async () => {
+    await bringUp();
+  });
+
+  it('answers HTD with the bank’s own list of what it has enabled', async () => {
+    const res = await request(app)
+      .get('/api/connections/main/customer-data')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+    expect(res.body.scope).toBe('subscriber');
+    expect(res.body.partner.name).toBe('0815 Software GmbH');
+    // The field that makes the BTF question answerable without a transcribed
+    // table: what this bank will actually hand over.
+    expect(res.body.available_downloads.length).toBeGreaterThan(0);
+  });
+
+  it('subscribes the tick to a BTF no profile in this repository names', async () => {
+    const created = await request(app)
+      .post('/api/connections/main/subscriptions')
+      .set('Authorization', `Bearer ${session}`)
+      .send({ btf: { service_name: 'REP', scope: 'BIL', msg_name: 'camt.086', container: 'ZIP' }, label: 'fees' })
+      .expect(201);
+    expect(created.body.btf.msg_name).toBe('camt.086');
+
+    const list = await request(app)
+      .get('/api/connections/main/subscriptions')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+    expect(list.body.subscriptions.map((s: { btf: { msg_name: string } }) => s.btf.msg_name)).toContain('camt.086');
+
+    await request(app)
+      .delete(`/api/connections/main/subscriptions/${created.body.id}`)
+      .set('Authorization', `Bearer ${session}`)
+      .expect(204);
+  });
+
+  it('rotates the keys and keeps talking to the bank afterwards', async () => {
+    const before = await request(app)
+      .get('/api/connections/main')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+
+    const changed = await request(app)
+      .post('/api/connections/main/key-change')
+      .set('Authorization', `Bearer ${session}`)
+      .send({})
+      .expect(200);
+    expect(changed.body.orderType).toBe('HCA');
+
+    const after = await request(app)
+      .get('/api/connections/main')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+    const digest = (body: { keys: { purpose: string; digest: string }[] }, purpose: string): string =>
+      body.keys.find((k) => k.purpose === purpose)!.digest;
+    expect(digest(after.body, 'AUTH')).not.toBe(digest(before.body, 'AUTH'));
+
+    // The proof both sides moved together: the next signed request works.
+    await request(app)
+      .get('/api/connections/main/customer-data')
+      .set('Authorization', `Bearer ${session}`)
+      .expect(200);
+  });
+
+  it('never puts key material in a key-change response', async () => {
+    const res = await request(app)
+      .post('/api/connections/main/key-change')
+      .set('Authorization', `Bearer ${session}`)
+      .send({ include_signature: true })
+      .expect(200);
+    expect(JSON.stringify(res.body)).not.toMatch(/PRIVATE KEY/);
+    expect(JSON.stringify(res.body)).not.toMatch(/BEGIN/);
   });
 });

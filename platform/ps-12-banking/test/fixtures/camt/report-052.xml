@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- camt.052.001.02 — an INTRADAY report. Same entry structure as a camt.053
+     (verified against the Austrian schemas, which define ReportEntry2
+     identically in both), different envelope and container, and provisional:
+     the booking here appears again on the day's statement. -->
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.052.001.02">
+  <BkToCstmrAcctRpt>
+    <GrpHdr>
+      <MsgId>RPT-2026-0815-01</MsgId>
+      <CreDtTm>2026-08-15T11:00:00</CreDtTm>
+      <MsgRcpt><Nm>0815 Software GmbH</Nm></MsgRcpt>
+    </GrpHdr>
+    <Rpt>
+      <Id>AT-RPT-000123</Id>
+      <CreDtTm>2026-08-15T11:00:00</CreDtTm>
+      <Acct>
+        <Id><IBAN>AT611904300234573201</IBAN></Id>
+        <Ccy>EUR</Ccy>
+      </Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>ITBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">1299.99</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2026-08-15</Dt></Dt>
+      </Bal>
+      <!-- The SAME booking that the camt.053 fixture carries as entry 1. -->
+      <Ntry>
+        <Amt Ccy="EUR">299.99</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-08-15</Dt></BookgDt>
+        <AcctSvcrRef>BANKREF-0001</AcctSvcrRef>
+        <BkTxCd>
+          <Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn>
+          <Prtry><Cd>NTRF+051</Cd><Issr>APC</Issr></Prtry>
+        </BkTxCd>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><AcctSvcrRef>BANKREF-0001</AcctSvcrRef><EndToEndId>INV-2026-0042</EndToEndId></Refs>
+            <AmtDtls><TxAmt><Amt Ccy="EUR">299.99</Amt></TxAmt></AmtDtls>
+            <RltdPties><Dbtr><Nm>Muster Handels GmbH</Nm></Dbtr></RltdPties>
+            <RmtInf><Ustrd>Rechnung 2026-0042 vom 01.08.2026</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+
+      <!-- Not yet booked. The Austrian schema permits PDNG here and NOWHERE on
+           a camt.053 — a pending item lives in the intraday report, which is
+           exactly why a query across both would count money that has not
+           moved. -->
+      <Ntry>
+        <Amt Ccy="EUR">12.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts>PDNG</Sts>
+        <AcctSvcrRef>BANKREF-0099</AcctSvcrRef>
+        <BkTxCd>
+          <Domn><Cd>PMNT</Cd><Fmly><Cd>CCRD</Cd><SubFmlyCd>POSD</SubFmlyCd></Fmly></Domn>
+          <Prtry><Cd>NMSC+000</Cd><Issr>APC</Issr></Prtry>
+        </BkTxCd>
+      </Ntry>
+    </Rpt>
+  </BkToCstmrAcctRpt>
+</Document>

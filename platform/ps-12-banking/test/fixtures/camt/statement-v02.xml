@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- camt.053.001.02, shaped to pass the STUZZA Austrian subset — which is
+     stricter than ISO on the same namespace, so this also passes ISO.
+
+     What the Austrian schema forces, and none of it is guessable:
+       GrpHdr/MsgRcpt          required
+       Stmt/LglSeqNb           required
+       Ntry/BookgDt            required
+       Ntry/AcctSvcrRef        required
+       BkTxCd/Domn AND /Prtry  BOTH required — hence two codes per entry
+       TxDtls/Refs, /AmtDtls   both required
+       Refs                    only AcctSvcrRef, EndToEndId, TxId, MndtId, ChqNb
+       RmtInf/Ustrd            at most ONE line
+       Sts                     BOOK only: a pending entry cannot appear on an
+                               Austrian statement at all. It lives in the
+                               camt.052 report instead — see report-052.xml.
+
+     Version-specific: Sts is a plain code here, parties carry Nm directly, and
+     a transaction has no Amt of its own. -->
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">
+  <BkToCstmrStmt>
+    <GrpHdr>
+      <MsgId>STMT-2026-0815-01</MsgId>
+      <CreDtTm>2026-08-15T23:59:00</CreDtTm>
+      <MsgRcpt><Nm>0815 Software GmbH</Nm></MsgRcpt>
+    </GrpHdr>
+    <Stmt>
+      <Id>AT-STMT-000123</Id>
+      <ElctrncSeqNb>123</ElctrncSeqNb>
+      <LglSeqNb>44</LglSeqNb>
+      <CreDtTm>2026-08-15T23:59:00</CreDtTm>
+      <FrToDt>
+        <FrDtTm>2026-08-15T00:00:00</FrDtTm>
+        <ToDtTm>2026-08-15T23:59:59</ToDtTm>
+      </FrToDt>
+      <Acct>
+        <Id><IBAN>AT611904300234573201</IBAN></Id>
+        <Ccy>EUR</Ccy>
+        <Nm>Girokonto</Nm>
+        <Ownr><Nm>0815 Software GmbH</Nm></Ownr>
+      </Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">1000.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2026-08-15</Dt></Dt>
+      </Bal>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">1230.51</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2026-08-15</Dt></Dt>
+      </Bal>
+
+      <!-- Money IN: a customer paying an invoice, with a structured reference. -->
+      <Ntry>
+        <NtryRef>NTRY-1</NtryRef>
+        <Amt Ccy="EUR">299.99</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-08-15</Dt></BookgDt>
+        <ValDt><Dt>2026-08-15</Dt></ValDt>
+        <AcctSvcrRef>BANKREF-0001</AcctSvcrRef>
+        <BkTxCd>
+          <Domn>
+            <Cd>PMNT</Cd>
+            <Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly>
+          </Domn>
+          <Prtry><Cd>NTRF+051</Cd><Issr>APC</Issr></Prtry>
+        </BkTxCd>
+        <NtryDtls>
+          <TxDtls>
+            <Refs>
+              <AcctSvcrRef>BANKREF-0001</AcctSvcrRef>
+              <EndToEndId>INV-2026-0042</EndToEndId>
+            </Refs>
+            <AmtDtls><TxAmt><Amt Ccy="EUR">299.99</Amt></TxAmt></AmtDtls>
+            <RltdPties>
+              <Dbtr><Nm>Muster Handels GmbH</Nm></Dbtr>
+              <DbtrAcct><Id><IBAN>AT022050302101023600</IBAN></Id></DbtrAcct>
+            </RltdPties>
+            <RmtInf>
+              <Ustrd>Rechnung 2026-0042 vom 01.08.2026</Ustrd>
+              <Strd>
+                <CdtrRefInf><Ref>RF18539007547034</Ref></CdtrRefInf>
+              </Strd>
+            </RmtInf>
+          </TxDtls>
+        </NtryDtls>
+        <AddtlNtryInf>SEPA-Gutschrift</AddtlNtryInf>
+      </Ntry>
+
+      <!-- Money OUT: our own payment run. The counterparty is the CREDITOR. -->
+      <Ntry>
+        <Amt Ccy="EUR">69.48</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-08-15</Dt></BookgDt>
+        <AcctSvcrRef>BANKREF-0002</AcctSvcrRef>
+        <BkTxCd>
+          <Domn><Cd>PMNT</Cd><Fmly><Cd>ICDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn>
+          <Prtry><Cd>NSTO+117</Cd><Issr>APC</Issr></Prtry>
+        </BkTxCd>
+        <NtryDtls>
+          <TxDtls>
+            <Refs>
+              <AcctSvcrRef>BANKREF-0002</AcctSvcrRef>
+              <EndToEndId>RUN-2026-08-1</EndToEndId>
+            </Refs>
+            <AmtDtls><TxAmt><Amt Ccy="EUR">69.48</Amt></TxAmt></AmtDtls>
+            <RltdPties>
+              <Cdtr><Nm>Lieferant AG</Nm></Cdtr>
+              <CdtrAcct><Id><IBAN>DE02120300000000202051</IBAN></Id></CdtrAcct>
+            </RltdPties>
+            <Purp><Cd>SUPP</Cd></Purp>
+            <RmtInf><Ustrd>Zahlungslauf August</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+
+      <!-- A returned direct debit: reversal, with a reason. -->
+      <Ntry>
+        <Amt Ccy="EUR">50.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <RvslInd>true</RvslInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-08-15</Dt></BookgDt>
+        <AcctSvcrRef>BANKREF-0003</AcctSvcrRef>
+        <BkTxCd>
+          <Domn><Cd>PMNT</Cd><Fmly><Cd>RDDT</Cd><SubFmlyCd>UPDD</SubFmlyCd></Fmly></Domn>
+          <Prtry><Cd>NRTI+109</Cd><Issr>APC</Issr></Prtry>
+        </BkTxCd>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><AcctSvcrRef>BANKREF-0003</AcctSvcrRef><EndToEndId>DD-77</EndToEndId><MndtId>MANDATE-77</MndtId></Refs>
+            <AmtDtls><TxAmt><Amt Ccy="EUR">50.00</Amt></TxAmt></AmtDtls>
+            <RltdPties><Cdtr><Nm>Saeumig KG</Nm></Cdtr></RltdPties>
+            <RtrInf><Rsn><Cd>AM04</Cd></Rsn></RtrInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>

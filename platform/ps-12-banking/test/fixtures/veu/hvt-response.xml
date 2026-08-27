@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HVTResponseOrderData xmlns="urn:org:ebics:H005">
+  <NumOrderInfos>3</NumOrderInfos>
+  <OrderInfo>
+    <AccountInfo>
+      <AccountNumber Role="Originator" Description="Geschaeftskonto" international="true">AT611904300234573201</AccountNumber>
+      <BankCode Role="Originator" international="true">BKAUATWW</BankCode>
+      <AccountHolder Role="Originator">0815software GmbH</AccountHolder>
+    </AccountInfo>
+    <AccountInfo>
+      <AccountNumber Role="Recipient" international="true">AT483200000012345864</AccountNumber>
+      <BankCode Role="Recipient" international="true">RLNWATWW</BankCode>
+      <AccountHolder Role="Recipient">Stadtwerke Wien Energie GmbH</AccountHolder>
+    </AccountInfo>
+    <ExecutionDate>2026-08-21</ExecutionDate>
+    <Amount isCredit="false" Currency="EUR">421.80</Amount>
+    <Description Type="Purpose">Stromabrechnung 08/2026</Description>
+    <Description Type="Comment">Rechnung 2026-0815</Description>
+  </OrderInfo>
+</HVTResponseOrderData>

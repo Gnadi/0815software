@@ -96,7 +96,7 @@ export function generateSubscriberKeys(
   },
 ): PublicKeyRecord[] {
   const existing = db
-    .prepare('SELECT COUNT(*) AS n FROM subscriber_keys WHERE connection_id = ? AND retired_at IS NULL')
+    .prepare('SELECT COUNT(*) AS n FROM subscriber_keys WHERE connection_id = ? AND retired_at IS NULL AND pending = 0')
     .get(params.connectionId) as { n: number };
   if (existing.n > 0) {
     throw new KeyStoreError('this connection already has keys — generating new ones would orphan the bank’s copy');
@@ -160,6 +160,145 @@ export function generateSubscriberKeys(
   )();
 }
 
+/**
+ * Generate replacement keys for a rotation, stored as PENDING.
+ *
+ * Pending means: on disk, decryptable, and used by nothing. `privatePemFor`
+ * and everything else in this file ignore them, so the connection keeps
+ * signing with the keys the bank knows until the bank says it has accepted the
+ * new ones.
+ *
+ * Committing before the request goes out is the whole point — see migration
+ * 10. The failure this orders against is the bank accepting a key change and
+ * this service not holding the key, which cannot be recovered from here.
+ *
+ * Idempotent by design: an existing pending set is returned unchanged rather
+ * than replaced, so a retried send re-sends the same certificates instead of
+ * asking the bank to move to a third key.
+ */
+export function generatePendingKeys(
+  db: Database.Database,
+  params: {
+    connectionId: number;
+    keySecret: Buffer;
+    purposes: KeyPurpose[];
+    esVersion?: EsVersion;
+    now: string;
+    subject: { partnerId: string; userId: string };
+  },
+): PublicKeyRecord[] {
+  const existing = pendingRecords(db, params.connectionId);
+  if (existing.length > 0) return existing;
+
+  const version = (purpose: KeyPurpose): string =>
+    purpose === 'ES' ? (params.esVersion ?? 'A005') : purpose === 'AUTH' ? 'X002' : 'E002';
+
+  const insert = db.prepare(
+    `INSERT INTO subscriber_keys
+       (connection_id, purpose, version, private_pem_enc, public_pem, certificate_pem,
+        modulus, exponent, digest, created_at, pending)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+  );
+  const notBefore = new Date(params.now);
+  const notAfter = new Date(notBefore);
+  notAfter.setUTCFullYear(notAfter.getUTCFullYear() + 10);
+
+  db.transaction(() => {
+    for (const purpose of params.purposes) {
+      const pair = generateRsaKeyPair();
+      const { modulus, exponent } = publicKeyParts(pair.publicPem);
+      insert.run(
+        params.connectionId,
+        purpose,
+        version(purpose),
+        encryptSecret(params.keySecret, pair.privatePem),
+        pair.publicPem,
+        selfSignedCertificate({
+          privatePem: pair.privatePem,
+          purpose,
+          subject: { commonName: params.subject.userId, organizationName: params.subject.partnerId },
+          notBefore,
+          notAfter,
+          serial: randomBytes(16),
+        }),
+        modulus.toString('base64'),
+        exponent.toString('base64'),
+        publicKeyDigest(pair.publicPem).toString('base64'),
+        params.now,
+      );
+    }
+  })();
+  return pendingRecords(db, params.connectionId);
+}
+
+/** The digests of a pending set — what an API response may show about it. */
+export function pendingRecords(db: Database.Database, connectionId: number): PublicKeyRecord[] {
+  const rows = db
+    .prepare(
+      `SELECT purpose, version, digest, created_at FROM subscriber_keys
+       WHERE connection_id = ? AND retired_at IS NULL AND pending = 1 ORDER BY purpose`,
+    )
+    .all(connectionId) as Pick<KeyRow, 'purpose' | 'version' | 'digest' | 'created_at'>[];
+  return rows.map((row) => ({ ...row, digestFormatted: formatForLetter(row.digest) }));
+}
+
+/** The certificate a pending key will be presented to the bank under. */
+export function pendingCertificatePem(
+  db: Database.Database,
+  params: { connectionId: number; purpose: KeyPurpose },
+): string {
+  const row = db
+    .prepare(
+      'SELECT certificate_pem FROM subscriber_keys WHERE connection_id = ? AND purpose = ? AND retired_at IS NULL AND pending = 1',
+    )
+    .get(params.connectionId, params.purpose) as { certificate_pem: string | null } | undefined;
+  if (row === undefined) throw new KeyStoreError(`there is no pending ${params.purpose} key on this connection`);
+  if (row.certificate_pem === null || row.certificate_pem === '') {
+    throw new KeyStoreError(`the pending ${params.purpose} key has no certificate`);
+  }
+  return row.certificate_pem;
+}
+
+/**
+ * Retire the old keys and promote the pending ones. One transaction.
+ *
+ * Called only once the BANK has confirmed the change, because from that moment
+ * the old keys are the wrong ones and every later message must be signed with
+ * these. The old rows are retired, never deleted: which key signed a payment
+ * last month is a question an auditor gets to ask.
+ */
+export function activatePendingKeys(db: Database.Database, connectionId: number, at: string): PublicKeyRecord[] {
+  const pending = pendingRecords(db, connectionId);
+  if (pending.length === 0) throw new KeyStoreError('there are no pending keys on this connection');
+
+  db.transaction(() => {
+    for (const record of pending) {
+      db.prepare(
+        `UPDATE subscriber_keys SET retired_at = ?
+          WHERE connection_id = ? AND purpose = ? AND retired_at IS NULL AND pending = 0`,
+      ).run(at, connectionId, record.purpose);
+      db.prepare(
+        `UPDATE subscriber_keys SET pending = 0
+          WHERE connection_id = ? AND purpose = ? AND retired_at IS NULL AND pending = 1`,
+      ).run(connectionId, record.purpose);
+    }
+  })();
+  return publicRecords(db, connectionId);
+}
+
+/**
+ * Throw a pending set away.
+ *
+ * Only safe when the bank REFUSED the change — a discard after an acceptance
+ * destroys the only copy of the key the bank has moved to. Retired rather than
+ * deleted, so the discard itself is visible.
+ */
+export function discardPendingKeys(db: Database.Database, connectionId: number, at: string): number {
+  return db
+    .prepare('UPDATE subscriber_keys SET retired_at = ? WHERE connection_id = ? AND retired_at IS NULL AND pending = 1')
+    .run(at, connectionId).changes;
+}
+
 /** Group a base64 digest as hex, the way a bank prints it on its letter. */
 export function formatForLetter(base64Digest: string): string {
   const hex = Buffer.from(base64Digest, 'base64').toString('hex').toUpperCase();
@@ -179,7 +318,7 @@ export function privatePemFor(
 ): { pem: string; version: string } {
   const row = db
     .prepare(
-      'SELECT * FROM subscriber_keys WHERE connection_id = ? AND purpose = ? AND retired_at IS NULL',
+      'SELECT * FROM subscriber_keys WHERE connection_id = ? AND purpose = ? AND retired_at IS NULL AND pending = 0',
     )
     .get(params.connectionId, params.purpose) as KeyRow | undefined;
   if (row === undefined) {
@@ -192,8 +331,9 @@ export function privatePemFor(
  * The X.509 certificate for one purpose.
  *
  * EBICS 3.0 sends keys only as certificates, so INI and HIA read from here.
- * Empty for a connection whose keys predate migration 4: those cannot produce
- * a valid H005 key exchange and have to be re-initialised with the bank.
+ * Empty only for a connection whose keys were written without one — those
+ * cannot produce a valid H005 key exchange and have to be re-initialised with
+ * the bank rather than repaired here.
  */
 export function certificatePemFor(
   db: Database.Database,
@@ -201,7 +341,7 @@ export function certificatePemFor(
 ): string {
   const row = db
     .prepare(
-      'SELECT certificate_pem FROM subscriber_keys WHERE connection_id = ? AND purpose = ? AND retired_at IS NULL',
+      'SELECT certificate_pem FROM subscriber_keys WHERE connection_id = ? AND purpose = ? AND retired_at IS NULL AND pending = 0',
     )
     .get(params.connectionId, params.purpose) as { certificate_pem: string | null } | undefined;
   if (row === undefined) throw new KeyStoreError(`this connection has no ${params.purpose} key`);
@@ -220,7 +360,7 @@ export function publicPemFor(
   params: { connectionId: number; purpose: KeyPurpose },
 ): string {
   const row = db
-    .prepare('SELECT public_pem FROM subscriber_keys WHERE connection_id = ? AND purpose = ? AND retired_at IS NULL')
+    .prepare('SELECT public_pem FROM subscriber_keys WHERE connection_id = ? AND purpose = ? AND retired_at IS NULL AND pending = 0')
     .get(params.connectionId, params.purpose) as { public_pem: string } | undefined;
   if (row === undefined) throw new KeyStoreError(`this connection has no ${params.purpose} key`);
   return row.public_pem;
@@ -231,7 +371,7 @@ export function publicRecords(db: Database.Database, connectionId: number): Publ
   const rows = db
     .prepare(
       `SELECT purpose, version, digest, created_at FROM subscriber_keys
-       WHERE connection_id = ? AND retired_at IS NULL ORDER BY purpose`,
+       WHERE connection_id = ? AND retired_at IS NULL AND pending = 0 ORDER BY purpose`,
     )
     .all(connectionId) as Pick<KeyRow, 'purpose' | 'version' | 'digest' | 'created_at'>[];
   return rows.map((row) => ({ ...row, digestFormatted: formatForLetter(row.digest) }));
@@ -247,7 +387,7 @@ export function publicRecords(db: Database.Database, connectionId: number): Publ
  */
 export function assertKeyStoreReadable(db: Database.Database, keySecret: Buffer): void {
   const row = db
-    .prepare('SELECT connection_id, purpose, private_pem_enc FROM subscriber_keys WHERE retired_at IS NULL LIMIT 1')
+    .prepare('SELECT connection_id, purpose, private_pem_enc FROM subscriber_keys WHERE retired_at IS NULL AND pending = 0 LIMIT 1')
     .get() as { connection_id: number; purpose: string; private_pem_enc: string } | undefined;
   if (row === undefined) return;
 

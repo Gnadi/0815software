@@ -51,6 +51,7 @@ const app = createApp({
   loginMode: loginModeOf(config.sso),
   serviceToken: config.platform.serviceToken,
   shellOrigins: config.shellOrigins,
+  austrianRemittance: config.austrianRemittance,
 });
 
 app.listen(config.port, () => {

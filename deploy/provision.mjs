@@ -643,6 +643,28 @@ const ALERT_RULES = [
     description: 'Intents have been processing for half an hour: the PSP webhook may not be arriving.',
   },
   {
+    service: 'ps-12-banking',
+    metric: 'banking_orders_failed',
+    name: 'BankingOrdersUnknown',
+    expr: 'banking_orders_failed > 0',
+    for: '5m',
+    severity: 'critical',
+    summary: 'PS-12 has payments whose outcome is UNKNOWN',
+    description:
+      'The conversation with the bank broke after the file may have reached it. Nobody knows whether the money moved, and only a human asking the bank can settle it — check GET /api/orders and the stored exchange for each.',
+  },
+  {
+    service: 'ps-12-banking',
+    metric: 'banking_chain_valid',
+    name: 'BankingChainBroken',
+    expr: 'banking_chain_valid == 0',
+    for: '1m',
+    severity: 'critical',
+    summary: 'PS-12 audit chain does not hold',
+    description:
+      'The hash chain over this service\'s own payment history no longer verifies. Note the gauge runs the LINKS-ONLY pass, so this fired without even re-reading the records: run GET /api/audit/chain for the full verdict.',
+  },
+  {
     service: 'ps-05-integration-hub',
     metric: 'integration_failed_sync_jobs',
     name: 'IntegrationSyncFailing',

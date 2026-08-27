@@ -17,7 +17,9 @@ import {
 import {
   foldStatus,
   listOrders,
+  applyVop,
   orderDetail,
+  resolveBtf,
   previewOrder,
   splitSegments,
   submitOrder,
@@ -137,6 +139,47 @@ beforeEach(() => {
     actor: 'mod-04',
     now: fixedClock(),
   };
+});
+
+/**
+ * Two answers that cannot both be true.
+ *
+ * `settled` says the money moved and `rejected` says it did not. Both orders
+ * of arrival are reachable and both are ordinary bank behaviour — a SEPA
+ * return lands days after a settlement, and a bank that refused an order in
+ * its customer protocol can still send a status report for the same MsgId.
+ *
+ * Folding to whichever came last picks a side on recency alone, and that
+ * choice is not cosmetic: MOD-04 releases a run's items back into the pool on
+ * `rejected` and marks the run executed on `settled`. So the fold decides
+ * between paying a supplier twice and leaving a real invoice unpaid.
+ */
+describe('an order the bank has answered twice, in opposite directions', () => {
+  const stream = (...types: string[]) =>
+    types.map((type) => ({ type, ebics_code: null, meta: {}, actor: null, created_at: '' }));
+
+  it('does not call a returned payment refused, nor a refused one paid', () => {
+    // A settlement, then a return days later.
+    expect(foldStatus(stream('queued', 'accepted', 'settled', 'rejected'))).toBe('contested');
+    // A refusal in the customer protocol, then a status report saying settled.
+    expect(foldStatus(stream('queued', 'accepted', 'rejected', 'settled'))).toBe('contested');
+  });
+
+  it('is terminal — a third answer is more to read, not a resolution', () => {
+    expect(foldStatus(stream('accepted', 'settled', 'rejected', 'settled'))).toBe('contested');
+    expect(foldStatus(stream('accepted', 'settled', 'rejected', 'failed'))).toBe('contested');
+  });
+
+  it('leaves the ordinary paths alone', () => {
+    // `accepted` means the bank took the FILE, not that the payment worked, so
+    // a later refusal is the normal path and not a contradiction.
+    expect(foldStatus(stream('queued', 'initialised', 'transferred', 'accepted', 'rejected'))).toBe('rejected');
+    expect(foldStatus(stream('queued', 'accepted', 'settled'))).toBe('settled');
+    // `failed` means UNKNOWN — the conversation broke — so a later definite
+    // answer resolves it rather than contradicting it.
+    expect(foldStatus(stream('queued', 'initialised', 'failed', 'settled'))).toBe('settled');
+    expect(foldStatus(stream('queued', 'initialised', 'failed', 'rejected'))).toBe('rejected');
+  });
 });
 
 // ── The happy path ────────────────────────────────────────────────────
@@ -711,5 +754,46 @@ describe('a private key never leaves the service', () => {
       payload: pain001({ msgId: 'M1', total: '10.00', count: 1 }),
     });
     for (const body of bank.requests) expect(body).not.toMatch(/PRIVATE KEY/);
+  });
+});
+
+// ── Verification of Payee, where the option slot is already taken ─────
+
+describe('composing the Verification-of-Payee option', () => {
+  const SCT = { service_name: 'SCT', scope: 'AT', msg_name: 'pain.001' };
+
+  it('adds nothing when the choice is left to the market', () => {
+    // Both published tables read an absent ServiceOption as OPT-OUT for SCT.
+    // Saying nothing is a real choice and must stay the default.
+    expect(applyVop(SCT, 'default')).toEqual(SCT);
+    expect(applyVop(SCT, 'default').option).toBeUndefined();
+  });
+
+  it('puts VOO or VOI in an empty option slot', () => {
+    expect(applyVop(SCT, 'opt_out').option).toBe('VOO');
+    expect(applyVop(SCT, 'opt_in').option).toBe('VOI');
+    // And leaves the rest of the BTF exactly as it was.
+    expect(applyVop(SCT, 'opt_in').scope).toBe('AT');
+  });
+
+  it('refuses to concatenate a code the tables do not publish', () => {
+    // The tables DO combine the two — CFD with VOO is "CFDVOO" — but only for
+    // some payment kinds: the Austrian table has CFDVOO and THMVOI and no
+    // URGVOO at all. Composing by string concatenation would name order types
+    // that do not exist, which is how three earlier BTF bugs got in.
+    expect(() => applyVop({ ...SCT, option: 'URG' }, 'opt_out')).toThrow(/already puts "URG"/);
+    expect(() => applyVop({ ...SCT, option: 'CFD' }, 'opt_in')).toThrow(/CFDVOO/);
+  });
+
+  it('passes a caller-supplied BTF through resolveBtf untouched', () => {
+    // Overriding the BTF is how a bank wanting something unusual stays
+    // reachable; rewriting its option would defeat that.
+    const given = { service_name: 'SCT', scope: 'AT', option: 'CFDVOO', msg_name: 'pain.001' };
+    expect(resolveBtf({ bank_key: 'at-sepa', vop: 'opt_in' } as never, given)).toBe(given);
+  });
+
+  it('reads the connection mode through resolveBtf', () => {
+    expect(resolveBtf({ bank_key: 'at-sepa', vop: 'opt_in' } as never).option).toBe('VOI');
+    expect(resolveBtf({ bank_key: 'at-sepa' } as never).option).toBeUndefined();
   });
 });

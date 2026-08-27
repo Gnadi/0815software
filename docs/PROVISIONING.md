@@ -209,6 +209,10 @@ boot when the configured secret cannot decrypt what is already stored, which
 turns this from silent data loss into a startup failure — but the backup is
 what actually saves you.
 
+Back it up **before the first key is generated**, not after the first payment.
+[`platform/ps-12-banking/FIRST-CONNECTION.md`](../platform/ps-12-banking/FIRST-CONNECTION.md)
+is the runbook for bringing a real bank connection up, and that is step 0 in it.
+
 ## 6. Decommission
 
 ```sh

@@ -210,6 +210,37 @@ export function openDb(path: string): Database.Database {
     );
   }
 
+  // Where a payment came from, when it was not typed in by hand.
+  //
+  // `external_ref` is a BANK booking's identity (shared/matching.ts), and the
+  // UNIQUE index on it is the whole point: one arrival can become at most one
+  // payment, however many times the bookings are fetched, re-read from stored
+  // bytes, or offered again by a bank that never saw our receipt.
+  //
+  // Null for every payment entered by hand, which is every payment in a
+  // standalone deployment — and a partial index, so those nulls do not collide
+  // with each other.
+  if (!columns('payments').includes('external_ref')) {
+    db.exec('ALTER TABLE payments ADD COLUMN external_ref TEXT');
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_external ON payments (external_ref) WHERE external_ref IS NOT NULL',
+    );
+  }
+
+  // The Austrian special credit transfers: a Finanzamtszahlung (TAXS) or a
+  // Postbarzahlung (CPPP) carries a category purpose that an ordinary transfer
+  // does not. A property of the whole run rather than of one bill, because
+  // that is how they are filed and because ISO 20022 allows PmtTpInf at one
+  // level only. Null means an ordinary SEPA credit transfer, which is what
+  // every existing run is.
+  if (!columns('payment_runs').includes('category_purpose')) {
+    db.exec('ALTER TABLE payment_runs ADD COLUMN category_purpose TEXT');
+    // Whether a remittance format was configured when this run was made. Null
+    // for an ordinary run, which has none to check. Stored rather than derived
+    // because the configuration can change and this is a fact about the run.
+    db.exec('ALTER TABLE payment_runs ADD COLUMN remittance_checked INTEGER');
+  }
+
   ensureReportViews(db);
 
   return db;

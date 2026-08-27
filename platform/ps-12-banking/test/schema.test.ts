@@ -10,10 +10,19 @@ import {
   buildHia,
   buildHpb,
   buildUploadInit,
+  buildSpr,
+  buildVeuOverview,
+  buildVeuDetail,
+  buildVeuTransactions,
+  buildVeuSignature,
+  buildVeuCancel,
   buildTransfer,
   buildReceipt,
   buildDownloadInit,
   buildDownloadSegment,
+  buildAdminDownload,
+  buildKeyChangeAuth,
+  buildKeyChangeAll,
   EBICS_NS,
   type Subscriber,
 } from '../server/ebics/envelopes.js';
@@ -120,6 +129,8 @@ const certify = (privatePem: string, purpose: 'ES' | 'AUTH' | 'ENC'): string =>
 const CERT = { es: certify(ES.privatePem, 'ES'), auth: certify(AUTH.privatePem, 'AUTH'), enc: certify(ENC.privatePem, 'ENC') };
 const TX_ID = 'A1B2C3D4E5F60718293A4B5C6D7E8F90';
 const transactionKey = Buffer.alloc(16, 7);
+const DATA_DIGEST = 'yeee4C+0xZjU0Ex6aQt+Zm7FCo61GQtftMTqmYcSffc=';
+const VEU_ORDER = { partnerId: 'PARTNER1', btf: { serviceName: 'SCT', scope: 'AT', msgName: 'pain.001' }, orderId: 'A1B2' };
 const orderData = Buffer.from('<?xml version="1.0"?><Document xmlns="urn:x"/>', 'utf8');
 
 /** Every message this service can put on the wire, and its schema. */
@@ -158,6 +169,11 @@ function everyMessage(subscriber: Subscriber): { name: string; xml: string; sche
       schema: 'ebics_request_H005.xsd',
     },
     {
+      name: 'SPR subscriber lock',
+      xml: buildSpr({ subscriber, keys, bank, transactionKey, timestamp: TIMESTAMP }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
       name: 'BTU transfer',
       xml: buildTransfer({ subscriber, keys, transactionId: TX_ID, segmentNumber: 1, lastSegment: true, segment: 'AAAA' }),
       schema: 'ebics_request_H005.xsd',
@@ -183,6 +199,129 @@ function everyMessage(subscriber: Subscriber): { name: string; xml: string; sche
         timestamp: TIMESTAMP,
         dateRange: { from: '2026-08-01', to: '2026-08-21' },
       }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HVU overview',
+      xml: buildVeuOverview({ subscriber, keys, bank, timestamp: TIMESTAMP, orderType: 'HVU' }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HVZ overview filtered by service',
+      xml: buildVeuOverview({
+        subscriber,
+        keys,
+        bank,
+        timestamp: TIMESTAMP,
+        orderType: 'HVZ',
+        serviceFilter: [btf, { serviceName: 'SDD', scope: 'AT', option: 'COR', msgName: 'pain.008' }],
+      }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HVD order detail',
+      xml: buildVeuDetail({ subscriber, keys, bank, timestamp: TIMESTAMP, order: VEU_ORDER }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HVT transaction detail',
+      xml: buildVeuTransactions({
+        subscriber,
+        keys,
+        bank,
+        timestamp: TIMESTAMP,
+        order: VEU_ORDER,
+        completeOrderData: false,
+        fetchLimit: 50,
+        fetchOffset: 10,
+      }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HVE co-signature',
+      xml: buildVeuSignature({
+        subscriber,
+        keys,
+        bank,
+        timestamp: TIMESTAMP,
+        transactionKey,
+        order: VEU_ORDER,
+        dataDigest: DATA_DIGEST,
+      }).init,
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HVS cancellation',
+      xml: buildVeuCancel({
+        subscriber,
+        keys,
+        bank,
+        timestamp: TIMESTAMP,
+        transactionKey,
+        order: VEU_ORDER,
+        dataDigest: DATA_DIGEST,
+      }).init,
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HTD customer data',
+      xml: buildAdminDownload({ subscriber, keys, bank, timestamp: TIMESTAMP, orderType: 'HTD' }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HKD customer data',
+      xml: buildAdminDownload({ subscriber, keys, bank, timestamp: TIMESTAMP, orderType: 'HKD' }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HAC customer protocol over a date range',
+      xml: buildAdminDownload({
+        subscriber,
+        keys,
+        bank,
+        timestamp: TIMESTAMP,
+        orderType: 'HAC',
+        dateRange: { from: '2026-08-01', to: '2026-08-21' },
+      }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HPD bank parameters',
+      xml: buildAdminDownload({ subscriber, keys, bank, timestamp: TIMESTAMP, orderType: 'HPD' }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HAA available order types',
+      xml: buildAdminDownload({ subscriber, keys, bank, timestamp: TIMESTAMP, orderType: 'HAA' }),
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HCA key change (authentication and encryption)',
+      xml: buildKeyChangeAuth({
+        subscriber,
+        keys,
+        bank,
+        transactionKey,
+        timestamp: TIMESTAMP,
+        replacement: { authCertificatePem: CERT.auth, encCertificatePem: CERT.enc },
+      }).init,
+      schema: 'ebics_request_H005.xsd',
+    },
+    {
+      name: 'HCS key change (all three keys)',
+      xml: buildKeyChangeAll({
+        subscriber,
+        keys,
+        bank,
+        transactionKey,
+        timestamp: TIMESTAMP,
+        replacement: {
+          esCertificatePem: CERT.es,
+          esVersion: 'A005',
+          authCertificatePem: CERT.auth,
+          encCertificatePem: CERT.enc,
+        },
+      }).init,
       schema: 'ebics_request_H005.xsd',
     },
     {
@@ -235,6 +374,35 @@ function everyPayload(): { name: string; xml: string; schema: string }[] {
       schema: 'ebics_orders_H005.xsd',
     },
     {
+      name: 'HCA order data (HCARequestOrderData)',
+      xml: buildKeyChangeAuth({
+        subscriber,
+        keys,
+        bank,
+        transactionKey,
+        timestamp: TIMESTAMP,
+        replacement: { authCertificatePem: CERT.auth, encCertificatePem: CERT.enc },
+      }).orderData.toString('utf8'),
+      schema: 'ebics_orders_H005.xsd',
+    },
+    {
+      name: 'HCS order data (HCSRequestOrderData)',
+      xml: buildKeyChangeAll({
+        subscriber,
+        keys,
+        bank,
+        transactionKey,
+        timestamp: TIMESTAMP,
+        replacement: {
+          esCertificatePem: CERT.es,
+          esVersion: 'A005',
+          authCertificatePem: CERT.auth,
+          encCertificatePem: CERT.enc,
+        },
+      }).orderData.toString('utf8'),
+      schema: 'ebics_orders_H005.xsd',
+    },
+    {
       name: 'the bank-technical signature (UserSignatureData)',
       xml: unpackOrderData(transactionKey, signatureData).toString('utf8'),
       schema: 'ebics_signature_S002.xsd',
@@ -266,19 +434,18 @@ describeIf('every message still validates when it names the client product', () 
     expect(validate(message.xml, message.schema)).toBeNull();
   });
 
-  it('actually put the element in', () => {
+  it('actually put the element in — everywhere the schema allows one', () => {
     // Otherwise the suite above would pass by validating the same messages
-    // twice, which is the failure mode a parameterised test invites.
+    // twice, which is the failure mode a parameterised test invites. Asserted
+    // as a rule rather than a list of names: the list grew four entries the
+    // day VEU arrived, and a list that has to be edited to stay true is a test
+    // that will eventually be edited into agreeing with a bug.
     const carriers = everyMessage(withProduct).filter((m) => m.xml.includes('<e:Product '));
-    expect(carriers.map((m) => m.name)).toEqual([
-      'INI',
-      'HIA',
-      'HPB',
-      'BTU initialisation',
-      'BTU initialisation asking for distributed signature',
-      'BTD initialisation',
-      'BTD initialisation with a date range',
-    ]);
+    const initialisations = everyMessage(withProduct).filter(
+      (m) => m.xml.includes('<e:TransactionPhase>Initialisation</e:TransactionPhase>') || m.schema.includes('keymgmt'),
+    );
+    expect(carriers.map((m) => m.name).sort()).toEqual(initialisations.map((m) => m.name).sort());
+    expect(carriers.length).toBeGreaterThan(6);
     expect(carriers[0]!.xml).toContain('<e:Product InstituteID="INST0815" Language="de">0815software PS-12</e:Product>');
   });
 

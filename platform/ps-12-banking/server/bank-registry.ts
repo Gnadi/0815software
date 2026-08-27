@@ -50,6 +50,20 @@ export interface BankProfile {
   /** Downloading a payment status report. */
   paymentStatus: BtfInput;
   /**
+   * Intraday account report (`camt.052`) and debit/credit notification
+   * (`camt.054`), where the market's published table names them.
+   *
+   * **Suggestions, and deliberately not seeded.** PS-12 reads all three
+   * account messages, but a report and a notification carry bookings the day's
+   * statement carries again — so polling them is a choice an operator makes,
+   * not a default that quietly doubles what a naive consumer sums. Absent
+   * where this repository has no published table row to transcribe: an
+   * invented BTF is worse than none, and `HTD` answers the question properly
+   * anyway.
+   */
+  intradayReport?: BtfInput;
+  notification?: BtfInput;
+  /**
    * The EBICS 2.5 order types these replace. Not sent anywhere — banks still
    * talk in them ("we've enabled CCT and C53 for you"), and an operator on the
    * phone needs the translation.
@@ -135,6 +149,9 @@ export const REGISTRY: readonly BankProfile[] = [
     // Present for the shape's sake only — see `notes`. Austria does not use
     // them, and an operator quoting them at an Austrian bank will get a blank
     // look rather than an account.
+    // Straight from the same Austrian table as the rest of this entry.
+    intradayReport: { service_name: 'STM', scope: 'AT', msg_name: 'camt.052', container: 'ZIP' },
+    notification: { service_name: 'STM', scope: 'AT', msg_name: 'camt.054', container: 'ZIP' },
     legacyOrderTypes: { creditTransfer: 'CCT', statement: 'C53', paymentStatus: 'CRZ' },
     segmentLimit: PROTOCOL_SEGMENT_LIMIT,
     confirmed: true,
@@ -142,11 +159,16 @@ export const REGISTRY: readonly BankProfile[] = [
     notes:
       'The AAD (EBICS 2.5) column of the Austrian table is explicitly NOT used in Austria — it is printed for ' +
       'software vendors migrating from the German order types and nothing more. Other Austrian BTFs an operator ' +
-      'may need, straight from the same table: camt.052 STM/AT/camt.052/ZIP, camt.054 STM/AT/camt.054/ZIP, ' +
+      'may need, straight from the same table: camt.052 STM/AT/camt.052/ZIP, camt.054 STM/AT/camt.054/ZIP ' +
+      '(both READ into bookings like camt.053 — but they are provisional, so GET /api/entries leaves them out ' +
+      'unless asked for; see server/camt.ts), ' +
       'MT940 EOP/AT/mt940, MT942 STM/AT/mt942, PDF statements EOP/AT/pdf/ZIP, bank fees REP/BIL/camt.086/ZIP ' +
       '(scope BIL, not AT), customer information CIM/AT/cimresp, SEPA direct debit SDD/AT/pain.008 with option ' +
       'COR or B2B, instant SCI/AT/pain.001, foreign payments XCT/AT/pain.001. Since 09.10.2025 the ServiceOption ' +
-      'VOO/VOI selects Verification of Payee opt-out/opt-in; an absent option is read as OPT-OUT for SCT and SCI.',
+      'VOO/VOI selects Verification of Payee opt-out/opt-in; an absent option is read as OPT-OUT for SCT and SCI. ' +
+      'NOTE: the two Austrian documents disagree on the customer-information message name — the mapping table says ' +
+      'CIM/AT/cimresp, the implementation guideline\u2019s worked ebicsRequest example says CIM/AT/BRCResp. PS-12 ' +
+      'recognises both as a customer information message; ask your bank which one it answers to.',
   },
   {
     key: 'generic',
@@ -190,10 +212,15 @@ export function publicRegistry(): BankProfile[] {
     if (entry.segmentLimit < 1 || entry.segmentLimit > PROTOCOL_SEGMENT_LIMIT) {
       throw new Error(`bank-registry: "${entry.key}" has a segment limit outside 1..${PROTOCOL_SEGMENT_LIMIT}`);
     }
+    const optional: [string, BtfInput | undefined][] = [
+      ['intradayReport', entry.intradayReport],
+      ['notification', entry.notification],
+    ];
     for (const [label, btf] of [
       ['creditTransfer', entry.creditTransfer],
       ['statement', entry.statement],
       ['paymentStatus', entry.paymentStatus],
+      ...optional.filter((pair): pair is [string, BtfInput] => pair[1] !== undefined),
     ] as const) {
       if (btf.service_name.trim() === '') throw new Error(`bank-registry: "${entry.key}".${label} has no service name`);
       if (btf.msg_name.trim() === '') throw new Error(`bank-registry: "${entry.key}".${label} has no message name`);

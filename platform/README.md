@@ -80,9 +80,10 @@ through the shared [`clients`](./clients) package.
   signature are implemented here rather than taken as dependencies. A
   connection carries no order until a human has confirmed the bank's key
   digests, and a payment file is submitted at most once. Downloads come back
-  the other way — `camt.053` statements stored whole, `pain.002` status reports
-  read and folded into the orders they are about, so a MOD-04 payment run
-  settles itself on the bank's own word. Nothing in it has spoken to a real
+  the other way — `camt.053` statements read into bookings a module can query
+  by reference, amount or date, and `pain.002` status reports folded into the
+  orders they are about, so a MOD-04 payment run settles itself on the bank's
+  own word. Nothing in it has spoken to a real
   bank yet.
 
 Modules consume these through the shared

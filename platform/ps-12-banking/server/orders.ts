@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { DomainError } from './errors.js';
+import { chainAppend } from './chain.js';
 import { nowIso, productOf, publicId, requireReady } from './connections.js';
 import { privatePemFor } from './keystore.js';
 import { Transport } from './transport.js';
@@ -8,6 +9,7 @@ import { newTransactionKey, packOrderData, type EsVersion } from './ebics/crypto
 import { parseResponse } from './ebics/parse.js';
 import type { Verdict } from './ebics/codes.js';
 import { checkCeilings, inspectPayload, type PayloadFacts } from './payload.js';
+import { austrianPaymentProblems } from './austrian.js';
 import { bankProfile } from './bank-registry.js';
 import type { BtfInput, Order, OrderDetail, OrderEvent, OrderStatus } from '../shared/types.js';
 
@@ -78,19 +80,70 @@ export interface SubmitInput {
   idempotencyKey?: string;
 }
 
+/** How a connection wants Verification of Payee handled. */
+export type VopMode = 'default' | 'opt_out' | 'opt_in';
+
+/** The ServiceOption each mode asks for. `default` asks for nothing. */
+const VOP_OPTION: Record<VopMode, string | null> = { default: null, opt_out: 'VOO', opt_in: 'VOI' };
+
 /**
  * The BTF this order will actually be sent with.
  *
  * A caller-supplied one always wins — a bank that needs a different BTF for
- * one message must stay reachable without editing the registry.
+ * one message must stay reachable without editing the registry, and a caller
+ * that names its own BTF has taken responsibility for all of it, Verification
+ * of Payee included.
+ *
+ * ## Verification of Payee
+ *
+ * Since 09.10.2025 the ServiceOption says whether the bank should check the
+ * payee's name against the IBAN: `VOO` opts out, `VOI` opts in. Send neither
+ * and the market's default applies — OPT-OUT for SCT and SCI in both the
+ * German and the Austrian tables. `vop: 'default'` is exactly that, and is
+ * what every connection has unless someone chose otherwise.
+ *
+ * The option slot is **shared**, which is the trap here. It also carries the
+ * payment's own kind, and the published tables combine the two into single
+ * codes: a salary payment opting out is `CFDVOO`, not `CFD` plus `VOO`. Only
+ * some combinations exist — the Austrian table has `CFDVOO` and `THMVOI` but
+ * no `URGVOO` — so this refuses to compose one rather than inventing a code
+ * the bank never published. An operator who needs a combined option names it
+ * on the BTF directly.
  */
-export function resolveBtf(connection: { bank_key: string }, btf?: BtfInput): BtfInput {
+export function resolveBtf(
+  connection: { bank_key: string; vop?: string | null },
+  btf?: BtfInput,
+): BtfInput {
   if (btf !== undefined) return btf;
   const profile = bankProfile(connection.bank_key);
   if (profile === undefined) {
     throw new DomainError(409, `this connection's bank profile "${connection.bank_key}" is not one this service knows`);
   }
-  return profile.creditTransfer;
+
+  return applyVop(profile.creditTransfer, (connection.vop ?? 'default') as VopMode);
+}
+
+/**
+ * Put the Verification-of-Payee choice into a BTF's ServiceOption.
+ *
+ * Separate from `resolveBtf` because the interesting case — a BTF that
+ * already uses the option slot — cannot be reached through any shipped bank
+ * profile, and an unreachable branch is one nothing can test.
+ */
+export function applyVop(btf: BtfInput, mode: VopMode): BtfInput {
+  const option = VOP_OPTION[mode] ?? null;
+  if (option === null) return btf;
+
+  if (btf.option !== undefined) {
+    throw new DomainError(
+      409,
+      `this connection asks for Verification of Payee ${option}, but the BTF already puts "${btf.option}" in ` +
+        `the ServiceOption. The published tables combine the two into a single code — CFD with VOO is "CFDVOO" — ` +
+        `and only some combinations exist: the Austrian table has CFDVOO and THMVOI but no URGVOO. Name the ` +
+        `combined option on the order's own BTF rather than letting this service concatenate one.`,
+    );
+  }
+  return { ...btf, option };
 }
 
 interface OrderRow {
@@ -112,25 +165,58 @@ interface OrderRow {
 
 export function recordOrderEvent(
   db: Database.Database,
-  params: { orderId: number; type: string; code?: string | null; meta?: Record<string, unknown>; at: string },
+  params: {
+    orderId: number;
+    type: string;
+    code?: string | null;
+    meta?: Record<string, unknown>;
+    /**
+     * When this step happened — its OWN moment, not the conversation's.
+     *
+     * This used to be one timestamp computed once per submission and stamped
+     * on every event of it, so a twelve-segment upload read as twelve things
+     * happening in the same instant. Nobody could then say how long the bank
+     * took, or which segment it was on when it stopped answering, which is
+     * exactly the question asked about the upload that did not come back.
+     */
+    at: string;
+    /** Who caused it: an operator's username, `service`, or `ticker`. */
+    actor?: string | null;
+  },
 ): void {
-  db.prepare('INSERT INTO order_events (order_id, type, ebics_code, meta, created_at) VALUES (?, ?, ?, ?, ?)').run(
-    params.orderId,
-    params.type,
-    params.code ?? null,
-    JSON.stringify(params.meta ?? {}),
-    params.at,
-  );
+  // The insert and its chain link are one transaction. A record committed
+  // without a link is indistinguishable from one written past the log, and
+  // `verifyChain` reports it as exactly that.
+  db.transaction(() => {
+    const info = db
+      .prepare('INSERT INTO order_events (order_id, type, ebics_code, meta, actor, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(
+        params.orderId,
+        params.type,
+        params.code ?? null,
+        JSON.stringify(params.meta ?? {}),
+        params.actor ?? null,
+        params.at,
+      );
+    chainAppend(db, 'order_events', Number(info.lastInsertRowid), () => params.at);
+  })();
 }
 
 function eventsOf(db: Database.Database, orderId: number): OrderEvent[] {
   const rows = db
-    .prepare('SELECT type, ebics_code, meta, created_at FROM order_events WHERE order_id = ? ORDER BY id')
-    .all(orderId) as { type: string; ebics_code: string | null; meta: string; created_at: string }[];
+    .prepare('SELECT type, ebics_code, meta, actor, created_at FROM order_events WHERE order_id = ? ORDER BY id')
+    .all(orderId) as {
+    type: string;
+    ebics_code: string | null;
+    meta: string;
+    actor: string | null;
+    created_at: string;
+  }[];
   return rows.map((row) => ({
     type: row.type,
     ebics_code: row.ebics_code,
     meta: JSON.parse(row.meta) as Record<string, unknown>,
+    actor: row.actor,
     created_at: row.created_at,
   }));
 }
@@ -156,7 +242,33 @@ export function foldStatus(events: OrderEvent[]): OrderStatus {
 
   for (const event of events) {
     if (DECISIONS.has(event.type)) {
-      status = event.type as OrderStatus;
+      // TWO ANSWERS THAT CANNOT BOTH BE TRUE.
+      //
+      // `settled` says the money moved; `rejected` says it did not. Either
+      // order of arrival is reachable and both are ordinary bank behaviour: a
+      // SEPA return lands days after a settlement, and a bank that refused an
+      // order in its customer protocol can still send a status report for the
+      // same MsgId. Taking the later one picks a side on recency alone.
+      //
+      // That is not a cosmetic choice. MOD-04 sets a run's items back to
+      // inactive on `rejected` — releasing those bills into the pool for
+      // another payment run — and marks the run executed on `settled`. So
+      // resolving this silently decides between paying a supplier twice and
+      // leaving a real invoice unpaid. Neither is a decision to make from the
+      // order of two rows.
+      //
+      // `accepted` is NOT part of this: it means the bank took the file, not
+      // that the payment succeeded, so `accepted` → `rejected` is the ordinary
+      // path and not a contradiction. `failed` means UNKNOWN — the
+      // conversation broke — so any later definite answer resolves it rather
+      // than contradicting it.
+      const opposes =
+        (status === 'settled' && event.type === 'rejected') ||
+        (status === 'rejected' && event.type === 'settled');
+      if (opposes) status = 'contested';
+      // Terminal: once the record holds both answers, nothing later un-holds
+      // them. A third event is more to read, not a resolution.
+      else if (status !== 'contested') status = event.type as OrderStatus;
       decided = true;
       continue;
     }
@@ -239,10 +351,13 @@ export function previewOrder(
     amount_minor: facts.amountMinor,
     tx_count: facts.txCount,
     btf,
-    problems: checkCeilings(facts, {
-      maxAmountMinor: connection.max_amount_minor,
-      maxTransfers: connection.max_transfers,
-    }),
+    problems: [
+      ...checkCeilings(facts, {
+        maxAmountMinor: connection.max_amount_minor,
+        maxTransfers: connection.max_transfers,
+      }),
+      ...austrianPaymentProblems(input.payload),
+    ],
   };
 }
 
@@ -313,11 +428,17 @@ export async function submitOrder(ctx: OrderContext, input: SubmitInput): Promis
     return { order: previous, replayed: true };
   }
 
-  // 3. Ceilings — the last gate before the ES key is used.
-  const problems = checkCeilings(facts, {
-    maxAmountMinor: connection.max_amount_minor,
-    maxTransfers: connection.max_transfers,
-  });
+  // 3. Ceilings, and the Austrian payment formats — the last gate before the
+  //    ES key is used. A malformed Finanzamtszahlung is refused by the bank
+  //    AFTER a signature has authorised it, and at class E that signature is
+  //    the money; catching it here costs one parse and no round trip.
+  const problems = [
+    ...checkCeilings(facts, {
+      maxAmountMinor: connection.max_amount_minor,
+      maxTransfers: connection.max_transfers,
+    }),
+    ...austrianPaymentProblems(input.payload),
+  ];
   if (problems.length > 0) {
     throw new DomainError(422, 'this file is outside what this connection may send', problems);
   }
@@ -344,7 +465,13 @@ export async function submitOrder(ctx: OrderContext, input: SubmitInput): Promis
         at,
       );
     const id = Number(info.lastInsertRowid);
-    recordOrderEvent(ctx.db, { orderId: id, type: 'queued', at, meta: { sha256: facts.sha256 } });
+    recordOrderEvent(ctx.db, {
+      orderId: id,
+      type: 'queued',
+      at,
+      actor: ctx.actor ?? null,
+      meta: { sha256: facts.sha256 },
+    });
     return id;
   })();
 
@@ -366,6 +493,7 @@ interface ConnectionRow {
   product_language: string | null;
   product_institute_id: string | null;
   request_eds: number;
+  vop: string;
   max_amount_minor: number;
   max_transfers: number;
 }
@@ -378,7 +506,12 @@ async function transmit(
   input: { payload: Buffer; btf: BtfInput },
   facts: PayloadFacts,
 ): Promise<void> {
-  const at = (ctx.now ?? nowIso)();
+  // `at` is the ENVELOPE's timestamp: it is signed into every request of this
+  // conversation and must therefore be one value. `clock()` is the log's, read
+  // fresh for each event, so the history records when each step actually
+  // happened rather than when the conversation began.
+  const clock = ctx.now ?? nowIso;
+  const at = clock();
   const subscriber: Subscriber = {
     hostId: connection.host_id,
     partnerId: connection.partner_id,
@@ -433,10 +566,11 @@ async function transmit(
   } catch (err) {
     // Nothing has been signed and nothing has been sent, but the order exists,
     // so it has to carry an outcome a human can act on.
-    return fail(ctx, order, at, `could not prepare the order: ${err instanceof Error ? err.message : String(err)}`);
+    return fail(ctx, order, clock(), `could not prepare the order: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   let transactionId: string;
+  let ebicsOrderId: string | null = null;
   try {
     const initBody = buildUploadInit({
       subscriber,
@@ -449,32 +583,51 @@ async function transmit(
       segments: segments.length,
       requestEDS: connection.request_eds === 1,
     });
-    const response = parseResponse(await ctx.transport.send(connection.url, initBody), bank.authPublicPem);
+    const response = parseResponse(
+      await ctx.transport.send(connection.url, initBody, {
+        connection: connection.id,
+        order: order.id,
+        phase: 'order.initialisation',
+      }),
+      bank.authPublicPem,
+    );
 
     if (!response.verified) {
       // A response we cannot attribute to the bank is not an answer. Refusing
       // to act on it is the whole reason the key was verified by a human.
-      return fail(ctx, order, at, `the bank's response could not be verified: ${response.verificationError}`);
+      return fail(ctx, order, clock(), `the bank's response could not be verified: ${response.verificationError}`);
     }
     if (!response.verdict.ok) {
-      return reject(ctx, order, at, response.verdict);
+      return reject(ctx, order, clock(), response.verdict);
     }
     if (response.transactionId === null) {
-      return fail(ctx, order, at, 'the bank accepted the initialisation but returned no transaction id');
+      return fail(ctx, order, clock(), 'the bank accepted the initialisation but returned no transaction id');
     }
     transactionId = response.transactionId;
+    // The bank's own order number, when it sends one. Optional in H005, so an
+    // absent one is not an error — but it is what the customer protocol logs
+    // every later action under, so it is worth recording when offered.
+    ebicsOrderId = response.orderId;
   } catch (err) {
     // The request never completed. Whether the bank has the file is UNKNOWN,
     // which is precisely why this is `failed` and not `rejected`.
-    return fail(ctx, order, at, err instanceof Error ? err.message : String(err));
+    return fail(ctx, order, clock(), err instanceof Error ? err.message : String(err));
   }
 
-  ctx.db.prepare('UPDATE orders SET transaction_id = ? WHERE id = ?').run(transactionId, order.id);
+  ctx.db
+    .prepare('UPDATE orders SET transaction_id = ?, ebics_order_id = ? WHERE id = ?')
+    .run(transactionId, ebicsOrderId, order.id);
   recordOrderEvent(ctx.db, {
     orderId: order.id,
     type: 'initialised',
-    at,
-    meta: { transaction_id: transactionId, segments: segments.length, tx_count: facts.txCount },
+    at: clock(),
+    actor: ctx.actor ?? null,
+    meta: {
+      transaction_id: transactionId,
+      ...(ebicsOrderId === null ? {} : { ebics_order_id: ebicsOrderId }),
+      segments: segments.length,
+      tx_count: facts.txCount,
+    },
   });
 
   // Transfer phase — segments are 1-based and must arrive in order.
@@ -490,24 +643,44 @@ async function transmit(
         lastSegment: last,
         segment,
       });
-      const response = parseResponse(await ctx.transport.send(connection.url, body), bank.authPublicPem);
+      const response = parseResponse(
+        await ctx.transport.send(connection.url, body, {
+          connection: connection.id,
+          order: order.id,
+          phase: `order.transfer.segment-${number}`,
+        }),
+        bank.authPublicPem,
+      );
       if (!response.verified) {
-        return fail(ctx, order, at, `the bank's response could not be verified: ${response.verificationError}`);
+        return fail(ctx, order, clock(), `the bank's response could not be verified: ${response.verificationError}`);
       }
       if (!response.verdict.ok) {
-        return reject(ctx, order, at, response.verdict);
+        return reject(ctx, order, clock(), response.verdict);
       }
-      recordOrderEvent(ctx.db, { orderId: order.id, type: 'segment_sent', at, meta: { segment: number, last } });
+      recordOrderEvent(ctx.db, {
+        orderId: order.id,
+        type: 'segment_sent',
+        at: clock(),
+        actor: ctx.actor ?? null,
+        meta: { segment: number, last },
+      });
     } catch (err) {
-      return fail(ctx, order, at, err instanceof Error ? err.message : String(err));
+      return fail(ctx, order, clock(), err instanceof Error ? err.message : String(err));
     }
   }
 
-  recordOrderEvent(ctx.db, { orderId: order.id, type: 'transferred', at, meta: { segments: segments.length } });
+  recordOrderEvent(ctx.db, {
+    orderId: order.id,
+    type: 'transferred',
+    at: clock(),
+    actor: ctx.actor ?? null,
+    meta: { segments: segments.length },
+  });
   recordOrderEvent(ctx.db, {
     orderId: order.id,
     type: 'accepted',
-    at,
+    at: clock(),
+    actor: ctx.actor ?? null,
     code: '000000',
     meta: { message: 'the bank accepted the order' },
   });
@@ -525,13 +698,14 @@ function reject(ctx: OrderContext, order: OrderRow, at: string, verdict: Verdict
     orderId: order.id,
     type: verdict.severity === 'retryable' ? 'failed' : 'rejected',
     at,
+    actor: ctx.actor ?? null,
     code: deciding.code,
     meta: { message: verdict.message, severity: verdict.severity },
   });
 }
 
 function fail(ctx: OrderContext, order: OrderRow, at: string, message: string): void {
-  recordOrderEvent(ctx.db, { orderId: order.id, type: 'failed', at, meta: { message } });
+  recordOrderEvent(ctx.db, { orderId: order.id, type: 'failed', at, actor: ctx.actor ?? null, meta: { message } });
 }
 
 function bankKeysOf(db: Database.Database, connectionId: number): { authPublicPem: string; encPublicPem: string } {

@@ -178,7 +178,7 @@ const presentation: Record<string, ModulePresentation> = {
   'mod-04-invoice-billing': {
     body: 'Generate, send, and track invoices — and pay the bills you owe with a SEPA file for your online banking.',
     overview:
-      'Totals are never stored, they are derived: an invoice stores line items only — quantity, unit net price in integer cents and VAT rate — and net, VAT-per-rate and gross are always recomputed from the lines. Send invoices, export clean PDFs, track payment status and keep a running customer ledger. The other direction is covered too: record the bills you owe, tick the ones to pay, and download a valid SEPA credit transfer file (ISO 20022 pain.001) to upload in your online banking — with the IBANs check-digit validated, a bill payable only once, and every produced file frozen. With PS-12 Banking wired the same run goes straight to the bank over EBICS instead, though the download never goes away. The test suite proves the arithmetic to the cent.',
+      'Totals are never stored, they are derived: an invoice stores line items only — quantity, unit net price in integer cents and VAT rate — and net, VAT-per-rate and gross are always recomputed from the lines. Send invoices, export clean PDFs, track payment status and keep a running customer ledger. The other direction is covered too: record the bills you owe, tick the ones to pay, and download a valid SEPA credit transfer file (ISO 20022 pain.001) to upload in your online banking — with the IBANs check-digit validated, a bill payable only once, and every produced file frozen. With PS-12 Banking wired the same run goes straight to the bank over EBICS instead, though the download never goes away. Austrian installations can pay the tax office the way the tax office expects, and any payment can name the invoices it settles in a form the supplier’s ledger reads by itself. Every file the module can produce is validated against the published ISO 20022 schema on every test run, and the arithmetic is proven to the cent.',
     features: [
       'Line-item invoices with per-line VAT rates',
       'Totals recomputed from lines in integer cents — never stored',
@@ -186,6 +186,9 @@ const presentation: Record<string, ModulePresentation> = {
       'Running per-customer ledger',
       'SEPA payment file (pain.001) for paying bills in your online banking',
       'Or send it straight to the bank over EBICS, when PS-12 Banking is wired',
+      'Austrian Finanzamtszahlung: the tax structure, the check digit, and every tax office',
+      'Structured remittance (EACT) so the supplier’s ledger matches the payment by itself',
+      'Incoming payments matched to open invoices, when a bank connection is wired',
     ],
     screen: {
       variant: 'detail',

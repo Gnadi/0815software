@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MIGRATIONS, openDb } from '../server/db.js';
+import { verifyChain } from '../server/chain.js';
 import { pendingCount, runMigrations } from '../server/migrations.js';
 import { Transport } from '../server/transport.js';
 import { loadKeySecret } from '../server/keystore.js';
@@ -90,7 +91,16 @@ function census(db: import('better-sqlite3').Database): Record<string, number> {
   return counts;
 }
 
-describe('upgrading an existing installation', () => {
+/**
+ * Re-running the schema over a database that already has data.
+ *
+ * PS-12 ships one baseline migration, because no installation has ever
+ * applied an older one — so there is no upgrade path to test yet. What these
+ * still prove is the property every boot depends on: `openDb` runs the
+ * migrations on every open, so the schema step has to be a no-op over a
+ * populated database, and has to stay one when migration 2 arrives.
+ */
+describe('re-running the schema', () => {
   it('replays every migration over a populated database without losing any of it', async () => {
     const db = openDb(':memory:');
     await fill(db);
@@ -108,6 +118,13 @@ describe('upgrading an existing installation', () => {
 
     expect(pendingCount(db, MIGRATIONS)).toBe(0);
     expect(census(db)).toEqual(before);
+
+    // And the schema step left every chained record exactly as it was. This
+    // is the property that matters on every boot, not only on an upgrade:
+    // `openDb` runs the migrations each time it opens a database, so a schema
+    // step that rewrote anything chained would break the audit chain the next
+    // time the service started.
+    expect(verifyChain(db).valid).toBe(true);
     db.close();
   });
 

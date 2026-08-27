@@ -1,0 +1,397 @@
+import { createHash } from 'node:crypto';
+import type Database from 'better-sqlite3';
+
+/**
+ * Tamper-evidence, in this service, over this service's own records.
+ *
+ * PS-07 Audit Log exists and does this well, and PS-12 deliberately does not
+ * call it: a platform service that cannot answer for its own history without a
+ * second service running is not independent, and "the audit trail was
+ * unavailable" is not an answer anybody accepts about a payment. So the same
+ * idiom is built in here — one chain, one head marker, one verdict — over the
+ * four streams that say what happened to money:
+ *
+ *   `connection_events`  who brought a bank connection to life
+ *   `order_events`       what happened to each payment, and on whose behalf
+ *   `bank_exchanges`     what was actually said to the bank
+ *   `downloads`          the bank's own files, which later settle orders
+ *
+ * **One chain across all four, not four chains.** Each appended record gets a
+ * link whose hash covers the previous link's hash, so the streams are ordered
+ * relative to each other and an edit anywhere breaks every link after it. Four
+ * separate chains would let someone delete a whole stream and leave three
+ * perfectly valid ones behind.
+ *
+ * What this detects:
+ *
+ *   a field changed on a past record   its digest no longer matches
+ *   a record deleted                   its link has no record, unpruned
+ *   a record inserted past the log     it has no link at all
+ *   links reordered or rewritten       the hashes stop chaining
+ *   the end of the log cut off         the head marker is no longer reached
+ *
+ * What it does not detect, said plainly: someone who rewrites the *whole*
+ * database — every record, every link, and the head marker — produces a
+ * consistent chain. No in-process design can prevent that, which is why
+ * `GET /api/audit/chain` publishes the head hash and the service prints it at
+ * boot. A head hash written down anywhere outside this container — a log
+ * shipper, a backup manifest, an operator's note — turns the remaining hole
+ * into one an outsider can see.
+ */
+
+export type ChainSource = 'connection_events' | 'order_events' | 'bank_exchanges' | 'downloads';
+
+/**
+ * How each stream is reduced to the bytes that get hashed.
+ *
+ * `fields` deliberately names the IMMUTABLE content of a record. `downloads`
+ * legitimately gains `processed_at` and `acknowledged_at` after the fact, so
+ * hashing them would report ordinary work as tampering; its bytes are covered
+ * by `sha256`, which is what the invariant actually needs. `bank_exchanges`
+ * hashes the digests of its bodies rather than the bodies themselves — an
+ * envelope is a megabyte and the digest catches an edit just as well.
+ */
+interface SourceSpec {
+  table: string;
+  select: string;
+  fields(row: Record<string, unknown>): (string | number | null)[];
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+const SOURCES: Record<ChainSource, SourceSpec> = {
+  connection_events: {
+    table: 'connection_events',
+    select: 'SELECT id, connection_id, type, actor, meta, created_at FROM connection_events WHERE id = ?',
+    fields: (r) => [
+      Number(r.connection_id),
+      String(r.type),
+      r.actor === null ? null : String(r.actor),
+      String(r.meta),
+      String(r.created_at),
+    ],
+  },
+  order_events: {
+    table: 'order_events',
+    select: 'SELECT id, order_id, type, ebics_code, meta, actor, created_at FROM order_events WHERE id = ?',
+    fields: (r) => [
+      Number(r.order_id),
+      String(r.type),
+      r.ebics_code === null ? null : String(r.ebics_code),
+      String(r.meta),
+      r.actor === null ? null : String(r.actor),
+      String(r.created_at),
+    ],
+  },
+  bank_exchanges: {
+    table: 'bank_exchanges',
+    select: `SELECT id, connection_id, order_id, phase, url, request, response, http_status, error,
+                    started_at, finished_at, duration_ms
+               FROM bank_exchanges WHERE id = ?`,
+    fields: (r) => [
+      r.connection_id === null ? null : Number(r.connection_id),
+      r.order_id === null ? null : Number(r.order_id),
+      String(r.phase),
+      String(r.url),
+      sha256(String(r.request)),
+      r.response === null ? null : sha256(String(r.response)),
+      r.http_status === null ? null : Number(r.http_status),
+      r.error === null ? null : String(r.error),
+      String(r.started_at),
+      String(r.finished_at),
+      Number(r.duration_ms),
+    ],
+  },
+  downloads: {
+    table: 'downloads',
+    select: `SELECT id, connection_id, public_id, kind, btf, sha256, byte_length, transaction_id, fetched_at
+               FROM downloads WHERE id = ?`,
+    fields: (r) => [
+      Number(r.connection_id),
+      String(r.public_id),
+      String(r.kind),
+      String(r.btf),
+      String(r.sha256),
+      Number(r.byte_length),
+      r.transaction_id === null ? null : String(r.transaction_id),
+      String(r.fetched_at),
+    ],
+  },
+};
+
+/**
+ * The content hash of one record — what changes if any field of it changes.
+ *
+ * The canonical form is JSON, and that is a correctness requirement rather
+ * than a style choice. Joining the fields with a separator made the encoding
+ * AMBIGUOUS: a field that itself contains the separator re-splits, so two
+ * different records could produce one canonical string and therefore one
+ * digest. `error` carries `err.message` — exactly the field a network stack or
+ * a bank's error page puts a newline in.
+ *
+ * (The separator was also a literal NUL byte, written by accident, which made
+ * this file binary to git: `git diff` reported "Bin" and showed nothing. The
+ * most security-sensitive file in the change was unreviewable, and nobody
+ * would have seen that in a pull request.)
+ *
+ * `JSON.stringify` of the array escapes any separator, keeps the field count,
+ * and distinguishes null from every string — so no two different field lists
+ * can encode the same.
+ */
+function digestOf(source: ChainSource, row: Record<string, unknown>): string {
+  return sha256(JSON.stringify([source, ...SOURCES[source].fields(row)]));
+}
+
+/**
+ * The link hash — the content, bound to everything that came before it.
+ *
+ * JSON for the same reason as `digestOf`: every part here is a controlled
+ * value today, but an encoding that is only accidentally unambiguous is one
+ * refactor away from not being.
+ */
+export function linkHash(
+  parts: { source: ChainSource; sourceId: number; digest: string; recordedAt: string },
+  prevHash: string | null,
+): string {
+  return sha256(JSON.stringify([prevHash, parts.source, parts.sourceId, parts.digest, parts.recordedAt]));
+}
+
+// ── Meta ──────────────────────────────────────────────────────────────
+
+const HEAD_KEY = 'chain_head';
+
+function getMeta(db: Database.Database, key: string): string | undefined {
+  return (db.prepare('SELECT value FROM chain_meta WHERE key = ?').get(key) as { value: string } | undefined)?.value;
+}
+
+function setMeta(db: Database.Database, key: string, value: string): void {
+  db.prepare(
+    'INSERT INTO chain_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+  ).run(key, value);
+}
+
+/**
+ * The hash the chain is known to end at.
+ *
+ * A chain proves nothing in the MIDDLE changed. It says nothing about links
+ * removed from the END — the survivors still chain perfectly, which is exactly
+ * the edit somebody covering their tracks would make. The head is therefore
+ * recorded separately on every append, and verification checks the live chain
+ * still reaches it.
+ *
+ * `undefined` means a database from before this marker existed; `null` means
+ * the chain is genuinely empty.
+ */
+export function chainHead(db: Database.Database): string | null | undefined {
+  const raw = getMeta(db, HEAD_KEY);
+  if (raw === undefined) return undefined;
+  return raw === '' ? null : raw;
+}
+
+// ── Appending ─────────────────────────────────────────────────────────
+
+/**
+ * Link one just-inserted record into the chain.
+ *
+ * Call it inside the same transaction as the INSERT — `better-sqlite3` nests
+ * these as savepoints, so a caller already in a transaction is fine. A record
+ * committed without its link is indistinguishable from one inserted behind the
+ * log's back, and verification will say so.
+ */
+export function chainAppend(db: Database.Database, source: ChainSource, sourceId: number, now: () => string): void {
+  const spec = SOURCES[source];
+  const row = spec.select ? (db.prepare(spec.select).get(sourceId) as Record<string, unknown> | undefined) : undefined;
+  if (row === undefined) return; // nothing to chain; verification will notice the gap
+  const recordedAt = now();
+  const digest = digestOf(source, row);
+  const tail = db.prepare('SELECT hash FROM event_chain ORDER BY seq DESC LIMIT 1').get() as
+    | { hash: string }
+    | undefined;
+  const prevHash = tail?.hash ?? null;
+  const hash = linkHash({ source, sourceId, digest, recordedAt }, prevHash);
+  db.prepare(
+    `INSERT INTO event_chain (source, source_id, digest, prev_hash, hash, recorded_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(source, sourceId, digest, prevHash, hash, recordedAt);
+  // Same transaction as the INSERT: the marker can never lag the chain.
+  setMeta(db, HEAD_KEY, hash);
+}
+
+/**
+ * Note that specific records were deliberately aged out.
+ *
+ * Retention deletes `bank_exchanges` rows; their links stay, because removing
+ * them would break every link after. A pruned link keeps the digest, so a row
+ * restored from a backup can still be checked against it — and verification
+ * stops expecting the content to be there.
+ *
+ * **The ids are passed in, and that is the whole point.** This used to mark
+ * every link whose record was missing — which meant retention laundered
+ * somebody else's deletion into "aged out on purpose". Deleting an envelope by
+ * hand was caught, and then the next tick marked it and the chain went green,
+ * because retention runs on every tick whether or not it has anything to
+ * delete. Marking only what this prune actually removed keeps `missing` a
+ * finding rather than a countdown.
+ */
+export function markPruned(db: Database.Database, source: ChainSource, ids: number[], at: string): number {
+  if (ids.length === 0) return 0;
+  const mark = db.prepare(
+    'UPDATE event_chain SET pruned_at = ? WHERE source = ? AND source_id = ? AND pruned_at IS NULL',
+  );
+  let marked = 0;
+  for (const id of ids) marked += mark.run(at, source, id).changes;
+  return marked;
+}
+
+// ── Verifying ─────────────────────────────────────────────────────────
+
+export interface ChainVerdict {
+  valid: boolean;
+  /** Links walked. */
+  count: number;
+  /** Where it broke, when it did. */
+  broken_at?: { seq: number; source: ChainSource; source_id: number };
+  broken_kind?: 'link' | 'content' | 'missing' | 'unchained' | 'truncated';
+  /** What the break means, in one sentence an operator can act on. */
+  message?: string;
+  head: string | null | undefined;
+  /**
+   * Whether the records themselves were re-derived, or only the links walked.
+   * On the wire so nobody reads a cheap pass as a full one.
+   */
+  content_checked: boolean;
+}
+
+interface ChainRow {
+  seq: number;
+  source: ChainSource;
+  source_id: number;
+  digest: string;
+  prev_hash: string | null;
+  hash: string;
+  recorded_at: string;
+  pruned_at: string | null;
+}
+
+export interface VerifyOptions {
+  /**
+   * Re-derive each record's digest from the record itself (default true).
+   *
+   * This is the half that catches a record edited in place, and the half that
+   * costs: it reads and re-hashes every stored body, so it scales with the
+   * BYTES kept rather than with the number of links. Measured on 20 000
+   * exchanges holding 2 GB of envelopes: walking the links took 0.2 s and
+   * re-deriving the digests took 2.5 s.
+   *
+   * A tick-driven connection reaches 20 000 conversations in about two weeks,
+   * so the full pass is not something to run on a timer — it blocks the event
+   * loop for as long as it takes. `false` gives the cheap pass, which still
+   * catches a rewritten or reordered link, a truncated end, and a record
+   * written past the log; it does NOT catch an edit to a record whose link was
+   * left alone. That is the trade, and it is why `GET /api/audit/chain` runs
+   * the full pass and the metrics gauge does not.
+   */
+  content?: boolean;
+}
+
+/**
+ * Walk the chain and report the FIRST break.
+ *
+ * The first, not all of them: one edit invalidates every link after it, so a
+ * list of a thousand broken links says the same thing as the first one and
+ * buries it.
+ */
+export function verifyChain(db: Database.Database, options: VerifyOptions = {}): ChainVerdict {
+  const checkContent = options.content !== false;
+  const rows = db.prepare('SELECT * FROM event_chain ORDER BY seq').all() as ChainRow[];
+  const head = chainHead(db);
+  let prevHash: string | null = null;
+
+  for (const row of rows) {
+    const at = { seq: row.seq, source: row.source, source_id: row.source_id };
+    const expected = linkHash(
+      { source: row.source, sourceId: row.source_id, digest: row.digest, recordedAt: row.recorded_at },
+      prevHash,
+    );
+    if (expected !== row.hash || row.prev_hash !== prevHash) {
+      return {
+        valid: false,
+        count: rows.length,
+        broken_at: at,
+        broken_kind: 'link',
+        message: `the chain does not hold at ${row.source} #${row.source_id} — a link was rewritten, or one before it removed`,
+        head,
+        content_checked: checkContent,
+      };
+    }
+    prevHash = row.hash;
+
+    // The link is sound. Does the record it stands for still say the same
+    // thing? A pruned one is not expected to be there at all.
+    if (checkContent && row.pruned_at === null) {
+      const record = db.prepare(SOURCES[row.source].select).get(row.source_id) as Record<string, unknown> | undefined;
+      if (record === undefined) {
+        return {
+          valid: false,
+          count: rows.length,
+          broken_at: at,
+          broken_kind: 'missing',
+          message: `${row.source} #${row.source_id} was recorded and is now gone`,
+          head,
+          content_checked: checkContent,
+        };
+      }
+      if (digestOf(row.source, record) !== row.digest) {
+        return {
+          valid: false,
+          count: rows.length,
+          broken_at: at,
+          broken_kind: 'content',
+          message: `${row.source} #${row.source_id} has been edited since it was recorded`,
+          head,
+          content_checked: checkContent,
+        };
+      }
+    }
+  }
+
+  // Every link holds. Two things left that a valid chain alone would not show.
+
+  // 1. Was the end cut off? The survivors would chain perfectly.
+  if (head !== undefined && head !== prevHash) {
+    return {
+      valid: false,
+      count: rows.length,
+      broken_kind: 'truncated',
+      message: 'the chain is internally consistent but no longer reaches the head recorded on the last append',
+      head,
+      content_checked: checkContent,
+    };
+  }
+
+  // 2. Did anything get written straight into a table, past the chain?
+  for (const source of Object.keys(SOURCES) as ChainSource[]) {
+    const orphan = db
+      .prepare(
+        `SELECT t.id AS id FROM ${SOURCES[source].table} t
+          WHERE NOT EXISTS (SELECT 1 FROM event_chain c WHERE c.source = ? AND c.source_id = t.id)
+          ORDER BY t.id LIMIT 1`,
+      )
+      .get(source) as { id: number } | undefined;
+    if (orphan !== undefined) {
+      return {
+        valid: false,
+        count: rows.length,
+        broken_at: { seq: 0, source, source_id: orphan.id },
+        broken_kind: 'unchained',
+        message: `${source} #${orphan.id} exists but was never chained — it was written past the log`,
+        head,
+        content_checked: checkContent,
+      };
+    }
+  }
+
+  return { valid: true, count: rows.length, head, content_checked: checkContent };
+}

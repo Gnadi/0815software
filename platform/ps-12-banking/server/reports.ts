@@ -50,11 +50,6 @@ export function isStatusReport(msgName: string): boolean {
   return msgName.toLowerCase().startsWith('pain.002');
 }
 
-/** True when the BTF says this download is an account statement. */
-export function isStatement(msgName: string): boolean {
-  return msgName.toLowerCase().startsWith('camt.053');
-}
-
 /**
  * Pull the payment statuses out of a pain.002.
  *

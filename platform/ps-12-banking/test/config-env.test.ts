@@ -75,6 +75,28 @@ describe('PORT', () => {
   });
 });
 
+describe('EBICS_EXCHANGE_RETENTION_DAYS', () => {
+  it('defaults to two years — longer than any bank dispute period', () => {
+    expect(defaults.exchangeRetentionDays).toBe(730);
+  });
+
+  it('reads a real value', () => {
+    expect(configFromEnv({ EBICS_EXCHANGE_RETENTION_DAYS: '90' }).exchangeRetentionDays).toBe(90);
+  });
+
+  // 0 is meaningful here and not a typo: keep every conversation forever. It
+  // is the one numeric setting in this file where zero is a choice.
+  it('accepts 0 as "keep everything"', () => {
+    expect(configFromEnv({ EBICS_EXCHANGE_RETENTION_DAYS: '0' }).exchangeRetentionDays).toBe(0);
+  });
+
+  it.each(['-1', 'forever', '90d', '1.5'])('refuses the unusable window %o', (raw) => {
+    expect(() => configFromEnv({ EBICS_EXCHANGE_RETENTION_DAYS: raw })).toThrow(
+      /EBICS_EXCHANGE_RETENTION_DAYS/,
+    );
+  });
+});
+
 describe('SESSION_TTL_HOURS', () => {
   it('defaults to 12 hours', () => {
     expect(ttlOf(defaults)).toBe(12);

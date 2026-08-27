@@ -24,6 +24,16 @@ export interface ServerConfig {
   tickIntervalMs: number;
   /** Outbound policy: a bank is external, so internal targets are refused. */
   egress: EgressPolicy;
+  /**
+   * How long the raw bank conversations in `bank_exchanges` are kept (days).
+   *
+   * They are the evidence for a dispute — the envelope as signed and sent, the
+   * answer as received — and they are large, so they age out on a window an
+   * operator chooses. 0 keeps them forever. The parsed history in
+   * `order_events` is never pruned: what expires is the evidence, not the
+   * record of what happened.
+   */
+  exchangeRetentionDays: number;
 }
 
 /**
@@ -72,5 +82,14 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     keySecret: env.EBICS_KEY_SECRET ?? '0'.repeat(64),
     tickIntervalMs: numberFromEnv('TICK_INTERVAL_MS', env.TICK_INTERVAL_MS, 0, 0, 86400000),
     egress: egressPolicyFromEnv(env),
+    // Two years by default: longer than any bank's own dispute period, and
+    // long enough to cover an audit that arrives after the financial year.
+    exchangeRetentionDays: numberFromEnv(
+      'EBICS_EXCHANGE_RETENTION_DAYS',
+      env.EBICS_EXCHANGE_RETENTION_DAYS,
+      730,
+      0,
+      36500,
+    ),
   };
 }

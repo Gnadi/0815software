@@ -327,7 +327,13 @@ POST   /api/payment-runs/:id/submit    send it to the bank via PS-12 (BANKING_UR
 POST   /api/payment-runs/:id/refresh   re-read the bank's word on a sent run
 POST   /api/payment-runs/:id/mark-executed  the bank executed it → bills settled
 POST   /api/payment-runs/:id/discard   not uploaded → bills back to open
+
+GET    /api/receivables/suggestions    what arrived, matched to open invoices
+POST   /api/receivables/apply          record what a human confirmed
 ```
+
+The last two answer **501 without a bank connection**, which is not a failure:
+a payment is recorded on the invoice itself, exactly as it always was.
 
 Validation failures return `422` with `{error, details: [{field,
 message}]}`; state conflicts (editing/deleting a sent invoice, paying a
@@ -413,6 +419,45 @@ Unlike every other hook here, **this one is not best-effort**: an error
 propagates instead of becoming a warning, because a swallowed failure would
 leave an operator believing a payment was sent.
 
+### Incoming payments — the other direction, and equally optional
+
+With `BANKING_URL` set, the same connection can be read back: what actually
+arrived on the account, matched against invoices that are still open.
+**Incoming payments** in the navigation shows the proposals; ticking one
+records an ordinary payment on the invoice.
+
+Three things are worth being explicit about, because they are what stops this
+becoming a liability rather than a convenience.
+
+**It is a convenience.** `POST /api/invoices/:id/payments` — a human typing the
+amount — is the primary path and always will be. Without a bank connection the
+screen says so and points back at the invoice; nothing about getting paid
+depends on having one. This only removes the typing.
+
+**The matching rules are this module's own.** They live in
+[`shared/matching.ts`](shared/matching.ts), which imports nothing at all and
+works on a `BankBooking` shape defined here, not on the platform service's
+type. Taking PS-12's type would have quietly made receivables matching a
+feature of having a platform. Bookings from a bank connection today; from a CSV
+somebody exports, or a second source, without touching the rules.
+
+**Nothing is recorded without a person.** `suggestions` proposes and `apply`
+writes, deliberately as two calls. Every proposal carries HOW it was matched —
+the payer quoting the invoice number is not the same evidence as "this is the
+only open invoice for that amount", and the screen starts the two weak kinds
+unticked. Ambiguity is reported rather than resolved: two open invoices for the
+same amount is ordinary, and "the oldest" is a tie-break that would be wrong
+about half the time.
+
+What it does handle without asking: a collective payment naming several
+invoices is spent across them in order; a part payment is proposed as a part
+payment; a debit and a reversal are never proposed at all.
+
+**One arrival becomes at most one payment.** `payments.external_ref` holds the
+booking's identity under a UNIQUE index, and that identity is built from what
+the *bank* said — not from the row that delivered it, because a statement can
+be re-read from its stored bytes and row ids change underneath.
+
 With `AUDIT_URL` set, every payment-run event — `payment_run.created`,
 `payment_run.submitted`, `payment_run.rejected`, `payment_run.executed`,
 `payment_run.discarded`, with the message id, the transfer count and the
@@ -492,6 +537,83 @@ creditor (IBAN validated)
         ▼                     ▼   ▼
    mark paid / cancel     bills open again / bills paid
 ```
+
+### Finanzamtszahlung
+
+A payment to an Austrian tax office is an ordinary SEPA credit transfer with
+three things added. `POST /api/payment-runs` takes `category_purpose: "TAXS"`
+and applies it to every payment in the run.
+
+**The mark goes on each transaction, not on the batch.** *Finanzamtszahlung in
+EBICS* allows it in exactly one place — `<Purp><Cd>TAXS</Cd></Purp>` inside the
+`CdtTrfTxInf` — and says coding it at batch level "ist nicht vorgesehen" *even
+when every payment in the batch is one*. The run-wide flag here is an operator
+convenience; the code still lands per transfer, so a run may hold a tax payment
+beside an ordinary supplier payment.
+
+**The remittance is PSA's published format**, shipped and pinned to every
+example in both documents:
+
+```
+(\d{2}(\d{2}(/?\d{2})?)?([-+](0|([1-9]([0-9]{0,10})?))[A-Z]{1,3})+)+
+```
+
+A period — `YY`, `YYMM`, `YYMMDD` or `YYMM/MM` — then amounts in cents, `+` a
+liability and `-` a credit, each with a one-to-three letter kind of tax, all
+repeated: `0811+676850L+176800DB+23601DZ0810-563910U`.
+
+**The 9-digit Ordnungsbegriff travels in `EndToEndId`** — the tax account the
+office books against — so a TAXS run uses the bill's reference verbatim rather
+than prefixing it with the bill id, and its check digit is verified. There is
+deliberately no check that the office number matches the IBAN: after the 2020
+mergers a tax number outlives its office, and the specification says such
+checks "sind daher auszubauen".
+
+`shared/finanzamt.ts` carries all 35 collection accounts from the
+specification's annex, so a creditor row says which office an IBAN belongs to.
+It is a **hint, not a gate**: the annex is marked "NICHT NORMATIV" and warns
+the list changes, and blocking a payment to a newly created office would be the
+worse failure. Every IBAN in it is check-digit verified by its own test, since
+a transcription slip there would misroute a tax payment.
+
+`AT_TAXS_REMITTANCE_PATTERN` overrides the format check for a bank stricter
+than PSA. It replaces that check only — the 140-character cap, the empty
+remittance refusal and the check digit stand either way.
+
+One inconsistency to know about, because it will be reported as a bug: the
+specification's own §4 narrative example uses tax account `023765641`, which
+does **not** satisfy the check-digit rule stated and worked through in §3.1
+(`269135729`, which does). The rule is implemented as §3.1 defines it.
+
+**Postbarzahlung is not built here.** A CPPP payment goes to BAWAG PSK's
+collection account with the real recipient in `UltmtCdtr` and a CashPerPost
+reference in `EndToEndId` — none of which a bill from a creditor can express.
+Flagging one correctly and addressing it wrongly is worse than not offering it.
+PS-12 knows the format and checks any file that carries the mark.
+
+### Saying what a payment settles
+
+`structured_remittance: true` on a payment run writes each `Ustrd` in the
+**EACT** form instead of free text:
+
+```
+/CINV/SW-2026-004512/ 384.20/ 20260602
+```
+
+The European Association of Corporate Treasurers defines this so the 140
+characters can carry invoice references, applied amounts and dates that survive
+the whole European payment chain — and that the creditor's ledger can match
+without a human reading them. The component separator is a slash **followed by
+a space**, which is what lets a reference contain a slash of its own.
+
+Two things worth knowing. An element is never cut in half to fit: a caller that
+overflows 140 characters is told which elements did not make it, because a
+payment naming four of its six invoices is worse than one naming none — the
+supplier reconciles four and chases two that look unpaid. And EACT's `/URL/`
+example is an email address, which **cannot travel in a SEPA `Ustrd` at all**:
+the character set has no `@`, so it arrives with that character replaced.
+
+A Finanzamtszahlung is never restructured — its `Ustrd` has its own grammar.
 
 ### What it does not do — and why
 

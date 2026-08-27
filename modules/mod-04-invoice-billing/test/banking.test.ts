@@ -78,7 +78,11 @@ async function login(target: Express): Promise<string> {
 }
 
 /** Build an app with a given banking posture, and log in against it. */
-async function boot(options: { hooks?: PlatformHooks; configured?: boolean } = {}): Promise<void> {
+async function boot(options: {
+  hooks?: PlatformHooks;
+  configured?: boolean;
+  austrianRemittance?: { TAXS: RegExp | null; CPPP: RegExp | null };
+} = {}): Promise<void> {
   db = openDb(':memory:');
   app = createApp({
     db,
@@ -86,6 +90,7 @@ async function boot(options: { hooks?: PlatformHooks; configured?: boolean } = {
     seller,
     platform: options.hooks ?? noopPlatform,
     bankingConfigured: options.configured ?? options.hooks !== undefined,
+    ...(options.austrianRemittance === undefined ? {} : { austrianRemittance: options.austrianRemittance }),
   });
   cookie = await login(app);
 }
@@ -276,6 +281,35 @@ describe('when the bank refuses the file', () => {
     expect((await billRow(billId)).status).toBe('open');
   });
 
+  /**
+   * The finding this test exists for: PS-12 used to fold a bank's two
+   * contradicting answers to whichever arrived last. A settlement followed by
+   * a SEPA return — ordinary, days apart — folded to `rejected`, and this
+   * module released the run's bills back into the pool. The next run would
+   * have paid an invoice the bank had already taken the money for.
+   *
+   * PS-12 now reports `contested` and refuses to pick. The property here is
+   * that this module treats an answer it does not recognise as "touch
+   * nothing", which is the only safe default when money has already moved.
+   */
+  it('does not release the bills when the bank has said both yes and no', async () => {
+    const stub = stubBanking(() => ({
+      orderId: 'ord_both',
+      status: 'contested',
+      message: 'a settlement and a refusal for the same order',
+    }));
+    await boot({ hooks: stub.hooks });
+    const run = await makeRun();
+    const billId = run.items[0]!.bill_id;
+
+    const res = await submit(run.id).expect(200);
+    expect(res.body.bank_status).toBe('contested');
+    // NOT released: `open` would put this bill in the next run.
+    expect((await billRow(billId)).status).toBe('scheduled');
+    // And not silently marked paid either — a human resolves it.
+    expect(res.body.status).not.toBe('executed');
+  });
+
   it('lets a corrected run be built from the released bills', async () => {
     const stub = stubBanking((run) =>
       run.messageId.endsWith('X')
@@ -428,5 +462,174 @@ describe('auth', () => {
     expect((await request(app).post(`/api/payment-runs/${run.id}/submit`).send({})).status).toBe(401);
     expect((await request(app).post(`/api/payment-runs/${run.id}/refresh`).send({})).status).toBe(401);
     expect(stub.sent).toEqual([]);
+  });
+});
+
+// ── The two Austrian special transfers, end to end ────────────────────
+
+describe('Finanzamtszahlung and Postbarzahlung', () => {
+  // The specification's own worked example: 11/08 wage tax, employer
+  // contribution and surcharge; a 10/08 VAT credit. `269135729` is its
+  // documented tax account number, check digit and all.
+  const TAX_REMITTANCE = '0811+676850L+176800DB+23601DZ0810-563910U';
+  const TAX_ACCOUNT = '269135729';
+
+  async function runWith(purpose: string, reference: string, remittance: string): Promise<PaymentRunDetail> {
+    const created = await addBill({ reference, remittance });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: purpose });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    return res.body as PaymentRunDetail;
+  }
+
+  it('marks a tax payment per transaction, where the specification puts it', async () => {
+    // "Eine Kodierung auf Bestandsebene … ist nicht vorgesehen" — even when
+    // every payment in the batch is a tax payment. So the run-wide flag is an
+    // operator convenience and the code still lands on each CdtTrfTxInf.
+    await boot({});
+    const run = await runWith('TAXS', TAX_ACCOUNT, TAX_REMITTANCE);
+    expect(run.category_purpose).toBe('TAXS');
+
+    const xml = (await request(app).get(`/api/payment-runs/${run.id}/sepa.xml`).set('Cookie', cookie).expect(200))
+      .text;
+    expect(xml).toContain('<Purp>');
+    expect(xml).toContain('<Cd>TAXS</Cd>');
+    expect(xml).not.toContain('<CtgyPurp>');
+  });
+
+  it('sends the tax account number as EndToEndId, unprefixed', async () => {
+    // The tax office books the payment against it, so the usual "B<id>-" bill
+    // prefix would misfile the money.
+    await boot({});
+    const run = await runWith('TAXS', TAX_ACCOUNT, TAX_REMITTANCE);
+    const xml = (await request(app).get(`/api/payment-runs/${run.id}/sepa.xml`).set('Cookie', cookie).expect(200))
+      .text;
+    expect(xml).toContain(`<EndToEndId>${TAX_ACCOUNT}</EndToEndId>`);
+  });
+
+  it('refuses a tax account number whose check digit is wrong', async () => {
+    await boot({});
+    const created = await addBill({ reference: '269135720', remittance: TAX_REMITTANCE });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: 'TAXS' });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('check digit should be 9');
+  });
+
+  it('refuses a remittance line that is not in the Finanzamt format', async () => {
+    await boot({});
+    const created = await addBill({ reference: TAX_ACCOUNT, remittance: 'Rechnung 2026-0815' });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: 'TAXS' });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('Finanzamt remittance');
+  });
+
+  it('refuses a Postbarzahlung, which a bill cannot express', async () => {
+    // CPPP goes to BAWAG PSK's collection account with the real recipient in
+    // UltmtCdtr. Flagging it here and addressing it wrongly is worse than not
+    // offering it; PS-12 checks for one on the way to the bank.
+    await boot({});
+    const created = await addBill({ reference: 'CPP-1', remittance: 'K3?1234?Ort?Strasse 1?Zweck' });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: 'CPPP' });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('Postbarzahlung cannot be built from a bill');
+  });
+
+  it('says the format WAS checked — the patterns are published and shipped', async () => {
+    await boot({});
+    const run = await runWith('TAXS', TAX_ACCOUNT, TAX_REMITTANCE);
+    expect(run.remittance_format_checked).toBe(true);
+  });
+
+  it('lets an operator tighten the pattern without loosening it', async () => {
+    // A bank may be stricter than PSA. It may not be more permissive: the
+    // override replaces the format check, not the length or the empty check.
+    await boot({ austrianRemittance: { TAXS: /^0811\+676850L.*$/, CPPP: null } });
+    const created = await addBill({ reference: TAX_ACCOUNT, remittance: '0810-563910U' });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: 'TAXS' });
+    expect(res.status).toBe(422);
+  });
+
+  it('leaves an ordinary run with no purpose and nothing to check', async () => {
+    await boot({});
+    const run = await makeRun();
+    expect(run.category_purpose).toBeNull();
+    // Null, not false: there is no Austrian format to check on an ordinary
+    // transfer, and "unchecked" would read as a warning where none applies.
+    expect(run.remittance_format_checked).toBeNull();
+  });
+
+  it('refuses a purpose that is not one of the two', async () => {
+    await boot({});
+    const created = await addBill();
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: 'TAX' });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(res.body)).toContain('category_purpose');
+  });
+});
+
+// ── EACT structured remittance ────────────────────────────────────────
+
+describe('structured remittance', () => {
+  it('writes the invoice, amount and date in a form a ledger can match', async () => {
+    // Without it the creditor gets a sum and a line of text somebody reads.
+    await boot({});
+    const created = await addBill({ reference: 'SW-2026-004512', remittance: '' });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], structured_remittance: true });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+    const xml = (await request(app)
+      .get(`/api/payment-runs/${res.body.id}/sepa.xml`)
+      .set('Cookie', cookie)
+      .expect(200)).text;
+    expect(xml).toContain('<Ustrd>/CINV/SW-2026-004512/ 384.20/ 20260602</Ustrd>');
+  });
+
+  it('leaves an ordinary run as free text', async () => {
+    await boot({});
+    const run = await makeRun();
+    const xml = (await request(app)
+      .get(`/api/payment-runs/${run.id}/sepa.xml`)
+      .set('Cookie', cookie)
+      .expect(200)).text;
+    expect(xml).not.toContain('/CINV/');
+  });
+
+  it('never restructures a Finanzamtszahlung', async () => {
+    // Its Ustrd carries the tax periods and amounts and has its own grammar;
+    // wrapping that in /CINV/ would make it unparseable at the tax office.
+    await boot({});
+    const created = await addBill({ reference: '269135729', remittance: '0811+676850L' });
+    const res = await request(app)
+      .post('/api/payment-runs')
+      .set('Cookie', cookie)
+      .send({ bill_ids: [created.id], category_purpose: 'TAXS', structured_remittance: true });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+
+    const xml = (await request(app)
+      .get(`/api/payment-runs/${res.body.id}/sepa.xml`)
+      .set('Cookie', cookie)
+      .expect(200)).text;
+    expect(xml).toContain('<Ustrd>0811+676850L</Ustrd>');
+    expect(xml).not.toContain('/CINV/');
   });
 });

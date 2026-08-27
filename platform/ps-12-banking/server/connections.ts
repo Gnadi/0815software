@@ -1,7 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { DomainError } from './errors.js';
+import { chainAppend } from './chain.js';
 import { bankProfile } from './bank-registry.js';
+import { seedSubscriptions } from './subscriptions.js';
+import type { VopMode } from './orders.js';
 import {
   assertKeyStoreReadable,
   certificatePemFor,
@@ -11,7 +14,16 @@ import {
   publicRecords,
 } from './keystore.js';
 import { Transport } from './transport.js';
-import { buildHev, buildHia, buildHpb, buildIni, type Product, type Subscriber } from './ebics/envelopes.js';
+import {
+  buildHev,
+  buildHia,
+  buildHpb,
+  buildIni,
+  buildSpr,
+  type Product,
+  type Subscriber,
+  type SubscriberKeys,
+} from './ebics/envelopes.js';
 import { parseHev, parseHpbOrderData, parseResponse } from './ebics/parse.js';
 import type { EsVersion } from './ebics/crypto.js';
 import type {
@@ -54,6 +66,8 @@ export interface ConnectionInput {
   product?: Product | null;
   /** Ask the bank to spool uploads into its distributed-signature queue. */
   requestEds?: boolean;
+  /** Verification of Payee: leave it to the market default, or say. */
+  vop?: VopMode;
   debtorIban?: string | null;
   maxAmountMinor?: number;
   maxTransfers?: number;
@@ -74,6 +88,7 @@ interface ConnectionRow {
   product_language: string | null;
   product_institute_id: string | null;
   request_eds: number;
+  vop: string;
   debtor_iban: string | null;
   max_amount_minor: number;
   max_transfers: number;
@@ -90,15 +105,14 @@ export function recordEvent(
   db: Database.Database,
   params: { connectionId: number; type: string; actor?: string | null; meta?: Record<string, unknown>; at?: string },
 ): void {
-  db.prepare(
-    'INSERT INTO connection_events (connection_id, type, actor, meta, created_at) VALUES (?, ?, ?, ?, ?)',
-  ).run(
-    params.connectionId,
-    params.type,
-    params.actor ?? null,
-    JSON.stringify(params.meta ?? {}),
-    params.at ?? nowIso(),
-  );
+  const at = params.at ?? nowIso();
+  // Insert and chain link in one transaction — see `recordOrderEvent`.
+  db.transaction(() => {
+    const info = db
+      .prepare('INSERT INTO connection_events (connection_id, type, actor, meta, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(params.connectionId, params.type, params.actor ?? null, JSON.stringify(params.meta ?? {}), at);
+    chainAppend(db, 'connection_events', Number(info.lastInsertRowid), () => at);
+  })();
 }
 
 function eventsOf(db: Database.Database, connectionId: number): ConnectionEvent[] {
@@ -148,6 +162,12 @@ export function foldState(events: ConnectionEvent[]): ConnectionState {
       case 'suspended':
         state = 'suspended';
         break;
+      case 'locked':
+        // SPR: the bank revoked this subscriber. Nothing downstream steps out
+        // of it — `resumed` and `cleared` both refuse — because the authority
+        // that ended the authorisation is the bank, not this service.
+        state = 'locked';
+        break;
       case 'resumed':
         state = 'ready';
         break;
@@ -193,6 +213,7 @@ function toConnection(db: Database.Database, row: ConnectionRow): Connection {
     product_language: row.product_language,
     product_institute_id: row.product_institute_id,
     request_eds: row.request_eds === 1,
+    vop: row.vop as VopMode,
     debtor_iban: row.debtor_iban,
     max_amount_minor: row.max_amount_minor,
     max_transfers: row.max_transfers,
@@ -284,9 +305,9 @@ export function createConnection(db: Database.Database, input: ConnectionInput, 
       .prepare(
         `INSERT INTO bank_connections
            (key, display_name, bank_key, url, host_id, partner_id, user_id, ebics_version, es_version,
-            product_name, product_language, product_institute_id, request_eds,
+            product_name, product_language, product_institute_id, request_eds, vop,
             debtor_iban, max_amount_minor, max_transfers, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'H005', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'H005', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.key,
@@ -301,6 +322,7 @@ export function createConnection(db: Database.Database, input: ConnectionInput, 
         input.product?.language ?? null,
         input.product?.instituteId ?? null,
         input.requestEds === true ? 1 : 0,
+        input.vop ?? 'default',
         input.debtorIban ?? null,
         input.maxAmountMinor ?? 100_000_000,
         input.maxTransfers ?? 500,
@@ -310,6 +332,11 @@ export function createConnection(db: Database.Database, input: ConnectionInput, 
     recordEvent(db, { connectionId, type: 'created', actor, at: now });
     return connectionId;
   })();
+
+  // What the tick will fetch: the profile's status report and statement, the
+  // pair every connection used to poll unconditionally. A starting point — the
+  // rest comes from asking the bank with HTD. See subscriptions.ts.
+  seedSubscriptions(db, input.key, input.bankKey, () => now);
 
   return toConnection(db, db.prepare('SELECT * FROM bank_connections WHERE id = ?').get(id) as ConnectionRow);
 }
@@ -360,7 +387,10 @@ export async function probeVersions(
   key: string,
 ): Promise<{ hostId: string; versions: { protocol: string; revision: string }[] }> {
   const { row } = loaded(ctx.db, key);
-  const body = await ctx.transport.send(row.url, buildHev(row.host_id));
+  const body = await ctx.transport.send(row.url, buildHev(row.host_id), {
+    connection: row.id,
+    phase: 'hev',
+  });
   return { hostId: row.host_id, versions: parseHev(body).versions };
 }
 
@@ -377,7 +407,7 @@ export async function sendIni(ctx: ExchangeContext, key: string): Promise<Connec
     esVersion: row.es_version as EsVersion,
     timestamp: at,
   });
-  await exchange(ctx, row, body, 'ini_sent', at);
+  await exchange(ctx, row, body, 'ini_sent', at, 'ini');
   return connectionDetail(ctx.db, key);
 }
 
@@ -394,7 +424,7 @@ export async function sendHia(ctx: ExchangeContext, key: string): Promise<Connec
     encCertificatePem: certificatePemFor(ctx.db, { connectionId: row.id, purpose: 'ENC' }),
     timestamp: at,
   });
-  await exchange(ctx, row, body, 'hia_sent', at);
+  await exchange(ctx, row, body, 'hia_sent', at, 'hia');
   return connectionDetail(ctx.db, key);
 }
 
@@ -432,7 +462,7 @@ export async function fetchBankKeys(ctx: ExchangeContext, key: string): Promise<
     timestamp: at,
   });
 
-  const raw = await ctx.transport.send(row.url, body);
+  const raw = await ctx.transport.send(row.url, body, { connection: row.id, phase: 'hpb' });
   // Not verified against a bank key: this is the request that fetches them.
   const response = parseResponse(raw);
   if (!response.verdict.ok) {
@@ -550,9 +580,113 @@ export function verifyBankKeys(
   return connectionDetail(ctx.db, key);
 }
 
+/** Why a locked connection refuses everything, said once. */
+const LOCKED_MESSAGE =
+  'the bank has locked this subscriber (SPR). Nothing here can undo that: generate new keys and run INI and HIA ' +
+  'again, which means a new INI letter to the bank.';
+
+/**
+ * SPR — ask the bank to lock this subscriber.
+ *
+ * At signature class E the private ES key can move money on its own, so the
+ * question "how do I stop it RIGHT NOW" has to have an answer that is not "ring
+ * the bank and hope somebody picks up". Austrian institutes support SPR
+ * explicitly; it is an ordinary signed upload, which means it needs the very
+ * key it is revoking — so it works while the key is merely *suspected*, and not
+ * after it is gone.
+ *
+ * The connection moves to `locked` **only if the bank said EBICS_OK**. A
+ * refusal is recorded as `failed` with the bank's own code, exactly like any
+ * other setup step, because a lock that silently did not happen is worse than
+ * no lock at all.
+ */
+export async function sendSpr(ctx: ExchangeContext, key: string, reason: string): Promise<ConnectionDetail> {
+  const { row, state } = loaded(ctx.db, key);
+  if (state === 'locked') throw new DomainError(409, 'this connection is already locked');
+  if (!SPR_SENDABLE.has(state)) {
+    throw new DomainError(
+      409,
+      `this connection is ${state}; SPR needs a subscriber the bank knows and keys to sign with, so it can only ` +
+        'be sent once HIA has gone through',
+    );
+  }
+
+  const at = (ctx.now ?? nowIso)();
+  const bank = bankPemsOf(ctx.db, row.id);
+  const body = buildSpr({
+    subscriber: subscriberOf(row),
+    keys: subscriberKeysOf(ctx, row),
+    bank,
+    transactionKey: randomBytes(16),
+    timestamp: at,
+  });
+
+  const response = parseResponse(
+    await ctx.transport.send(row.url, body, { connection: row.id, phase: 'spr' }),
+    bank.authPublicPem,
+  );
+  if (!response.verdict.ok) {
+    recordEvent(ctx.db, {
+      connectionId: row.id,
+      type: 'failed',
+      actor: ctx.actor,
+      meta: { step: 'spr', code: response.verdict.technical.code, message: response.verdict.message, reason },
+      at,
+    });
+    throw new DomainError(
+      502,
+      `${response.verdict.message} — the subscriber is NOT locked. Telephone the bank.`,
+    );
+  }
+
+  recordEvent(ctx.db, { connectionId: row.id, type: 'locked', actor: ctx.actor, meta: { reason }, at });
+  return connectionDetail(ctx.db, key);
+}
+
+/**
+ * The states SPR can be sent from.
+ *
+ * It is a fully protected `ebicsRequest`, so it needs the BANK's keys to
+ * encrypt to and digest — which means HPB must have run. It does NOT require
+ * those keys to have been confirmed by a human: verification protects us from
+ * a substituted bank key, and in an incident, locking with the keys on hand
+ * beats not locking at all. If the keys were substituted the lock simply does
+ * not take, and the bank's answer says so.
+ *
+ * `failed` and `suspended` are in the set on purpose: a connection already
+ * stopped for a reason is exactly the one somebody may need to lock for good.
+ */
+const SPR_SENDABLE = new Set<ConnectionState>(['hpb_fetched', 'ready', 'suspended', 'failed']);
+
+/** The bank's public keys as PEM — unlike `bankKeysOf`, which returns digests. */
+function bankPemsOf(
+  db: Database.Database,
+  connectionId: number,
+): { authPublicPem: string; encPublicPem: string } {
+  const rows = db.prepare('SELECT purpose, public_pem FROM bank_keys WHERE connection_id = ?').all(connectionId) as {
+    purpose: string;
+    public_pem: string;
+  }[];
+  const auth = rows.find((r) => r.purpose === 'AUTH');
+  const enc = rows.find((r) => r.purpose === 'ENC');
+  if (auth === undefined || enc === undefined) throw new DomainError(409, 'the bank keys are missing — run HPB first');
+  return { authPublicPem: auth.public_pem, encPublicPem: enc.public_pem };
+}
+
+/** Our three private keys, decrypted for one exchange. */
+function subscriberKeysOf(ctx: ExchangeContext, row: ConnectionRow): SubscriberKeys {
+  return {
+    esPrivatePem: privatePemFor(ctx.db, { connectionId: row.id, purpose: 'ES', keySecret: ctx.keySecret }).pem,
+    esVersion: row.es_version as EsVersion,
+    authPrivatePem: privatePemFor(ctx.db, { connectionId: row.id, purpose: 'AUTH', keySecret: ctx.keySecret }).pem,
+    encPrivatePem: privatePemFor(ctx.db, { connectionId: row.id, purpose: 'ENC', keySecret: ctx.keySecret }).pem,
+  };
+}
+
 export function suspend(ctx: ExchangeContext, key: string, reason: string): ConnectionDetail {
   const { row, state } = loaded(ctx.db, key);
   if (state === 'suspended') throw new DomainError(409, 'this connection is already suspended');
+  if (state === 'locked') throw new DomainError(409, LOCKED_MESSAGE);
   recordEvent(ctx.db, {
     connectionId: row.id,
     type: 'suspended',
@@ -579,6 +713,7 @@ export function suspend(ctx: ExchangeContext, key: string, reason: string): Conn
  */
 export function clearFailure(ctx: ExchangeContext, key: string): ConnectionDetail {
   const { row, state } = loaded(ctx.db, key);
+  if (state === 'locked') throw new DomainError(409, LOCKED_MESSAGE);
   if (state !== 'failed') throw new DomainError(409, `this connection is ${state}, not failed`);
   recordEvent(ctx.db, { connectionId: row.id, type: 'cleared', actor: ctx.actor, at: (ctx.now ?? nowIso)() });
   return connectionDetail(ctx.db, key);
@@ -586,6 +721,7 @@ export function clearFailure(ctx: ExchangeContext, key: string): ConnectionDetai
 
 export function resume(ctx: ExchangeContext, key: string): ConnectionDetail {
   const { row, state } = loaded(ctx.db, key);
+  if (state === 'locked') throw new DomainError(409, LOCKED_MESSAGE);
   if (state !== 'suspended') throw new DomainError(409, `this connection is ${state}, not suspended`);
   const verified = ctx.db
     .prepare('SELECT COUNT(*) AS n FROM bank_keys WHERE connection_id = ? AND verified_at IS NOT NULL')
@@ -610,6 +746,7 @@ export function requireReady(db: Database.Database, key: string): ConnectionRow 
       'the bank’s keys have been fetched but nobody has confirmed them against the bank’s letter yet',
     );
   }
+  if (state === 'locked') throw new DomainError(409, LOCKED_MESSAGE);
   throw new DomainError(409, `this connection is ${state} and cannot carry an order`);
 }
 
@@ -620,8 +757,9 @@ async function exchange(
   body: string,
   successEvent: string,
   at: string,
+  phase: string,
 ): Promise<void> {
-  const raw = await ctx.transport.send(row.url, body);
+  const raw = await ctx.transport.send(row.url, body, { connection: row.id, phase });
   const response = parseResponse(raw);
   if (!response.verdict.ok) {
     recordEvent(ctx.db, {

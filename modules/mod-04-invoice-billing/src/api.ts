@@ -10,6 +10,8 @@ import type {
   PaymentConfig,
   PaymentRunDetail,
   PaymentRunRow,
+  ReceivableOutcome,
+  ReceivableSuggestions,
 } from '../shared/types';
 
 export class ApiError extends Error {
@@ -59,6 +61,24 @@ export interface CustomerRow extends Customer {
 export type AuthMode = { sso: false } | { sso: true; org: string };
 
 export const api = {
+  /**
+   * What arrived on the bank account, matched against what is open.
+   *
+   * Throws `ApiError` with status 501 when no bank connection is configured —
+   * which is not a failure but the standalone posture: incoming payments are
+   * recorded on the invoice itself, as they always were.
+   */
+  receivableSuggestions: (range: { from?: string; to?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (range.from) query.set('from', range.from);
+    if (range.to) query.set('to', range.to);
+    const suffix = query.toString();
+    return request<ReceivableSuggestions>(`/api/receivables/suggestions${suffix === '' ? '' : `?${suffix}`}`);
+  },
+  /** Record what a human confirmed. Each application is independent. */
+  applyReceivables: (
+    applications: { booking_key: string; invoice_id: number; amount_cents: number; date: string; note?: string }[],
+  ) => request<{ outcomes: ReceivableOutcome[] }>('/api/receivables/apply', post({ applications })),
   login: (username: string, password: string) =>
     request<{ ok: true }>('/api/login', post({ username, password })),
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),

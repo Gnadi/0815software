@@ -15,6 +15,7 @@ import {
   resume,
   sendHia,
   sendIni,
+  sendSpr,
   suspend,
   verifyBankKeys,
   type ExchangeContext,
@@ -425,5 +426,90 @@ describe('listing', () => {
       ['main', 'ready'],
       ['second', 'created'],
     ]);
+  });
+});
+
+// ── SPR: the bank locks the subscriber ────────────────────────────────
+
+describe('locking the subscriber at the bank', () => {
+  /** Everything up to HPB, without the human confirmation that follows it. */
+  async function upToHpb(): Promise<void> {
+    connect();
+    generateKeys(ctx, 'main');
+    await sendIni(ctx, 'main');
+    await sendHia(ctx, 'main');
+    await fetchBankKeys(ctx, 'main');
+  }
+
+  // At signature class E the private ES key can move money on its own, so
+  // "stop it right now" has to have an answer that is not "ring the bank".
+  it('locks a ready connection, and the bank forgets the subscriber', async () => {
+    await bringUp();
+    const detail = await sendSpr(ctx, 'main', 'key possibly copied from a laptop');
+
+    expect(detail.state).toBe('locked');
+    expect(bank.locked.size).toBe(1);
+    expect(detail.events.at(-1)!.type).toBe('locked');
+    expect(detail.events.at(-1)!.meta.reason).toBe('key possibly copied from a laptop');
+  });
+
+  it('refuses orders afterwards, naming the only way back', async () => {
+    await bringUp();
+    await sendSpr(ctx, 'main', 'incident');
+    // Not "suspended" — nothing in this service can undo a bank-side lock, and
+    // an operator reading the error needs to know that before they go hunting
+    // for a resume button that does not exist.
+    expect(() => requireReady(db, 'main')).toThrow(/locked this subscriber/);
+    expect(() => requireReady(db, 'main')).toThrow(/INI and HIA again/);
+  });
+
+  it('cannot be resumed, cleared or suspended out of', async () => {
+    await bringUp();
+    await sendSpr(ctx, 'main', 'incident');
+
+    // This is the whole difference between `locked` and `suspended`: a local
+    // decision is reversible here, the bank's is not.
+    expect(() => resume(ctx, 'main')).toThrow(/locked this subscriber/);
+    expect(() => clearFailure(ctx, 'main')).toThrow(/locked this subscriber/);
+    expect(() => suspend(ctx, 'main', 'anything')).toThrow(/locked this subscriber/);
+  });
+
+  it('does NOT record a lock the bank refused', async () => {
+    // The dangerous failure is a green tick over nothing: an operator hits
+    // lock during an incident, believes the key is dead, and walks away.
+    await bringUp();
+    bank.configure({ refuseSpr: true });
+    await expect(sendSpr(ctx, 'main', 'incident')).rejects.toThrow(/NOT locked/);
+
+    const detail = connectionDetail(db, 'main');
+    expect(detail.state).toBe('failed');
+    expect(detail.events.at(-1)!.meta.step).toBe('spr');
+    expect(bank.locked.size).toBe(0);
+  });
+
+  it('cannot be sent before HPB, because it needs the bank’s keys', async () => {
+    // SPR is a fully protected ebicsRequest: it encrypts to the bank's key and
+    // carries digests of it. Before HPB there is nothing to encrypt to.
+    connect();
+    generateKeys(ctx, 'main');
+    await sendIni(ctx, 'main');
+    await sendHia(ctx, 'main');
+    await expect(sendSpr(ctx, 'main', 'incident')).rejects.toThrow(/hia_sent/);
+  });
+
+  it('does not require the bank keys to have been CONFIRMED', async () => {
+    // Verification protects us from a substituted bank key. In an incident,
+    // locking with the keys on hand beats not locking; if they were
+    // substituted the lock simply does not take and the bank's answer says so.
+    await upToHpb();
+    expect(connectionDetail(db, 'main').state).toBe('hpb_fetched');
+    const detail = await sendSpr(ctx, 'main', 'incident');
+    expect(detail.state).toBe('locked');
+  });
+
+  it('refuses a second lock rather than pretending', async () => {
+    await bringUp();
+    await sendSpr(ctx, 'main', 'incident');
+    await expect(sendSpr(ctx, 'main', 'again')).rejects.toThrow(/already locked/);
   });
 });
