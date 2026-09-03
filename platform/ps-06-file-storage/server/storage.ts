@@ -116,6 +116,17 @@ function signPayload(secret: string, bucket: string, key: string, expires: numbe
   return createHmac('sha256', secret).update(`${bucket}\n${key}\n${expires}`).digest('hex');
 }
 
+/**
+ * The longest life a signed download URL may be given: seven days.
+ *
+ * A ceiling has to exist somewhere, because a signature carries no revocation —
+ * once issued, the only thing that stops it being redeemed is the clock, and
+ * deleting the object. Seven days is long enough for the cases the route is
+ * for (mail a customer their invoice, hand a link to a support agent) and short
+ * enough that a leaked URL stops working within a week.
+ */
+export const MAX_SIGN_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 /** Build a signed, time-limited download URL path (relative). */
 export function signDownloadUrl(secret: string, bucket: string, key: string, ttlSeconds: number, now = Date.now()): {
   url: string;

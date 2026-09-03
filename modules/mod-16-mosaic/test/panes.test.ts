@@ -74,6 +74,18 @@ beforeEach(() => {
   db = openDb(':memory:');
 });
 
+describe('liveness and readiness', () => {
+  it('answers readiness in the shape the stack reads', async () => {
+    const app = build();
+    // Public, both of them: a probe holds no session.
+    await request(app).get('/api/health').expect(200).expect({ ok: true });
+    // The BODY, not just the status: the stack's pre-flight
+    // (`deploy/smoke-stack.mjs`) reads `ready`, and this module used to answer
+    // `{ ok: true }` here — a 200 that failed the check that matters.
+    await request(app).get('/api/ready').expect(200).expect({ ready: true });
+  });
+});
+
 describe('the catalogue', () => {
   it('says which modules can actually be tiled, and why the rest cannot', async () => {
     const app = build();

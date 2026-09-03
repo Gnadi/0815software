@@ -131,12 +131,19 @@ export function createApp({
    * module take the dashboard out of the load balancer during exactly the
    * incident someone opens the dashboard to understand.
    */
+  // Readiness, in the shape every other package answers in: `ready`, not `ok`.
+  // `ok` is what /api/health says; this endpoint is a different question and
+  // the stack reads the answer. `deploy/smoke-stack.mjs` — the pre-flight an
+  // operator is told to run before the first `docker compose up` — asserts
+  // `body.ready === true`, so this module could never pass it, and any stack
+  // that included a shell failed its own smoke check for a reason that had
+  // nothing to do with the stack.
   app.get('/api/ready', (_req, res) => {
     try {
       db.prepare('SELECT COUNT(*) FROM boards').get();
-      res.json({ ok: true });
+      res.json({ ready: true });
     } catch {
-      res.status(503).json({ ok: false });
+      res.status(503).json({ ready: false });
     }
   });
 

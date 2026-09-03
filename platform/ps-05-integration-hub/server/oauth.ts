@@ -75,7 +75,30 @@ export function beginAuthorize(
   return `${callbackUri}?${q.toString()}`;
 }
 
-export function consumeState(db: Database.Database, provider: string, state: unknown): StateRow | undefined {
+/**
+ * How long a CSRF state nonce stays usable, matching PS-01's window.
+ *
+ * A state was single-use but had NO expiry here: a row minted by an authorize
+ * that nobody ever completed stayed in the table and stayed redeemable for the
+ * life of the deployment. That is two problems in one. An authorize URL that
+ * reaches a log, a bookmark or a shared screen remains a live way to attach a
+ * connection months later, and the table only ever grows — every abandoned
+ * authorize is a permanent row.
+ */
+export const STATE_TTL_MS = 10 * 60_000;
+
+/**
+ * Consume a stored state nonce (single-use) and return it, or undefined. A
+ * nonce older than `STATE_TTL_MS` is gone rather than honoured, and every call
+ * clears whatever else has expired so an abandoned authorize cannot accumulate.
+ */
+export function consumeState(
+  db: Database.Database,
+  provider: string,
+  state: unknown,
+  now = Date.now(),
+): StateRow | undefined {
+  db.prepare('DELETE FROM oauth_states WHERE created_at < ?').run(nowIso(now - STATE_TTL_MS));
   if (typeof state !== 'string' || state.length === 0) return undefined;
   const row = db.prepare('SELECT * FROM oauth_states WHERE state = ? AND provider = ?').get(state, provider) as
     | StateRow

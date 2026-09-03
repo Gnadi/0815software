@@ -63,12 +63,21 @@ export function exportSubject(
   // Failed logins carry the typed address in their meta, so they exist even
   // when no account does — someone repeatedly mistyping their own address
   // leaves a trace under it, and that trace is about them.
+  //
+  // Scoped to the caller's organization like everything else here. Without the
+  // scope this was the one query in the service that read across tenants: a
+  // failed login against ANOTHER organization records that org's id and a null
+  // user (the address has no account there), so any administrator could ask for
+  // any address and read back the IP addresses of attempts aimed at a customer
+  // they have nothing to do with. Attempts against an organization that does
+  // not exist at all carry no org id and belong to nobody, so they are not
+  // reported here either.
   records.failed_logins = db
     .prepare(
       `SELECT id, type, ip, meta, created_at FROM auth_events
-        WHERE user_id IS NULL AND json_extract(meta, '$.email') = ? ORDER BY id`,
+        WHERE user_id IS NULL AND org_id = ? AND json_extract(meta, '$.email') = ? ORDER BY id`,
     )
-    .all(email);
+    .all(orgId, email);
 
   for (const [key, value] of Object.entries(records)) {
     if (value.length === 0) delete records[key];

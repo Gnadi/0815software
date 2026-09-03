@@ -15,7 +15,7 @@ import {
   type AuthConfig,
   type SeamFetch,
 } from './auth.js';
-import { DomainError, fail, reqText } from './errors.js';
+import { DomainError, fail, optionalInt, reqText } from './errors.js';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import { MIGRATIONS } from './db.js';
 import { pendingCount } from './migrations.js';
@@ -141,8 +141,8 @@ export function createApp(opts: AppOptions): express.Express {
         q,
         tenant: typeof req.query.tenant === 'string' ? req.query.tenant : null,
         filters,
-        limit: typeof req.query.limit === 'string' ? Number(req.query.limit) : undefined,
-        offset: typeof req.query.offset === 'string' ? Number(req.query.offset) : undefined,
+        limit: optionalInt(req.query as Record<string, unknown>, 'limit', 1, 100),
+        offset: optionalInt(req.query as Record<string, unknown>, 'offset', 0, 100_000),
       }),
     );
   });

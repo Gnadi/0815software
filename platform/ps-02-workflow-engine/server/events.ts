@@ -153,6 +153,7 @@ export function ingestEvent(
 ): IngestResult {
   const now = opts.now ?? Date.now();
   const payload = opts.payload ?? {};
+  const idempotencyKey = opts.idempotencyKey ?? null;
   const matchTypes = opts.matchTypes ?? ['event'];
   const placeholders = matchTypes.map(() => '?').join(', ');
   const triggers = db
@@ -164,6 +165,23 @@ export function ingestEvent(
   // trigger that fails halfway leaves the earlier instances started and the
   // caller holding an error, with no way to tell what did happen.
   return db.transaction((): IngestResult => {
+    /**
+     * Has this exact ingest already happened?
+     *
+     * The idempotency key used to reach only `startInstance`, which deduped
+     * the workflow INSTANCES. The webhook fan-out ran unconditionally beside
+     * it, so a caller whose POST timed out and was retried with the same key
+     * got one instance and TWO deliveries to every subscriber — the same
+     * "customer receives it twice" the tick serialisation exists to prevent,
+     * arriving through the door the key was supposed to close.
+     *
+     * The claim is inside this transaction, so two concurrent replays cannot
+     * both see it missing. An ingest with no key stays at-least-once by
+     * design: there is nothing to recognise a repeat by.
+     */
+    const alreadyIngested =
+      idempotencyKey !== null &&
+      db.prepare('SELECT 1 FROM event_ingests WHERE key = ?').get(idempotencyKey) !== undefined;
     const instanceIds: number[] = [];
     let skipped = 0;
     let replayed = 0;
@@ -181,7 +199,7 @@ export function ingestEvent(
       const started = startInstance(db, {
         key: trigger.workflow_key,
         input: payload,
-        idempotencyKey: opts.idempotencyKey ?? null,
+        idempotencyKey,
         triggerId: trigger.id,
         now,
       });
@@ -193,7 +211,14 @@ export function ingestEvent(
       if (!instanceIds.includes(started.instance.id)) instanceIds.push(started.instance.id);
     }
 
-    const enqueued = enqueueDeliveries(db, opts.type, payload, now);
+    const enqueued = alreadyIngested ? 0 : enqueueDeliveries(db, opts.type, payload, now);
+    if (idempotencyKey !== null && !alreadyIngested) {
+      db.prepare('INSERT INTO event_ingests (key, event_type, created_at) VALUES (?, ?, ?)').run(
+        idempotencyKey,
+        opts.type,
+        nowIso(now),
+      );
+    }
     return { matched: instanceIds.length, instance_ids: instanceIds, enqueued, skipped, replayed };
   })();
 }

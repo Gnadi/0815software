@@ -69,8 +69,11 @@ beforeEach(async () => {
 
 describe('authentication', () => {
   it('gates everything except health, ready and login', async () => {
-    await request(app).get('/api/health').expect(200);
-    await request(app).get('/api/ready').expect(200);
+    await request(app).get('/api/health').expect(200).expect({ ok: true });
+    // The BODY, not just the status: the stack's pre-flight
+    // (`deploy/smoke-stack.mjs`) reads `ready`, and this module used to answer
+    // `{ ok: true }` here — a 200 that failed the check that matters.
+    await request(app).get('/api/ready').expect(200).expect({ ready: true });
     for (const path of ['/api/boards', '/api/catalogue', '/api/summaries', '/api/activity', '/api/me']) {
       await request(app).get(path).expect(401);
     }

@@ -9,6 +9,23 @@
 > below. It has its own acceptance plan — [TEST-PLAN-PS-12.md](TEST-PLAN-PS-12.md)
 > — and its own blocking gate: nothing in it has ever spoken to a real bank.
 
+> **September 2026 — a platform-wide review and test plan.**
+> [TEST-PLAN-PLATFORM.md](TEST-PLAN-PLATFORM.md) covers all twelve services, all
+> sixteen modules, the clients package and the provisioner: 70 cases, 63 of them
+> executed, the remaining 7 waiting on a vendor or on infrastructure the repo
+> cannot supply. It found and closed **eleven defects**, none of which was in a
+> case anybody had written — three services answered **500** to `?limit=abc`, a
+> signed download URL could be issued for three thousand years, an idempotency
+> key deduped a workflow instance but not the webhook fan-out beside it, another
+> raised a UNIQUE violation when two callers presented it at once, two `retry`
+> routes re-sent work that had already succeeded, an OAuth callback signed in
+> accounts that had been disabled or erased, a subject export read across
+> tenants, an OAuth state never expired, every module reported a broken PS-01 as
+> a wrong password, and the two shells answered `/api/ready` in a shape that made
+> every stack containing one fail its own pre-flight. The verdict below is
+> unchanged by it: these were code defects, and what still stands between here
+> and a paying customer remains operational proof (A5, T-4, T-5).
+
 ## Verdict
 
 **Pilot-ready. Not yet ready for a paying customer with a promise attached.**

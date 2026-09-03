@@ -73,6 +73,16 @@ export interface ApiKeySummary {
   id: number;
   name: string;
   prefix: string; // safe to display; the secret is shown only once at creation
+  /**
+   * The user who minted it, or null for a key created without one (the seed).
+   *
+   * Reported because a key outlives the session that made it, so "which keys
+   * did the person who just left mint?" is a question an operator has to be
+   * able to answer from the list. Before this it was answerable only through
+   * the subject export, which needs the address you are already trying to
+   * clean up after.
+   */
+  created_by: number | null;
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
