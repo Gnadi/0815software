@@ -8,7 +8,7 @@ lines of service code and ~40 000 of module code. September 2026.*
 
 The suites are large and they are green. That was true on the morning this plan
 was written — 4 775 tests across 29 packages, every one passing — and it stayed
-true while the review found eleven defects, because **not one of them was in a
+true while the review found fourteen defects, because **not one of them was in a
 case anybody had thought to write**. A green suite proves the code does what its
 author expected; it says nothing about what happens at the inputs the author did
 not picture, or at the seams where two packages each behave correctly and
@@ -165,6 +165,74 @@ attempt is judged; a correct password clears it.
 **P1-6 · A real OAuth provider issues a session** — **V**
 *Steps:* configure one provider with real credentials; complete the flow.
 *If it differs:* **STOP** — everything below this line is fixture-tested only.
+
+*Added by the final PS-01 review (September 2026). Every earlier round found a
+defect in this service or in something reached through it, so it was reviewed
+once more on its own, driven by its coverage: the branches nothing had ever
+executed are where the remaining ones were.*
+
+**P1-7 · An Administrator cannot seize an account that outranks it** — **L**
+*Steps:* as an Administrator (no `org:write`), reset the OWNER's password; then
+disable the Owner; then erase the Owner. Repeat the reset against a user holding
+a CUSTOM role that grants `org:write`, and again through an API key scoped to
+`user:*`.
+*Expected:* 403 every time, naming the permission the caller lacks. An
+Administrator may still reset, disable and erase anything at or below its own
+authority, may rename anyone, and anyone may change their own password.
+*If it differs:* **STOP** — `requireGrantable` locks the four routes that hand
+out authority, and this is the fifth door to the same place: the admin reset
+path chooses a password the caller knows, so it is a takeover of whatever the
+target can do. Disable and erase are the half that needs no login: they remove
+the one account that could have stopped you.
+
+**P1-8 · Erasing a person takes their machine credentials with them** — **L**
+*Steps:* mint an API key as an administrator; erase that administrator; present
+the key.
+*Expected:* 401, `api_keys_revoked` on the response and on the audit event. A
+merely DISABLED account keeps its keys, and `GET /api/api-keys` reports
+`created_by` so an operator can see whose they are.
+*If it differs:* **STOP** — an API key is verified against its own hash and
+carries the permissions its creator held, `platform:admin` included. Erasure
+locks every other door and left that one open.
+
+**P1-9 · The cross-service seam refuses a credential whose account has moved
+on** — **L**
+*Steps:* `POST /api/tokens/verify` with a session token after each of: disable,
+erase, password change, explicit session revocation; with a token naming a user
+id that does not exist; expired; signed with another secret. Then with an API
+key: unscoped, scoped, revoked, and malformed.
+*Expected:* `{ valid: false }` in every negative case, and the caller's real
+permission set in the positive ones. Never a 500, never a throw.
+*If it differs:* **STOP** — every other service authorizes on this answer, so a
+token that stays valid here stays valid platform-wide. The HMAC alone is not
+enough: a signed token stays signed after the account behind it is gone.
+
+**P1-10 · The boot guard refuses, as a process** — **L**
+*Steps:* spawn `server/index.ts` under `NODE_ENV=production` with a shipped
+default, an empty, and a whitespace-only `SESSION_SECRET`; then with a real one;
+then with `PORT=473O1`.
+*Expected:* refusal before `listen`, naming the variable and the fix; a good
+configuration serves `/api/health` with its security headers and 401s an
+anonymous `/api/users`; a mistyped port refuses rather than silently taking the
+default.
+*If it differs:* **STOP** — this is the A1 control, and it was reachable only
+through `deploy/smoke-stack.mjs`: a whole stack away from whoever broke it.
+
+**P1-11 · A password spray is visible from outside the database** — **L**
+*Steps:* fail six logins against one address; scrape `/api/metrics`; advance
+past the throttle window and scrape again.
+*Expected:* `identity_throttled_accounts` 0, then 1, then 0 again.
+*If it differs:* **NOTE** — this service published no domain gauge at all, and
+it is the one where "somebody is guessing passwords" is the alert an operator
+most wants. The generated Prometheus carries a matching rule
+(`IdentityPasswordSpray`), so `deploy`'s converse test holds.
+
+**P1-12 · Coverage is a gate on this service, not a report** — **L**
+*Steps:* `npm run test:coverage` in `platform/ps-01-identity`.
+*Expected:* the run FAILS below 90% on statements, branches, functions or
+lines. `server/index.ts` is excluded from the denominator and covered by P1-10
+in a child process instead, which v8 cannot instrument.
+*If it differs:* **STOP** — a threshold that only prints is not a gate.
 
 ---
 
@@ -612,19 +680,26 @@ Production-ready means all of:
 ## 19 · Record sheet
 
 **Run on 2026-09-03**, on branch `claude/platform-services-review-bugs-6ra7no`,
-against 29 packages. **70 cases, 63 executed** — 46 passed, 14 failed and are
+against 29 packages. **76 cases, 69 executed** — 49 passed, 17 failed and are
 now fixed, 3 came back partial. Of the 7 not run, 5 are **V** cases waiting on a
 vendor and 2 are **S** cases waiting on infrastructure this repository cannot
 supply (a receiver to page, a host to restore onto).
 
-Baseline before the run: 4 775 tests, all green. After: 4 840, all green — the
-65 new ones are the cases below that had no coverage, and every one of them
-fails against the code as it was.
+Baseline before the run: 4 775 tests, all green. After: 4 960, all green — the
+185 new ones are the cases below that had no coverage, and every one of them
+fails against the code as it was. 120 of them are PS-01's, where coverage went
+from 88% to 98.9% and is now enforced at 90% by `vitest.config.ts`.
 
 ### What this run found
 
-Eleven defects across the fourteen failing cases, in three families. None of
+Fourteen defects across the seventeen failing cases, in four families. None of
 them was in a case anybody had written.
+
+The fourth family arrived last, from a review of PS-01 alone. Every earlier
+round had found a defect in that service or in something reached through it, so
+it was reviewed once more on its own terms, driven by its own coverage — and the
+three that were left were all in branches nothing had ever executed. See
+*The service everything else authenticates through* below.
 
 **A validator that existed in one package and nowhere else.** PS-12 reads
 `limit` through an `optionalInt` that refuses anything that is not a whole
@@ -666,7 +741,50 @@ password door refuses it, the provider door did not (P1-1). PS-05's OAuth state
 had no expiry at all, so an abandoned authorize URL stayed redeemable forever
 and the table only grew (P5-1).
 
-Three of the eleven are guarded against recurrence by a test that watches every
+### The service everything else authenticates through
+
+PS-01 was reviewed a fourth time, on its own, because it kept being the answer.
+The method was coverage rather than reading: 88% of its statements were executed
+by its suite, and the review went at the other 12% — which is where all three
+remaining defects were.
+
+**A fifth door to Owner.** `requireGrantable` caps the four routes that hand out
+authority, and its comment names them: an Administrator, who deliberately lacks
+`org:write`, "could reach it four ways". It could reach it a fifth: `user:write`
+is the entire authorization for the ADMINISTRATIVE password reset, the route
+never looked at whose account it was, and the caller chooses the new password.
+Reset the Owner, log in as the Owner. Disabling and erasing an Owner were open
+for the neighbouring reason — neither hands the caller anything, but both remove
+the one account that could have stopped them. All three are now capped by
+`requireNotAbove`, expressed as permission containment rather than a role
+ladder, because a custom role has no rank and an Owner-equivalent custom role
+has to be caught by the same rule. The dead `ROLE_RANK` map and `systemRole()`
+that nothing had ever read went with it: a ladder nobody consults is worse than
+no ladder, because the question it appears to answer looks handled.
+
+**Erasure left the machine credentials behind.** Erasing a user anonymizes the
+PII, scrambles the password, bumps `token_version` and disables the account —
+and an API key is none of those things. It is checked against its own hash and
+carries the permissions its creator held, `platform:admin` among them, which is
+the key to every other service through the identity seam. An erased
+administrator's key kept working. Erasure now revokes them and says how many; a
+merely disabled account keeps its keys, deliberately, and `created_by` on the
+key list is how an operator sees whose they are before deciding.
+
+**Nothing was watchable.** PS-01 published no domain gauge at all — the one
+service where "somebody is guessing passwords" is the alert you would most want,
+and the data was already sitting in `login_throttle` because the per-account
+backoff needs it. `identity_throttled_accounts` now exports it, with the
+matching `IdentityPasswordSpray` rule in the generated Prometheus.
+
+Its coverage is now a gate rather than a number: `vitest.config.ts` fails the
+run below 90% on all four metrics, and the suite sits at 98.9% statements /
+94.9% branches / 100% functions across 261 tests. Two things are tested as real
+processes because that is the only honest way — `server/index.ts` and the boot
+guard it calls had no test at all and were reachable only through
+`deploy/smoke-stack.mjs`, a whole stack away from whoever would break them.
+
+Three of the fourteen are guarded against recurrence by a test that watches every
 package at once rather than the one that was wrong: `deploy/test/registry.test.ts`
 already re-derives the registry's claims, and `deploy/test/readiness-contract.test.ts`
 now re-derives the readiness shape the same way, for all 28 HTTP packages.
@@ -685,6 +803,12 @@ now re-derives the readiness shape the same way, for all 28 HTTP packages.
 | P1-4 | L | 2026-09-03 | review | pass | `token_version` bump; verify `{valid:false}`, route 401 |
 | P1-5 | L | 2026-09-03 | review | pass | `throttle.test.ts`: delay paid before the judgement, keyed on what was typed |
 | P1-6 | V | | | not run (needs a provider) | |
+| P1-7 | L | 2026-09-03 | final PS-01 review | **FAIL → fixed** | admin reset the Owner's password and logged in as Owner with `org:write`; disable and erase were open too. `requireNotAbove` now caps all three on permission containment |
+| P1-8 | L | 2026-09-03 | final PS-01 review | **FAIL → fixed** | an erased administrator's API key still authorized with `platform:admin`; erasure now revokes them and reports the count, and the list shows `created_by` |
+| P1-9 | L | 2026-09-03 | final PS-01 review | pass | 14 cases over the seam: disabled, erased, password-changed, revoked, orphaned, expired, forged, and four malformed keys — all `{valid:false}`, none a 500 |
+| P1-10 | L | 2026-09-03 | final PS-01 review | pass | `server/index.ts` and `guard.ts` had no test at all; 9 subprocess cases now cover both, plus the seed CLI |
+| P1-11 | L | 2026-09-03 | final PS-01 review | **FAIL → fixed** | the service published no domain gauge; `identity_throttled_accounts` added with the `IdentityPasswordSpray` rule |
+| P1-12 | L | 2026-09-03 | final PS-01 review | pass | 261 tests; 98.9% statements, 94.9% branches, 100% functions. Gate proven by failing it at 99.5% |
 | P2-1 | L | 2026-09-03 | review | **FAIL → fixed** | replay enqueued a second delivery to every subscriber; `event_ingests` (migration 002) now makes the key cover the fan-out, `enqueued: 0` on replay |
 | P2-2 | L | 2026-09-03 | review | **FAIL → fixed** | retry re-queued a `delivered` row; now 409 |
 | P2-3 | L | 2026-09-03 | review | pass | one instance after ten missed intervals |
@@ -751,7 +875,7 @@ now re-derives the readiness shape the same way, for all 28 HTTP packages.
 | Package | Before | After |
 | --- | --- | --- |
 | `platform/clients` | 17 | 17 |
-| `ps-01-identity` | 137 | 141 |
+| `ps-01-identity` | 137 | 261 |
 | `ps-02-workflow-engine` | 108 | 112 |
 | `ps-03-notification-hub` | 102 | 104 |
 | `ps-04-ai-platform` | 91 | 93 |
@@ -767,6 +891,6 @@ now re-derives the readiness shape the same way, for all 28 HTTP packages.
 | `mod-15-workspace` | 133 | 133 |
 | `mod-16-mosaic` | 76 | 77 |
 | `deploy` | 346 | 375 |
-| **Total** | **4 775** | **4 840** |
+| **Total** | **4 775** | **4 960** |
 
 A run of this plan should leave an artefact, not a memory. This section is it.

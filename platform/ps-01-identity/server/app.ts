@@ -190,6 +190,43 @@ export function createApp({
     }
   };
 
+  /**
+   * No principal may SEIZE an account that outranks it.
+   *
+   * `requireGrantable` above caps every route that hands out authority. This is
+   * the mirror image, and it had no cap at all: acting on an account that
+   * already holds more than the caller does. An Administrator deliberately
+   * lacks `org:write`, and `user:write` is the entire authorization for the
+   * administrative password reset — so it could reset the OWNER's password and
+   * then log in with the password it had just chosen. Four locked doors and an
+   * open fifth, leading to the same place.
+   *
+   * Disabling and erasing are here for the neighbouring reason: neither hands
+   * the caller anything, but both remove the one account that could have
+   * stopped them, which is the half of "may become the Owner" that does not
+   * need a login.
+   *
+   * Expressed as permission CONTAINMENT rather than a role ladder, because a
+   * custom role has no rank and an Owner-equivalent custom role must be caught
+   * too — and because containment is the same test `requireGrantable` applies,
+   * read in the other direction. Equal authority is not "above": one Owner may
+   * rotate another's password, and anyone may change their own.
+   *
+   * Deliberately NOT applied to `sessions/revoke`: signing someone out changes
+   * nothing about what their account can do, they recover by logging in again,
+   * and it is the "I lost my laptop" button an administrator should be able to
+   * press on anyone's behalf.
+   */
+  const requireNotAbove = (res: Response, target: UserRow): void => {
+    const held = principalOf(res).permissions;
+    const excess = userPermissions(db, target.id)
+      .filter((perm) => !held.has(perm))
+      .sort();
+    if (excess.length > 0) {
+      fail(403, `Cannot act on an account that holds a permission you do not: ${excess.join(', ')}`);
+    }
+  };
+
   const issueSession = (res: Response, user: UserRow): string => {
     const token = createToken(
       session,
@@ -205,7 +242,32 @@ export function createApp({
     res.json({ ok: true });
   });
 
-  const gauges: Gauge[] = [];
+  /**
+   * Domain gauges. This service published none until now — and it is the one
+   * where the thing worth paging on is most obvious.
+   *
+   * `login_throttle` already holds a row per (organization, email) that has
+   * failed recently, and `server/throttle.ts` exists because a password spray
+   * spreads over many source addresses and the per-IP limiter cannot see it.
+   * The count of accounts currently past the backoff threshold IS that signal:
+   * one is somebody who mistyped, a dozen at once is an attack in progress, and
+   * before this nothing outside the database could tell the difference.
+   *
+   * Read at scrape time, and only over the live window, so a quiet deployment
+   * reports 0 rather than a growing historical total.
+   */
+  const gauges: Gauge[] = [
+    {
+      name: 'identity_throttled_accounts',
+      help: 'Accounts currently past the failed-login backoff threshold (a spray shows up here).',
+      value: () =>
+        (
+          db
+            .prepare('SELECT COUNT(*) AS n FROM login_throttle WHERE fails >= ? AND updated_at >= ?')
+            .get(throttle.threshold, nowIso(now() - throttle.windowMs)) as { n: number }
+        ).n,
+    },
+  ];
 
   // Readiness: DB reachable and schema fully migrated (liveness is /api/health).
   app.get('/api/ready', (_req, res) => {
@@ -655,6 +717,10 @@ export function createApp({
       if (b.status !== 'active' && b.status !== 'disabled') {
         fail(422, 'Validation failed', [{ field: 'status', message: 'must be active or disabled' }]);
       }
+      // Renaming hands over nothing and stays open to any `user:write` holder.
+      // Changing the status locks an account out of its own organization, so it
+      // is capped like the reset path is — see `requireNotAbove`.
+      if (b.status !== user.status) requireNotAbove(res, user);
       status = b.status;
     }
     db.prepare('UPDATE users SET name = ?, status = ? WHERE id = ?').run(name, status, user.id);
@@ -679,6 +745,10 @@ export function createApp({
         logEvent('password_change_denied', user.org_id, user.id, req);
         fail(422, 'Validation failed', [{ field: 'current_password', message: 'is incorrect' }]);
       }
+    } else {
+      // The reset path chooses a password the caller knows, so it is a takeover
+      // of whatever the target can do. See `requireNotAbove`.
+      requireNotAbove(res, user);
     }
     const newPassword = typeof b.new_password === 'string' ? b.new_password : '';
     if (newPassword.length < MIN_PASSWORD_LENGTH) {
@@ -704,14 +774,35 @@ export function createApp({
     require(res, 'user:write');
     const id = idParam(req);
     const user = requireUserInOrg(res, id);
+    // Erasure disables the account permanently. See `requireNotAbove`.
+    requireNotAbove(res, user);
     db.prepare(
       `UPDATE users
          SET email = ?, name = 'Erased User', password_hash = ?,
              token_version = token_version + 1, status = 'disabled'
        WHERE id = ?`,
     ).run(`erased+${user.id}@invalid.example`, await hashPassword(randomBytes(24).toString('hex')), user.id);
-    logEvent('user_erased', user.org_id, user.id, req);
-    res.json({ erased: true, user: mapUser(userById.get(user.id) as UserRow) });
+    /**
+     * The machine credentials go with the person.
+     *
+     * Everything above ends a SESSION: the password is scrambled,
+     * `token_version` is bumped, the account is disabled. An API key is none of
+     * those — it is verified against its own hash, checked only for
+     * `revoked_at IS NULL`, and carries the permissions its creator held when
+     * it was minted, `platform:admin` included. So an erased administrator's
+     * key kept working with their authority after the account was gone, which
+     * is not what this route says it does, and not what the PII map promises.
+     *
+     * Only erasure does this. A DISABLED account is a reversible suspension and
+     * a service account should not die mid-pipeline because an operator was
+     * suspended for a week; revoking one of those is an explicit DELETE, and
+     * `created_by` on the key list says which.
+     */
+    const revoked = db
+      .prepare('UPDATE api_keys SET revoked_at = ? WHERE created_by = ? AND revoked_at IS NULL')
+      .run(nowIso(now()), user.id).changes;
+    logEvent('user_erased', user.org_id, user.id, req, { api_keys_revoked: revoked });
+    res.json({ erased: true, api_keys_revoked: revoked, user: mapUser(userById.get(user.id) as UserRow) });
     })().catch(next);
   });
 

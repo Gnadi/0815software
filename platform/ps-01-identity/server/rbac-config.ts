@@ -10,10 +10,24 @@ import { PERMISSIONS, SYSTEM_ROLE_KEYS, type Permission, type SystemRoleKey } fr
  * permission.
  */
 
+/**
+ * No `rank` field, deliberately.
+ *
+ * There used to be one, plus a `ROLE_RANK` map and a `systemRole()` lookup, and
+ * nothing in the service ever read any of them — the seed imports
+ * `SYSTEM_ROLES` and that is all. A ladder that nobody consults is worse than
+ * no ladder: it reads like a live control, so the question it appears to answer
+ * ("may an Administrator act on an Owner?") looks handled when it is not, and
+ * it was not — see `requireNotAbove` in server/app.ts for the door that stood
+ * open behind it.
+ *
+ * The control that replaced it compares PERMISSION SETS, which a rank cannot
+ * do: a custom role has no rank, and a custom role granting `org:write` has to
+ * be caught by the same rule that catches the Owner.
+ */
 interface SystemRoleDef {
   key: SystemRoleKey;
   name: string;
-  rank: number; // higher = more privileged
   permissions: readonly Permission[];
 }
 
@@ -23,13 +37,11 @@ export const SYSTEM_ROLES: readonly SystemRoleDef[] = [
   {
     key: 'owner',
     name: 'Owner',
-    rank: 4,
     permissions: ALL,
   },
   {
     key: 'admin',
     name: 'Administrator',
-    rank: 3,
     permissions: [
       'org:read',
       'user:read',
@@ -44,30 +56,14 @@ export const SYSTEM_ROLES: readonly SystemRoleDef[] = [
   {
     key: 'member',
     name: 'Member',
-    rank: 2,
     permissions: ['org:read', 'user:read', 'role:read'],
   },
   {
     key: 'viewer',
     name: 'Viewer',
-    rank: 1,
     permissions: ['org:read', 'user:read'],
   },
 ];
-
-export const ROLE_RANK: Record<SystemRoleKey, number> = SYSTEM_ROLES.reduce(
-  (acc, r) => {
-    acc[r.key] = r.rank;
-    return acc;
-  },
-  {} as Record<SystemRoleKey, number>,
-);
-
-export function systemRole(key: SystemRoleKey): SystemRoleDef {
-  const role = SYSTEM_ROLES.find((r) => r.key === key);
-  if (!role) throw new Error(`unknown system role: ${key}`);
-  return role;
-}
 
 // ── Import-time self-check ─────────────────────────────────────────────
 // Fail fast on a misconfigured role table rather than at request time.

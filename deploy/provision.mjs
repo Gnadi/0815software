@@ -591,6 +591,17 @@ const ALERT_RULES = [
       'The hash chain over the audit log is broken: an event was altered or removed, or the database is damaged. Check GET /api/verify and the last backup.',
   },
   {
+    service: 'ps-01-identity',
+    metric: 'identity_throttled_accounts',
+    name: 'IdentityPasswordSpray',
+    expr: 'identity_throttled_accounts > 5',
+    for: '10m',
+    severity: 'critical',
+    summary: 'PS-01 is throttling many accounts at once',
+    description:
+      'More than five accounts are past the failed-login backoff at the same time. One account is somebody mistyping; a dozen together is a password spray, which the per-IP rate limit cannot see because the guesses come from many addresses. Check GET /api/export for the addresses involved and the auth_events trail.',
+  },
+  {
     service: 'ps-03-notification-hub',
     metric: 'notification_queued_messages',
     name: 'NotificationQueueNotDraining',

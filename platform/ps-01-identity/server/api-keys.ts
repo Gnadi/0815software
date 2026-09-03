@@ -36,6 +36,7 @@ export function keySummary(row: ApiKeyRow): ApiKeySummary {
     id: row.id,
     name: row.name,
     prefix: row.prefix,
+    created_by: row.created_by,
     created_at: row.created_at,
     last_used_at: row.last_used_at,
     revoked_at: row.revoked_at,

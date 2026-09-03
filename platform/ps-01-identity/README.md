@@ -118,12 +118,28 @@ real deployment.
 ## Tests
 
 ```sh
-npm test
+npm test            # the suite
+npm run test:coverage   # the suite, with the coverage gate
 ```
 
 Covers unknown-account login timing, tenant isolation (cross-org → 404),
 RBAC (member forbidden / admin allowed), password-change token revocation,
 API-key mint + revoke, and the `tokens/verify` round-trip.
+
+**Coverage is a gate, not a report.** `vitest.config.ts` fails the run below
+90% on statements, branches, functions and lines; the suite currently sits near
+99%. This service is the one every other package authenticates through —
+PS-02…12 all call `POST /api/tokens/verify`, and the thirteen SSO modules
+delegate their login here — so a defect in it is a defect everywhere, and
+successive reviews kept finding one in the branches nobody had executed.
+
+Two things are tested as real processes rather than in-process, because that is
+the only honest way to test them: `test/boot.test.ts` spawns `server/index.ts`
+and asserts that the production boot guard actually refuses a default or blank
+secret, that a good configuration serves and carries its security headers, and
+that `npm run seed` provisions a database once and is a no-op the second time.
+v8 cannot instrument a child process, so `server/index.ts` is excluded from the
+coverage denominator — it is covered by those cases, just not countably.
 
 ## API contract
 
