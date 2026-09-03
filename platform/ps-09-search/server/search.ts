@@ -77,8 +77,11 @@ export function search(db: Database.Database, opts: SearchOptions): SearchResult
 
   const total = (db.prepare(`SELECT COUNT(*) AS n FROM search WHERE ${where}`).get(params) as { n: number }).n;
 
-  const limit = Math.min(Math.max(1, opts.limit ?? 20), 100);
-  const offset = Math.max(0, opts.offset ?? 0);
+  // Clamp defensively: a caller inside the process may pass a value the route
+  // validator never saw, and NaN slips through `Math.min`/`Math.max` unchanged
+  // to reach SQLite as an unbindable parameter.
+  const limit = Number.isInteger(opts.limit) ? Math.min(Math.max(1, opts.limit as number), 100) : 20;
+  const offset = Number.isInteger(opts.offset) ? Math.max(0, opts.offset as number) : 0;
   const rows = db
     .prepare(
       `SELECT rowid, collection, doc_id, title,

@@ -53,3 +53,39 @@ export function reqEmail(body: Record<string, unknown>, field = 'email'): string
   }
   return value;
 }
+
+/**
+ * Read an optional whole-number field — a `limit`, an `offset`, a TTL —
+ * refusing anything that is not one.
+ *
+ * `Number(raw)` was trusted at these boundaries and answers two ways that both
+ * cost you something. `?limit=abc` is NaN, and NaN survives every clamp
+ * (`Math.min(Math.max(1, NaN), 100)` is NaN), so it reached SQLite as a bound
+ * parameter and came back as `SqliteError: datatype mismatch` — a 500 on a
+ * plain typo, where the caller sees "the service is broken" and the operator
+ * sees an unexplained error in the logs. A value out of range is the quieter
+ * one: an unbounded signed-URL TTL turns a link that is supposed to expire
+ * into a permanent one, and a large enough one is not a representable date at
+ * all.
+ *
+ * So the value must parse, be a whole number, and be in range — or the request
+ * is refused with a field error naming the bound. An absent, null or blank
+ * value means "not supplied" and yields `undefined`, which is what an omitted
+ * query parameter and an uninterpolated form field both look like.
+ */
+export function optionalInt(
+  source: Record<string, unknown>,
+  field: string,
+  min: number,
+  max: number,
+): number | undefined {
+  const raw = source[field];
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const value = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new DomainError(422, 'Validation failed', [
+      { field, message: `must be a whole number between ${min} and ${max}` },
+    ]);
+  }
+  return value;
+}

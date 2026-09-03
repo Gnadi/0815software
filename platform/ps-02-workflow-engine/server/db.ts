@@ -86,6 +86,23 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 2,
+    name: 'event_ingests',
+    up(db) {
+      // One row per ingested event key. `workflow_instances.idempotency_key`
+      // deduped the INSTANCES a replayed event started; nothing deduped the
+      // webhook fan-out beside it, so a client that timed out and retried told
+      // every subscriber twice. See server/events.ts.
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS event_ingests (
+        key        TEXT PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

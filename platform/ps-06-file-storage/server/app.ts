@@ -15,7 +15,7 @@ import {
   type AuthConfig,
   type SeamFetch,
 } from './auth.js';
-import { DomainError, fail, reqText } from './errors.js';
+import { DomainError, fail, optionalInt, reqText } from './errors.js';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import { MIGRATIONS } from './db.js';
 import { pendingCount } from './migrations.js';
@@ -27,6 +27,7 @@ import {
   getObject,
   listBuckets,
   listObjects,
+  MAX_SIGN_TTL_SECONDS,
   putObject,
   signDownloadUrl,
   statObject,
@@ -176,7 +177,19 @@ export function createApp(opts: AppOptions): express.Express {
 
   app.post('/api/objects/:bucket/:key/sign', requireCaller, (req, res) => {
     statObject(db, req.params.bucket as string, req.params.key as string); // 404 if missing
-    const ttl = typeof body(req).ttl_seconds === 'number' ? (body(req).ttl_seconds as number) : 300;
+    /**
+     * The TTL is bounded, and that bound is the whole point of the route.
+     *
+     * A signed URL is the ONLY way this service hands an object to somebody
+     * who holds no credential, and "time-limited" is the entire access-control
+     * story behind it. `ttl_seconds` was read as any number at all: a caller
+     * could ask for 1e11 seconds and get back a link valid for three thousand
+     * years — a permanent, unrevocable, unauthenticated URL to a customer
+     * document, indistinguishable in the response from a five-minute one. Past
+     * roughly 1e15 the expiry is not even a representable date, and building
+     * the ISO timestamp threw, so the same field also turned a typo into a 500.
+     */
+    const ttl = optionalInt(body(req), 'ttl_seconds', 1, MAX_SIGN_TTL_SECONDS) ?? 300;
     res.json(signDownloadUrl(signingSecret, req.params.bucket as string, req.params.key as string, ttl, now()));
   });
 

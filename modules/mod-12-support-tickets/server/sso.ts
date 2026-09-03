@@ -78,7 +78,18 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
       // is an outage, and reporting one as the other sends a user off to reset
       // a password that was never wrong while hiding a broken deployment from
       // whoever has to fix it.
-      if (err instanceof ServiceError) return { ok: false, reason: 'rejected' };
+      //
+      // "PS-01 answered at all" was the test, and it is the wrong one:
+      // `ServiceError` is raised for EVERY non-2xx, so a 500 from a
+      // half-broken PS-01 and a 429 from its own login throttle both arrived
+      // here as a wrong password. What is a verdict about the CREDENTIAL is a
+      // 4xx that is not 429 — 401 for the wrong password, 403 for a missing
+      // permission, 422 for a malformed request. A 5xx is the service failing,
+      // and a 429 is it declining to answer yet; neither says anything about
+      // whether the password was right.
+      const verdictAboutTheCredential =
+        err instanceof ServiceError && err.status >= 400 && err.status < 500 && err.status !== 429;
+      if (verdictAboutTheCredential) return { ok: false, reason: 'rejected' };
       console.warn('[mod-12] identity login unavailable:', err);
       return { ok: false, reason: 'unavailable' };
     }

@@ -15,7 +15,7 @@ import {
   type AuthConfig,
   type SeamFetch,
 } from './auth.js';
-import { DomainError, fail } from './errors.js';
+import { DomainError, fail, optionalInt } from './errors.js';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import { MIGRATIONS } from './db.js';
 import { pendingCount } from './migrations.js';
@@ -183,7 +183,7 @@ export function createApp(opts: AppOptions): express.Express {
         q: typeof req.query.q === 'string' && req.query.q !== '' ? req.query.q : undefined,
         kind,
         includeArchived: req.query.include_archived === 'true',
-        limit: req.query.limit !== undefined ? Number(req.query.limit) : undefined,
+        limit: optionalInt(req.query as Record<string, unknown>, 'limit', 1, 500),
       }),
     });
   });

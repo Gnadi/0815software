@@ -288,7 +288,7 @@ export function createApp(opts: AppOptions): express.Express {
     void (async () => {
       const entry = providerEntry(req.params.provider as string);
       if (!entry) fail(404, 'Unknown provider');
-      const stateRow = consumeState(db, entry.key, req.query.state);
+      const stateRow = consumeState(db, entry.key, req.query.state, now());
       if (!stateRow) fail(400, 'Invalid or expired OAuth state');
       const code = typeof req.query.code === 'string' ? req.query.code : '';
       if (!code) fail(422, 'code is required');

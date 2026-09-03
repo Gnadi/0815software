@@ -222,7 +222,10 @@ export function listParties(db: Database.Database, filter: ListFilter = {}): Par
     const vatPrefix = `${escapeLike(normalizeVatId(filter.q) ?? '')}%`;
     params.push(like, like, vatPrefix);
   }
-  const limit = Math.min(Math.max(filter.limit ?? 100, 1), 500);
+  // Clamp defensively: a caller inside the process may pass a limit the route
+  // validator never saw, and NaN slips through `Math.min`/`Math.max` unchanged
+  // to reach SQLite as an unbindable parameter.
+  const limit = Number.isInteger(filter.limit) ? Math.min(Math.max(filter.limit as number, 1), 500) : 100;
   const sql = `SELECT * FROM parties ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY name COLLATE NOCASE, id LIMIT ?`;
   return (db.prepare(sql).all(...params, limit) as PartyRow[]).map(toParty);
 }

@@ -339,6 +339,17 @@ export function createApp({
         : mockIdentity(provider, org.slug);
 
       const user = await linkUser(db, org.id, identity, now());
+      // An account that may not log in with a password may not log in with a
+      // provider either. `linkUser` returns the EXISTING row when the address
+      // is already known, and that row may since have been disabled — by an
+      // administrator, or by the erasure hook. Issuing here minted a token for
+      // it and wrote `login_ok` on the trail; the token was dead on arrival
+      // (the /api gate re-checks the status) but the redirect target was
+      // handed one anyway, and the log said the sign-in worked.
+      if (user.status !== 'active') {
+        logEvent('login_fail', user.org_id, user.id, req, { via: `oauth:${provider}`, reason: 'account disabled' });
+        fail(403, 'This account cannot sign in');
+      }
       const token = issueSession(res, user);
       logEvent('login_ok', user.org_id, user.id, req, { via: `oauth:${provider}` });
       logEvent('token_issued', user.org_id, user.id, req);

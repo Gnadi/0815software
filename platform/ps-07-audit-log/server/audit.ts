@@ -156,7 +156,11 @@ export function listEvents(db: Database.Database, filter: ListFilter = {}): Audi
     params.push(filter.since);
   }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-  const limit = Math.min(Math.max(1, filter.limit ?? 100), 1000);
+  // Clamp defensively: a caller inside the process may pass a limit the route
+  // validator never saw, and NaN slips through `Math.min`/`Math.max` unchanged
+  // to reach SQLite as an unbindable parameter.
+  const requested = filter.limit;
+  const limit = Number.isInteger(requested) ? Math.min(Math.max(1, requested as number), 1000) : 100;
   const rows = db
     .prepare(`SELECT * FROM audit_events ${where} ORDER BY id DESC LIMIT ?`)
     .all(...params, limit) as EventRow[];

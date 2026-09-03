@@ -286,6 +286,12 @@ export function createApp(opts: AppOptions): express.Express {
     const id = idParam(req);
     const row = id ? (db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as MessageRow | undefined) : undefined;
     if (!row) fail(404, 'Message not found');
+    // Retry is for a message that did NOT arrive. Re-queueing one that did
+    // means the recipient gets a second copy of the same invoice mail or SMS —
+    // exactly the duplicate the tick serialisation in server/queue.ts exists
+    // to prevent, one click away through a route that never looked at the
+    // status. A sent message is terminal: to send something again, send it.
+    if (row.status === 'sent') fail(409, 'This message was already delivered — send a new one instead');
     db.prepare(
       `UPDATE messages SET status = 'queued', attempts = 0, last_error = NULL, next_attempt_at = ?, updated_at = ? WHERE id = ?`,
     ).run(nowIso(now()), nowIso(now()), row.id);

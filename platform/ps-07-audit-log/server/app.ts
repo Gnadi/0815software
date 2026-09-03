@@ -12,7 +12,7 @@ import {
   type AuthConfig,
   type SeamFetch,
 } from './auth.js';
-import { DomainError, fail, reqText } from './errors.js';
+import { DomainError, fail, optionalInt, reqText } from './errors.js';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import { MIGRATIONS } from './db.js';
 import { pendingCount } from './migrations.js';
@@ -153,7 +153,7 @@ export function createApp(opts: AppOptions): express.Express {
       action: typeof q.action === 'string' ? q.action : undefined,
       org: typeof q.org === 'string' ? q.org : undefined,
       since: typeof q.since === 'string' ? q.since : undefined,
-      limit: typeof q.limit === 'string' ? Number(q.limit) : undefined,
+      limit: optionalInt(q as Record<string, unknown>, 'limit', 1, 1_000),
     });
     res.json({ events });
   });

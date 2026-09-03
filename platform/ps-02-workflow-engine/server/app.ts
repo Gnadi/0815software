@@ -384,6 +384,12 @@ export function createApp({ db, auth, now = Date.now, fetchImpl = defaultFetch, 
     const id = idParam(req);
     const row = id ? (db.prepare('SELECT * FROM webhook_deliveries WHERE id = ?').get(id) as DeliveryRow | undefined) : undefined;
     if (!row) fail(404, 'Delivery not found');
+    // Retry is for a delivery that did NOT arrive. Re-queueing one that did
+    // posts the same event to the subscriber a second time, which for a
+    // subscriber that acts on it — bills something, ships something — is the
+    // duplicate this service otherwise works hard to avoid. There is no way
+    // back from a second POST, so it takes a refusal rather than a warning.
+    if (row.status === 'delivered') fail(409, 'This delivery already succeeded — it cannot be retried');
     db.prepare(
       `UPDATE webhook_deliveries SET status = 'pending', attempts = 0, last_error = NULL,
          next_attempt_at = ?, updated_at = ? WHERE id = ?`,

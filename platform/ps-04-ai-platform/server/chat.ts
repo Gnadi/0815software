@@ -117,24 +117,56 @@ export async function runChat(db: Database.Database, config: ChatConfig, opts: R
   const result = await provider.chat(messages, usedModel);
   const latency = Date.now() - started;
 
-  const info = db
-    .prepare(
-      `INSERT INTO completions
-         (provider, model, prompt_key, request, response, prompt_tokens, completion_tokens, latency_ms, idempotency_key, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      provider.name,
-      usedModel,
-      opts.promptKey ?? null,
-      JSON.stringify(messages),
-      result.text,
-      result.usage.prompt_tokens,
-      result.usage.completion_tokens,
-      latency,
-      idempotencyKey,
-      nowIso(now),
-    );
+  /**
+   * The idempotency check above and this insert are separated by an `await` on
+   * a vendor call that takes seconds, so two requests carrying the same key can
+   * both find nothing and both reach the provider. `idempotency_key` is UNIQUE,
+   * so the loser's INSERT then raised a constraint error that left the caller
+   * with a 500 — the one answer an idempotency key is supposed to make
+   * impossible. The winner's completion is the answer to both.
+   *
+   * The duplicate provider call itself is NOT prevented here, and pretending
+   * otherwise would need a claim row written before the vendor is called, whose
+   * failure mode (a hollow claim left behind by a crashed request, replayed
+   * forever as an empty completion) is worse than paying for one extra call in
+   * a race. What is guaranteed is the contract the key carries: one stored
+   * completion, and the same answer to every caller presenting the key.
+   */
+  let info: { lastInsertRowid: number | bigint };
+  try {
+    info = db
+      .prepare(
+        `INSERT INTO completions
+           (provider, model, prompt_key, request, response, prompt_tokens, completion_tokens, latency_ms, idempotency_key, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        provider.name,
+        usedModel,
+        opts.promptKey ?? null,
+        JSON.stringify(messages),
+        result.text,
+        result.usage.prompt_tokens,
+        result.usage.completion_tokens,
+        latency,
+        idempotencyKey,
+        nowIso(now),
+      );
+  } catch (err) {
+    const raced =
+      idempotencyKey !== null &&
+      (db.prepare('SELECT * FROM completions WHERE idempotency_key = ?').get(idempotencyKey) as
+        | CompletionRow
+        | undefined);
+    if (!raced) throw err;
+    return {
+      id: raced.id,
+      provider: raced.provider as ProviderName,
+      model: raced.model,
+      text: raced.response,
+      usage: { prompt_tokens: raced.prompt_tokens, completion_tokens: raced.completion_tokens },
+    };
+  }
 
   return {
     id: Number(info.lastInsertRowid),
