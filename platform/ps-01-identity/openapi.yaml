@@ -12,6 +12,8 @@ servers:
     description: Local / per-customer deployment (behind Caddy in production)
 tags:
   - name: ps-01-identity
+  - name: ps-01-identity-scim
+    description: SCIM 2.0 provisioning (RFC 7643/7644), authenticated with a PS-01 API key.
 paths:
   /api/health:
     get:
@@ -60,25 +62,64 @@ paths:
       - name: provider
         in: path
         required: true
-        schema: { type: string }
+        description: >-
+          Any provider configured through OAUTH_<NAME>_*, plus the three
+          built-ins (google, microsoft, github). A name that is neither
+          configured nor built in is a 404.
+        schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,31}$' }
     get:
-      summary: Get oauth by provider authorize
+      summary: Begin an OIDC/OAuth2 authorization
+      description: >-
+        Records a single-use CSRF state (plus a PKCE verifier and an OIDC nonce
+        where they apply) and redirects to the provider's authorize endpoint,
+        discovered from its issuer when one is configured.
       tags: [ps-01-identity]
       security: []
+      parameters:
+        - name: org_slug
+          in: query
+          required: true
+          schema: { type: string }
+        - name: redirect_uri
+          in: query
+          required: false
+          description: Must be same-site or on OAUTH_REDIRECT_ALLOWLIST, else 422.
+          schema: { type: string }
       responses:
-        '200': { description: Success }
+        '302': { description: Redirect to the provider (or to the mock IdP) }
+        '404': { description: Unknown provider or organization }
+        '422': { description: Missing org_slug, or a disallowed redirect_uri }
+        '501': { description: Provider not configured and the mock IdP is off }
   /api/oauth/{provider}/callback:
     parameters:
       - name: provider
         in: path
         required: true
-        schema: { type: string }
+        schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,31}$' }
     get:
-      summary: Get oauth by provider callback
+      summary: Complete an OIDC/OAuth2 authorization
+      description: >-
+        Consumes the state, exchanges the code (sending the PKCE verifier),
+        verifies the ID token where one is returned — signature against the
+        provider's JWKS, plus issuer, audience, expiry and nonce — then
+        provisions-or-links the user and issues a session.
       tags: [ps-01-identity]
       security: []
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema: { type: string }
+        - name: code
+          in: query
+          required: true
+          schema: { type: string }
       responses:
-        '200': { description: Success }
+        '200': { description: Session issued (token + user) }
+        '302': { description: Redirect to the recorded redirect_uri, carrying the token }
+        '400': { description: Invalid or expired state }
+        '401': { description: The ID token could not be verified }
+        '403': { description: The account exists but may not sign in }
   /api/me:
     get:
       summary: Get me
@@ -231,6 +272,181 @@ paths:
       responses:
         '200': { description: Success }
         '401': { description: Authentication required }
+  /api/me/sessions/revoke:
+    post:
+      summary: Revoke all of your own sessions
+      description: >-
+        Bumps the caller's token version, invalidating every token they hold,
+        and returns a fresh one for this caller so the current client stays
+        signed in.
+      tags: [ps-01-identity]
+      responses:
+        '200': { description: A replacement session token }
+        '403': { description: An API key has no sessions to revoke }
+  /api/users/{id}/sessions/revoke:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      summary: Revoke all of a user's sessions
+      description: >-
+        Requires user:write. Deliberately not subject to the
+        "cannot act on an account above you" rule — signing someone out changes
+        nothing about what their account can do.
+      tags: [ps-01-identity]
+      responses:
+        '200': { description: Sessions revoked }
+        '403': { description: Missing user:write }
+        '404': { description: Not found, or in another tenant }
+  /api/users/{id}/erase:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      summary: Erase a user (GDPR)
+      description: >-
+        Requires user:write. Pseudonymises the record and disables it; the audit
+        trail keeps a user_erased event.
+      tags: [ps-01-identity]
+      responses:
+        '200': { description: Erased }
+        '403': { description: Missing user:write, or the target outranks the caller }
+        '404': { description: Not found, or in another tenant }
+  /api/export:
+    get:
+      summary: Export a data subject's record (GDPR)
+      description: Everything this service holds about the caller, as JSON.
+      tags: [ps-01-identity]
+      responses:
+        '200': { description: The subject export }
+  /scim/v2/ServiceProviderConfig:
+    get:
+      summary: SCIM service provider configuration
+      tags: [ps-01-identity-scim]
+      responses:
+        '200': { description: What this server supports }
+  /scim/v2/ResourceTypes:
+    get:
+      summary: SCIM resource types
+      tags: [ps-01-identity-scim]
+      responses:
+        '200': { description: User and Group }
+  /scim/v2/Schemas:
+    get:
+      summary: SCIM schemas
+      tags: [ps-01-identity-scim]
+      responses:
+        '200': { description: Core User and Group schemas }
+  /scim/v2/Users:
+    get:
+      summary: List or search users
+      description: >-
+        Supports startIndex/count paging and a single `attribute eq "value"`
+        filter on userName, externalId, emails.value or id. Requires user:read.
+      tags: [ps-01-identity-scim]
+      parameters:
+        - name: filter
+          in: query
+          schema: { type: string }
+        - name: startIndex
+          in: query
+          schema: { type: integer, minimum: 1 }
+        - name: count
+          in: query
+          schema: { type: integer, minimum: 0, maximum: 200 }
+      responses:
+        '200': { description: ListResponse }
+        '400': { description: Unsupported filter, or a non-integer paging parameter }
+    post:
+      summary: Provision a user
+      description: Requires user:write. A duplicate userName or externalId is 409 uniqueness.
+      tags: [ps-01-identity-scim]
+      responses:
+        '201': { description: Created, with a Location header }
+        '400': { description: No userName and no primary email }
+        '409': { description: userName or externalId already exists }
+  /scim/v2/Users/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Fetch a user
+      tags: [ps-01-identity-scim]
+      responses:
+        '200': { description: User }
+        '404': { description: Not found, or in another tenant }
+    put:
+      summary: Replace a user
+      description: >-
+        Requires user:write. An omitted `active` means active; an omitted name
+        is left alone rather than blanked (a deliberate divergence, documented
+        in server/scim.ts).
+      tags: [ps-01-identity-scim]
+      responses:
+        '200': { description: User }
+        '400': { description: userName cannot be empty }
+        '403': { description: The target holds a permission the caller does not }
+        '404': { description: Not found }
+        '409': { description: userName or externalId already exists }
+    patch:
+      summary: Update a user (PatchOp)
+      description: >-
+        Requires user:write. Understands both the pathless `{value:{active:...}}`
+        form and the `path: "active"` form, and the string "False".
+      tags: [ps-01-identity-scim]
+      responses:
+        '200': { description: User }
+        '400': { description: Not a valid PatchOp }
+        '403': { description: The target holds a permission the caller does not }
+        '404': { description: Not found }
+        '409': { description: Conflict }
+    delete:
+      summary: De-provision a user
+      description: >-
+        Requires user:write. Deactivates rather than deleting, and bumps the
+        token version so live sessions stop working immediately.
+      tags: [ps-01-identity-scim]
+      responses:
+        '204': { description: Deactivated }
+        '403': { description: The target holds a permission the caller does not }
+        '404': { description: Not found }
+  /scim/v2/Groups:
+    get:
+      summary: List groups (PS-01 roles)
+      description: Requires role:read. Filterable on displayName or id.
+      tags: [ps-01-identity-scim]
+      responses:
+        '200': { description: ListResponse }
+  /scim/v2/Groups/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Fetch a group
+      tags: [ps-01-identity-scim]
+      responses:
+        '200': { description: Group }
+        '404': { description: Not found }
+    patch:
+      summary: Change group membership
+      description: >-
+        Requires role:write. Only `members` is writable — a directory cannot
+        create roles here, because a role carries permissions. Granting a role
+        whose permissions the caller does not hold is refused.
+      tags: [ps-01-identity-scim]
+      responses:
+        '200': { description: Group }
+        '400': { description: A non-members path, or a member outside this tenant }
+        '403': { description: Cannot grant a permission the caller does not hold }
+        '404': { description: Not found }
 components:
   securitySchemes:
     serviceToken:
@@ -242,3 +458,9 @@ components:
       type: http
       scheme: bearer
       description: A local admin session token, or a PS-01 session holding platform:admin via the identity seam.
+    scimBearer:
+      type: http
+      scheme: bearer
+      description: >-
+        A PS-01 API key (psk_...) or a session token. SCIM defines no credential
+        of its own, so provisioning reuses the service's existing ones.

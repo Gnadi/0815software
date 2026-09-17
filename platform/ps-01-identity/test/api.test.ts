@@ -3,7 +3,7 @@ import request from 'supertest';
 import type { Express } from 'express';
 import Database from 'better-sqlite3';
 import { createApp } from '../server/app.js';
-import { openDb } from '../server/db.js';
+import { MIGRATIONS, openDb } from '../server/db.js';
 import { seed } from '../server/seed.js';
 import type { SessionConfig } from '../server/auth.js';
 
@@ -441,12 +441,20 @@ describe('schema migrations', () => {
       const keyCols = (upgraded.prepare("PRAGMA table_info('api_keys')").all() as { name: string }[]).map((c) => c.name);
       expect(oauthCols).toContain('org_slug'); // migration 2 applied
       expect(keyCols).toContain('scopes'); // migration 3 applied
-      expect((upgraded.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(7);
+      expect(oauthCols).toContain('code_verifier'); // migration 8 applied
+      expect(oauthCols).toContain('nonce');
+      // Counted against the declared list rather than a literal, so adding a
+      // migration does not require editing this assertion to keep it true.
+      expect((upgraded.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(
+        MIGRATIONS.length,
+      );
       upgraded.close();
 
       // Re-opening applies nothing further.
       const again = openDb(path);
-      expect((again.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(7);
+      expect((again.prepare('SELECT COUNT(*) AS n FROM schema_migrations').get() as { n: number }).n).toBe(
+        MIGRATIONS.length,
+      );
       again.close();
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -27,6 +27,16 @@ const app = createApp({
 
 app.listen(config.port, () => {
   console.log(`[ps-01] identity API on http://localhost:${config.port}`);
+  // Provider names are discovered by scanning OAUTH_<NAME>_CLIENT_ID, so a
+  // misspelled variable declares nothing and fails silently at login time.
+  // Printing what was actually recognised turns that into a boot-time check
+  // a human can read.
+  const providers = Object.keys(config.oauth).sort();
+  console.log(
+    providers.length > 0
+      ? `[ps-01] OAuth/OIDC providers configured: ${providers.join(', ')}`
+      : '[ps-01] no OAuth/OIDC provider configured (SCIM and password login still work)',
+  );
   if (config.session.secret === 'dev-secret-change-me') {
     console.warn('[ps-01] WARNING: using the default SESSION_SECRET — set a real one in production');
   }

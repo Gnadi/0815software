@@ -51,12 +51,16 @@ import {
   consumeState,
   fetchIdentity,
   isAllowedRedirect,
+  isBuiltinProvider,
   isOAuthProvider,
   linkUser,
   mockIdentity,
+  resolveProvider,
   type FetchLike,
   type OAuthConfig,
 } from './oauth.js';
+import { OidcCache } from './oidc.js';
+import { createScimRouter, SCIM_BASE } from './scim.js';
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -138,10 +142,40 @@ export function createApp({
     app.use(hardeningMiddleware(hardening));
   }
   app.use(requestTelemetry({ service: 'ps-01', log: logRequests === true }));
-  app.use(express.json({ limit: '256kb' }));
+  // The SCIM router parses its own bodies (it must also accept
+  // application/scim+json) and renders its own error shape. Letting the global
+  // parser reach those routes first meant a malformed body was refused by the
+  // API's error handler instead, in a shape no SCIM client can read.
+  const parseJson = express.json({ limit: '256kb' });
+  app.use((req, res, next) => {
+    if (req.path === SCIM_BASE || req.path.startsWith(`${SCIM_BASE}/`)) {
+      next();
+      return;
+    }
+    parseJson(req, res, next);
+  });
 
   const doFetch: FetchLike =
     injectedFetch ?? (globalThis.fetch as unknown as FetchLike);
+
+  // Discovery documents and JWKS live here for the life of the process, so a
+  // login costs one token call rather than three round trips to the IdP.
+  const oidcCache = new OidcCache();
+
+  /**
+   * Resolve a provider name from the path.
+   *
+   * A syntactically invalid name, or a name that is neither configured nor one
+   * of the three built-ins, is a 404 — the same answer as before, so scanning
+   * `/api/oauth/<guess>/authorize` still learns nothing. A CONFIGURED name is
+   * the new part: any `OAUTH_<NAME>_*` in the environment makes it real.
+   */
+  const providerOr404 = (req: Request): string => {
+    const provider = req.params.provider as string;
+    if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
+    if (!oauth[provider] && !isBuiltinProvider(provider)) fail(404, 'Unknown OAuth provider');
+    return provider;
+  };
 
   const orgBySlug = db.prepare('SELECT * FROM organizations WHERE slug = ?');
   const orgById = db.prepare('SELECT * FROM organizations WHERE id = ?');
@@ -353,34 +387,42 @@ export function createApp({
     })().catch(next);
   });
 
-  app.get('/api/oauth/:provider/authorize', (req, res) => {
-    const provider = req.params.provider as string;
-    if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
-    const orgSlug = typeof req.query.org_slug === 'string' ? req.query.org_slug.trim() : '';
-    if (!orgSlug) fail(422, 'org_slug query parameter is required');
-    const org = orgBySlug.get(orgSlug) as OrgRow | undefined;
-    if (!org || org.status !== 'active') fail(404, 'Unknown organization');
-    const redirect = typeof req.query.redirect_uri === 'string' ? req.query.redirect_uri : null;
-    // The callback hands the session token to this URL — only ever to an
-    // origin the operator vouched for.
-    if (redirect !== null && !isAllowedRedirect(redirect, redirectAllowlist, selfBaseUrl)) {
-      fail(422, 'redirect_uri is not an allowed redirect target');
-    }
-    res.redirect(
-      302,
-      beginAuthorize(
-        db,
-        provider,
-        { orgSlug, redirectUri: redirect, providerConfig: oauth[provider], selfBaseUrl, allowMockIdp },
-        now(),
-      ),
-    );
+  app.get('/api/oauth/:provider/authorize', (req, res, next) => {
+    void (async () => {
+      const provider = providerOr404(req);
+      const orgSlug = typeof req.query.org_slug === 'string' ? req.query.org_slug.trim() : '';
+      if (!orgSlug) fail(422, 'org_slug query parameter is required');
+      const org = orgBySlug.get(orgSlug) as OrgRow | undefined;
+      if (!org || org.status !== 'active') fail(404, 'Unknown organization');
+      const redirect = typeof req.query.redirect_uri === 'string' ? req.query.redirect_uri : null;
+      // The callback hands the session token to this URL — only ever to an
+      // origin the operator vouched for.
+      if (redirect !== null && !isAllowedRedirect(redirect, redirectAllowlist, selfBaseUrl)) {
+        fail(422, 'redirect_uri is not an allowed redirect target');
+      }
+      res.redirect(
+        302,
+        await beginAuthorize(
+          db,
+          provider,
+          {
+            orgSlug,
+            redirectUri: redirect,
+            providerConfig: oauth[provider],
+            selfBaseUrl,
+            allowMockIdp,
+            doFetch,
+            cache: oidcCache,
+          },
+          now(),
+        ),
+      );
+    })().catch(next);
   });
 
   app.get('/api/oauth/:provider/callback', (req, res, next) => {
     void (async () => {
-      const provider = req.params.provider as string;
-      if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
+      const provider = providerOr404(req);
 
       const stateRow = consumeState(db, provider, req.query.state, now());
       if (!stateRow) fail(400, 'Invalid or expired OAuth state');
@@ -397,7 +439,21 @@ export function createApp({
       // that must never be one stale row away from issuing a session.
       if (!cfg && !allowMockIdp) fail(501, `OAuth provider "${provider}" is not configured`);
       const identity = cfg
-        ? await fetchIdentity(cfg, code, `${selfBaseUrl}/api/oauth/${provider}/callback`, doFetch)
+        ? await fetchIdentity(
+            await resolveProvider(cfg, doFetch, oidcCache, now()),
+            code,
+            `${selfBaseUrl}/api/oauth/${provider}/callback`,
+            doFetch,
+            {
+              // Both were minted at authorize time and stored server-side; the
+              // browser never carried either, which is what makes them worth
+              // checking on the way back.
+              codeVerifier: stateRow.code_verifier,
+              nonce: stateRow.nonce,
+              cache: oidcCache,
+              now: now(),
+            },
+          )
         : mockIdentity(provider, org.slug);
 
       const user = await linkUser(db, org.id, identity, now());
@@ -425,54 +481,115 @@ export function createApp({
     })().catch(next);
   });
 
-  // ── Authentication gate (session cookie or Bearer) ─────────────────
-  app.use('/api', (req, res, next) => {
-    void (async () => {
-      const bearer = parseBearer(req.headers.authorization);
+  /**
+   * Resolve a caller's credential to a principal.
+   *
+   * Extracted from the `/api` gate so the SCIM surface authenticates through
+   * exactly the same code. A second copy of this logic is the kind of thing
+   * that drifts — one of them learns that a disabled account may not act, the
+   * other does not — so there is one, and the two mount points differ only in
+   * the SHAPE of the refusal they render.
+   */
+  type AuthOutcome =
+    | { ok: true; principal: Principal; userRow?: UserRow }
+    | { ok: false; reason: 'invalid_key' | 'unauthenticated' };
 
-      // Bearer API key → machine principal carrying the key's scopes
-      // (an unscoped key keeps the historical full-permission behaviour).
-      // Verifying one costs a scrypt, hence the await: on the threadpool it
-      // does not stall every other request in flight.
-      if (bearer && bearer.startsWith('psk_')) {
-        const key = await verifyApiKey(db, bearer, now());
-        if (key !== null) {
-          res.locals.principal = {
+  const resolvePrincipal = async (req: Request): Promise<AuthOutcome> => {
+    const bearer = parseBearer(req.headers.authorization);
+
+    // Bearer API key → machine principal carrying the key's scopes
+    // (an unscoped key keeps the historical full-permission behaviour).
+    // Verifying one costs a scrypt, hence the await: on the threadpool it
+    // does not stall every other request in flight.
+    if (bearer && bearer.startsWith('psk_')) {
+      const key = await verifyApiKey(db, bearer, now());
+      if (key !== null) {
+        return {
+          ok: true,
+          principal: {
             kind: 'api_key',
             orgId: key.orgId,
             userId: null,
             permissions: new Set<Permission>(key.scopes ?? PERMISSIONS),
-          } satisfies Principal;
-          next();
-          return;
-        }
-        res.status(401).json({ error: 'Invalid API key' });
-        return;
+          },
+        };
       }
+      return { ok: false, reason: 'invalid_key' };
+    }
 
-      // Otherwise a session token from the cookie or a Bearer header.
-      const token = bearer ?? parseCookies(req.headers.cookie)[COOKIE_NAME];
-      const claims = token ? verifyToken(session, token, now()) : null;
-      if (claims) {
-        const user = userById.get(claims.userId) as UserRow | undefined;
-        if (
-          user &&
-          user.status === 'active' &&
-          user.token_version === claims.tokenVersion &&
-          user.org_id === claims.orgId
-        ) {
-          res.locals.userRow = user;
-          res.locals.principal = {
+    // Otherwise a session token from the cookie or a Bearer header.
+    const token = bearer ?? parseCookies(req.headers.cookie)[COOKIE_NAME];
+    const claims = token ? verifyToken(session, token, now()) : null;
+    if (claims) {
+      const user = userById.get(claims.userId) as UserRow | undefined;
+      if (
+        user &&
+        user.status === 'active' &&
+        user.token_version === claims.tokenVersion &&
+        user.org_id === claims.orgId
+      ) {
+        return {
+          ok: true,
+          userRow: user,
+          principal: {
             kind: 'user',
             orgId: user.org_id,
             userId: user.id,
             permissions: new Set<Permission>(userPermissions(db, user.id)),
-          } satisfies Principal;
-          next();
-          return;
-        }
+          },
+        };
       }
-      res.status(401).json({ error: 'Authentication required' });
+    }
+    return { ok: false, reason: 'unauthenticated' };
+  };
+
+  // ── SCIM 2.0 (provisioning) ────────────────────────────────────────
+  // Mounted OUTSIDE /api: `/scim/v2` is the base URL every IdP expects, and
+  // SCIM renders its own error shape, which the /api gate below does not.
+  app.use(
+    SCIM_BASE,
+    createScimRouter({
+      db,
+      now,
+      selfBaseUrl,
+      authenticate: async (req) => {
+        const outcome = await resolvePrincipal(req);
+        return outcome.ok ? { orgId: outcome.principal.orgId, permissions: outcome.principal.permissions } : null;
+      },
+      // The same two rules the administrative routes apply: a SCIM key scoped
+      // to `user:write` must not be able to disable the Owner, and must not be
+      // able to provision an account that holds more than the key does.
+      requireNotAbove: (principal, target) => {
+        const excess = userPermissions(db, target.id)
+          .filter((perm) => !principal.permissions.has(perm))
+          .sort();
+        if (excess.length > 0) {
+          throw new DomainError(403, `Cannot act on an account that holds a permission you do not: ${excess.join(', ')}`);
+        }
+      },
+      requireGrantable: (principal, granted) => {
+        const excess = [...new Set(granted)].filter((p) => !principal.permissions.has(p)).sort();
+        if (excess.length > 0) {
+          throw new DomainError(403, `Cannot grant a permission you do not hold: ${excess.join(', ')}`);
+        }
+      },
+      logEvent,
+    }),
+  );
+
+  // ── Authentication gate (session cookie or Bearer) ─────────────────
+  app.use('/api', (req, res, next) => {
+    void (async () => {
+      const outcome = await resolvePrincipal(req);
+      if (outcome.ok) {
+        if (outcome.userRow) res.locals.userRow = outcome.userRow;
+        res.locals.principal = outcome.principal;
+        next();
+        return;
+      }
+      res.status(401).json({
+        error: outcome.reason === 'invalid_key' ? 'Invalid API key' : 'Authentication required',
+      });
     })().catch(next);
   });
 
