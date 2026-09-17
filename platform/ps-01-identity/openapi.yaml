@@ -12,6 +12,8 @@ servers:
     description: Local / per-customer deployment (behind Caddy in production)
 tags:
   - name: ps-01-identity
+  - name: ps-01-identity-saml
+    description: SAML 2.0 service provider (see server/saml.ts for the dependency decision).
   - name: ps-01-identity-scim
     description: SCIM 2.0 provisioning (RFC 7643/7644), authenticated with a PS-01 API key.
 paths:
@@ -323,6 +325,86 @@ paths:
       tags: [ps-01-identity]
       responses:
         '200': { description: The subject export }
+  /api/saml/{provider}/metadata:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,31}$' }
+    get:
+      summary: SP metadata for a SAML provider
+      description: >-
+        The XML document an administrator uploads to their IdP — our entity ID,
+        our ACS URL, and our certificate when one is configured. Public and
+        unauthenticated, because all of it is public information and the IdP
+        fetches it anonymously.
+      tags: [ps-01-identity-saml]
+      security: []
+      responses:
+        '200': { description: SP metadata (application/xml) }
+        '404': { description: No such SAML provider is configured }
+        '501': { description: The optional SAML dependency is not installed }
+  /api/saml/{provider}/login:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,31}$' }
+    get:
+      summary: Begin a SAML login
+      description: >-
+        Records a RelayState nonce bound to the organization (and the optional
+        redirect target) and redirects to the IdP's SSO endpoint with a signed
+        or unsigned AuthnRequest. The request id is stored so the Response can
+        be checked against it.
+      tags: [ps-01-identity-saml]
+      security: []
+      parameters:
+        - name: org_slug
+          in: query
+          required: true
+          schema: { type: string }
+        - name: redirect_uri
+          in: query
+          required: false
+          description: Must be same-site or on OAUTH_REDIRECT_ALLOWLIST, else 422.
+          schema: { type: string }
+      responses:
+        '302': { description: Redirect to the IdP }
+        '404': { description: Unknown provider or organization }
+        '422': { description: Missing org_slug, or a disallowed redirect_uri }
+  /api/saml/{provider}/acs:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,31}$' }
+    post:
+      summary: Assertion Consumer Service
+      description: >-
+        Consumes the IdP's form POST (SAMLResponse + RelayState). The assertion
+        signature, the audience, the conditions window and InResponseTo are all
+        verified before any account is touched; a spent request id cannot be
+        replayed.
+      tags: [ps-01-identity-saml]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [SAMLResponse]
+              properties:
+                SAMLResponse: { type: string, description: base64-encoded SAML Response }
+                RelayState: { type: string }
+      responses:
+        '200': { description: Session issued (token + user) }
+        '302': { description: Redirect to the recorded redirect_uri, carrying the token }
+        '400': { description: Invalid or expired RelayState }
+        '401': { description: The assertion could not be verified }
+        '403': { description: The account exists but may not sign in }
+        '422': { description: No SAMLResponse, or no address in the assertion }
   /scim/v2/ServiceProviderConfig:
     get:
       summary: SCIM service provider configuration

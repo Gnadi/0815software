@@ -61,6 +61,14 @@ import {
 } from './oauth.js';
 import { OidcCache } from './oidc.js';
 import { createScimRouter, SCIM_BASE } from './scim.js';
+import {
+  createSaml,
+  identityFromProfile,
+  isSamlProvider,
+  newRelayState,
+  requestIdCache,
+  type SamlConfigMap,
+} from './saml.js';
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -76,6 +84,8 @@ export interface AppOptions {
   session: SessionConfig;
   /** Configured OAuth providers; unconfigured providers use the mock IdP. */
   oauth?: OAuthConfig;
+  /** Configured SAML 2.0 identity providers. Empty unless SAML_<NAME>_* is set. */
+  saml?: SamlConfigMap;
   /** Public base URL used to build OAuth redirect URIs. */
   selfBaseUrl?: string;
   /**
@@ -118,6 +128,7 @@ export function createApp({
   db,
   session,
   oauth = {},
+  saml = {},
   selfBaseUrl = `http://localhost:4001`,
   allowMockIdp = true,
   redirectAllowlist = [],
@@ -470,6 +481,119 @@ export function createApp({
       }
       const token = issueSession(res, user);
       logEvent('login_ok', user.org_id, user.id, req, { via: `oauth:${provider}` });
+      logEvent('token_issued', user.org_id, user.id, req);
+
+      if (stateRow.redirect_uri && isAllowedRedirect(stateRow.redirect_uri, redirectAllowlist, selfBaseUrl)) {
+        const sep = stateRow.redirect_uri.includes('?') ? '&' : '?';
+        res.redirect(302, `${stateRow.redirect_uri}${sep}token=${encodeURIComponent(token)}`);
+      } else {
+        res.json({ token, user: mapUser(user) });
+      }
+    })().catch(next);
+  });
+
+  // ── SAML 2.0 ───────────────────────────────────────────────────────
+  // Public, like the OAuth routes: these are the browser-facing half of a
+  // login, so they sit above the authentication gate.
+
+  const samlCache = requestIdCache(db, now);
+
+  const samlProviderOr404 = (req: Request): string => {
+    const provider = req.params.provider as string;
+    if (!isSamlProvider(provider) || !saml[provider]) fail(404, 'Unknown SAML provider');
+    return provider;
+  };
+
+  app.get('/api/saml/:provider/metadata', (req, res, next) => {
+    void (async () => {
+      const provider = samlProviderOr404(req);
+      const cfg = saml[provider]!;
+      const instance = await createSaml(cfg, provider, selfBaseUrl, samlCache);
+      // The document an administrator uploads to their IdP. Served unsigned
+      // and unauthenticated: it is public information (our entity ID, our ACS
+      // URL, our certificate if we have one) and the IdP fetches it anonymously.
+      res.type('application/xml').send(instance.generateServiceProviderMetadata(null, cfg.publicCert ?? null));
+    })().catch(next);
+  });
+
+  app.get('/api/saml/:provider/login', (req, res, next) => {
+    void (async () => {
+      const provider = samlProviderOr404(req);
+      const orgSlug = typeof req.query.org_slug === 'string' ? req.query.org_slug.trim() : '';
+      if (!orgSlug) fail(422, 'org_slug query parameter is required');
+      const org = orgBySlug.get(orgSlug) as OrgRow | undefined;
+      if (!org || org.status !== 'active') fail(404, 'Unknown organization');
+      const redirect = typeof req.query.redirect_uri === 'string' ? req.query.redirect_uri : null;
+      if (redirect !== null && !isAllowedRedirect(redirect, redirectAllowlist, selfBaseUrl)) {
+        fail(422, 'redirect_uri is not an allowed redirect target');
+      }
+
+      // RelayState is SAML's opaque round-trip parameter. We put a nonce in it
+      // and keep the org and redirect target here, exactly as the OAuth flow
+      // does with `state` — the IdP echoes the nonce and learns nothing.
+      const relayState = newRelayState();
+      db.prepare(
+        `INSERT INTO oauth_states (provider, state, org_slug, redirect_uri, code_verifier, nonce, created_at)
+         VALUES (?, ?, ?, ?, NULL, NULL, ?)`,
+      ).run(`saml:${provider}`, relayState, orgSlug, redirect, nowIso(now()));
+
+      const instance = await createSaml(saml[provider]!, provider, selfBaseUrl, samlCache);
+      res.redirect(302, await instance.getAuthorizeUrlAsync(relayState, undefined, {}));
+    })().catch(next);
+  });
+
+  // The ACS receives a form POST from the user's browser, not JSON.
+  const samlBody = express.urlencoded({ extended: false, limit: '512kb' });
+
+  app.post('/api/saml/:provider/acs', samlBody, (req, res, next) => {
+    void (async () => {
+      const provider = samlProviderOr404(req);
+      const cfg = saml[provider]!;
+      const form = (req.body ?? {}) as Record<string, string>;
+      if (typeof form.SAMLResponse !== 'string' || form.SAMLResponse === '') {
+        fail(422, 'SAMLResponse is required');
+      }
+
+      const stateRow = consumeState(db, `saml:${provider}`, form.RelayState, now());
+      if (!stateRow) fail(400, 'Invalid or expired RelayState');
+      const org = stateRow.org_slug ? (orgBySlug.get(stateRow.org_slug) as OrgRow | undefined) : undefined;
+      if (!org || org.status !== 'active') fail(400, 'Organization no longer available');
+
+      const instance = await createSaml(cfg, provider, selfBaseUrl, samlCache);
+      let profile;
+      try {
+        // Everything that makes this safe happens in here: signature over the
+        // assertion, the audience, the conditions window, and InResponseTo
+        // against an id we issued and have not spent.
+        ({ profile } = await instance.validatePostResponseAsync(form));
+      } catch (err) {
+        logEvent('login_fail', org.id, null, req, { via: `saml:${provider}`, reason: (err as Error).message });
+        fail(401, 'The SAML assertion could not be verified');
+      }
+      if (!profile) {
+        logEvent('login_fail', org.id, null, req, { via: `saml:${provider}`, reason: 'no profile in assertion' });
+        fail(401, 'The SAML assertion could not be verified');
+      }
+
+      // Inside the same guard as the signature check: an assertion refused for
+      // its issuer or for carrying no address is a failed sign-in too, and
+      // belongs on the trail beside the ones refused for their signature.
+      let identity;
+      try {
+        identity = identityFromProfile(profile, cfg);
+      } catch (err) {
+        logEvent('login_fail', org.id, null, req, { via: `saml:${provider}`, reason: (err as Error).message });
+        throw err;
+      }
+      const user = await linkUser(db, org.id, identity, now());
+      // Same rule as the OAuth callback: an account that may not sign in with a
+      // password may not sign in through a federation either.
+      if (user.status !== 'active') {
+        logEvent('login_fail', user.org_id, user.id, req, { via: `saml:${provider}`, reason: 'account disabled' });
+        fail(403, 'This account cannot sign in');
+      }
+      const token = issueSession(res, user);
+      logEvent('login_ok', user.org_id, user.id, req, { via: `saml:${provider}` });
       logEvent('token_issued', user.org_id, user.id, req);
 
       if (stateRow.redirect_uri && isAllowedRedirect(stateRow.redirect_uri, redirectAllowlist, selfBaseUrl)) {

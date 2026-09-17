@@ -30,6 +30,8 @@ caller's identity.
   ID token is verified against the provider's JWKS.
 - **SCIM 2.0** at `/scim/v2`: the customer's directory creates, updates and
   **de-provisions** accounts here, and a de-provision kills live sessions.
+- **SAML 2.0** for the IdPs that do not speak OIDC — SP metadata, signed
+  AuthnRequests, and an ACS that verifies the assertion before touching anything.
 
 ## Stack
 
@@ -40,7 +42,11 @@ caller's identity.
 | Crypto  | Node built-in `scrypt` + HMAC-SHA256        |
 | Tests   | Vitest + Supertest                          |
 
-Runtime dependencies: `express`, `better-sqlite3`. Nothing else.
+Runtime dependencies: `express`, `better-sqlite3`, and — for SAML only —
+`@node-saml/node-saml` (MIT), loaded lazily so a deployment with no SAML
+provider never touches it. That third dependency is a deliberate exception to
+this catalog's "no auth libraries" rule; [the reasoning is below](#saml-20-and-the-one-dependency)
+and at the top of [`server/saml.ts`](./server/saml.ts).
 
 ## Quickstart
 
@@ -161,6 +167,79 @@ and `userinfo` may only fill a gap — a `userinfo` response disagreeing about
 
 Built on Node's `crypto` alone, like the rest of the service.
 
+## SAML 2.0, and the one dependency
+
+Prefer OIDC. Entra ID, Okta, Keycloak and Google Workspace all speak it, and
+the OIDC path above needs nothing but Node's own crypto. SAML exists here for
+the IdPs that do not offer OIDC — older enterprise deployments, and public
+sector federations such as the Austrian PVP2 profile.
+
+Configuration mirrors OIDC. Every `SAML_<NAME>_ENTRY_POINT` declares a provider:
+
+```sh
+SAML_ENTRA_ENTRY_POINT=https://login.microsoftonline.com/<tenant>/saml2
+SAML_ENTRA_IDP_CERT=MIIC8DCCAdig...      # PEM or bare base64, | to list several
+SAML_ENTRA_IDP_ISSUER=https://sts.windows.net/<tenant>/
+```
+
+Three endpoints follow: `GET /api/saml/entra/metadata` (the XML an
+administrator uploads to the IdP), `GET /api/saml/entra/login?org_slug=…`, and
+`POST /api/saml/entra/acs`.
+
+### Why this one takes a dependency
+
+The rest of this service verifies signatures on `node:crypto`, including JWS —
+a JWS is three base64url segments and one signature check, which is a
+reasonable thing to write.
+
+XML Digital Signature is not. Verifying it means exclusive canonicalisation
+with its namespace rules, digest checking, and defending against **signature
+wrapping**: the attacker keeps the IdP's genuinely signed assertion somewhere
+the verifier will still find a valid signature for it, and puts their own
+unsigned assertion where the consumer reads the identity. That bug class has a
+long CVE history in libraries maintained by people who do nothing else, and it
+**fails open** — a wrong implementation does not error, it signs the attacker
+in. `@node-saml/node-saml` is the maintained MIT implementation, and taking it
+is the cheaper of the two risks.
+
+The obvious objection is PS-12 Banking, which implements exclusive
+canonicalisation and XML-DSig itself and takes nothing. The difference is the
+direction of the operation. PS-12 **signs**, with its own key, over a document
+it composed — no adversary chooses the input, and a bug produces a signature
+the bank rejects, which fails closed and loudly against one counterparty. This
+**verifies** a document an attacker writes in full, and a bug hands them a
+session. Same standard, opposite risk.
+
+`test/saml.test.ts` constructs that attack, in both element orderings, and
+requires a refusal. The assertions in those cases are signed with a real key
+against a committed test certificate rather than mocked, because a test that
+mocks the signature check tests nothing that matters here.
+
+### What is pinned rather than configurable
+
+| Setting | Value | Why |
+| ------- | ----- | --- |
+| `wantAssertionsSigned` | always `true` | An unsigned assertion is not an assertion. No environment variable can turn this off. |
+| `validateInResponseTo` | always | A Response must name an AuthnRequest we sent, and each id is spent on one Response — SAML's replay defence. |
+| `audience` | our SP entity ID | An assertion addressed to somebody else is not addressed to us. |
+| Signature algorithm | `sha256` or `sha512` | `sha1` is accepted by the library and by plenty of old IdPs. It is refused here at boot. |
+| Clock skew | 120s | The same tolerance the OIDC path allows. |
+
+`wantAuthnResponseSigned` is off by default and can be turned on
+(`SAML_<NAME>_WANT_RESPONSE_SIGNED=true`); Entra ID and others sign only the
+assertion, which is the signature that matters.
+
+The AuthnRequest ids live in SQLite (`saml_request_ids`), not in the library's
+in-memory cache. In memory they would be lost on restart, breaking every login
+in flight — and the obvious workaround for that is to turn the InResponseTo
+check off, which is the one thing that must not happen.
+
+One check is made here rather than by the library: node-saml enforces its
+`idpIssuer` option on logout messages only — `verifyIssuer` is never called on
+an authentication Response (5.1.0, `lib/saml.js`). Configuring it and assuming
+it applied would document a check that does not run, so `identityFromProfile`
+compares the issuer of the signed assertion itself.
+
 ## SCIM 2.0 provisioning
 
 OIDC answers *who is signing in*. It says nothing about the accounts that exist
@@ -232,6 +311,12 @@ drive it, including the shapes that are easy to get wrong — a capitalised
 `Replace` verb, `active` sent as the **string** `"False"`, membership sent as
 bare id strings. Its most important case is the one that signs a user in and
 then de-provisions them, asserting the live token stops working.
+
+`test/saml.test.ts` runs a real IdP: it builds SAML Responses and signs them
+with `xml-crypto` against the committed test certificate in `test/fixtures/`
+(see the README there — that key is public and is for this test only). The case
+worth reading is the signature-wrapping one, which is the reason this service
+takes a dependency for SAML and not for OIDC.
 
 **Coverage is a gate, not a report.** `vitest.config.ts` fails the run below
 90% on statements, branches, functions and lines; the suite currently sits near

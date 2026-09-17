@@ -36,7 +36,7 @@ export const platform: PlatformService[] = [
     port: 4001,
     source: `${REPO}/ps-01-identity`,
     overview:
-      'A single authority for identity and access across every module. Passwords are hashed with Node’s scrypt; sessions are stateless HMAC tokens with token-version revocation on password change; API keys authenticate machines. Every query is scoped to the caller’s organization, and a resource in another tenant returns 404, never 403. POST /api/tokens/verify is the contract other services use to check a caller’s identity. Enterprise customers sign in through their own provider: any OIDC issuer is configured by name, endpoints come from discovery, and their directory creates and de-provisions accounts over SCIM 2.0 — where switching an account off ends the sessions it is already holding.',
+      'A single authority for identity and access across every module. Passwords are hashed with Node’s scrypt; sessions are stateless HMAC tokens with token-version revocation on password change; API keys authenticate machines. Every query is scoped to the caller’s organization, and a resource in another tenant returns 404, never 403. POST /api/tokens/verify is the contract other services use to check a caller’s identity. Enterprise customers sign in through their own provider: any OIDC issuer is configured by name, endpoints come from discovery, and their directory creates and de-provisions accounts over SCIM 2.0 — where switching an account off ends the sessions it is already holding. SAML 2.0 covers the providers that offer nothing better.',
     responsibilities: [
       'Organizations (tenants), users, roles and a fine-grained permission catalog',
       'scrypt password hashing with constant-time unknown-account handling',
@@ -44,11 +44,13 @@ export const platform: PlatformService[] = [
       'Machine-to-machine API keys (scrypt-hashed, shown once)',
       'Generic OIDC SSO: discovery, PKCE, and full ID-token verification',
       'SCIM 2.0 provisioning and de-provisioning; multi-tenant isolation',
+      'SAML 2.0 for the identity providers that offer nothing better',
     ],
     api: [
       'POST /api/login · POST /api/logout',
       'GET /api/me · POST /api/tokens/verify',
       'GET /api/oauth/:provider/authorize · GET /api/oauth/:provider/callback',
+      'GET /api/saml/:provider/metadata · /login · POST /acs',
       'GET/POST /api/users · POST /api/users/:id/password',
       'GET/POST /api/roles · GET /api/permissions',
       'GET/POST /api/api-keys · DELETE /api/api-keys/:id',

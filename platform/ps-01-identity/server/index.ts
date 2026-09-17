@@ -18,6 +18,7 @@ const app = createApp({
   db,
   session: config.session,
   oauth: config.oauth,
+  saml: config.saml,
   selfBaseUrl: config.selfBaseUrl,
   allowMockIdp: config.allowMockIdp,
   throttle: config.throttle,
@@ -37,6 +38,10 @@ app.listen(config.port, () => {
       ? `[ps-01] OAuth/OIDC providers configured: ${providers.join(', ')}`
       : '[ps-01] no OAuth/OIDC provider configured (SCIM and password login still work)',
   );
+  const samlProviders = Object.keys(config.saml).sort();
+  if (samlProviders.length > 0) {
+    console.log(`[ps-01] SAML providers configured: ${samlProviders.join(', ')}`);
+  }
   if (config.session.secret === 'dev-secret-change-me') {
     console.warn('[ps-01] WARNING: using the default SESSION_SECRET — set a real one in production');
   }

@@ -7,7 +7,9 @@ finalization.*
 > **September 2026.** Two entries were added after the original write-up: the
 > reporting read-model split, and a verdict on turning PS-01 into an eIDAS
 > identity-verification platform — *don't*, with three cheaper alternatives.
-> See the ranking table and the entry near the end.
+> See the ranking table and the entry near the end. The first of those three,
+> enterprise SSO, has since been **built** — its write-up carries the one
+> dependency decision this catalog has had to make.
 
 ## Context
 
@@ -37,6 +39,7 @@ the `IDENTITY_URL` seam, and a client added to `platform/clients`.
 | — | Reporting **read models** (a future service, no number reserved) | **Not yet** — a convention covers it | Modules publish `report_*` views in their own database (`docs/REPORTING-CONTRACT.md`). Zero runtime cost. Revisit on a *second* consumer or a need to report across hosts. |
 | — | **PS-12 Banking** | **Built** | EBICS bank transport. Key custody is the argument: an EBICS subscriber holds RSA keys sufficient to move money, and in a module they end up in every module that ever needs a bank. Written up below. |
 | — | Localization / i18n | **Don't build now** | Belongs to the marketing site's i18n refactor (see `docs/ANALYSIS.md`), not the module platform. |
+| — | **Enterprise SSO in PS-01 (OIDC · SAML · SCIM)** | **Built** | The adoption blocker, done September 2026. One deliberate dependency for SAML — XML-DSig verification fails open, and this catalog's other XML-DSig code signs rather than verifies. Reasoning in the entry below. |
 | — | **Identity verification / eIDAS platform in PS-01** | **Don't build** | Not software but regulatory status, licensed data and Art. 9 liability; PS-01 is the auth kernel and the wrong home; it inverts the MIT / self-host positioning. Three cheaper pieces carry the value. Written up below. |
 | — | **PS-13 Signatures & Seals** | **Build when asked** | Envelopes, evidence packs and verification are software, and three modules already defer e-signature. QES stays behind a QTSP adapter we do not own. |
 
@@ -214,8 +217,7 @@ or faceted search beyond its local `LIKE` queries — otherwise it's premature.
    a second module is the cheaper next move.
 6. **PS-12 Banking** — built. Its write-up is below; the remaining work is
    downloads (camt.053, pain.002) and the first connection to a real bank.
-7. **Generic OIDC / SAML / SCIM in PS-01** — added September 2026 and the only
-   item on this list that blocks a rollout today. Do it before anything below it.
+7. ~~**Generic OIDC / SAML / SCIM in PS-01**~~ — **built, September 2026.**
 8. **Assurance levels in PS-01**, then **PS-13 Signatures & Seals** once a
    customer asks for signing. Not an identity-verification platform — see the
    entry near the end of this document for why.
@@ -392,14 +394,45 @@ The two goals behind the original question were "strengthen our position" and
 against the ident platform outright — KYC adds onboarding friction, it does not
 remove it — and both are better served by the following, in order.
 
-**1. Generic OIDC, SAML 2.0 and SCIM 2.0 in PS-01. Build — this is the real
-blocker.** `server/oauth.ts` today hardcodes three providers (`google`,
+**1. Generic OIDC, SAML 2.0 and SCIM 2.0 in PS-01. Built — September 2026.** `server/oauth.ts` today hardcodes three providers (`google`,
 `microsoft`, `github`) with hardcoded endpoints and no generic issuer. A
 customer on Entra ID, Okta or Keycloak cannot plug in; neither can a public-sector
 customer on ID Austria. MOD-09 lists "SSO/SAML" under *out of scope* for the same
 reason. This is what actually stands between a module and an enterprise rollout,
 it lives entirely inside PS-01's existing OAuth seam, and it is a sprint rather
 than a business. **Effort: small–medium.**
+
+**Built, with one decision that deserves recording.** OIDC and SCIM went in as
+described, on `node:crypto` alone. SAML did not: it takes
+`@node-saml/node-saml` (MIT), the first third-party dependency in this catalog
+that is not `express` or `better-sqlite3`, loaded lazily so a deployment with
+no SAML provider never touches it.
+
+The reasoning, because "no auth libraries" was a real rule and this breaks it.
+SAML's security rests on XML-DSig, and verifying XML-DSig means exclusive
+canonicalisation, digest checking and — the part that bites — defending against
+signature wrapping, where an attacker keeps the IdP's genuinely signed
+assertion where a verifier will still find it and puts their own unsigned one
+where the consumer reads. That class of bug **fails open**: the wrong
+implementation does not error, it signs the attacker in.
+
+The obvious objection is PS-12, which implements exclusive canonicalisation and
+XML-DSig itself and takes nothing. The difference is direction. PS-12 *signs*,
+with its own key, over a document it composed: no adversary chooses the input,
+and a bug yields a signature the bank rejects — closed, loud, one counterparty.
+PS-01's SAML *verifies* a document an attacker writes in full, and a bug yields
+a session. Same primitive, opposite risk, different answer.
+
+Two things fell out of building it that are worth knowing. node-saml enforces
+its `idpIssuer` option on logout messages only — `verifyIssuer` is never called
+on an authentication Response (5.1.0) — so PS-01 makes that check itself rather
+than documenting one that does not run. And the library's in-memory replay
+cache was replaced with a SQLite table, because losing every in-flight login on
+restart is exactly the pressure that gets `validateInResponseTo` turned off.
+
+Prefer OIDC wherever the customer's IdP offers it. SAML is for the ones that do
+not, which in practice means older enterprise deployments and public-sector
+federations such as the Austrian PVP2 profile.
 
 **2. Assurance levels and step-up in PS-01. Build — this is the one interface
 worth copying from Signteq.** Give PS-01 a verified-identity claim —

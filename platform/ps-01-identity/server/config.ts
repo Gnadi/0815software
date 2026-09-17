@@ -1,12 +1,15 @@
 import type { SessionConfig } from './auth.js';
 import { throttleConfigFromEnv, type ThrottleConfig } from './throttle.js';
 import { oauthConfigFromEnv, type OAuthConfig } from './oauth.js';
+import { samlConfigFromEnv, type SamlConfigMap } from './saml.js';
 
 export interface ServerConfig {
   port: number;
   databasePath: string;
   session: SessionConfig;
   oauth: OAuthConfig;
+  /** Configured SAML 2.0 identity providers (empty unless SAML_<NAME>_* is set). */
+  saml: SamlConfigMap;
   /** Public base URL of this service, used to build OAuth redirect URIs. */
   selfBaseUrl: string;
   /** Per-account login backoff — the brake on password spraying. */
@@ -65,6 +68,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       secureCookie: env.COOKIE_SECURE !== undefined ? env.COOKIE_SECURE === 'true' : env.NODE_ENV === 'production',
     },
     oauth: oauthConfigFromEnv(env),
+    saml: samlConfigFromEnv(env),
     throttle: throttleConfigFromEnv(env),
     selfBaseUrl: env.SELF_BASE_URL ?? `http://localhost:${port}`,
     allowMockIdp:

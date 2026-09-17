@@ -290,6 +290,26 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 11,
+    name: 'saml_request_ids',
+    up(db) {
+      // The AuthnRequest ids this SP has issued and not yet seen answered.
+      // SAML's replay defence is InResponseTo: a Response must name a request
+      // we actually sent, and each id is good for exactly one Response. Held
+      // here rather than in node-saml's in-memory cache so it survives a
+      // restart — otherwise every in-flight login breaks on deploy, and the
+      // honest workaround (turning the check off) is the one that matters.
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS saml_request_ids (
+        id         TEXT    PRIMARY KEY,
+        value      TEXT    NOT NULL,
+        created_at TEXT    NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_saml_request_ids_created ON saml_request_ids(created_at);
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */
