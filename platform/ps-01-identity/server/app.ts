@@ -51,12 +51,24 @@ import {
   consumeState,
   fetchIdentity,
   isAllowedRedirect,
+  isBuiltinProvider,
   isOAuthProvider,
   linkUser,
   mockIdentity,
+  resolveProvider,
   type FetchLike,
   type OAuthConfig,
 } from './oauth.js';
+import { OidcCache } from './oidc.js';
+import { createScimRouter, SCIM_BASE } from './scim.js';
+import {
+  createSaml,
+  identityFromProfile,
+  isSamlProvider,
+  newRelayState,
+  requestIdCache,
+  type SamlConfigMap,
+} from './saml.js';
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -72,6 +84,8 @@ export interface AppOptions {
   session: SessionConfig;
   /** Configured OAuth providers; unconfigured providers use the mock IdP. */
   oauth?: OAuthConfig;
+  /** Configured SAML 2.0 identity providers. Empty unless SAML_<NAME>_* is set. */
+  saml?: SamlConfigMap;
   /** Public base URL used to build OAuth redirect URIs. */
   selfBaseUrl?: string;
   /**
@@ -114,6 +128,7 @@ export function createApp({
   db,
   session,
   oauth = {},
+  saml = {},
   selfBaseUrl = `http://localhost:4001`,
   allowMockIdp = true,
   redirectAllowlist = [],
@@ -138,10 +153,40 @@ export function createApp({
     app.use(hardeningMiddleware(hardening));
   }
   app.use(requestTelemetry({ service: 'ps-01', log: logRequests === true }));
-  app.use(express.json({ limit: '256kb' }));
+  // The SCIM router parses its own bodies (it must also accept
+  // application/scim+json) and renders its own error shape. Letting the global
+  // parser reach those routes first meant a malformed body was refused by the
+  // API's error handler instead, in a shape no SCIM client can read.
+  const parseJson = express.json({ limit: '256kb' });
+  app.use((req, res, next) => {
+    if (req.path === SCIM_BASE || req.path.startsWith(`${SCIM_BASE}/`)) {
+      next();
+      return;
+    }
+    parseJson(req, res, next);
+  });
 
   const doFetch: FetchLike =
     injectedFetch ?? (globalThis.fetch as unknown as FetchLike);
+
+  // Discovery documents and JWKS live here for the life of the process, so a
+  // login costs one token call rather than three round trips to the IdP.
+  const oidcCache = new OidcCache();
+
+  /**
+   * Resolve a provider name from the path.
+   *
+   * A syntactically invalid name, or a name that is neither configured nor one
+   * of the three built-ins, is a 404 — the same answer as before, so scanning
+   * `/api/oauth/<guess>/authorize` still learns nothing. A CONFIGURED name is
+   * the new part: any `OAUTH_<NAME>_*` in the environment makes it real.
+   */
+  const providerOr404 = (req: Request): string => {
+    const provider = req.params.provider as string;
+    if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
+    if (!oauth[provider] && !isBuiltinProvider(provider)) fail(404, 'Unknown OAuth provider');
+    return provider;
+  };
 
   const orgBySlug = db.prepare('SELECT * FROM organizations WHERE slug = ?');
   const orgById = db.prepare('SELECT * FROM organizations WHERE id = ?');
@@ -353,34 +398,42 @@ export function createApp({
     })().catch(next);
   });
 
-  app.get('/api/oauth/:provider/authorize', (req, res) => {
-    const provider = req.params.provider as string;
-    if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
-    const orgSlug = typeof req.query.org_slug === 'string' ? req.query.org_slug.trim() : '';
-    if (!orgSlug) fail(422, 'org_slug query parameter is required');
-    const org = orgBySlug.get(orgSlug) as OrgRow | undefined;
-    if (!org || org.status !== 'active') fail(404, 'Unknown organization');
-    const redirect = typeof req.query.redirect_uri === 'string' ? req.query.redirect_uri : null;
-    // The callback hands the session token to this URL — only ever to an
-    // origin the operator vouched for.
-    if (redirect !== null && !isAllowedRedirect(redirect, redirectAllowlist, selfBaseUrl)) {
-      fail(422, 'redirect_uri is not an allowed redirect target');
-    }
-    res.redirect(
-      302,
-      beginAuthorize(
-        db,
-        provider,
-        { orgSlug, redirectUri: redirect, providerConfig: oauth[provider], selfBaseUrl, allowMockIdp },
-        now(),
-      ),
-    );
+  app.get('/api/oauth/:provider/authorize', (req, res, next) => {
+    void (async () => {
+      const provider = providerOr404(req);
+      const orgSlug = typeof req.query.org_slug === 'string' ? req.query.org_slug.trim() : '';
+      if (!orgSlug) fail(422, 'org_slug query parameter is required');
+      const org = orgBySlug.get(orgSlug) as OrgRow | undefined;
+      if (!org || org.status !== 'active') fail(404, 'Unknown organization');
+      const redirect = typeof req.query.redirect_uri === 'string' ? req.query.redirect_uri : null;
+      // The callback hands the session token to this URL — only ever to an
+      // origin the operator vouched for.
+      if (redirect !== null && !isAllowedRedirect(redirect, redirectAllowlist, selfBaseUrl)) {
+        fail(422, 'redirect_uri is not an allowed redirect target');
+      }
+      res.redirect(
+        302,
+        await beginAuthorize(
+          db,
+          provider,
+          {
+            orgSlug,
+            redirectUri: redirect,
+            providerConfig: oauth[provider],
+            selfBaseUrl,
+            allowMockIdp,
+            doFetch,
+            cache: oidcCache,
+          },
+          now(),
+        ),
+      );
+    })().catch(next);
   });
 
   app.get('/api/oauth/:provider/callback', (req, res, next) => {
     void (async () => {
-      const provider = req.params.provider as string;
-      if (!isOAuthProvider(provider)) fail(404, 'Unknown OAuth provider');
+      const provider = providerOr404(req);
 
       const stateRow = consumeState(db, provider, req.query.state, now());
       if (!stateRow) fail(400, 'Invalid or expired OAuth state');
@@ -397,7 +450,21 @@ export function createApp({
       // that must never be one stale row away from issuing a session.
       if (!cfg && !allowMockIdp) fail(501, `OAuth provider "${provider}" is not configured`);
       const identity = cfg
-        ? await fetchIdentity(cfg, code, `${selfBaseUrl}/api/oauth/${provider}/callback`, doFetch)
+        ? await fetchIdentity(
+            await resolveProvider(cfg, doFetch, oidcCache, now()),
+            code,
+            `${selfBaseUrl}/api/oauth/${provider}/callback`,
+            doFetch,
+            {
+              // Both were minted at authorize time and stored server-side; the
+              // browser never carried either, which is what makes them worth
+              // checking on the way back.
+              codeVerifier: stateRow.code_verifier,
+              nonce: stateRow.nonce,
+              cache: oidcCache,
+              now: now(),
+            },
+          )
         : mockIdentity(provider, org.slug);
 
       const user = await linkUser(db, org.id, identity, now());
@@ -425,54 +492,228 @@ export function createApp({
     })().catch(next);
   });
 
-  // ── Authentication gate (session cookie or Bearer) ─────────────────
-  app.use('/api', (req, res, next) => {
-    void (async () => {
-      const bearer = parseBearer(req.headers.authorization);
+  // ── SAML 2.0 ───────────────────────────────────────────────────────
+  // Public, like the OAuth routes: these are the browser-facing half of a
+  // login, so they sit above the authentication gate.
 
-      // Bearer API key → machine principal carrying the key's scopes
-      // (an unscoped key keeps the historical full-permission behaviour).
-      // Verifying one costs a scrypt, hence the await: on the threadpool it
-      // does not stall every other request in flight.
-      if (bearer && bearer.startsWith('psk_')) {
-        const key = await verifyApiKey(db, bearer, now());
-        if (key !== null) {
-          res.locals.principal = {
+  const samlCache = requestIdCache(db, now);
+
+  const samlProviderOr404 = (req: Request): string => {
+    const provider = req.params.provider as string;
+    if (!isSamlProvider(provider) || !saml[provider]) fail(404, 'Unknown SAML provider');
+    return provider;
+  };
+
+  app.get('/api/saml/:provider/metadata', (req, res, next) => {
+    void (async () => {
+      const provider = samlProviderOr404(req);
+      const cfg = saml[provider]!;
+      const instance = await createSaml(cfg, provider, selfBaseUrl, samlCache);
+      // The document an administrator uploads to their IdP. Served unsigned
+      // and unauthenticated: it is public information (our entity ID, our ACS
+      // URL, our certificate if we have one) and the IdP fetches it anonymously.
+      res.type('application/xml').send(instance.generateServiceProviderMetadata(null, cfg.publicCert ?? null));
+    })().catch(next);
+  });
+
+  app.get('/api/saml/:provider/login', (req, res, next) => {
+    void (async () => {
+      const provider = samlProviderOr404(req);
+      const orgSlug = typeof req.query.org_slug === 'string' ? req.query.org_slug.trim() : '';
+      if (!orgSlug) fail(422, 'org_slug query parameter is required');
+      const org = orgBySlug.get(orgSlug) as OrgRow | undefined;
+      if (!org || org.status !== 'active') fail(404, 'Unknown organization');
+      const redirect = typeof req.query.redirect_uri === 'string' ? req.query.redirect_uri : null;
+      if (redirect !== null && !isAllowedRedirect(redirect, redirectAllowlist, selfBaseUrl)) {
+        fail(422, 'redirect_uri is not an allowed redirect target');
+      }
+
+      // RelayState is SAML's opaque round-trip parameter. We put a nonce in it
+      // and keep the org and redirect target here, exactly as the OAuth flow
+      // does with `state` — the IdP echoes the nonce and learns nothing.
+      const relayState = newRelayState();
+      db.prepare(
+        `INSERT INTO oauth_states (provider, state, org_slug, redirect_uri, code_verifier, nonce, created_at)
+         VALUES (?, ?, ?, ?, NULL, NULL, ?)`,
+      ).run(`saml:${provider}`, relayState, orgSlug, redirect, nowIso(now()));
+
+      const instance = await createSaml(saml[provider]!, provider, selfBaseUrl, samlCache);
+      res.redirect(302, await instance.getAuthorizeUrlAsync(relayState, undefined, {}));
+    })().catch(next);
+  });
+
+  // The ACS receives a form POST from the user's browser, not JSON.
+  const samlBody = express.urlencoded({ extended: false, limit: '512kb' });
+
+  app.post('/api/saml/:provider/acs', samlBody, (req, res, next) => {
+    void (async () => {
+      const provider = samlProviderOr404(req);
+      const cfg = saml[provider]!;
+      const form = (req.body ?? {}) as Record<string, string>;
+      if (typeof form.SAMLResponse !== 'string' || form.SAMLResponse === '') {
+        fail(422, 'SAMLResponse is required');
+      }
+
+      const stateRow = consumeState(db, `saml:${provider}`, form.RelayState, now());
+      if (!stateRow) fail(400, 'Invalid or expired RelayState');
+      const org = stateRow.org_slug ? (orgBySlug.get(stateRow.org_slug) as OrgRow | undefined) : undefined;
+      if (!org || org.status !== 'active') fail(400, 'Organization no longer available');
+
+      const instance = await createSaml(cfg, provider, selfBaseUrl, samlCache);
+      let profile;
+      try {
+        // Everything that makes this safe happens in here: signature over the
+        // assertion, the audience, the conditions window, and InResponseTo
+        // against an id we issued and have not spent.
+        ({ profile } = await instance.validatePostResponseAsync(form));
+      } catch (err) {
+        logEvent('login_fail', org.id, null, req, { via: `saml:${provider}`, reason: (err as Error).message });
+        fail(401, 'The SAML assertion could not be verified');
+      }
+      if (!profile) {
+        logEvent('login_fail', org.id, null, req, { via: `saml:${provider}`, reason: 'no profile in assertion' });
+        fail(401, 'The SAML assertion could not be verified');
+      }
+
+      // Inside the same guard as the signature check: an assertion refused for
+      // its issuer or for carrying no address is a failed sign-in too, and
+      // belongs on the trail beside the ones refused for their signature.
+      let identity;
+      try {
+        identity = identityFromProfile(profile, cfg);
+      } catch (err) {
+        logEvent('login_fail', org.id, null, req, { via: `saml:${provider}`, reason: (err as Error).message });
+        throw err;
+      }
+      const user = await linkUser(db, org.id, identity, now());
+      // Same rule as the OAuth callback: an account that may not sign in with a
+      // password may not sign in through a federation either.
+      if (user.status !== 'active') {
+        logEvent('login_fail', user.org_id, user.id, req, { via: `saml:${provider}`, reason: 'account disabled' });
+        fail(403, 'This account cannot sign in');
+      }
+      const token = issueSession(res, user);
+      logEvent('login_ok', user.org_id, user.id, req, { via: `saml:${provider}` });
+      logEvent('token_issued', user.org_id, user.id, req);
+
+      if (stateRow.redirect_uri && isAllowedRedirect(stateRow.redirect_uri, redirectAllowlist, selfBaseUrl)) {
+        const sep = stateRow.redirect_uri.includes('?') ? '&' : '?';
+        res.redirect(302, `${stateRow.redirect_uri}${sep}token=${encodeURIComponent(token)}`);
+      } else {
+        res.json({ token, user: mapUser(user) });
+      }
+    })().catch(next);
+  });
+
+  /**
+   * Resolve a caller's credential to a principal.
+   *
+   * Extracted from the `/api` gate so the SCIM surface authenticates through
+   * exactly the same code. A second copy of this logic is the kind of thing
+   * that drifts — one of them learns that a disabled account may not act, the
+   * other does not — so there is one, and the two mount points differ only in
+   * the SHAPE of the refusal they render.
+   */
+  type AuthOutcome =
+    | { ok: true; principal: Principal; userRow?: UserRow }
+    | { ok: false; reason: 'invalid_key' | 'unauthenticated' };
+
+  const resolvePrincipal = async (req: Request): Promise<AuthOutcome> => {
+    const bearer = parseBearer(req.headers.authorization);
+
+    // Bearer API key → machine principal carrying the key's scopes
+    // (an unscoped key keeps the historical full-permission behaviour).
+    // Verifying one costs a scrypt, hence the await: on the threadpool it
+    // does not stall every other request in flight.
+    if (bearer && bearer.startsWith('psk_')) {
+      const key = await verifyApiKey(db, bearer, now());
+      if (key !== null) {
+        return {
+          ok: true,
+          principal: {
             kind: 'api_key',
             orgId: key.orgId,
             userId: null,
             permissions: new Set<Permission>(key.scopes ?? PERMISSIONS),
-          } satisfies Principal;
-          next();
-          return;
-        }
-        res.status(401).json({ error: 'Invalid API key' });
-        return;
+          },
+        };
       }
+      return { ok: false, reason: 'invalid_key' };
+    }
 
-      // Otherwise a session token from the cookie or a Bearer header.
-      const token = bearer ?? parseCookies(req.headers.cookie)[COOKIE_NAME];
-      const claims = token ? verifyToken(session, token, now()) : null;
-      if (claims) {
-        const user = userById.get(claims.userId) as UserRow | undefined;
-        if (
-          user &&
-          user.status === 'active' &&
-          user.token_version === claims.tokenVersion &&
-          user.org_id === claims.orgId
-        ) {
-          res.locals.userRow = user;
-          res.locals.principal = {
+    // Otherwise a session token from the cookie or a Bearer header.
+    const token = bearer ?? parseCookies(req.headers.cookie)[COOKIE_NAME];
+    const claims = token ? verifyToken(session, token, now()) : null;
+    if (claims) {
+      const user = userById.get(claims.userId) as UserRow | undefined;
+      if (
+        user &&
+        user.status === 'active' &&
+        user.token_version === claims.tokenVersion &&
+        user.org_id === claims.orgId
+      ) {
+        return {
+          ok: true,
+          userRow: user,
+          principal: {
             kind: 'user',
             orgId: user.org_id,
             userId: user.id,
             permissions: new Set<Permission>(userPermissions(db, user.id)),
-          } satisfies Principal;
-          next();
-          return;
-        }
+          },
+        };
       }
-      res.status(401).json({ error: 'Authentication required' });
+    }
+    return { ok: false, reason: 'unauthenticated' };
+  };
+
+  // ── SCIM 2.0 (provisioning) ────────────────────────────────────────
+  // Mounted OUTSIDE /api: `/scim/v2` is the base URL every IdP expects, and
+  // SCIM renders its own error shape, which the /api gate below does not.
+  app.use(
+    SCIM_BASE,
+    createScimRouter({
+      db,
+      now,
+      selfBaseUrl,
+      authenticate: async (req) => {
+        const outcome = await resolvePrincipal(req);
+        return outcome.ok ? { orgId: outcome.principal.orgId, permissions: outcome.principal.permissions } : null;
+      },
+      // The same two rules the administrative routes apply: a SCIM key scoped
+      // to `user:write` must not be able to disable the Owner, and must not be
+      // able to provision an account that holds more than the key does.
+      requireNotAbove: (principal, target) => {
+        const excess = userPermissions(db, target.id)
+          .filter((perm) => !principal.permissions.has(perm))
+          .sort();
+        if (excess.length > 0) {
+          throw new DomainError(403, `Cannot act on an account that holds a permission you do not: ${excess.join(', ')}`);
+        }
+      },
+      requireGrantable: (principal, granted) => {
+        const excess = [...new Set(granted)].filter((p) => !principal.permissions.has(p)).sort();
+        if (excess.length > 0) {
+          throw new DomainError(403, `Cannot grant a permission you do not hold: ${excess.join(', ')}`);
+        }
+      },
+      logEvent,
+    }),
+  );
+
+  // ── Authentication gate (session cookie or Bearer) ─────────────────
+  app.use('/api', (req, res, next) => {
+    void (async () => {
+      const outcome = await resolvePrincipal(req);
+      if (outcome.ok) {
+        if (outcome.userRow) res.locals.userRow = outcome.userRow;
+        res.locals.principal = outcome.principal;
+        next();
+        return;
+      }
+      res.status(401).json({
+        error: outcome.reason === 'invalid_key' ? 'Invalid API key' : 'Authentication required',
+      });
     })().catch(next);
   });
 

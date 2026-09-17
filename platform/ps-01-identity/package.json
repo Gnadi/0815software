@@ -1,7 +1,7 @@
 {
   "name": "@0815software/ps-01-identity",
   "version": "0.1.0",
-  "description": "PS-01 Identity \u2014 shared authentication and authorization service: organizations, users, roles, permissions, API keys, HMAC/JWT-style sessions, multi-tenancy.",
+  "description": "PS-01 Identity — shared authentication and authorization service: organizations, users, roles, permissions, API keys, HMAC/JWT-style sessions, multi-tenancy.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -15,6 +15,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@node-saml/node-saml": "^5.1.0",
     "better-sqlite3": "^12.4.1",
     "express": "^5.1.0"
   },
@@ -24,9 +25,11 @@
     "@types/node": "^22.19.11",
     "@types/supertest": "^6.0.3",
     "@vitest/coverage-v8": "^3.2.7",
+    "@xmldom/xmldom": "^0.8.15",
     "supertest": "^7.1.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "xml-crypto": "^6.2.0"
   }
 }

@@ -4,6 +4,13 @@
 build plan for each. Written July 2026, after the platform-services
 finalization.*
 
+> **September 2026.** Two entries were added after the original write-up: the
+> reporting read-model split, and a verdict on turning PS-01 into an eIDAS
+> identity-verification platform — *don't*, with three cheaper alternatives.
+> See the ranking table and the entry near the end. The first of those three,
+> enterprise SSO, has since been **built** — its write-up carries the one
+> dependency decision this catalog has had to make.
+
 ## Context
 
 The catalog now has seven services (identity, workflow, notifications, AI,
@@ -32,6 +39,9 @@ the `IDENTITY_URL` seam, and a client added to `platform/clients`.
 | — | Reporting **read models** (a future service, no number reserved) | **Not yet** — a convention covers it | Modules publish `report_*` views in their own database (`docs/REPORTING-CONTRACT.md`). Zero runtime cost. Revisit on a *second* consumer or a need to report across hosts. |
 | — | **PS-12 Banking** | **Built** | EBICS bank transport. Key custody is the argument: an EBICS subscriber holds RSA keys sufficient to move money, and in a module they end up in every module that ever needs a bank. Written up below. |
 | — | Localization / i18n | **Don't build now** | Belongs to the marketing site's i18n refactor (see `docs/ANALYSIS.md`), not the module platform. |
+| — | **Enterprise SSO in PS-01 (OIDC · SAML · SCIM)** | **Built** | The adoption blocker, done September 2026. One deliberate dependency for SAML — XML-DSig verification fails open, and this catalog's other XML-DSig code signs rather than verifies. Reasoning in the entry below. |
+| — | **Identity verification / eIDAS platform in PS-01** | **Don't build** | Not software but regulatory status, licensed data and Art. 9 liability; PS-01 is the auth kernel and the wrong home; it inverts the MIT / self-host positioning. Three cheaper pieces carry the value. Written up below. |
+| — | **PS-13 Signatures & Seals** | **Build when asked** | Envelopes, evidence packs and verification are software, and three modules already defer e-signature. QES stays behind a QTSP adapter we do not own. |
 
 ---
 
@@ -207,6 +217,10 @@ or faceted search beyond its local `LIKE` queries — otherwise it's premature.
    a second module is the cheaper next move.
 6. **PS-12 Banking** — built. Its write-up is below; the remaining work is
    downloads (camt.053, pain.002) and the first connection to a real bank.
+7. ~~**Generic OIDC / SAML / SCIM in PS-01**~~ — **built, September 2026.**
+8. **Assurance levels in PS-01**, then **PS-13 Signatures & Seals** once a
+   customer asks for signing. Not an identity-verification platform — see the
+   entry near the end of this document for why.
 
 ---
 
@@ -292,6 +306,207 @@ This does **not** reopen the reporting read-model question above. That candidate
 is about serving *cross-module* views of data other modules own. This is a
 service parsing the wire format of the protocol it already speaks, for data it
 already holds — the same thing `payload.ts` does on the way out.
+
+---
+
+## Identity verification / eIDAS in PS-01 (don't build)
+
+*Added September 2026, prompted by [signteq.io](https://signteq.io/en/) — an
+eIDAS-first identity and onboarding platform — and the question of whether PS-01
+should become one.*
+
+**The question.** Signteq orchestrates identity *proofing* and trust services:
+eID and NFC document reading, bank ident, photo ident with face liveness and
+matching, PEP and sanctions screening, and qualified electronic signatures (QES)
+with lifecycle management. Should PS-01 Identity grow into that — to strengthen
+the catalog's market position and make the modules easier for companies to adopt?
+
+**Verdict: no.** The word *identity* is doing all the work in that question.
+PS-01 does authentication and authorization — who is this session, what may it
+do. An ident platform does identity *proofing* — is this human the person on this
+passport. They share a noun and almost nothing else: not the data, not the
+threat model, not the legal footing, not the cost structure.
+
+Three cheaper things carry most of the value that made the idea attractive, and
+they are listed under [What to build instead](#what-to-build-instead) below.
+
+### Why not: the product is regulatory status, not code
+
+The orchestration code is the cheap part. What is actually being sold:
+
+- **QTSP status.** Issuing *qualified* signatures means conformity assessment by
+  an accredited CAB against the ETSI 319 4xx series, notification to the national
+  supervisory body (RTR, in Austria), listing on the EU Trusted List, re-audit
+  every two years, a certified QSCD/HSM for remote signing, and statutory
+  liability with insurance behind it. Order of magnitude: a six-figure annual
+  cost and 12–24 months before anything is sellable. That number is an estimate,
+  not a quote — see [what is not proven](#what-is-not-proven-here).
+- **Licensed data.** Official sanctions lists (EU, UN, OFAC) are free and could
+  ship with the repo. Comprehensive PEP coverage and adverse media are licensed
+  from Dow Jones / LSEG / ComplyAdvantage and are contractually not
+  redistributable — so the part customers actually ask for cannot be MIT.
+- **A contract per method.** Every eID scheme, every bank ident, every document
+  library is its own integration *and* its own commercial agreement. Reading an
+  NFC chip properly needs each country's CSCA certificates.
+- **Special-category data and the liability that follows.** ID document images
+  and face biometrics are Art. 9 GDPR data. Taking them moves 0815software from
+  "here is MIT code, run it yourself" to being a processor with a DPA, a DPIA,
+  TOMs, breach duties and insurance — for every customer, forever.
+
+None of that is a build. It is a regulated business, and the catalog has no
+mechanism for starting one.
+
+### Why not here: PS-01 is the wrong home even if the answer were yes
+
+From `platform/ps-01-identity/README.md`: *"This service is the one every other
+package authenticates through — PS-02…12 all call `POST /api/tokens/verify`, and
+the thirteen SSO modules delegate their login here — so a defect in it is a
+defect everywhere."* It carries a 90% coverage gate for that reason.
+
+Putting document upload, biometric processing and third-party webhooks inside
+that process breaks the catalog's own rule — one cross-cutting job per service —
+and takes the most load-bearing component in the platform from two runtime
+dependencies and a deterministic offline test suite to an online, vendor-coupled
+processor of Art. 9 data. The blast radius argument that justifies PS-01's
+coverage gate is the same argument against widening it.
+
+### Why not us: it inverts the catalog's positioning
+
+The catalog wins on MIT, self-hostable, deterministic offline, no vendor
+lock-in. An ident platform is proprietary by necessity, online-only,
+per-transaction priced, and locks the customer to whichever vendors we picked.
+It is a competitor on the exact axis where we currently differentiate.
+
+The field is also crowded, and three of the incumbents are on our doorstep:
+A-Trust (ID Austria), Namirial (via xyzmo, Ansfelden) and sproof (Salzburg),
+alongside D-Trust, Swisscom Trust Services, Signicat and IDnow. Twentieth eIDAS
+orchestrator is not a market position.
+
+Worth watching separately: EUDI Wallets are landing across the EU now. Some of
+what an orchestrator sells today — the proofing itself — is on a path to being
+commoditised by them. That is an argument against entering as an orchestrator
+and an argument for the relying-party seam below.
+
+### What to build instead
+
+The two goals behind the original question were "strengthen our position" and
+"make it easier for companies to use our products." The second one argues
+against the ident platform outright — KYC adds onboarding friction, it does not
+remove it — and both are better served by the following, in order.
+
+**1. Generic OIDC, SAML 2.0 and SCIM 2.0 in PS-01. Built — September 2026.** `server/oauth.ts` today hardcodes three providers (`google`,
+`microsoft`, `github`) with hardcoded endpoints and no generic issuer. A
+customer on Entra ID, Okta or Keycloak cannot plug in; neither can a public-sector
+customer on ID Austria. MOD-09 lists "SSO/SAML" under *out of scope* for the same
+reason. This is what actually stands between a module and an enterprise rollout,
+it lives entirely inside PS-01's existing OAuth seam, and it is a sprint rather
+than a business. **Effort: small–medium.**
+
+**Built, with one decision that deserves recording.** OIDC and SCIM went in as
+described, on `node:crypto` alone. SAML did not: it takes
+`@node-saml/node-saml` (MIT), the first third-party dependency in this catalog
+that is not `express` or `better-sqlite3`, loaded lazily so a deployment with
+no SAML provider never touches it.
+
+The reasoning, because "no auth libraries" was a real rule and this breaks it.
+SAML's security rests on XML-DSig, and verifying XML-DSig means exclusive
+canonicalisation, digest checking and — the part that bites — defending against
+signature wrapping, where an attacker keeps the IdP's genuinely signed
+assertion where a verifier will still find it and puts their own unsigned one
+where the consumer reads. That class of bug **fails open**: the wrong
+implementation does not error, it signs the attacker in.
+
+The obvious objection is PS-12, which implements exclusive canonicalisation and
+XML-DSig itself and takes nothing. The difference is direction. PS-12 *signs*,
+with its own key, over a document it composed: no adversary chooses the input,
+and a bug yields a signature the bank rejects — closed, loud, one counterparty.
+PS-01's SAML *verifies* a document an attacker writes in full, and a bug yields
+a session. Same primitive, opposite risk, different answer.
+
+Two things fell out of building it that are worth knowing. node-saml enforces
+its `idpIssuer` option on logout messages only — `verifyIssuer` is never called
+on an authentication Response (5.1.0) — so PS-01 makes that check itself rather
+than documenting one that does not run. And the library's in-memory replay
+cache was replaced with a SQLite table, because losing every in-flight login on
+restart is exactly the pressure that gets `validateInResponseTo` turned off.
+
+Prefer OIDC wherever the customer's IdP offers it. SAML is for the ones that do
+not, which in practice means older enterprise deployments and public-sector
+federations such as the Austrian PVP2 profile.
+
+**2. Assurance levels and step-up in PS-01. Build — this is the one interface
+worth copying from Signteq.** Give PS-01 a verified-identity claim —
+`{method, loa, verified_at, expires_at, evidence_ref, provider}` — surface `loa`
+on `GET /api/me` and in the `POST /api/tokens/verify` claims, and let a route or
+permission demand a minimum level (step-up). Deterministic mock verifier by
+default, real ident providers behind config, exactly as PS-04 and PS-08 do.
+
+The design line that makes this safe is worth stating explicitly: **PS-01 stores
+the claim and an opaque reference, never the evidence.** No document images, no
+biometric templates, no liveness video — those stay with whoever is licensed and
+insured to hold them. That keeps the whole Art. 9 problem outside the platform
+while still letting a module say "this action needs a substantial-assurance
+identity," which is what regulated DACH verticals actually ask for.
+**Effort: small.**
+
+**3. PS-13 Signatures & Seals, as its own service (port 4013). Build when a
+customer asks.** The demand is already written down in three module READMEs:
+MOD-13 Offers says *"No e-signature, no PDF/A, no digital certificates"*, MOD-14
+Subsidies defers e-signatures under out-of-scope, and MOD-09 Document Management
+stores documents with no signing at all.
+
+Unlike proofing, most of this *is* software, and the pieces are already here.
+
+- **Envelopes and signers**: a document, an ordered signer list, per-signer
+  HMAC-signed links — the same idiom MOD-13 already uses for acceptance links.
+- **SES/AES in-house**: hash the document, record signing intent with timestamp
+  and request metadata, chain it through PS-07 Audit Log, store bytes in PS-06
+  File Storage.
+- **Evidence pack**: the document hash chain, the audit trail and the signer
+  records, exportable and independently re-verifiable via a `verify` endpoint.
+- **QES only behind an adapter** to a QTSP *the customer chooses* — A-Trust,
+  D-Trust, Namirial, Swisscom. Deterministic mock QTSP by default and offline,
+  the PS-08 pattern. We never hold the qualified certificate and never need the
+  audit.
+
+This also reframes the market claim honestly: *"our stack signs with your QTSP"*
+is a stronger and cheaper position than *"we are a QTSP."*
+
+**Open decision.** PAdES-conformant PDF sealing is not something to hand-roll,
+and a PDF library would be the first real runtime dependency in the catalog
+beyond `express` and `better-sqlite3`. Either PS-13 takes that dependency
+deliberately, or v1 seals a detached signature beside the file and leaves
+embedded PAdES to the QTSP adapter. Recommendation: **the detached form for
+v1** — it keeps the service in-ethos and the QTSP is producing the qualified
+seal anyway. **Effort: medium.**
+
+**4. An EUDI Wallet relying-party seam. Watch, don't build yet.** Verifying a
+credential a wallet presents is a fundamentally cheaper posture than doing the
+proofing, and it is where the regulation is heading. Revisit once wallets are
+actually issuing in Austria and Germany and a customer asks.
+
+### The failure mode to avoid
+
+The bad outcome is not building the ident platform. It is the middle path: a
+half-built KYC layer inside PS-01, too weak to be legally useful and too heavy
+to keep the service boring — with the coverage gate and the "no runtime
+dependencies" promise quietly abandoned to get there.
+
+### What is not proven here
+
+- **signteq.io was not read directly.** The session's network policy blocked the
+  domain; the description above is assembled from search results and from the
+  vendor category generally. If the site says something materially different,
+  this entry should be corrected rather than trusted.
+- **The QTSP cost and timeline are an order-of-magnitude estimate**, not a
+  quote. Before any of this becomes a plan, get a real number from an accredited
+  conformity assessment body.
+- **The AI Act position is unassessed.** One-to-one biometric verification is
+  argued to sit outside the high-risk remote-identification category, but that is
+  a question for a lawyer, not for this document. It is another cost that lands
+  on whoever does the proofing — which, under the recommendation above, is not us.
+
+---
 
 ## Verification (per new service)
 

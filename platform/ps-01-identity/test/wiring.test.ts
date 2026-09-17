@@ -88,6 +88,8 @@ describe('an OAuth provider read from the environment', () => {
       tokenUrl: 'https://login.example/token',
       userInfoUrl: 'https://login.example/me',
       scope: 'openid',
+      // PKCE is on unless a provider is known to reject it.
+      pkce: true,
     });
   });
 

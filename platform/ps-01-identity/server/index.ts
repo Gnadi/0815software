@@ -18,6 +18,7 @@ const app = createApp({
   db,
   session: config.session,
   oauth: config.oauth,
+  saml: config.saml,
   selfBaseUrl: config.selfBaseUrl,
   allowMockIdp: config.allowMockIdp,
   throttle: config.throttle,
@@ -27,6 +28,20 @@ const app = createApp({
 
 app.listen(config.port, () => {
   console.log(`[ps-01] identity API on http://localhost:${config.port}`);
+  // Provider names are discovered by scanning OAUTH_<NAME>_CLIENT_ID, so a
+  // misspelled variable declares nothing and fails silently at login time.
+  // Printing what was actually recognised turns that into a boot-time check
+  // a human can read.
+  const providers = Object.keys(config.oauth).sort();
+  console.log(
+    providers.length > 0
+      ? `[ps-01] OAuth/OIDC providers configured: ${providers.join(', ')}`
+      : '[ps-01] no OAuth/OIDC provider configured (SCIM and password login still work)',
+  );
+  const samlProviders = Object.keys(config.saml).sort();
+  if (samlProviders.length > 0) {
+    console.log(`[ps-01] SAML providers configured: ${samlProviders.join(', ')}`);
+  }
   if (config.session.secret === 'dev-secret-change-me') {
     console.warn('[ps-01] WARNING: using the default SESSION_SECRET — set a real one in production');
   }

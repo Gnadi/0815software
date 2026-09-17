@@ -19,6 +19,8 @@ export interface UserRow {
   password_hash: string;
   token_version: number;
   status: string;
+  /** The customer directory's own id for this person; NULL unless SCIM set it. */
+  external_id: string | null;
   created_at: string;
 }
 

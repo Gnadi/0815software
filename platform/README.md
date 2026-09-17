@@ -46,8 +46,13 @@ through the shared [`clients`](./clients) package.
 | PS-12 | Banking          | EBICS 3.0 bank transport for ISO 20022 files | 4012   | Available |
 
 - [PS-01 · Identity](./ps-01-identity) — authentication, users, roles,
-  permissions, OAuth (real OIDC flow + offline mock IdP), API keys,
-  HMAC/JWT-style sessions, multi-tenancy.
+  permissions, API keys, HMAC/JWT-style sessions, multi-tenancy, and enterprise
+  SSO: any OIDC issuer configured by name (discovery, PKCE, full ID-token
+  verification on built-in crypto), SCIM 2.0 provisioning where a
+  de-provisioned account loses the sessions it already holds, and SAML 2.0 for
+  the IdPs that offer nothing better. SAML is the one place in this catalog
+  that takes a third-party dependency — see that service's README for why
+  verifying XML-DSig is a different proposition from producing it.
 - [PS-02 · Workflow Engine](./ps-02-workflow-engine) — workflows,
   triggers (event/schedule/webhook/manual), events, scheduling, webhooks, retries.
 - [PS-03 · Notification Hub](./ps-03-notification-hub) — email, SMS, push,
@@ -77,7 +82,11 @@ through the shared [`clients`](./clients) package.
   subscriber key custody, the INI/HIA/HPB key exchange with a printable INI
   letter, and signed ISO 20022 uploads over the customer's own bank connection.
   Node built-in crypto only — the exclusive XML canonicaliser and the XML-DSig
-  signature are implemented here rather than taken as dependencies. A
+  signature are implemented here rather than taken as dependencies, which is
+  defensible because this service SIGNS with its own key: it chooses the input,
+  and a bug produces a signature the bank rejects. PS-01's SAML support does
+  the opposite — it verifies a document an attacker composes — and takes a
+  library for exactly that reason. A
   connection carries no order until a human has confirmed the bank's key
   digests, and a payment file is submitted at most once. Downloads come back
   the other way — `camt.053` statements read into bookings a module can query

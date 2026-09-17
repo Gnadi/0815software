@@ -219,6 +219,97 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+
+  {
+    id: 8,
+    name: 'oauth_states-pkce',
+    up(db) {
+      // PKCE verifier and OIDC nonce for an in-flight authorization. Both are
+      // per-login secrets that must survive the browser round trip without
+      // travelling through it, so they live beside the state nonce.
+      const cols = db.prepare("PRAGMA table_info('oauth_states')").all() as { name: string }[];
+      if (!cols.some((c) => c.name === 'code_verifier')) {
+        db.exec('ALTER TABLE oauth_states ADD COLUMN code_verifier TEXT');
+      }
+      if (!cols.some((c) => c.name === 'nonce')) {
+        db.exec('ALTER TABLE oauth_states ADD COLUMN nonce TEXT');
+      }
+    },
+  },
+  {
+    id: 9,
+    name: 'users-external_id',
+    up(db) {
+      // The identifier the customer's directory knows this person by. SCIM
+      // clients (Entra ID, Okta) send it on every write and expect to find the
+      // same user again by it after an email change — which is precisely the
+      // case where matching on userName alone creates a duplicate account.
+      // Guarded like migration 4: a pre-runner database that recorded the
+      // baseline without ever creating its tables must still migrate cleanly.
+      const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").get();
+      if (!exists) return;
+      const cols = db.prepare("PRAGMA table_info('users')").all() as { name: string }[];
+      if (!cols.some((c) => c.name === 'external_id')) {
+        db.exec('ALTER TABLE users ADD COLUMN external_id TEXT');
+      }
+      // Unique per tenant, and only where set — a partial index, because every
+      // password-provisioned user has NULL here and NULLs must not collide.
+      db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_id
+        ON users(org_id, external_id) WHERE external_id IS NOT NULL;
+    `);
+    },
+  },
+  {
+    id: 10,
+    name: 'auth_events-scim-types',
+    up(db) {
+      // Same rebuild as 4/5/6: SQLite cannot widen a CHECK in place, and a
+      // directory sync that creates, updates, deactivates or re-roles an
+      // account has to land on the same trail as every other such change.
+      db.exec(`
+      CREATE TABLE auth_events_new (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        org_id     INTEGER,
+        user_id    INTEGER,
+        type       TEXT    NOT NULL
+                   CHECK (type IN ('login_ok', 'login_fail', 'logout', 'token_issued',
+                                   'apikey_created', 'apikey_revoked', 'password_changed',
+                                   'password_change_denied', 'sessions_revoked', 'user_erased',
+                                   'scim_user_created', 'scim_user_updated',
+                                   'scim_user_deactivated', 'scim_group_membership_changed')),
+        ip         TEXT,
+        meta       TEXT    NOT NULL DEFAULT '{}',
+        created_at TEXT    NOT NULL
+      );
+      INSERT INTO auth_events_new (id, org_id, user_id, type, ip, meta, created_at)
+        SELECT id, org_id, user_id, type, ip, meta, created_at FROM auth_events;
+      DROP TABLE auth_events;
+      ALTER TABLE auth_events_new RENAME TO auth_events;
+      CREATE INDEX IF NOT EXISTS idx_auth_events_org ON auth_events(org_id, created_at, id);
+    `);
+    },
+  },
+  {
+    id: 11,
+    name: 'saml_request_ids',
+    up(db) {
+      // The AuthnRequest ids this SP has issued and not yet seen answered.
+      // SAML's replay defence is InResponseTo: a Response must name a request
+      // we actually sent, and each id is good for exactly one Response. Held
+      // here rather than in node-saml's in-memory cache so it survives a
+      // restart — otherwise every in-flight login breaks on deploy, and the
+      // honest workaround (turning the check off) is the one that matters.
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS saml_request_ids (
+        id         TEXT    PRIMARY KEY,
+        value      TEXT    NOT NULL,
+        created_at TEXT    NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_saml_request_ids_created ON saml_request_ids(created_at);
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

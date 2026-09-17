@@ -91,7 +91,7 @@ export const T: Record<Lang, Record<string, string>> = {
     // src/data/*.ts: applyLang() only replaces a key it finds, so without
     // these, switching back from German would leave the German text in place.
     'svc.identity.title':            'Identity',
-    'svc.identity.purpose':          'Shared authentication and authorization — one login, one set of users and roles, strict multi-tenancy.',
+    'svc.identity.purpose':          'Shared authentication and authorization — one login, one set of users and roles, strict multi-tenancy, and SSO against the identity provider the customer already runs.',
     'svc.workflow-engine.title':     'Workflow Engine',
     'svc.workflow-engine.purpose':   'Automation for all modules — workflows, triggers, events, scheduling, and reliable outbound webhooks.',
     'svc.notification-hub.title':    'Notification Hub',
@@ -181,12 +181,14 @@ export const T: Record<Lang, Record<string, string>> = {
     'detail.allModules':       'All modules',
 
     // ─── Catalogue detail copy (/platform, /modules and their pages) ────
-    'svc.identity.overview':                         'A single authority for identity and access across every module. Passwords are hashed with Node’s scrypt; sessions are stateless HMAC tokens with token-version revocation on password change; API keys authenticate machines. Every query is scoped to the caller’s organization, and a resource in another tenant returns 404, never 403. POST /api/tokens/verify is the contract other services use to check a caller’s identity.',
+    'svc.identity.overview':                         'A single authority for identity and access across every module. Passwords are hashed with Node’s scrypt; sessions are stateless HMAC tokens with token-version revocation on password change; API keys authenticate machines. Every query is scoped to the caller’s organization, and a resource in another tenant returns 404, never 403. POST /api/tokens/verify is the contract other services use to check a caller’s identity. Enterprise customers sign in through their own provider: any OIDC issuer is configured by name, endpoints come from discovery, and their directory creates and de-provisions accounts over SCIM 2.0 — where switching an account off ends the sessions it is already holding. SAML 2.0 covers the providers that offer nothing better.',
     'svc.identity.resp.0':                           'Organizations (tenants), users, roles and a fine-grained permission catalog',
     'svc.identity.resp.1':                           'scrypt password hashing with constant-time unknown-account handling',
     'svc.identity.resp.2':                           'Stateless HMAC session tokens, revoked on password change',
     'svc.identity.resp.3':                           'Machine-to-machine API keys (scrypt-hashed, shown once)',
-    'svc.identity.resp.4':                           'OAuth endpoints stubbed as the documented seam; multi-tenant isolation',
+    'svc.identity.resp.4':                           'Generic OIDC SSO: discovery, PKCE, and full ID-token verification',
+    'svc.identity.resp.5':                           'SCIM 2.0 provisioning and de-provisioning; multi-tenant isolation',
+    'svc.identity.resp.6':                           'SAML 2.0 for the identity providers that offer nothing better',
     'svc.identity.consumers':                        'Every module delegates authentication and authorization here.',
     'svc.workflow-engine.overview':                  'An event-sourced automation engine. Workflows are versioned definitions; instance state is folded from an append-only event stream at read time, so nothing can drift. Runs are idempotent, transitions are config-validated, and outbound webhooks are delivered with an HMAC signature, exponential backoff, and dead-lettering. A single POST /api/tick advances the scheduler and the delivery queue.',
     'svc.workflow-engine.resp.0':                    'Versioned workflow definitions with config-validated transitions',
@@ -516,7 +518,7 @@ export const T: Record<Lang, Record<string, string>> = {
 
     // ─── Catalogue rows (§ 05.01 services, § 05.02 modules) ─────────────
     'svc.identity.title':            'Identität',
-    'svc.identity.purpose':          'Gemeinsame Authentifizierung und Autorisierung — ein Login, ein Satz Benutzer und Rollen, strikte Mandantentrennung.',
+    'svc.identity.purpose':          'Gemeinsame Authentifizierung und Autorisierung — ein Login, ein Satz Benutzer und Rollen, strikte Mandantentrennung und SSO gegen den Identity-Provider, den der Kunde ohnehin betreibt.',
     'svc.workflow-engine.title':     'Workflow-Engine',
     'svc.workflow-engine.purpose':   'Automatisierung für alle Module — Workflows, Trigger, Events, Zeitpläne und zuverlässige ausgehende Webhooks.',
     'svc.notification-hub.title':    'Benachrichtigungs-Hub',
@@ -606,12 +608,14 @@ export const T: Record<Lang, Record<string, string>> = {
     'detail.allModules':       'Alle Module',
 
     // ─── Catalogue detail copy (/platform, /modules and their pages) ────
-    'svc.identity.overview':                         'Eine einzige Instanz für Identität und Zugriff über alle Module hinweg. Passwörter werden mit Nodes scrypt gehasht; Sessions sind zustandslose HMAC-Tokens, die sich über eine Token-Version bei Passwortwechsel widerrufen lassen; API-Keys authentifizieren Maschinen. Jede Abfrage ist auf die Organisation des Aufrufers begrenzt, und eine Ressource in einem anderen Mandanten liefert 404, nie 403. POST /api/tokens/verify ist der Vertrag, über den andere Dienste die Identität eines Aufrufers prüfen.',
+    'svc.identity.overview':                         'Eine einzige Instanz für Identität und Zugriff über alle Module hinweg. Passwörter werden mit Nodes scrypt gehasht; Sessions sind zustandslose HMAC-Tokens, die sich über eine Token-Version bei Passwortwechsel widerrufen lassen; API-Keys authentifizieren Maschinen. Jede Abfrage ist auf die Organisation des Aufrufers begrenzt, und eine Ressource in einem anderen Mandanten liefert 404, nie 403. POST /api/tokens/verify ist der Vertrag, über den andere Dienste die Identität eines Aufrufers prüfen. Unternehmenskunden melden sich über ihren eigenen Provider an: jeder OIDC-Issuer wird per Name konfiguriert, die Endpunkte kommen aus der Discovery, und ihr Verzeichnis legt Konten über SCIM 2.0 an und deaktiviert sie — wobei das Abschalten eines Kontos auch dessen laufende Sessions beendet. SAML 2.0 deckt die Provider ab, die nichts Besseres anbieten.',
     'svc.identity.resp.0':                           'Organisationen (Mandanten), Benutzer, Rollen und ein feingranularer Berechtigungskatalog',
     'svc.identity.resp.1':                           'scrypt-Passwort-Hashing mit laufzeitkonstanter Behandlung unbekannter Konten',
     'svc.identity.resp.2':                           'Zustandslose HMAC-Session-Tokens, widerrufen bei Passwortwechsel',
     'svc.identity.resp.3':                           'API-Keys für Maschine-zu-Maschine (scrypt-gehasht, einmalig angezeigt)',
-    'svc.identity.resp.4':                           'OAuth-Endpunkte als dokumentierte Schnittstelle angelegt; Mandantentrennung',
+    'svc.identity.resp.4':                           'Generisches OIDC-SSO: Discovery, PKCE und vollständige ID-Token-Prüfung',
+    'svc.identity.resp.5':                           'SCIM-2.0-Provisionierung und -Deprovisionierung; Mandantentrennung',
+    'svc.identity.resp.6':                           'SAML 2.0 für die Identity-Provider, die nichts Besseres anbieten',
     'svc.identity.consumers':                        'Jedes Modul delegiert Authentifizierung und Autorisierung hierher.',
     'svc.workflow-engine.overview':                  'Eine Event-Sourcing-Automatisierungsengine. Workflows sind versionierte Definitionen; der Zustand einer Instanz wird beim Lesen aus einem rein anfügenden Event-Strom gefaltet, sodass nichts auseinanderlaufen kann. Läufe sind idempotent, Übergänge werden gegen die Konfiguration geprüft, und ausgehende Webhooks werden mit HMAC-Signatur, exponentiellem Backoff und Dead-Lettering zugestellt. Ein einziges POST /api/tick treibt Scheduler und Zustellwarteschlange voran.',
     'svc.workflow-engine.resp.0':                    'Versionierte Workflow-Definitionen mit konfigurationsgeprüften Übergängen',
