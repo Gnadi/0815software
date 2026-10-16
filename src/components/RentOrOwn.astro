@@ -1,0 +1,217 @@
+---
+// §02 — Rent or own? (SaaS explained)
+// Most visitors know software only as something rented. This section names
+// that model (SaaS), explains it with an everyday comparison, and sets it
+// against ours — including the one thing SaaS genuinely does better, and how
+// we cover it. Grid: 120px | 1fr
+
+const rows = [
+  ['What does it cost?',          'A monthly fee per user, for as long as you use it',              '€0 license fee. You pay only for work you order'],
+  ['Can the price go up?',        'Yes, the provider decides at every renewal',                     'There is no license that could get more expensive'],
+  ['Where is your data?',         'On the provider’s servers, usually alongside other customers’ data', 'On a server that serves your company only'],
+  ['Can it be adapted?',          'Only as far as the provider allows',                             'Any way you need: the code is yours'],
+  ['What if the provider stops?', 'The software and your access can disappear',                     'It keeps running, and any IT firm can take over'],
+  ['Who runs it?',                'The provider',                                                   'Your IT team, or us if you prefer'],
+];
+---
+<section id="compare" class="rent">
+  <div class="rent__grid">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 02</div>
+      <div class="section-rail__name" data-i18n="rail.compare">Rent or own</div>
+    </div>
+
+    <div class="rent__content">
+      <div class="section-label-inline" aria-hidden="true">
+        <span class="section-label-inline__num">§ 02</span> · <span data-i18n="rail.compare">Rent or own</span>
+      </div>
+
+      <h2 class="rent__h2" data-i18n="compare.h2">Rent or own?</h2>
+
+      <p class="rent__p" data-i18n-html="compare.p1">
+        Most business software today is rented. The industry calls this
+        <a class="term" href="#g-saas">SaaS</a>, short for “Software as a Service”.
+        You don’t install anything: you log in through the browser and pay a fee
+        every month for every user. It’s like renting a flat. Moving in is easy,
+        but the landlord sets the rent and the house rules, and moving out is hard
+        because your furniture is in their building.
+      </p>
+      <p class="rent__p rent__p--strong" data-i18n="compare.p2">
+        With 0815software you don’t rent anything. You get the complete software,
+        blueprint included, and it stays yours.
+      </p>
+
+      <table class="rent-table">
+        <thead>
+          <tr>
+            <th scope="col" class="rent-table__topic-h" data-i18n="compare.col.topic">QUESTION</th>
+            <th scope="col" data-i18n="compare.col.saas">RENTED SOFTWARE (SAAS)</th>
+            <th scope="col" class="rent-table__ours-h" data-i18n="compare.col.ours">0815SOFTWARE</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([topic, saas, ours], i) => (
+            <tr>
+              <th scope="row" class="rent-table__topic" data-i18n={`compare.row.${i}.topic`}>{topic}</th>
+              <td class="rent-table__saas">
+                <span class="rent-table__label" aria-hidden="true" data-i18n="compare.col.saas">RENTED SOFTWARE (SAAS)</span>
+                <span data-i18n={`compare.row.${i}.saas`}>{saas}</span>
+              </td>
+              <td class="rent-table__ours">
+                <span class="rent-table__label" aria-hidden="true" data-i18n="compare.col.ours">0815SOFTWARE</span>
+                <span data-i18n={`compare.row.${i}.ours`}>{ours}</span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <aside class="rent-note">
+        <div class="rent-note__key" data-i18n="compare.note.key">To be fair</div>
+        <p class="rent-note__body" data-i18n="compare.note.body">
+          SaaS has one real advantage: someone else looks after the servers, updates
+          and backups. You can have that with us as well. On request we run your 0815
+          software for you, on a server set up for your company alone and never
+          shared with other customers. You pay for the operation, not for the right
+          to use the software. If you later want to run it yourself or switch to
+          another provider, you take everything with you.
+        </p>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<style>
+.rent {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+.rent__grid {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.rent__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 44px;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -1.2px;
+  margin-bottom: 32px;
+}
+
+.rent__p {
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  max-width: 760px;
+  margin-bottom: 20px;
+}
+.rent__p--strong { color: var(--fg); margin-bottom: 48px; }
+
+/* ─── Comparison table ──────────────────────────────────────────── */
+.rent-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--line-strong);
+  font-size: 15px;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.rent-table thead th {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: var(--fg-mute);
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.rent-table thead .rent-table__ours-h { color: var(--accent); }
+.rent-table thead .rent-table__topic-h { width: 26%; }
+
+.rent-table tbody tr { border-bottom: 1px solid var(--line); }
+.rent-table tbody tr:last-child { border-bottom: none; }
+
+.rent-table tbody th,
+.rent-table td {
+  padding: 16px 20px;
+  vertical-align: top;
+}
+
+.rent-table__topic {
+  font-weight: 500;
+  color: var(--fg);
+}
+.rent-table__saas { color: var(--fg-mute); }
+.rent-table__ours { color: var(--fg); }
+
+/* Column labels repeated inside each cell — only shown once the table
+   collapses into stacked cards on narrow screens. */
+.rent-table__label { display: none; }
+
+/* ─── Honest note ───────────────────────────────────────────────── */
+.rent-note {
+  margin-top: 32px;
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 24px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  max-width: 900px;
+}
+
+.rent-note__key {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  padding-top: 3px;
+}
+
+.rent-note__body {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+}
+
+/* ─── Responsive ──────────────────────────────────────────────────── */
+@media (max-width: 1199px) {
+  .rent__h2 { font-size: 36px; }
+}
+
+@media (max-width: 999px) {
+  .rent__grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 767px) {
+  .rent__h2 { font-size: 28px; letter-spacing: -0.6px; }
+  .rent__p { font-size: 16px; }
+
+  .rent-table thead { display: none; }
+  .rent-table,
+  .rent-table tbody,
+  .rent-table tr,
+  .rent-table th,
+  .rent-table td { display: block; width: 100%; }
+  .rent-table tbody tr { padding: 4px 0 8px; }
+  .rent-table tbody th { padding: 16px 16px 8px; }
+  .rent-table td { padding: 6px 16px; }
+  .rent-table__label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--fg-mute);
+    margin-bottom: 2px;
+  }
+
+  .rent-note { grid-template-columns: 1fr; gap: 10px; padding: 20px; }
+}
+</style>

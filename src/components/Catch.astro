@@ -1,23 +1,31 @@
 ---
-// §04 — "What's the catch?"
-// 2×2 FAQ grid with 1px gap dividers
+// §05 — "What's the catch?"
+// FAQ grid with 1px gap dividers
 
 const faqs = [
   {
     q: 'So how do you make money?',
-    a: 'Implementation, customisation, training, and optional SLAs. The software is the free sample. Deep work on top of it is what we sell.',
+    a: 'With work, not with licenses: setting up, customizing, training and, if you like, running the software for you. The software itself is free; you pay for our services.',
   },
   {
-    q: "Is the software any good if it's free?",
-    a: "The same engineers write both the free core and the paid customisation. It's in our interest for the core to be production-grade.",
+    q: 'Is free software any good?',
+    a: 'The same team builds the free software and the paid customizations. Every weakness in the core would cost us time on every project, so it is in our own interest that it works reliably.',
   },
   {
     q: 'What happens if you go out of business?',
-    a: 'Nothing, for you. The code is MIT-licensed and mirrored across thousands of forks. Any developer can pick up maintenance.',
+    a: 'Nothing changes for you. You have the complete code, and the MIT license allows anyone to keep working on it. Any IT firm or in-house developer can take over.',
   },
   {
-    q: "Why 'always free' and not 'freemium'?",
-    a: "Because 'freemium' means 'we haven't shown you the price tag yet'. We'd rather be straight with you from the start.",
+    q: 'Isn’t public code a security risk?',
+    a: 'No. Good security never depends on nobody seeing the code. Public code can be checked by anyone, so mistakes are found sooner. What is public is the blueprint, never your data: your data lives only on your server, and every installation gets its own keys.',
+  },
+  {
+    q: 'Who looks after updates and the server?',
+    a: 'Your choice. Your own IT team can run it, and we hand over everything they need. Or we run it for you, on a server set up for your company alone, including updates and backups.',
+  },
+  {
+    q: 'Why no free trial with a paid version later?',
+    a: 'Because a free trial usually means the price tag comes later. With us there is no paid version of the software. There is the software, and there is work we do for you if you want it.',
   },
 ];
 ---
@@ -25,20 +33,20 @@ const faqs = [
 <section id="catch" class="catch">
   <div class="catch__inner">
     <div class="section-rail" aria-hidden="true">
-      <div class="section-rail__num">§ 04</div>
-      <div class="section-rail__name">The catch</div>
+      <div class="section-rail__num">§ 05</div>
+      <div class="section-rail__name" data-i18n="rail.catch">Questions</div>
     </div>
 
     <div class="catch__content">
       <div class="section-label-inline" aria-hidden="true">
-        <span class="section-label-inline__num">§ 04</span> · The catch
+        <span class="section-label-inline__num">§ 05</span> · <span data-i18n="rail.catch">Questions</span>
       </div>
 
-      <h2 class="catch__h2" data-i18n="catch.h2">"What's the catch?"</h2>
+      <h2 class="catch__h2" data-i18n="catch.h2">“What’s the catch?”</h2>
 
       <p class="catch__intro" data-i18n="catch.intro">
-        Fair question. We'd ask it too. Here's the honest answer — the same one we
-        give in every first call, before anyone signs anything.
+        A fair question. We would ask it too. Here are the honest answers, the same
+        ones we give in every first conversation, before anyone signs anything.
       </p>
 
       <div class="faq-grid" role="list">
@@ -115,7 +123,7 @@ const faqs = [
 }
 
 .faq-cell__a {
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.6;
   color: var(--fg-dim);
 }
