@@ -67,6 +67,13 @@ const terms = [
     short: 'A finished application for one task.',
     body: 'For example invoicing or time tracking. Modules can be used on their own or combined, and then share the same login and the same customer data.',
   },
+  {
+    id: 'platform',
+    term: 'Platform services',
+    short: 'The shared foundation under every module.',
+    body: 'Building blocks that all modules use in the background: login, notifications, file storage, search, customer data and more. You never use them directly, but they are why you log in only once and why a customer is the same in every module.',
+    more: { href: '/modules#foundation', label: 'The foundation explained →' },
+  },
 ];
 ---
 
@@ -97,6 +104,9 @@ const terms = [
               <span class="gl-entry__icon" aria-hidden="true">+</span>
             </summary>
             <p class="gl-entry__body" data-i18n={`gl.${t.id}.body`}>{t.body}</p>
+            {t.more && (
+              <a class="gl-entry__more" href={t.more.href} data-i18n={`gl.${t.id}.more`}>{t.more.label}</a>
+            )}
           </details>
         ))}
       </div>
@@ -207,6 +217,15 @@ const terms = [
   color: var(--fg-dim);
   padding: 0 36px 22px 0;
 }
+
+.gl-entry__more {
+  display: inline-block;
+  margin: -8px 0 22px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.gl-entry__more:hover { color: var(--fg); }
 
 /* Arriving from a term link scrolls here; mark which entry was meant. */
 .gl-entry:target .gl-entry__term { text-decoration: underline; text-underline-offset: 4px; }

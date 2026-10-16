@@ -1,32 +1,33 @@
 ---
-// §02 — Rent or own? (SaaS explained)
+// §02 — SaaS, but yours
 // Most visitors know software only as something rented. This section names
-// that model (SaaS), explains it with an everyday comparison, and sets it
-// against ours — including the one thing SaaS genuinely does better, and how
-// we cover it. Grid: 120px | 1fr
+// that model (SaaS), explains it with an everyday comparison, and sets ours
+// against it: the same convenience (we can run it), but assembled from the
+// modules the customer picks, and owned by them. Grid: 120px | 1fr
 
 const rows = [
-  ['What does it cost?',          'A monthly fee per user, for as long as you use it',              '€0 license fee. You pay only for work you order'],
+  ['What’s included?',            'The package the provider puts together',                         'Exactly the modules you choose'],
+  ['What does it cost?',          'A monthly fee per user, for as long as you use it',              '€0 license fee. You pay for setup and, if you wish, for us running it'],
   ['Can the price go up?',        'Yes, the provider decides at every renewal',                     'There is no license that could get more expensive'],
   ['Where is your data?',         'On the provider’s servers, usually alongside other customers’ data', 'On a server that serves your company only'],
   ['Can it be adapted?',          'Only as far as the provider allows',                             'Any way you need: the code is yours'],
   ['What if the provider stops?', 'The software and your access can disappear',                     'It keeps running, and any IT firm can take over'],
-  ['Who runs it?',                'The provider',                                                   'Your IT team, or us if you prefer'],
+  ['Who runs it?',                'The provider',                                                   'We do, or your IT team: your choice'],
 ];
 ---
 <section id="compare" class="rent">
   <div class="rent__grid">
     <div class="section-rail" aria-hidden="true">
       <div class="section-rail__num">§ 02</div>
-      <div class="section-rail__name" data-i18n="rail.compare">Rent or own</div>
+      <div class="section-rail__name" data-i18n="rail.compare">Own SaaS</div>
     </div>
 
     <div class="rent__content">
       <div class="section-label-inline" aria-hidden="true">
-        <span class="section-label-inline__num">§ 02</span> · <span data-i18n="rail.compare">Rent or own</span>
+        <span class="section-label-inline__num">§ 02</span> · <span data-i18n="rail.compare">Own SaaS</span>
       </div>
 
-      <h2 class="rent__h2" data-i18n="compare.h2">Rent or own?</h2>
+      <h2 class="rent__h2" data-i18n="compare.h2">SaaS, but yours.</h2>
 
       <p class="rent__p" data-i18n-html="compare.p1">
         Most business software today is rented. The industry calls this
@@ -37,15 +38,17 @@ const rows = [
         because your furniture is in their building.
       </p>
       <p class="rent__p rent__p--strong" data-i18n="compare.p2">
-        With 0815software you don’t rent anything. You get the complete software,
-        blueprint included, and it stays yours.
+        0815software gives you the convenience of SaaS without the rent. You choose
+        the modules you need, we set them up as your own installation and run it
+        for you if you like, and the software still belongs to you, blueprint
+        included.
       </p>
 
       <table class="rent-table">
         <thead>
           <tr>
             <th scope="col" class="rent-table__topic-h" data-i18n="compare.col.topic">QUESTION</th>
-            <th scope="col" data-i18n="compare.col.saas">RENTED SOFTWARE (SAAS)</th>
+            <th scope="col" data-i18n="compare.col.saas">TYPICAL SAAS</th>
             <th scope="col" class="rent-table__ours-h" data-i18n="compare.col.ours">0815SOFTWARE</th>
           </tr>
         </thead>
@@ -54,7 +57,7 @@ const rows = [
             <tr>
               <th scope="row" class="rent-table__topic" data-i18n={`compare.row.${i}.topic`}>{topic}</th>
               <td class="rent-table__saas">
-                <span class="rent-table__label" aria-hidden="true" data-i18n="compare.col.saas">RENTED SOFTWARE (SAAS)</span>
+                <span class="rent-table__label" aria-hidden="true" data-i18n="compare.col.saas">TYPICAL SAAS</span>
                 <span data-i18n={`compare.row.${i}.saas`}>{saas}</span>
               </td>
               <td class="rent-table__ours">
@@ -67,14 +70,13 @@ const rows = [
       </table>
 
       <aside class="rent-note">
-        <div class="rent-note__key" data-i18n="compare.note.key">To be fair</div>
+        <div class="rent-note__key" data-i18n="compare.note.key">Operation</div>
         <p class="rent-note__body" data-i18n="compare.note.body">
-          SaaS has one real advantage: someone else looks after the servers, updates
-          and backups. You can have that with us as well. On request we run your 0815
-          software for you, on a server set up for your company alone and never
-          shared with other customers. You pay for the operation, not for the right
-          to use the software. If you later want to run it yourself or switch to
-          another provider, you take everything with you.
+          On request we run your 0815 software for you, on a server set up for your
+          company alone and never shared with other customers, including updates and
+          backups. You pay for the operation, not for the right to use the software.
+          If you later want to run it yourself or switch to another provider, you
+          take everything with you.
         </p>
       </aside>
     </div>

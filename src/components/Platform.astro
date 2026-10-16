@@ -1,8 +1,10 @@
 ---
-// §06 — Modules (what we build)
-// The homepage shows the modules by the job each one does, in everyday words.
-// The shared backend services underneath are summarised in one sentence; the
-// full technical catalogue lives on /platform for those who want it.
+// §06 — Put together your own software
+// The USP: customers assemble their own software package from modules, and
+// we run it for them if they want. Three steps, then the module catalogue
+// (by the job each module does), then the two modules that bring the others
+// onto one screen. The shared backend services underneath are named in one
+// sentence and explained on /modules#foundation.
 import { modules } from '../data/modules';
 
 // English one-liners per module, keyed by slug. The German copy lives in
@@ -29,6 +31,41 @@ const tasks: Record<string, string> = {
 for (const mod of modules) {
   if (!tasks[mod.slug]) throw new Error(`Platform.astro has no one-line task for module "${mod.slug}"`);
 }
+
+const steps = [
+  { title: 'Choose modules',           body: 'For example quotes, invoicing and time tracking. You can add more at any time.' },
+  { title: 'Your own installation',    body: 'We set up your package on a server for your company alone, run by us or by your IT team.' },
+  { title: 'Everything on one screen', body: 'With Workspace or Mosaic you work in all your modules from a single place.' },
+];
+
+const shells = [
+  {
+    key: 'workspace',
+    n: 'MOD-15',
+    title: 'Workspace',
+    lead: 'One overview page for all your modules. Important figures and lists from each module, one customer filter for all of them, and actions across modules, such as turning an accepted quote into an invoice with one click.',
+    points: [
+      'Key figures from every module at a glance',
+      'Pick a customer, and every module shows only them',
+      'One login for everything',
+      'From quote to invoice with one click',
+    ],
+    cta: 'More about Workspace →',
+  },
+  {
+    key: 'mosaic',
+    n: 'MOD-16',
+    title: 'Mosaic',
+    lead: 'Your modules themselves, side by side on one screen. Arrange them like windows on a desk, for example invoices on the left and quotes on the right, and work in all of them at once.',
+    points: [
+      'Complete modules side by side, not just excerpts',
+      'Arrange them by dragging; saved for each person',
+      'No second login in any window',
+      'Save layouts you use often',
+    ],
+    cta: 'More about Mosaic →',
+  },
+];
 ---
 
 <section id="platform" class="platform">
@@ -36,29 +73,42 @@ for (const mod of modules) {
   <div class="platform__head">
     <div class="section-rail" aria-hidden="true">
       <div class="section-rail__num">§ 06</div>
-      <div class="section-rail__name" data-i18n="rail.modules">Modules</div>
+      <div class="section-rail__name" data-i18n="rail.modules">Configure</div>
     </div>
     <div class="platform__head-content">
       <div class="section-label-inline" aria-hidden="true">
-        <span class="section-label-inline__num">§ 06</span> · <span data-i18n="rail.modules">Modules</span>
+        <span class="section-label-inline__num">§ 06</span> · <span data-i18n="rail.modules">Configure</span>
       </div>
-      <h2 class="platform__h2" data-i18n="platform.h2">What we build: ready-made modules.</h2>
+      <h2 class="platform__h2" data-i18n="platform.h2">Put together your own software.</h2>
       <p class="platform__intro" data-i18n-html="platform.intro">
-        A <a class="term" href="#g-module">module</a> is a finished application for
-        one job, such as invoicing, time tracking or a customer portal. Choose what
-        you need. Each module runs on its own or together with the others.
-      </p>
-      <p class="platform__intro platform__intro--sub" data-i18n="platform.intro2">
-        All modules stand on the same foundation: login, notifications, file
-        storage, search and more. That is why they fit together, and why we can
-        deliver quickly.
+        This is the biggest difference from typical SaaS. There, you get the package
+        the provider has put together. With us, you choose exactly the
+        <a class="term" href="#g-module">modules</a> your company needs, no more and
+        no less. We turn them into your own installation and run it for you if you like.
       </p>
     </div>
   </div>
 
-  <!-- Business Modules -->
+  <!-- Three steps -->
   <div class="platform__block">
     <div class="platform__spacer" aria-hidden="true"></div>
+    <ol class="config-steps">
+      {steps.map((st, i) => (
+        <li class="config-step">
+          <div class="config-step__num">0{i + 1}</div>
+          <h3 class="config-step__title" data-i18n={`config.${i}.title`}>{st.title}</h3>
+          <p class="config-step__body" data-i18n={`config.${i}.body`}>{st.body}</p>
+        </li>
+      ))}
+    </ol>
+  </div>
+
+  <!-- Business Modules -->
+  <div class="platform__block">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 06.01</div>
+      <div class="section-rail__name" data-i18n="modules.all">All modules</div>
+    </div>
     <div class="platform__index platform__index--mod">
       {modules.map((mod) => (
         <a class="mod-row" href={`/modules/${mod.slug}`}>
@@ -73,12 +123,51 @@ for (const mod of modules) {
     </div>
   </div>
 
-  <!-- CTA -->
+  <!-- Workspace & Mosaic — the two modules that bring the others together -->
+  <div class="platform__block platform__block--shell">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 06.02</div>
+      <div class="section-rail__name">Workspace · Mosaic</div>
+    </div>
+    <div class="shells">
+      <h3 class="shells__h3" data-i18n="shell.h3">Everything on one screen.</h3>
+      <p class="shells__intro" data-i18n="shell.intro">
+        Two modules bring your other modules together. Choose one, both, or
+        neither: every module also works on its own.
+      </p>
+
+      <div class="shells__grid">
+        {shells.map((sh) => (
+          <a class="shell" href={`/modules/${sh.key}`}>
+            <div class="shell__eyebrow" aria-hidden="true">{sh.n}</div>
+            <h4 class="shell__h4" data-i18n={`mod.${sh.key}.title`}>{sh.title}</h4>
+            <p class="shell__lead" data-i18n={`shell.${sh.key}.lead`}>{sh.lead}</p>
+            <ul class="shell__points">
+              {sh.points.map((pt, j) => (
+                <li data-i18n={`shell.${sh.key}.point.${j}`}>{pt}</li>
+              ))}
+            </ul>
+            <span class="shell__cta" data-i18n={`shell.${sh.key}.cta`}>{sh.cta}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  </div>
+
+  <!-- Foundation + CTA -->
   <div class="platform__cta">
     <div class="platform__spacer" aria-hidden="true"></div>
-    <div class="platform__cta-content">
-      <a href="/modules" class="btn btn--primary" data-i18n="modules.cta">Explore the modules →</a>
-      <a href="/platform" class="btn btn--ghost" data-i18n="platform.cta">How the foundation works →</a>
+    <div>
+      <p class="platform__intro platform__intro--sub" data-i18n-html="platform.intro2">
+        All modules stand on the same foundation, the
+        <a class="term" href="#g-platform">platform services</a>: one login,
+        notifications, file storage, search and more. That is why they fit
+        together, and why we can deliver quickly.
+      </p>
+      <div class="platform__cta-content">
+        <a href="/modules" class="btn btn--primary" data-i18n="modules.cta">Explore the modules →</a>
+        <a href="/modules#foundation" class="btn btn--ghost" data-i18n="platform.cta">What’s underneath →</a>
+      </div>
     </div>
   </div>
 </section>
@@ -113,9 +202,130 @@ for (const mod of modules) {
   max-width: 680px;
 }
 .platform__intro--sub {
-  margin-top: 16px;
   font-size: 16px;
   color: var(--fg-mute);
+  margin-bottom: 24px;
+}
+
+
+/* ─── Three steps ─────────────────────────────────────────────────── */
+.config-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  counter-reset: none;
+}
+.config-step {
+  border-top: 1px solid var(--line-strong);
+  padding-top: 20px;
+}
+.config-step__num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.8px;
+  margin-bottom: 12px;
+}
+.config-step__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  margin-bottom: 10px;
+}
+.config-step__body {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+}
+
+/* ─── Workspace & Mosaic ──────────────────────────────────────────── */
+.platform__block--shell { margin-top: 24px; margin-bottom: 56px; }
+
+.shells__h3 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 26px;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.6px;
+  margin-bottom: 12px;
+}
+
+.shells__intro {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  max-width: 620px;
+  margin-bottom: 24px;
+}
+
+/* Two cards, equal width: the choice between them is the point. */
+.shells__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  padding: 28px;
+  border: 1px solid var(--line);
+  background: var(--bg-2);
+  transition: border-color 0.14s ease;
+}
+.shell:hover { border-color: var(--fg-dim); }
+
+.shell__eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--fg-mute);
+  margin-bottom: 10px;
+}
+
+.shell__h4 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.4px;
+  margin-bottom: 14px;
+}
+
+.shell__lead {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  margin-bottom: 20px;
+}
+
+/* Takes the slack so both cards' CTAs line up. */
+.shell__points {
+  margin: 0 0 22px;
+  flex: 1;
+  align-content: start;
+  display: grid;
+  gap: 10px;
+}
+.shell__points li {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--fg-dim);
+  padding-left: 18px;
+  position: relative;
+}
+.shell__points li::before {
+  content: '→';
+  position: absolute;
+  left: 0;
+  color: var(--fg-mute);
+}
+
+.shell__cta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
 }
 
 .platform__block {
@@ -199,6 +409,8 @@ for (const mod of modules) {
 }
 
 @media (max-width: 999px) {
+  .config-steps { grid-template-columns: 1fr; gap: 24px; }
+  .shells__grid { grid-template-columns: 1fr; }
   .platform__head,
   .platform__block,
   .platform__cta { grid-template-columns: 1fr; }
@@ -210,5 +422,8 @@ for (const mod of modules) {
   .platform__intro { font-size: 16px; }
   .platform__intro--sub { font-size: 15px; }
   .platform__index--mod { grid-template-columns: 1fr; column-gap: 0; }
+  .shell { padding: 20px; }
+  .shells__h3 { font-size: 22px; }
+  .config-step__title { font-size: 20px; }
 }
 </style>
