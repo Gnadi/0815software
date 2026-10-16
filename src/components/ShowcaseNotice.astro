@@ -1,0 +1,107 @@
+---
+// Shown on the first visit to the landing page: 0815software is a personal
+// idea and a working showcase, not a production-ready product. The visitor
+// has to acknowledge that before using the page; the acknowledgement is
+// remembered in localStorage so the notice doesn't come back on every visit.
+---
+
+<dialog id="showcase-notice" class="notice" aria-labelledby="notice-title" aria-describedby="notice-body">
+  <p class="notice__eyebrow mono" data-i18n="notice.eyebrow">PLEASE NOTE · SHOWCASE</p>
+  <h2 id="notice-title" class="notice__title" data-i18n="notice.h">This is an idea, not a finished product.</h2>
+  <div id="notice-body" class="notice__body">
+    <p data-i18n="notice.p1">0815software is a personal idea of mine. It is a showcase: the modules and the live demo already work, but it is not production ready. There is no company, contract or support behind it yet.</p>
+    <p data-i18n-html="notice.p2">If you are interested in the idea or want to talk about a project, get in touch through my website: <a href="https://gnadlinger.me" target="_blank" rel="noopener noreferrer">gnadlinger.me ↗</a></p>
+  </div>
+  <div class="notice__actions">
+    <button type="button" class="btn btn--primary" data-notice-accept data-i18n="notice.accept">I understand →</button>
+    <a href="https://gnadlinger.me" target="_blank" rel="noopener noreferrer" class="btn btn--ghost" data-i18n="notice.contact">Contact ↗</a>
+  </div>
+</dialog>
+
+<script>
+  const KEY = 'showcase-notice-accepted';
+  const dialog = document.getElementById('showcase-notice') as HTMLDialogElement | null;
+
+  let accepted = false;
+  try {
+    accepted = localStorage.getItem(KEY) === '1';
+  } catch {
+    // Storage blocked: show the notice every visit rather than never.
+  }
+
+  if (dialog && !accepted) {
+    // Escape would close the dialog without the visitor accepting.
+    dialog.addEventListener('cancel', (e) => e.preventDefault());
+
+    dialog.querySelector('[data-notice-accept]')?.addEventListener('click', () => {
+      try {
+        localStorage.setItem(KEY, '1');
+      } catch {}
+      dialog.close();
+    });
+
+    dialog.showModal();
+  }
+</script>
+
+<style>
+.notice {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  margin: auto;
+  padding: 40px;
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+}
+
+.notice::backdrop {
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+.notice__eyebrow {
+  margin: 0 0 16px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 1.5px;
+  color: var(--fg-mute);
+}
+
+.notice__title {
+  margin: 0 0 20px;
+  font-family: var(--font-serif);
+  font-size: 36px;
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+}
+
+.notice__body p {
+  margin: 0 0 14px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+}
+
+.notice__body a {
+  color: var(--fg);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.notice__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+@media (max-width: 600px) {
+  .notice { padding: 28px 20px; }
+  .notice__title { font-size: 28px; }
+  .notice__actions .btn { width: 100%; justify-content: center; }
+}
+</style>

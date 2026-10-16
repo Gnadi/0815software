@@ -577,6 +577,14 @@ export const T: Record<Lang, Record<string, string>> = {
     // ─── Footer ─────────────────────────────────────────────────────────
     'footer.tagline':    `Standard software, built to a higher standard. Public source code, no license fees, full transparency, because the price of business software should be what it costs to build, not what the market will bear.`,
     'footer.status':     '● ALL SYSTEMS OPEN',
+
+    // ─── Showcase notice (modal on first visit) ─────────────────────────
+    'notice.eyebrow':    `PLEASE NOTE · SHOWCASE`,
+    'notice.h':          `This is an idea, not a finished product.`,
+    'notice.p1':         `0815software is a personal idea of mine. It is a showcase: the modules and the live demo already work, but it is not production ready. There is no company, contract or support behind it yet.`,
+    'notice.p2':         `If you are interested in the idea or want to talk about a project, get in touch through my website: <a href="https://gnadlinger.me" target="_blank" rel="noopener noreferrer">gnadlinger.me ↗</a>`,
+    'notice.accept':     `I understand →`,
+    'notice.contact':    `Contact ↗`,
   },
 
   de: {
@@ -1150,5 +1158,13 @@ export const T: Record<Lang, Record<string, string>> = {
     // ─── Footer ─────────────────────────────────────────────────────────
     'footer.tagline':    `Standardsoftware auf höherem Niveau. Öffentlicher Quellcode, keine Lizenzgebühren, volle Transparenz, denn der Preis von Unternehmenssoftware sollte widerspiegeln, was sie in der Herstellung kostet, nicht, was der Markt hergibt.`,
     'footer.status':     '● ALLE SYSTEME OFFEN',
+
+    // ─── Showcase-Hinweis (Modal beim ersten Besuch) ────────────────────
+    'notice.eyebrow':    `BITTE BEACHTEN · SHOWCASE`,
+    'notice.h':          `Das ist eine Idee, kein fertiges Produkt.`,
+    'notice.p1':         `0815software ist eine persönliche Idee von mir. Es ist ein Showcase: Die Module und die Live-Demo funktionieren bereits, aber es ist nicht produktionsreif. Es stehen noch kein Unternehmen, kein Vertrag und kein Support dahinter.`,
+    'notice.p2':         `Wenn Sie die Idee interessiert oder Sie über ein Projekt sprechen möchten, kontaktieren Sie mich über meine Website: <a href="https://gnadlinger.me" target="_blank" rel="noopener noreferrer">gnadlinger.me ↗</a>`,
+    'notice.accept':     `Verstanden →`,
+    'notice.contact':    `Kontakt ↗`,
   },
 };
