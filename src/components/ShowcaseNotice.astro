@@ -1,8 +1,7 @@
 ---
-// Shown on the first visit to the landing page: 0815software is a personal
-// idea and a working showcase, not a production-ready product. The visitor
-// has to acknowledge that before using the page; the acknowledgement is
-// remembered in localStorage so the notice doesn't come back on every visit.
+// Shown every time the landing page opens: 0815software is a personal idea
+// and a working showcase, not a production-ready product. The visitor has to
+// acknowledge that before using the page.
 ---
 
 <dialog id="showcase-notice" class="notice" aria-labelledby="notice-title" aria-describedby="notice-body">
@@ -19,27 +18,12 @@
 </dialog>
 
 <script>
-  const KEY = 'showcase-notice-accepted';
   const dialog = document.getElementById('showcase-notice') as HTMLDialogElement | null;
 
-  let accepted = false;
-  try {
-    accepted = localStorage.getItem(KEY) === '1';
-  } catch {
-    // Storage blocked: show the notice every visit rather than never.
-  }
-
-  if (dialog && !accepted) {
+  if (dialog) {
     // Escape would close the dialog without the visitor accepting.
     dialog.addEventListener('cancel', (e) => e.preventDefault());
-
-    dialog.querySelector('[data-notice-accept]')?.addEventListener('click', () => {
-      try {
-        localStorage.setItem(KEY, '1');
-      } catch {}
-      dialog.close();
-    });
-
+    dialog.querySelector('[data-notice-accept]')?.addEventListener('click', () => dialog.close());
     dialog.showModal();
   }
 </script>
