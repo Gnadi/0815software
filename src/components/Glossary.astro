@@ -1,0 +1,247 @@
+---
+// §08 — Glossary ("Terms, explained in plain words")
+// Every technical word the homepage uses links here (`<a class="term"
+// href="#g-…">`). Entries are native <details> elements: they open by tap or
+// keyboard, work without JavaScript and read correctly in a screen reader —
+// unlike hover tooltips, which phones cannot show at all. The small script
+// below opens the entry a term link points to.
+
+const terms = [
+  {
+    id: 'saas',
+    term: 'SaaS (Software as a Service)',
+    short: 'Rented software you use in the browser.',
+    body: 'You don’t install anything. The provider runs the software on its own servers and you log in over the internet. You pay a recurring fee, usually per user and month. Well-known examples are Microsoft 365 and Salesforce. It is convenient, but when you stop paying you lose access, and your data stays with the provider.',
+  },
+  {
+    id: 'opensource',
+    term: 'Open source',
+    short: 'Software whose blueprint is public.',
+    body: 'Anyone can read the source code, check it and improve it. That makes the software transparent: there are no hidden functions. Open source is everywhere; most websites and every Android phone run on it.',
+  },
+  {
+    id: 'source',
+    term: 'Source code',
+    short: 'The blueprint of a program.',
+    body: 'People write software as text in a programming language, a bit like a very precise recipe. That text is the source code. Whoever has it can understand, change and develop the program further. With rented software you never get it. With us you always do.',
+  },
+  {
+    id: 'mit',
+    term: 'MIT license',
+    short: 'A short, generous license for open source software.',
+    body: 'A license sets out what you may do with a piece of software. The MIT license, named after the Massachusetts Institute of Technology where it was written, is one of the most common in the world and fits on half a page. It lets you use, change and pass on the software free of charge, including for business. The one condition: the copyright notice stays in. In return, the software comes without a warranty.',
+  },
+  {
+    id: 'licensefee',
+    term: 'License fee',
+    short: 'What you pay for permission to use software.',
+    body: 'With most business software you pay for the right to use it, once or every month, often per user. With 0815software that fee is zero. You pay only for work: setup, customization, training or operation.',
+  },
+  {
+    id: 'hosting',
+    term: 'Server, hosting and operation',
+    short: 'Keeping software running so your team can use it.',
+    body: 'A server is a computer that runs around the clock, in a data center or at your company, and makes the software available to your team. Hosting or operation means looking after it: installing updates, making backups, checking that everything works. Your IT team can do this, or we do it for you.',
+  },
+  {
+    id: 'sla',
+    term: 'Service contract (SLA)',
+    short: 'A contract with guaranteed response times.',
+    body: 'SLA stands for “Service Level Agreement”. It sets out in writing how quickly a provider must react when something goes wrong, for example within four hours. With us, an SLA is optional.',
+  },
+  {
+    id: 'lockin',
+    term: 'Vendor lock-in',
+    short: 'When switching provider becomes too hard or too expensive.',
+    body: 'If your data and your processes are tied to one provider, leaving is difficult, and the provider knows it. That is lock-in. Because you own both the code and your data with 0815software, you can switch at any time.',
+  },
+  {
+    id: 'crud',
+    term: 'CRUD',
+    short: 'The four basic actions of business software.',
+    body: 'Create, Read, Update, Delete. Most business software is, at its core, exactly that: forms and lists for customers, orders or invoices. That is why it counts as “standard”, and why we can build it quickly.',
+  },
+  {
+    id: 'module',
+    term: 'Module',
+    short: 'A finished application for one task.',
+    body: 'For example invoicing or time tracking. Modules can be used on their own or combined, and then share the same login and the same customer data.',
+  },
+  {
+    id: 'platform',
+    term: 'Platform services',
+    short: 'The shared foundation under every module.',
+    body: 'Building blocks that all modules use in the background: login, notifications, file storage, search, customer data and more. You never use them directly, but they are why you log in only once and why a customer is the same in every module.',
+    more: { href: '/modules#foundation', label: 'The foundation explained →' },
+  },
+];
+---
+
+<section id="glossary" class="glossary">
+  <div class="glossary__grid">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 08</div>
+      <div class="section-rail__name" data-i18n="rail.glossary">Glossary</div>
+    </div>
+
+    <div>
+      <div class="section-label-inline" aria-hidden="true">
+        <span class="section-label-inline__num">§ 08</span> · <span data-i18n="rail.glossary">Glossary</span>
+      </div>
+
+      <h2 class="glossary__h2" data-i18n="glossary.h2">Terms, explained in plain words.</h2>
+      <p class="glossary__intro" data-i18n="glossary.intro">
+        Software comes with a lot of jargon. Here is what the words on this page
+        mean, no prior knowledge needed. Tap a term to open it.
+      </p>
+
+      <div class="glossary__list">
+        {terms.map((t) => (
+          <details class="gl-entry" id={`g-${t.id}`}>
+            <summary class="gl-entry__summary">
+              <span class="gl-entry__term" data-i18n={`gl.${t.id}.term`}>{t.term}</span>
+              <span class="gl-entry__short" data-i18n={`gl.${t.id}.short`}>{t.short}</span>
+              <span class="gl-entry__icon" aria-hidden="true">+</span>
+            </summary>
+            <p class="gl-entry__body" data-i18n={`gl.${t.id}.body`}>{t.body}</p>
+            {t.more && (
+              <a class="gl-entry__more" href={t.more.href} data-i18n={`gl.${t.id}.more`}>{t.more.label}</a>
+            )}
+          </details>
+        ))}
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Open the glossary entry a term link points to — on arrival with a
+  // #g-… hash, and on every click (clicking the same term twice fires no
+  // hashchange, so listening for hashchange alone would miss it).
+  function openFromHash(hash: string) {
+    if (!hash.startsWith('#g-')) return;
+    const entry = document.getElementById(hash.slice(1));
+    if (entry instanceof HTMLDetailsElement) entry.open = true;
+  }
+
+  openFromHash(location.hash);
+  window.addEventListener('hashchange', () => openFromHash(location.hash));
+  document.addEventListener('click', (e) => {
+    const link = (e.target as Element | null)?.closest?.('a[href^="#g-"]');
+    if (link) openFromHash(link.getAttribute('href')!);
+  });
+</script>
+
+<style>
+.glossary {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+
+.glossary__grid {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.glossary__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 44px;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -1.2px;
+  margin-bottom: 24px;
+}
+
+.glossary__intro {
+  font-size: 18px;
+  line-height: 1.55;
+  color: var(--fg-dim);
+  max-width: 680px;
+  margin-bottom: 48px;
+}
+
+.glossary__list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 48px;
+  align-items: start;
+  border-top: 1px solid var(--line);
+}
+
+.gl-entry {
+  border-bottom: 1px solid var(--line);
+}
+
+.gl-entry__summary {
+  display: grid;
+  grid-template-columns: 1fr 20px;
+  column-gap: 16px;
+  row-gap: 4px;
+  padding: 18px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.gl-entry__summary::-webkit-details-marker { display: none; }
+.gl-entry__summary:focus-visible { outline: 1px solid var(--fg-dim); outline-offset: 4px; }
+
+.gl-entry__term {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  color: var(--fg);
+}
+.gl-entry__short {
+  grid-column: 1;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--fg-mute);
+}
+.gl-entry__icon {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 16px;
+  color: var(--accent);
+  text-align: center;
+  transition: transform 120ms ease-out;
+}
+.gl-entry[open] .gl-entry__icon { transform: rotate(45deg); }
+
+.gl-entry__body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  padding: 0 36px 22px 0;
+}
+
+.gl-entry__more {
+  display: inline-block;
+  margin: -8px 0 22px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+.gl-entry__more:hover { color: var(--fg); }
+
+/* Arriving from a term link scrolls here; mark which entry was meant. */
+.gl-entry:target .gl-entry__term { text-decoration: underline; text-underline-offset: 4px; }
+
+@media (max-width: 1199px) {
+  .glossary__h2 { font-size: 36px; }
+}
+
+@media (max-width: 999px) {
+  .glossary__grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 767px) {
+  .glossary__h2 { font-size: 28px; letter-spacing: -0.6px; }
+  .glossary__intro { font-size: 16px; margin-bottom: 32px; }
+  .glossary__list { grid-template-columns: 1fr; }
+  .gl-entry__body { padding-right: 0; }
+}
+</style>

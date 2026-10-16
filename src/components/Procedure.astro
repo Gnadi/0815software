@@ -1,12 +1,12 @@
 ---
-// §06 — How it works (Procedure)
+// §07 — How it works (Procedure)
 // 4-step timeline. Grid: 120px | 1fr | 1fr | 1fr | 1fr
 
 const steps = [
-  { n: '01', title: 'Scope',    duration: '~1 day',        body: "One call. You describe the thing. We tell you if it's standard." },
-  { n: '02', title: 'Build',    duration: '2–6 weeks',     body: 'We implement against an existing 0815 module. Daily public commits.' },
-  { n: '03', title: 'Hand-off', duration: '1 week',        body: 'Repo transferred to your org. Docs, deploy scripts, training.' },
-  { n: '04', title: 'Optional', duration: 'Forever / never', body: 'Keep us on retainer for changes and SLAs — or don\'t. Your call.' },
+  { meta: 'STEP 01 · ~1 DAY',     title: 'Conversation', body: 'One call. You describe what you need, and we tell you honestly whether a standard solution fits.' },
+  { meta: 'STEP 02 · 2–6 WEEKS',  title: 'Build',        body: 'We adapt existing 0815 modules to your needs. You can follow the progress at any time.' },
+  { meta: 'STEP 03 · 1 WEEK',     title: 'Handover',     body: 'You receive the complete software with instructions, and we train your team.' },
+  { meta: 'STEP 04 · ONGOING',    title: 'Operation',    body: 'Run it yourself, or let us run it and keep it up to date. Changes on request. Your call, and you can switch at any time.' },
 ];
 ---
 
@@ -14,14 +14,14 @@ const steps = [
   <!-- Heading row -->
   <div class="procedure__head">
     <div class="section-rail" aria-hidden="true">
-      <div class="section-rail__num">§ 06</div>
-      <div class="section-rail__name">Procedure</div>
+      <div class="section-rail__num">§ 07</div>
+      <div class="section-rail__name" data-i18n="rail.procedure">Procedure</div>
     </div>
     <div>
       <div class="section-label-inline" aria-hidden="true">
-        <span class="section-label-inline__num">§ 06</span> · Procedure
+        <span class="section-label-inline__num">§ 07</span> · <span data-i18n="rail.procedure">Procedure</span>
       </div>
-      <h2 class="procedure__h2" data-i18n="procedure.h2">How a 0815 project runs.</h2>
+      <h2 class="procedure__h2" data-i18n="procedure.h2">How a project works.</h2>
     </div>
   </div>
 
@@ -30,7 +30,7 @@ const steps = [
     <div class="procedure__spacer" aria-hidden="true"></div>
     {steps.map((s, i) => (
       <article class="step">
-        <div class="step__meta">STEP {s.n} · {s.duration}</div>
+        <div class="step__meta" data-i18n={`step.${i}.meta`}>{s.meta}</div>
         <h3 class="step__title" data-i18n={`step.${i}.title`}>{s.title}</h3>
         <p class="step__body" data-i18n={`step.${i}.body`}>{s.body}</p>
       </article>

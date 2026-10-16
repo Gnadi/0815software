@@ -1,0 +1,125 @@
+---
+// §04 — What makes 0815software different
+// Four outcomes, each a direct consequence of how the software is built and
+// delivered (modules picked by the customer, one installation per customer,
+// no license, full hand-off). Grid: 120px | 1fr 1fr
+
+const points = [
+  {
+    title: 'Put together by you',
+    body: 'You choose the modules you need and can add more later. You don’t pay for a bundle full of features you never use.',
+  },
+  {
+    title: 'Your data stays separate',
+    body: 'Every customer gets their own installation. Your data never sits in the same database as another company’s, so it cannot be mixed up with anyone else’s.',
+  },
+  {
+    title: 'No cost per user',
+    body: 'Ten users or a thousand: the license costs the same, which is nothing. When your team grows, no license costs grow with it.',
+  },
+  {
+    title: 'No dependency on us',
+    body: 'You have the complete code and the instructions. If we disappeared tomorrow, your software would keep running and any IT firm could look after it.',
+  },
+];
+---
+
+<section id="why" class="why">
+  <div class="why__grid">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 04</div>
+      <div class="section-rail__name" data-i18n="rail.why">Difference</div>
+    </div>
+
+    <div>
+      <div class="section-label-inline" aria-hidden="true">
+        <span class="section-label-inline__num">§ 04</span> · <span data-i18n="rail.why">Difference</span>
+      </div>
+
+      <h2 class="why__h2" data-i18n="why.h2">What makes 0815software different.</h2>
+
+      <div class="why__list">
+        {points.map((p, i) => (
+          <article class="why-item">
+            <div class="why-item__num">0{i + 1}</div>
+            <h3 class="why-item__title" data-i18n={`why.${i}.title`}>{p.title}</h3>
+            <p class="why-item__body" data-i18n={`why.${i}.body`}>{p.body}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+.why {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+.why__grid {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.why__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 44px;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -1.2px;
+  max-width: 720px;
+  margin-bottom: 56px;
+}
+
+.why__list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px 64px;
+}
+
+.why-item {
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+
+.why-item__num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.8px;
+  margin-bottom: 12px;
+}
+
+.why-item__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  margin-bottom: 12px;
+}
+
+.why-item__body {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  max-width: 520px;
+}
+
+@media (max-width: 1199px) {
+  .why__h2 { font-size: 36px; }
+  .why__list { gap: 40px 40px; }
+}
+
+@media (max-width: 999px) {
+  .why__grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 767px) {
+  .why__h2 { font-size: 28px; letter-spacing: -0.6px; margin-bottom: 40px; }
+  .why__list { grid-template-columns: 1fr; gap: 32px; }
+}
+</style>

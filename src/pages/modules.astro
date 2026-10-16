@@ -1,18 +1,41 @@
 ---
 import SubPage from '../layouts/SubPage.astro';
 import { modules } from '../data/modules';
+import { platform } from '../data/platform';
+
+// Plain-language one-liners for the foundation section, keyed by slug. The
+// German copy lives in src/i18n/translations.ts under `svc.<slug>.plain`; the
+// technical purpose of each service stays on /platform.
+const plain: Record<string, string> = {
+  'identity':         'One login for every module, with users and permissions',
+  'workflow-engine':  'Automates routine steps, such as reminders or approvals',
+  'notification-hub': 'Sends emails, text messages and other notifications',
+  'ai-platform':      'AI features, such as a chat assistant or searching your own documents',
+  'integration-hub':  'Connects your modules to other programs and online services',
+  'file-storage':     'Keeps files and attachments safely in one place',
+  'audit-log':        'Records who changed what and when, in a way that cannot be tampered with',
+  'payments':         'Takes payments and matches them to orders and invoices',
+  'search':           'One search across all your modules',
+  'number':           'Hands out gap-free numbers, for example for invoices',
+  'customers':        'A customer is the same in every module: no duplicate lists',
+  'banking':          'Sends payment orders securely to your bank',
+};
+
+for (const svc of platform) {
+  if (!plain[svc.slug]) throw new Error(`modules.astro has no plain-language line for service "${svc.slug}"`);
+}
 
 export const prerender = true;
 ---
 
 <SubPage
   title="Modules — 0815software"
-  description="Fourteen standard software modules for standard business problems. Scoped, MIT-licensed, and yours to keep."
+  description="Sixteen standard software modules for standard business problems. Choose the ones you need and get your own software: MIT-licensed and yours to keep."
   section="§ P1"
   sectionName="Modules"
   eyebrow="DIN 0815/M · MODULE CATALOGUE"
   heading="What we build."
-  lead="Fourteen standard modules, each one a solved problem. Fixed scope, fixed price, handed off in weeks."
+  lead="Sixteen standard modules, each one a solved problem. Choose the ones you need and we turn them into your own software, handed over in weeks."
   i18n={{
     sectionName: 'page.rail.modules',
     eyebrow: 'page.modules.eyebrow',
@@ -29,7 +52,7 @@ export const prerender = true;
         <div class="section-rail__name" data-i18n="page.rail.catalogue">Catalogue</div>
       </div>
       <p class="modules-grid__intro" data-i18n="page.modules.intro">
-        Every module ships MIT-licensed with full source code. Pick one, combine several, or commission a custom scope built on top of an existing module.
+        Every module ships MIT-licensed with full source code. Pick one, combine several into your own package, or commission a custom scope built on top of an existing module.
       </p>
     </div>
 
@@ -53,11 +76,44 @@ export const prerender = true;
     </div>
   </section>
 
+  <!-- Foundation — the platform services, in plain words -->
+  <section id="foundation" class="found-section">
+    <div class="found__inner">
+      <div class="section-rail" aria-hidden="true">
+        <div class="section-rail__num">§ P1.02</div>
+        <div class="section-rail__name" data-i18n="page.rail.foundation">Foundation</div>
+      </div>
+      <div>
+        <h2 class="found__h2" data-i18n="page.modules.found.h2">The foundation under every module.</h2>
+        <p class="found__body" data-i18n="page.modules.found.body">
+          So that no module has to reinvent login, sending emails or storing files, all
+          modules share common building blocks: the platform services. You never operate
+          them directly. They are the reason you log in only once, a customer is the same
+          in every module, and every invoice number is issued exactly once. Your
+          installation contains only the services your chosen modules need.
+        </p>
+        <div class="found__list">
+          {platform.map((svc) => (
+            <a class="found-row" href={`/platform/${svc.slug}`}>
+              <span class="found-row__num">{svc.n}</span>
+              <span class="found-row__text">
+                <span class="found-row__title" data-i18n={`svc.${svc.slug}.title`}>{svc.title}</span>
+                <span class="found-row__plain" data-i18n={`svc.${svc.slug}.plain`}>{plain[svc.slug]}</span>
+              </span>
+              <span class="found-row__arrow" aria-hidden="true">→</span>
+            </a>
+          ))}
+        </div>
+        <a href="/platform" class="btn btn--ghost" data-i18n="page.modules.found.cta">Technical details →</a>
+      </div>
+    </div>
+  </section>
+
   <!-- CTA -->
   <section class="modules-cta-section">
     <div class="modules-cta__inner">
       <div class="section-rail" aria-hidden="true">
-        <div class="section-rail__num">§ P1.02</div>
+        <div class="section-rail__num">§ P1.03</div>
         <div class="section-rail__name" data-i18n="page.rail.commission">Commission</div>
       </div>
       <div class="modules-cta__content">
@@ -73,6 +129,81 @@ export const prerender = true;
 </SubPage>
 
 <style>
+/* ─── Foundation (platform services, plain words) ─────────────────── */
+.found-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.found__inner {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+.found__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 36px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -1px;
+  margin-bottom: 20px;
+}
+.found__body {
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 720px;
+  margin-bottom: 40px;
+}
+.found__list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 48px;
+  border-top: 1px solid var(--line);
+  margin-bottom: 32px;
+}
+.found-row {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+  transition: padding-left 120ms ease-out;
+}
+.found-row:hover { padding-left: 8px; }
+.found-row:hover .found-row__arrow { opacity: 1; }
+.found-row__num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.6px;
+  flex-shrink: 0;
+  width: 52px;
+}
+.found-row__text { display: flex; flex-direction: column; gap: 4px; flex: 1; }
+.found-row__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.found-row__plain { font-size: 14px; line-height: 1.45; color: var(--fg-mute); }
+.found-row__arrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 100ms ease-out;
+}
+@media (max-width: 999px) {
+  .found__inner { grid-template-columns: 1fr; }
+}
+@media (max-width: 767px) {
+  .found__h2 { font-size: 26px; }
+  .found__list { grid-template-columns: 1fr; }
+}
+
 /* ─── Module grid section ─────────────────────────────────────────── */
 .modules-grid-section {
   padding: var(--sec-y-sm) var(--pad-x);

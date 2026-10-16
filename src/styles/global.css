@@ -146,6 +146,21 @@ img, svg { display: block; }
   border: 1px solid var(--line-strong);
 }
 
+/* ─── Glossary term links ───────────────────────────────────────────────── */
+/* A technical word in running copy, linked to its plain-language entry in
+   the homepage glossary (#glossary). Dotted, not solid, so it reads as
+   "explained below" rather than "leaves the page". */
+.term {
+  color: inherit;
+  text-decoration: underline dotted;
+  text-decoration-color: var(--fg-mute);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  cursor: help;
+}
+.term:hover { color: var(--fg); text-decoration-color: var(--fg); }
+.term:focus-visible { outline: 1px solid var(--fg-dim); outline-offset: 2px; }
+
 /* ─── Shared section rail ────────────────────────────────────────────────── */
 .section-rail {
   font-family: var(--font-mono);

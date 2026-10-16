@@ -1,5 +1,5 @@
 ---
-// §08 — Contact
+// §10 — Contact
 // Grid: 120px | 1fr | 1fr
 
 const contactMeta = [
@@ -15,14 +15,14 @@ const contactMeta = [
 
     <!-- Left rail -->
     <div class="section-rail" aria-hidden="true">
-      <div class="section-rail__num">§ 08</div>
-      <div class="section-rail__name">Contact</div>
+      <div class="section-rail__num">§ 10</div>
+      <div class="section-rail__name" data-i18n="rail.contact">Contact</div>
     </div>
 
     <!-- Center: heading + meta -->
     <div class="contact__info">
       <div class="section-label-inline" aria-hidden="true">
-        <span class="section-label-inline__num">§ 08</span> · Contact
+        <span class="section-label-inline__num">§ 10</span> · <span data-i18n="rail.contact">Contact</span>
       </div>
 
       <h2 class="contact__h2" data-i18n-html="contact.h2">
@@ -30,13 +30,14 @@ const contactMeta = [
       </h2>
 
       <p class="contact__p1" data-i18n="contact.p1">
-        Describe what you need in a paragraph. We'll reply within one business day with a
-        candid yes, no, or here's-what-it-takes — and a fixed-price quote if the scope is standard.
+        Describe in a few sentences what you need. We reply within one business day with an
+        honest yes, no or “here’s what it takes”, and with a fixed-price quote if the project
+        is standard.
       </p>
 
       <p class="contact__p2" data-i18n="contact.p2">
-        No NDAs to sign. No sales funnel. No calendar invite for a 45-minute discovery call
-        before anyone answers a single question. Write to a human, get a human back.
+        No confidentiality agreement up front. No sales script. No 45-minute meeting before
+        anyone answers your first question. You write to a person, and a person writes back.
       </p>
 
       <!-- Contact meta -->
@@ -121,9 +122,10 @@ const contactMeta = [
         </div>
 
         <!-- Submit -->
-        <button type="submit" class="contact-form__submit" id="cf-submit" data-i18n="contact.submit">
-          Send — reply in 1 business day →
-        </button>
+        <!-- Short label so it fits one line on a phone; the reply promise sits
+             underneath instead of being squeezed into the button. -->
+        <button type="submit" class="contact-form__submit" id="cf-submit" data-i18n="contact.submit">Send →</button>
+        <p class="contact-form__hint" data-i18n="contact.hint">Reply within one business day</p>
 
         <!-- Form-level status -->
         <p class="contact-form__status" id="cf-status" aria-live="polite"></p>
@@ -291,6 +293,15 @@ const contactMeta = [
   transition: opacity 100ms ease-out;
 }
 .contact-form__submit:hover:not(:disabled) { opacity: 0.88; }
+
+.contact-form__hint {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  color: var(--fg-mute);
+  text-align: center;
+  margin-top: -8px;
+}
 .contact-form__submit:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .contact-form__status {
@@ -320,6 +331,17 @@ const contactMeta = [
 </style>
 
 <script>
+import { T, LANGS } from '../i18n/translations';
+import type { Lang } from '../i18n/translations';
+
+// Messages follow the language the page is currently shown in (Base.astro
+// sets <html lang> when the visitor switches).
+function t(key: string): string {
+  const lang = document.documentElement.lang as Lang;
+  const dict = (LANGS as readonly string[]).includes(lang) ? T[lang] : T.en;
+  return dict[key] ?? T.en[key] ?? key;
+}
+
 const form = document.getElementById('contact-form') as HTMLFormElement;
 const submit = document.getElementById('cf-submit') as HTMLButtonElement;
 const status = document.getElementById('cf-status') as HTMLParagraphElement;
@@ -349,25 +371,25 @@ form?.addEventListener('submit', async (e) => {
   // Client-side validation
   let hasError = false;
   if (!data.name) {
-    setError('cf-name-error', 'NAME IS REQUIRED');
+    setError('cf-name-error', t('contact.err.name'));
     hasError = true;
   }
   if (!data.email) {
-    setError('cf-email-error', 'EMAIL IS REQUIRED');
+    setError('cf-email-error', t('contact.err.email'));
     hasError = true;
   } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
-    setError('cf-email-error', 'INVALID EMAIL ADDRESS');
+    setError('cf-email-error', t('contact.err.emailInvalid'));
     hasError = true;
   }
   if (!data.message) {
-    setError('cf-message-error', 'PLEASE DESCRIBE WHAT YOU NEED');
+    setError('cf-message-error', t('contact.err.msg'));
     hasError = true;
   }
   if (hasError) return;
 
   const originalText = submit.textContent;
   submit.disabled = true;
-  submit.textContent = 'Sending…';
+  submit.textContent = t('contact.sending');
 
   try {
     const res = await fetch('/api/contact', {
@@ -378,15 +400,15 @@ form?.addEventListener('submit', async (e) => {
     const json = await res.json();
 
     if (res.ok) {
-      status.textContent = '✓ SENT — WE\'LL REPLY WITHIN ONE BUSINESS DAY';
+      status.textContent = t('contact.ok');
       status.className = 'contact-form__status contact-form__status--ok';
       form.reset();
     } else {
-      status.textContent = (json.error || 'SOMETHING WENT WRONG. PLEASE TRY AGAIN.').toUpperCase();
+      status.textContent = (json.error || t('contact.err.generic')).toUpperCase();
       status.className = 'contact-form__status contact-form__status--err';
     }
   } catch {
-    status.textContent = 'NETWORK ERROR — PLEASE TRY AGAIN.';
+    status.textContent = t('contact.err.network');
     status.className = 'contact-form__status contact-form__status--err';
   } finally {
     submit.disabled = false;

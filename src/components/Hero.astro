@@ -1,6 +1,16 @@
 ---
-// §01 — Hero / Manifest
+// §01 — Hero / Overview
 // Grid: 120px | 1fr | 320px
+
+const specRows: [string, string, boolean?][] = [
+  ['LICENSE FEE',  '€0.00', true],
+  ['MODULES',      'Your choice'],
+  ['OWNER',        'You'],
+  ['YOUR DATA',    'Your server'],
+  ['OPERATION',    'You or us'],
+  ['DEPENDENCY',   'None'],
+  ['READY IN',     '2–6 weeks'],
+];
 ---
 
 <section id="hero" class="hero">
@@ -9,19 +19,19 @@
     <!-- Left rail -->
     <div class="section-rail" aria-hidden="true">
       <div class="section-rail__num">§ 01</div>
-      <div class="section-rail__name">Manifest</div>
+      <div class="section-rail__name" data-i18n="rail.hero">Overview</div>
     </div>
 
     <!-- Center -->
     <div class="hero__center">
       <!-- Inline label for tablet/mobile -->
       <div class="section-label-inline" aria-hidden="true">
-        <span class="section-label-inline__num">§ 01</span> · Manifest
+        <span class="section-label-inline__num">§ 01</span> · <span data-i18n="rail.hero">Overview</span>
       </div>
 
       <p class="hero__eyebrow">
         <span class="hero__dot" aria-hidden="true">●</span>
-        <span data-i18n="hero.eyebrow">Index 0815 — the standard spec</span>
+        <span data-i18n="hero.eyebrow">Your own SaaS, built from modules</span>
       </p>
 
       <h1 class="hero__h1" data-i18n-html="hero.h1">
@@ -29,44 +39,41 @@
         built to a <em class="hero__serif">higher</em> standard.
       </h1>
 
-      <p class="hero__subhead" data-i18n="hero.subhead">
-        The CRUD apps, dashboards, storefronts and internal tools your team already
-        knows how to describe — shipped in weeks, licensed under MIT, with every line
-        of source code in your hands on day one.
+      <!-- Plain words first; the two terms a newcomer will not know link to
+           the glossary further down the page rather than being assumed. -->
+      <p class="hero__subhead" data-i18n-html="hero.subhead">
+        Everyday software for your business: invoicing, time tracking, customer
+        management, an online shop. You put together your own package from
+        ready-made modules, and we run it for you if you like. You use it in the
+        browser just like rented software (<a class="term" href="#g-saas">SaaS</a>),
+        but without license fees, and it belongs to you,
+        <a class="term" href="#g-source">source code</a> included.
       </p>
 
       <div class="hero__ctas">
-        <a href="#contact" class="btn btn--primary" data-i18n="hero.cta1">Request a build →</a>
-        <a href="/demo" class="btn btn--ghost" data-i18n="hero.cta3">See the live demo →</a>
+        <a href="#contact" class="btn btn--primary" data-i18n="hero.cta1">Request a project →</a>
+        <a href="/demo" class="btn btn--ghost" data-i18n="hero.cta3">Try the live demo →</a>
         <a
           href="https://github.com/Gnadi/0815software"
           target="_blank"
           rel="noopener noreferrer"
           class="btn btn--ghost"
           data-i18n="hero.cta2"
-        >Read the source ↗</a>
+        >View the code ↗</a>
       </div>
     </div>
 
-    <!-- Right: spec sheet card -->
-    <aside class="spec-card" aria-label="Project specification">
+    <!-- Right: at-a-glance card -->
+    <aside class="spec-card" aria-label="At a glance">
       <div class="spec-card__header">
-        <span>SPECIFICATION</span>
+        <span data-i18n="spec.h">AT A GLANCE</span>
         <span>0815/A</span>
       </div>
       <dl class="spec-card__list">
-        {[
-          ['LICENSE',   'MIT'],
-          ['LICENSE FEE', '€0.00',         true],
-          ['SOURCE',    'GitHub / public'],
-          ['AUDIT',     'Continuous'],
-          ['LOCK-IN',   'None'],
-          ['HAND-OFF',  'Full code + docs'],
-          ['SUPPORT',   'Optional, paid'],
-        ].map(([k, v, isAccent]) => (
+        {specRows.map(([k, v, isAccent], i) => (
           <div class="spec-card__row">
-            <dt class="spec-card__key">{k}</dt>
-            <dd class={`spec-card__val${isAccent ? ' spec-card__val--accent' : ''}`}>{v}</dd>
+            <dt class="spec-card__key" data-i18n={`spec.k.${i}`}>{k}</dt>
+            <dd class={`spec-card__val${isAccent ? ' spec-card__val--accent' : ''}`} data-i18n={`spec.v.${i}`}>{v}</dd>
           </div>
         ))}
       </dl>
@@ -163,6 +170,7 @@
 .spec-card__row {
   display: flex;
   justify-content: space-between;
+  gap: 16px;
 }
 
 .spec-card__key  { color: var(--fg-mute); }

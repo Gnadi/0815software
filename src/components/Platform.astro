@@ -1,134 +1,173 @@
 ---
-// §05 — Platform (the unified story)
-// 0815software is a platform: shared backend services that let us assemble
-// standard business software fast and keep it stable and high-quality. The
-// modules are what ships on top. One paragraph, then both catalogues.
-import { platform } from '../data/platform';
+// §06 — Put together your own software
+// The USP: customers assemble their own software package from modules, and
+// we run it for them if they want. Three steps, then the module catalogue
+// (by the job each module does), then the two modules that bring the others
+// onto one screen. The shared backend services underneath are named in one
+// sentence and explained on /modules#foundation.
 import { modules } from '../data/modules';
+
+// English one-liners per module, keyed by slug. The German copy lives in
+// src/i18n/translations.ts under the same `mod.<slug>.task` keys.
+const tasks: Record<string, string> = {
+  'customer-portal':      'Customers check their orders, documents and status themselves',
+  'admin-dashboard':      'Manage internal lists and tables: filter, edit, export',
+  'inventory-management': 'Keep track of stock, storage locations and reorders',
+  'invoice-billing':      'Write and send invoices, and pay the bills you receive',
+  'employee-directory':   'Who works where: org chart, roles, contact details',
+  'procurement-tracker':  'Request, approve and track purchases',
+  'storefront':           'Your own online shop, with no cut of your sales',
+  'reporting-suite':      'Reports and charts from the data you already have',
+  'document-management':  'Store documents, keep versions, control who sees what',
+  'crm-lite':             'Customers, contacts and sales opportunities in one place',
+  'time-tracking':        'Record working hours per project, for payroll or billing',
+  'support-tickets':      'Collect customer requests and work through them',
+  'offers':               'Write quotes, send them, and let customers accept online',
+  'subsidies-funds':      'Keep track of grants, applications and deadlines',
+  'workspace':            'One overview across all your modules',
+  'mosaic':               'Several modules side by side on one screen',
+};
+
+for (const mod of modules) {
+  if (!tasks[mod.slug]) throw new Error(`Platform.astro has no one-line task for module "${mod.slug}"`);
+}
+
+const steps = [
+  { title: 'Choose modules',           body: 'For example quotes, invoicing and time tracking. You can add more at any time.' },
+  { title: 'Your own installation',    body: 'We set up your package on a server for your company alone, run by us or by your IT team.' },
+  { title: 'Everything on one screen', body: 'With Workspace or Mosaic you work in all your modules from a single place.' },
+];
+
+const shells = [
+  {
+    key: 'workspace',
+    n: 'MOD-15',
+    title: 'Workspace',
+    lead: 'One overview page for all your modules. Important figures and lists from each module, one customer filter for all of them, and actions across modules, such as turning an accepted quote into an invoice with one click.',
+    points: [
+      'Key figures from every module at a glance',
+      'Pick a customer, and every module shows only them',
+      'One login for everything',
+      'From quote to invoice with one click',
+    ],
+    cta: 'More about Workspace →',
+  },
+  {
+    key: 'mosaic',
+    n: 'MOD-16',
+    title: 'Mosaic',
+    lead: 'Your modules themselves, side by side on one screen. Arrange them like windows on a desk, for example invoices on the left and quotes on the right, and work in all of them at once.',
+    points: [
+      'Complete modules side by side, not just excerpts',
+      'Arrange them by dragging; saved for each person',
+      'No second login in any window',
+      'Save layouts you use often',
+    ],
+    cta: 'More about Mosaic →',
+  },
+];
 ---
 
 <section id="platform" class="platform">
   <!-- Heading row -->
   <div class="platform__head">
     <div class="section-rail" aria-hidden="true">
-      <div class="section-rail__num">§ 05</div>
-      <div class="section-rail__name">Platform</div>
+      <div class="section-rail__num">§ 06</div>
+      <div class="section-rail__name" data-i18n="rail.modules">Configure</div>
     </div>
     <div class="platform__head-content">
       <div class="section-label-inline" aria-hidden="true">
-        <span class="section-label-inline__num">§ 05</span> · Platform
+        <span class="section-label-inline__num">§ 06</span> · <span data-i18n="rail.modules">Configure</span>
       </div>
-      <h2 class="platform__h2" data-i18n="platform.h2">One platform. Standard problems, solved fast.</h2>
-      <p class="platform__intro" data-i18n="platform.intro">
-        0815software is a platform: eleven shared backend services — identity,
-        workflow, notifications, AI, integrations, file storage, audit,
-        payments, search, numbering and customer master data — that let us
-        assemble standard business software at high speed, with stable,
-        high-quality results. The modules are what we ship on top; the platform
-        is what makes them quick to build and boring to run.
+      <h2 class="platform__h2" data-i18n="platform.h2">Put together your own software.</h2>
+      <p class="platform__intro" data-i18n-html="platform.intro">
+        This is the biggest difference from typical SaaS. There, you get the package
+        the provider has put together. With us, you choose exactly the
+        <a class="term" href="#g-module">modules</a> your company needs, no more and
+        no less. We turn them into your own installation and run it for you if you like.
       </p>
     </div>
   </div>
 
-  <!-- Platform Services -->
+  <!-- Three steps -->
   <div class="platform__block">
-    <div class="section-rail" aria-hidden="true">
-      <div class="section-rail__num">§ 05.01</div>
-      <div class="section-rail__name">Services</div>
-    </div>
-    <div class="platform__index platform__index--svc">
-      {platform.map((svc) => (
-        <a class="svc-row" href={`/platform/${svc.slug}`}>
-          <span class="svc-row__num">{svc.n}</span>
-          <span class="svc-row__title" data-i18n={`svc.${svc.slug}.title`}>{svc.title}</span>
-          <span class="svc-row__purpose" data-i18n={`svc.${svc.slug}.purpose`}>{svc.purpose}</span>
-          <span class="svc-row__arrow" aria-hidden="true">→</span>
-        </a>
+    <div class="platform__spacer" aria-hidden="true"></div>
+    <ol class="config-steps">
+      {steps.map((st, i) => (
+        <li class="config-step">
+          <div class="config-step__num">0{i + 1}</div>
+          <h3 class="config-step__title" data-i18n={`config.${i}.title`}>{st.title}</h3>
+          <p class="config-step__body" data-i18n={`config.${i}.body`}>{st.body}</p>
+        </li>
       ))}
-    </div>
-  </div>
-
-  <!-- Shells — the two modules that compose the others -->
-  <div class="platform__block platform__block--shell">
-    <div class="section-rail" aria-hidden="true">
-      <div class="section-rail__num">§ 05.02</div>
-      <div class="section-rail__name">Shells</div>
-    </div>
-    <div class="shells">
-      <h3 class="shells__h3" data-i18n="shell.h3">Run several modules? Run them on one screen.</h3>
-      <p class="shells__intro" data-i18n="shell.intro">
-        Two modules do that, and they do it differently. One summarises what
-        your modules know; the other simply runs them, side by side.
-      </p>
-
-      <div class="shells__grid">
-        <a class="shell" href="/modules/workspace">
-          <div class="shell__eyebrow" aria-hidden="true">MOD-15</div>
-          <h4 class="shell__h4" data-i18n="shell.workspace.title">Workspace</h4>
-          <p class="shell__lead" data-i18n="shell.workspace.lead">
-            A board over the modules you licensed. Live widgets from each, one
-            customer filter that every one of them honours, and actions that
-            reach across them — a deal becomes a draft quote, an accepted quote
-            a draft invoice, the work a project to book time against, without
-            any of those apps being opened.
-          </p>
-          <ul class="shell__points">
-            <li data-i18n="shell.workspace.point.0">Live figures, computed by the module that owns them</li>
-            <li data-i18n="shell.workspace.point.1">One customer, filtered across every module at once</li>
-            <li data-i18n="shell.workspace.point.2">Modules embedded, no second login</li>
-            <li data-i18n="shell.workspace.point.3">Cross-module actions, recorded against you</li>
-          </ul>
-          <span class="shell__cta" data-i18n="shell.workspace.cta">See how it composes →</span>
-        </a>
-
-        <a class="shell" href="/modules/mosaic">
-          <div class="shell__eyebrow" aria-hidden="true">MOD-16</div>
-          <h4 class="shell__h4" data-i18n="shell.mosaic.title">Mosaic</h4>
-          <p class="shell__lead" data-i18n="shell.mosaic.lead">
-            The modules themselves, side by side. Every pane is a whole module —
-            its real interface, everything it can do — on a grid you drag and
-            resize. Nothing is summarised and nothing is rebuilt; the apps are
-            simply present, each one already signed in.
-          </p>
-          <ul class="shell__points">
-            <li data-i18n="shell.mosaic.point.0">Whole modules as panes, not widgets over them</li>
-            <li data-i18n="shell.mosaic.point.1">Drag and resize on a 12-column grid, saved per person</li>
-            <li data-i18n="shell.mosaic.point.2">Each pane signed in by a single-use ticket</li>
-            <li data-i18n="shell.mosaic.point.3">Named boards for the arrangements you keep</li>
-          </ul>
-          <span class="shell__cta" data-i18n="shell.mosaic.cta">See the panes →</span>
-        </a>
-      </div>
-
-      <p class="shells__note" data-i18n="shell.note">
-        Either way, every module still installs and runs perfectly well on its own.
-      </p>
-    </div>
+    </ol>
   </div>
 
   <!-- Business Modules -->
   <div class="platform__block">
     <div class="section-rail" aria-hidden="true">
-      <div class="section-rail__num">§ 05.02</div>
-      <div class="section-rail__name">Modules</div>
+      <div class="section-rail__num">§ 06.01</div>
+      <div class="section-rail__name" data-i18n="modules.all">All modules</div>
     </div>
     <div class="platform__index platform__index--mod">
       {modules.map((mod) => (
         <a class="mod-row" href={`/modules/${mod.slug}`}>
           <span class="mod-row__num">{mod.n}</span>
-          <span class="mod-row__title" data-i18n={`mod.${mod.slug}.title`}>{mod.title}</span>
+          <span class="mod-row__text">
+            <span class="mod-row__title" data-i18n={`mod.${mod.slug}.title`}>{mod.title}</span>
+            <span class="mod-row__task" data-i18n={`mod.${mod.slug}.task`}>{tasks[mod.slug]}</span>
+          </span>
           <span class="mod-row__arrow" aria-hidden="true">→</span>
         </a>
       ))}
     </div>
   </div>
 
-  <!-- CTA -->
+  <!-- Workspace & Mosaic — the two modules that bring the others together -->
+  <div class="platform__block platform__block--shell">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 06.02</div>
+      <div class="section-rail__name">Workspace · Mosaic</div>
+    </div>
+    <div class="shells">
+      <h3 class="shells__h3" data-i18n="shell.h3">Everything on one screen.</h3>
+      <p class="shells__intro" data-i18n="shell.intro">
+        Two modules bring your other modules together. Choose one, both, or
+        neither: every module also works on its own.
+      </p>
+
+      <div class="shells__grid">
+        {shells.map((sh) => (
+          <a class="shell" href={`/modules/${sh.key}`}>
+            <div class="shell__eyebrow" aria-hidden="true">{sh.n}</div>
+            <h4 class="shell__h4" data-i18n={`mod.${sh.key}.title`}>{sh.title}</h4>
+            <p class="shell__lead" data-i18n={`shell.${sh.key}.lead`}>{sh.lead}</p>
+            <ul class="shell__points">
+              {sh.points.map((pt, j) => (
+                <li data-i18n={`shell.${sh.key}.point.${j}`}>{pt}</li>
+              ))}
+            </ul>
+            <span class="shell__cta" data-i18n={`shell.${sh.key}.cta`}>{sh.cta}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  </div>
+
+  <!-- Foundation + CTA -->
   <div class="platform__cta">
     <div class="platform__spacer" aria-hidden="true"></div>
-    <div class="platform__cta-content">
-      <a href="/platform" class="btn btn--primary" data-i18n="platform.cta">Explore the platform →</a>
-      <a href="/modules" class="btn btn--ghost" data-i18n="modules.cta">Explore the modules →</a>
+    <div>
+      <p class="platform__intro platform__intro--sub" data-i18n-html="platform.intro2">
+        All modules stand on the same foundation, the
+        <a class="term" href="#g-platform">platform services</a>: one login,
+        notifications, file storage, search and more. That is why they fit
+        together, and why we can deliver quickly.
+      </p>
+      <div class="platform__cta-content">
+        <a href="/modules" class="btn btn--primary" data-i18n="modules.cta">Explore the modules →</a>
+        <a href="/modules#foundation" class="btn btn--ghost" data-i18n="platform.cta">What’s underneath →</a>
+      </div>
     </div>
   </div>
 </section>
@@ -160,10 +199,48 @@ import { modules } from '../data/modules';
   font-size: 18px;
   line-height: 1.55;
   color: var(--fg-dim);
-  max-width: 640px;
+  max-width: 680px;
+}
+.platform__intro--sub {
+  font-size: 16px;
+  color: var(--fg-mute);
+  margin-bottom: 24px;
 }
 
-.platform__block--shell { margin-bottom: 56px; }
+
+/* ─── Three steps ─────────────────────────────────────────────────── */
+.config-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  counter-reset: none;
+}
+.config-step {
+  border-top: 1px solid var(--line-strong);
+  padding-top: 20px;
+}
+.config-step__num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.8px;
+  margin-bottom: 12px;
+}
+.config-step__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  margin-bottom: 10px;
+}
+.config-step__body {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+}
+
+/* ─── Workspace & Mosaic ──────────────────────────────────────────── */
+.platform__block--shell { margin-top: 24px; margin-bottom: 56px; }
 
 .shells__h3 {
   font-family: 'Inter Tight', sans-serif;
@@ -182,19 +259,11 @@ import { modules } from '../data/modules';
   margin-bottom: 24px;
 }
 
-/* Two cards, equal width. They are siblings on purpose: the choice between
-   them is the point of this section, and a stacked pair reads as a sequence. */
+/* Two cards, equal width: the choice between them is the point. */
 .shells__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
-}
-
-.shells__note {
-  font-size: 14px;
-  line-height: 1.55;
-  color: var(--fg-mute, var(--fg-dim));
-  margin-top: 20px;
 }
 
 .shell {
@@ -202,19 +271,16 @@ import { modules } from '../data/modules';
   flex-direction: column;
   padding: 28px;
   border: 1px solid var(--line);
-  background: var(--bg-2, rgba(255, 255, 255, 0.02));
-  text-decoration: none;
-  color: inherit;
+  background: var(--bg-2);
   transition: border-color 0.14s ease;
 }
-
 .shell:hover { border-color: var(--fg-dim); }
 
 .shell__eyebrow {
   font-family: 'JetBrains Mono', monospace;
   font-size: 11px;
   letter-spacing: 0.14em;
-  color: var(--fg-mute, var(--fg-dim));
+  color: var(--fg-mute);
   margin-bottom: 10px;
 }
 
@@ -234,24 +300,14 @@ import { modules } from '../data/modules';
   margin-bottom: 20px;
 }
 
-.shell__cta {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-}
-
-/* Takes the slack so the two cards' CTAs land on the same line even when the
-   leads run to different lengths. */
+/* Takes the slack so both cards' CTAs line up. */
 .shell__points {
-  list-style: none;
   margin: 0 0 22px;
-  padding: 0;
   flex: 1;
   align-content: start;
   display: grid;
   gap: 10px;
 }
-
 .shell__points li {
   font-size: 14px;
   line-height: 1.45;
@@ -259,21 +315,17 @@ import { modules } from '../data/modules';
   padding-left: 18px;
   position: relative;
 }
-
 .shell__points li::before {
-  /* The literal character, not '\u2192': CSS escapes are bare hex (\2192), so
-     the JS-style form rendered as the text "u2192" — five characters wide in an
-     18px gutter, sitting on top of the label beside it. */
   content: '→';
   position: absolute;
   left: 0;
-  color: var(--fg-mute, var(--fg-dim));
+  color: var(--fg-mute);
 }
 
-@media (max-width: 900px) {
-  .shells__grid { grid-template-columns: 1fr; }
-  .shell { padding: 24px; }
-  .shells__h3 { font-size: 22px; }
+.shell__cta {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  letter-spacing: 0.08em;
 }
 
 .platform__block {
@@ -286,52 +338,7 @@ import { modules } from '../data/modules';
 
 .platform__index { border-top: 1px solid var(--line); }
 
-/* Services: single column with a purpose blurb */
-.svc-row {
-  display: flex;
-  align-items: baseline;
-  gap: 16px;
-  padding: 18px 0;
-  border-bottom: 1px solid var(--line);
-  transition: padding-left 120ms ease-out;
-}
-.svc-row:hover { padding-left: 8px; }
-.svc-row:hover .svc-row__arrow { opacity: 1; }
-.svc-row:hover .svc-row__title { color: var(--fg); }
-
-.svc-row__num {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: var(--accent);
-  letter-spacing: 0.6px;
-  flex-shrink: 0;
-  width: 58px;
-}
-.svc-row__title {
-  font-family: 'Inter Tight', sans-serif;
-  font-size: 17px;
-  font-weight: 500;
-  letter-spacing: -0.3px;
-  color: var(--fg-dim);
-  flex-shrink: 0;
-  width: 190px;
-  transition: color 100ms ease-out;
-}
-.svc-row__purpose {
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--fg-mute);
-  flex: 1;
-}
-.svc-row__arrow {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 14px;
-  color: var(--accent);
-  opacity: 0;
-  transition: opacity 100ms ease-out;
-}
-
-/* Modules: two-column compact index */
+/* Modules: two-column index, name over the job it does */
 .platform__index--mod {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -356,14 +363,24 @@ import { modules } from '../data/modules';
   flex-shrink: 0;
   width: 58px;
 }
+.mod-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
 .mod-row__title {
   font-family: 'Inter Tight', sans-serif;
   font-size: 17px;
   font-weight: 500;
   letter-spacing: -0.3px;
   color: var(--fg-dim);
-  flex: 1;
   transition: color 100ms ease-out;
+}
+.mod-row__task {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--fg-mute);
 }
 .mod-row__arrow {
   font-family: 'JetBrains Mono', monospace;
@@ -389,10 +406,11 @@ import { modules } from '../data/modules';
 /* ─── Responsive ──────────────────────────────────────────────────── */
 @media (max-width: 1199px) {
   .platform__h2 { font-size: 36px; }
-  .svc-row__title { width: 170px; }
 }
 
 @media (max-width: 999px) {
+  .config-steps { grid-template-columns: 1fr; gap: 24px; }
+  .shells__grid { grid-template-columns: 1fr; }
   .platform__head,
   .platform__block,
   .platform__cta { grid-template-columns: 1fr; }
@@ -400,17 +418,12 @@ import { modules } from '../data/modules';
 }
 
 @media (max-width: 767px) {
-  /* The card follows the same phone treatment as the rest of this section,
-     which it was missing: its only breakpoint was the 900px one above. */
-  .shell { padding: 20px; }
-  .shells__h3 { font-size: 20px; }
-  .shells__intro { font-size: 15px; }
-  .shell__h4 { font-size: 19px; }
   .platform__h2 { font-size: 28px; letter-spacing: -0.6px; }
   .platform__intro { font-size: 16px; }
-  .svc-row { flex-wrap: wrap; row-gap: 4px; }
-  .svc-row__title { width: auto; flex: 1; }
-  .svc-row__purpose { flex-basis: 100%; order: 3; }
+  .platform__intro--sub { font-size: 15px; }
   .platform__index--mod { grid-template-columns: 1fr; column-gap: 0; }
+  .shell { padding: 20px; }
+  .shells__h3 { font-size: 22px; }
+  .config-step__title { font-size: 20px; }
 }
 </style>
