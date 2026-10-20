@@ -121,7 +121,10 @@ export const prerender = true;
         <p class="modules-cta__body" data-i18n="page.modules.cta.body">
           If it's a standard business problem, we've likely seen it. Describe what you need in a paragraph — we'll tell you if it maps to an existing module, a combination, or a new scope. New modules get published to this catalogue once built.
         </p>
-        <a href="/#contact" class="btn btn--primary" data-i18n="detail.startProject">Start a project →</a>
+        <div class="modules-cta__actions">
+          <a href="/#contact" class="btn btn--primary" data-i18n="detail.startProject">Start a project →</a>
+          <a href="/use-cases" class="btn btn--ghost" data-i18n="page.modules.usecases">See how businesses combine them →</a>
+        </div>
       </div>
     </div>
   </section>
@@ -319,6 +322,8 @@ export const prerender = true;
   max-width: 560px;
   margin-bottom: 32px;
 }
+
+.modules-cta__actions { display: flex; flex-wrap: wrap; gap: 12px; }
 
 /* ─── Responsive ──────────────────────────────────────────────────── */
 @media (max-width: 1199px) {

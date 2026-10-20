@@ -80,6 +80,18 @@ const pillars = [
       </article>
     ))}
   </div>
+
+  <!-- The first promise, kept: the whole code is one click away. -->
+  <div class="pillars__code">
+    <div class="pillars__spacer" aria-hidden="true"></div>
+    <a
+      href="https://github.com/Gnadi/0815software"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="btn btn--ghost"
+      data-i18n="pillars.code"
+    >View the code ↗</a>
+  </div>
 </section>
 
 <style>
@@ -113,6 +125,14 @@ const pillars = [
   gap: 48px;
 }
 .pillars__spacer { /* empty rail spacer */ }
+
+.pillars__code {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  margin-top: 56px;
+  justify-items: start;
+}
 
 /* Pillar card */
 .pillar__num {
@@ -172,6 +192,7 @@ const pillars = [
 @media (max-width: 999px) {
   .pillars__head { grid-template-columns: 1fr; }
   .pillars__grid { grid-template-columns: 1fr 1fr; gap: 32px; }
+  .pillars__code { grid-template-columns: 1fr; margin-top: 40px; }
   .pillars__spacer { display: none; }
 }
 

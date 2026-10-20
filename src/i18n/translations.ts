@@ -1,10 +1,16 @@
+import { UC } from './use-cases';
+
 export type Lang = 'en' | 'de';
 export const LANGS: readonly Lang[] = ['en', 'de'];
 
 export const T: Record<Lang, Record<string, string>> = {
   en: {
+    // /use-cases copy lives in its own file (src/i18n/use-cases.ts).
+    ...UC.en,
+
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.compare':       `Your own SaaS`,
+    'nav.usecases':      `Use cases`,
     'nav.modules':       `Modules`,
     'nav.demo':          `Demo`,
     'nav.how':           `How it works`,
@@ -16,6 +22,7 @@ export const T: Record<Lang, Record<string, string>> = {
     // ─── Section rails (the § labels beside each section) ───────────────
     'rail.hero':         `Overview`,
     'rail.compare':      `Own SaaS`,
+    'rail.usecases':     `Use cases`,
     'rail.pillars':      `Promises`,
     'rail.why':          `Difference`,
     'rail.catch':        `Questions`,
@@ -25,13 +32,20 @@ export const T: Record<Lang, Record<string, string>> = {
     'rail.about':        `About`,
     'rail.contact':      `Contact`,
 
+    // ─── Use cases (landing §07) ────────────────────────────────────────
+    'usecases.h2':       `Six businesses.<br />Solved with today’s modules.`,
+    'usecases.lead':     `A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit: real everyday problems, solved by modules that already exist. Set up, not developed.`,
+    'usecases.ready':    `READY TODAY`,
+    'usecases.more':     `View use case →`,
+    'usecases.cta':      `All use cases →`,
+
     // ─── Hero ───────────────────────────────────────────────────────────
     'hero.eyebrow':      `Your own SaaS, built from modules`,
     'hero.h1':           `Standard software,<br />built to a <em class="hero__serif">higher</em> standard.`,
     'hero.subhead':      `Everyday software for your business: invoicing, time tracking, customer management, an online shop. You put together your own package from ready-made modules, and we run it for you if you like. You use it in the browser just like rented software (<a class="term" href="#g-saas">SaaS</a>), but without license fees, and it belongs to you, <a class="term" href="#g-source">source code</a> included.`,
     'hero.cta1':         `Request a project →`,
     'hero.cta3':         `Try the live demo →`,
-    'hero.cta2':         `View the code ↗`,
+    'hero.cta2':         `See the use cases →`,
     'spec.h':            `AT A GLANCE`,
     'spec.k.0':          `LICENSE FEE`,
     'spec.v.0':          `€0.00`,
@@ -81,6 +95,7 @@ export const T: Record<Lang, Record<string, string>> = {
 
     // ─── Pillars ────────────────────────────────────────────────────────
     'pillars.h2':        `Three promises.<br />No small print.`,
+    'pillars.code':      `View the code ↗`,
     'pillar.0.title':    `Open source`,
     'pillar.0.body':     `The blueprint of the software, the <a class="term" href="#g-source">source code</a>, is public. Anyone can check what it does; nothing is hidden. You receive the complete code and may change it, extend it, or hand it to another IT firm.`,
     'pillar.0.more':     `What does open source mean? →`,
@@ -239,6 +254,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'page.modules.found.h2': `The foundation under every module.`,
     'page.modules.found.body': `So that no module has to reinvent login, sending emails or storing files, all modules share common building blocks: the platform services. You never operate them directly. They are the reason you log in only once, a customer is the same in every module, and every invoice number is issued exactly once. Your installation contains only the services your chosen modules need.`,
     'page.modules.found.cta': `Technical details →`,
+    'page.modules.usecases': `See how businesses combine them →`,
     'svc.identity.plain': `One login for every module, with users and permissions`,
     'svc.workflow-engine.plain': `Automates routine steps, such as reminders or approvals`,
     'svc.notification-hub.plain': `Sends emails, text messages and other notifications`,
@@ -276,6 +292,11 @@ export const T: Record<Lang, Record<string, string>> = {
     'detail.allServices':      'All services',
     'detail.startProject':     'Start a project →',
     'detail.allModules':       'All modules',
+    'page.rail.inPractice':    'In practice',
+    'detail.inPractice.h':     'How businesses use it',
+    'detail.inPractice.used':  'IN USE TODAY',
+    'detail.inPractice.next':  'OPTIONAL LATER',
+    'detail.inPractice.all':   'All use cases →',
 
     // ─── Catalogue detail copy (/platform, /modules and their pages) ────
     'svc.identity.overview':                         'A single authority for identity and access across every module. Passwords are hashed with Node’s scrypt; sessions are stateless HMAC tokens with token-version revocation on password change; API keys authenticate machines. Every query is scoped to the caller’s organization, and a resource in another tenant returns 404, never 403. POST /api/tokens/verify is the contract other services use to check a caller’s identity.',
@@ -588,8 +609,11 @@ export const T: Record<Lang, Record<string, string>> = {
   },
 
   de: {
+    ...UC.de,
+
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.compare':       `Ihr eigenes SaaS`,
+    'nav.usecases':      `Anwendungsfälle`,
     'nav.modules':       `Module`,
     'nav.demo':          `Demo`,
     'nav.how':           `Ablauf`,
@@ -601,6 +625,7 @@ export const T: Record<Lang, Record<string, string>> = {
     // ─── Section rails ──────────────────────────────────────────────────
     'rail.hero':         `Überblick`,
     'rail.compare':      `Eigenes SaaS`,
+    'rail.usecases':     `Anwendungsfälle`,
     'rail.pillars':      `Versprechen`,
     'rail.why':          `Unterschied`,
     'rail.catch':        `Fragen`,
@@ -610,13 +635,20 @@ export const T: Record<Lang, Record<string, string>> = {
     'rail.about':        `Über uns`,
     'rail.contact':      `Kontakt`,
 
+    // ─── Anwendungsfälle (Landing §07) ──────────────────────────────────
+    'usecases.h2':       `Sechs Betriebe.<br />Gelöst mit den Modulen von heute.`,
+    'usecases.lead':     `Ein Restaurant, ein Handwerksbetrieb, eine Steuerberatung, ein Großhandel, eine Agentur und ein Verein: echte Alltagsprobleme, gelöst mit Modulen, die es schon gibt. Eingerichtet, nicht entwickelt.`,
+    'usecases.ready':    `HEUTE EINSETZBAR`,
+    'usecases.more':     `Anwendungsfall ansehen →`,
+    'usecases.cta':      `Alle Anwendungsfälle →`,
+
     // ─── Hero ───────────────────────────────────────────────────────────
     'hero.eyebrow':      `Ihr eigenes SaaS, aus Modulen gebaut`,
     'hero.h1':           `Standard&shy;software,<br />auf <em class="hero__serif">höherem</em> Niveau gebaut.`,
     'hero.subhead':      `Alltägliche Software für Ihr Unternehmen: Rechnungen, Zeiterfassung, Kundenverwaltung, Onlineshop. Sie stellen sich Ihr eigenes Paket aus fertigen Modulen zusammen, und wir betreiben es auf Wunsch für Sie. Sie nutzen es im Browser wie gemietete Software (<a class="term" href="#g-saas">SaaS</a>), aber ohne Lizenzgebühren, und es gehört Ihnen, samt <a class="term" href="#g-source">Quellcode</a>.`,
     'hero.cta1':         `Projekt anfragen →`,
     'hero.cta3':         `Live-Demo ausprobieren →`,
-    'hero.cta2':         `Code ansehen ↗`,
+    'hero.cta2':         `Zu den Anwendungsfällen →`,
     'spec.h':            `AUF EINEN BLICK`,
     'spec.k.0':          `LIZENZGEBÜHR`,
     'spec.v.0':          `0,00 €`,
@@ -666,6 +698,7 @@ export const T: Record<Lang, Record<string, string>> = {
 
     // ─── Pillars ────────────────────────────────────────────────────────
     'pillars.h2':        `Drei Versprechen.<br />Ohne Kleingedrucktes.`,
+    'pillars.code':      `Code ansehen ↗`,
     'pillar.0.title':    `Open Source`,
     'pillar.0.body':     `Der Bauplan der Software, der <a class="term" href="#g-source">Quellcode</a>, ist öffentlich. Alle können prüfen, was sie tut; nichts ist versteckt. Sie erhalten den vollständigen Code und dürfen ihn ändern, erweitern oder einer anderen IT-Firma übergeben.`,
     'pillar.0.more':     `Was heißt Open Source? →`,
@@ -820,6 +853,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'page.modules.found.h2': `Das Fundament unter jedem Modul.`,
     'page.modules.found.body': `Damit kein Modul Anmeldung, E-Mail-Versand oder Dateiablage neu erfinden muss, teilen sich alle Module gemeinsame Grundbausteine: die Platform Services. Sie bedienen sie nie direkt. Sie sorgen dafür, dass Sie sich nur einmal anmelden, dass ein Kunde in jedem Modul derselbe ist und dass jede Rechnungsnummer genau einmal vergeben wird. Ihre Installation enthält nur die Dienste, die Ihre gewählten Module brauchen.`,
     'page.modules.found.cta': `Technische Details →`,
+    'page.modules.usecases': `So kombinieren Betriebe die Module →`,
     'svc.identity.plain': `Eine Anmeldung für alle Module, mit Benutzern und Berechtigungen`,
     'svc.workflow-engine.plain': `Automatisiert Routineschritte, etwa Erinnerungen oder Freigaben`,
     'svc.notification-hub.plain': `Verschickt E-Mails, SMS und andere Benachrichtigungen`,
@@ -857,6 +891,11 @@ export const T: Record<Lang, Record<string, string>> = {
     'detail.allServices':      'Alle Dienste',
     'detail.startProject':     'Projekt starten →',
     'detail.allModules':       'Alle Module',
+    'page.rail.inPractice':    'In der Praxis',
+    'detail.inPractice.h':     'So setzen Betriebe es ein',
+    'detail.inPractice.used':  'HEUTE IM EINSATZ',
+    'detail.inPractice.next':  'OPTIONAL, SPÄTER',
+    'detail.inPractice.all':   'Alle Anwendungsfälle →',
 
     // ─── Catalogue detail copy (/platform, /modules and their pages) ────
     'svc.identity.overview':                         'Eine einzige Instanz für Identität und Zugriff über alle Module hinweg. Passwörter werden mit Nodes scrypt gehasht; Sessions sind zustandslose HMAC-Tokens, die sich über eine Token-Version bei Passwortwechsel widerrufen lassen; API-Keys authentifizieren Maschinen. Jede Abfrage ist auf die Organisation des Aufrufers begrenzt, und eine Ressource in einem anderen Mandanten liefert 404, nie 403. POST /api/tokens/verify ist der Vertrag, über den andere Dienste die Identität eines Aufrufers prüfen.',

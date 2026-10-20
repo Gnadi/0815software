@@ -10,6 +10,7 @@ import Monogram from './Monogram.astro';
 
   <div class="nav__links">
     <a href="/#compare" data-i18n="nav.compare">Your own SaaS</a>
+    <a href="/use-cases" data-i18n="nav.usecases">Use cases</a>
     <a href="/modules" data-i18n="nav.modules">Modules</a>
     <a href="/demo" data-i18n="nav.demo">Demo</a>
     <a href="/#how-it-works" data-i18n="nav.how">How it works</a>
@@ -62,6 +63,7 @@ import Monogram from './Monogram.astro';
   font-family: 'Inter Tight', sans-serif;
   font-size: 14px;
   color: var(--fg-dim);
+  white-space: nowrap;
 }
 
 .nav__links a {
@@ -111,13 +113,25 @@ import Monogram from './Monogram.astro';
 }
 .nav__cta:hover { opacity: 0.88; }
 
-@media (max-width: 1199px) {
-  .nav { padding: 20px var(--pad-x); }
+@media (max-width: 1439px) {
+  .nav { gap: 24px; }
   .nav__links { gap: 24px; }
 }
 
+@media (max-width: 1279px) {
+  /* Eight links in German no longer fit beside the GitHub link — the CTA and
+     the links matter more, and the code is one click away under the
+     promises (§03). */
+  .nav__github { display: none; }
+  .nav__links { gap: 18px; }
+}
+
+@media (max-width: 1199px) {
+  .nav { padding: 20px var(--pad-x); }
+}
+
 @media (max-width: 999px) {
-  /* Six links + actions crowd the bar below this width — drop the links. */
+  /* Eight links + actions crowd the bar below this width — drop the links. */
   .nav__links { display: none; }
 }
 

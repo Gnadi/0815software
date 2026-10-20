@@ -1,0 +1,221 @@
+---
+// §07 — Use cases ("Six businesses, one catalogue")
+// The six example businesses from /use-cases, right before the project
+// procedure: a visitor sees the modules at work in a business like theirs,
+// then how a project runs. Each card tells one moment from that business's
+// day and opens it on /use-cases.
+// Grid: 120px | 1fr | 1fr | 1fr
+import { useCases } from '../data/use-cases';
+import { T } from '../i18n/translations';
+---
+
+<section id="use-cases" class="ucs">
+  <div class="ucs__head">
+    <div class="section-rail" aria-hidden="true">
+      <div class="section-rail__num">§ 07</div>
+      <div class="section-rail__name" data-i18n="rail.usecases">Use cases</div>
+    </div>
+    <div>
+      <div class="section-label-inline" aria-hidden="true">
+        <span class="section-label-inline__num">§ 07</span> · <span data-i18n="rail.usecases">Use cases</span>
+      </div>
+      <h2 class="ucs__h2" data-i18n-html="usecases.h2">Six businesses.<br />Solved with today’s modules.</h2>
+      <p class="ucs__lead" data-i18n="usecases.lead">
+        A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit: real everyday problems, solved by modules that already exist. Set up, not developed.
+      </p>
+    </div>
+  </div>
+
+  <div class="ucs__grid">
+    <div class="ucs__spacer" aria-hidden="true"></div>
+    <div class="ucs__cards">
+      {useCases.map((uc) => (
+        <a class="ucs-card" href={`/use-cases#${uc.id}`}>
+          <span class="ucs-card__label">{uc.n} · <span data-i18n={`uc.${uc.id}.sector`}>{T.en[`uc.${uc.id}.sector`]}</span></span>
+          <span class="ucs-card__title" data-i18n={`uc.${uc.id}.title`}>{T.en[`uc.${uc.id}.title`]}</span>
+          <span class="ucs-card__profile" data-i18n={`uc.${uc.id}.profile`}>{T.en[`uc.${uc.id}.profile`]}</span>
+          <span class="ucs-card__teaser" data-i18n={`uc.${uc.id}.teaser`}>{T.en[`uc.${uc.id}.teaser`]}</span>
+          <span class="ucs-card__foot">
+            <span class="ucs-card__ready"><span aria-hidden="true">✓</span> <span data-i18n="usecases.ready">READY TODAY</span></span>
+            <span class="ucs-card__more" data-i18n="usecases.more">View use case →</span>
+          </span>
+        </a>
+      ))}
+    </div>
+  </div>
+
+  <div class="ucs__grid">
+    <div class="ucs__spacer" aria-hidden="true"></div>
+    <div class="ucs__cta">
+      <h3 class="ucs__cta-h" data-i18n="page.uc.cta.h2">{T.en['page.uc.cta.h2']}</h3>
+      <p class="ucs__cta-body" data-i18n="page.uc.cta.body">{T.en['page.uc.cta.body']}</p>
+      <div class="ucs__actions">
+        <a href="#contact" class="btn btn--primary" data-i18n="page.uc.cta.quote">{T.en['page.uc.cta.quote']}</a>
+        <a href="/use-cases" class="btn btn--ghost" data-i18n="usecases.cta">All use cases →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+.ucs {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+.ucs__head {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+  margin-bottom: 56px;
+  align-items: start;
+}
+
+.ucs__h2 {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 44px;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -1.2px;
+  max-width: 720px;
+  margin-bottom: 24px;
+}
+
+.ucs__lead {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  max-width: 640px;
+}
+
+.ucs__grid {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 48px;
+}
+.ucs__grid > * { min-width: 0; }
+
+.ucs__cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 40px;
+}
+
+.ucs-card {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  border-top: 2px solid var(--accent);
+  transition: border-color 120ms ease-out, transform 120ms ease-out;
+}
+.ucs-card:hover { border-color: var(--fg-dim); border-top-color: var(--accent); transform: translateY(-2px); }
+.ucs-card:hover .ucs-card__more { color: var(--fg); }
+
+.ucs-card__label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--accent);
+  letter-spacing: 1px;
+  margin-bottom: 14px;
+}
+
+.ucs-card__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.3px;
+  color: var(--fg);
+  margin-bottom: 8px;
+}
+
+.ucs-card__profile {
+  font-size: 13px;
+  color: var(--fg-mute);
+  margin-bottom: 20px;
+}
+
+.ucs-card__teaser {
+  flex: 1;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-dim);
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  margin-bottom: 20px;
+}
+
+.ucs-card__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.ucs-card__ready {
+  padding: 4px 8px;
+  background: var(--fg);
+  color: var(--bg);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+}
+
+.ucs-card__more {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--accent);
+  transition: color 100ms ease-out;
+}
+
+.ucs__cta {
+  padding-top: 40px;
+  border-top: 1px solid var(--line);
+}
+
+.ucs__cta-h {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: -0.8px;
+  line-height: 1.15;
+  margin-bottom: 16px;
+}
+
+.ucs__cta-body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 560px;
+  margin-bottom: 28px;
+}
+
+.ucs__actions { display: flex; flex-wrap: wrap; gap: 12px; }
+
+@media (max-width: 1199px) {
+  .ucs__head, .ucs__grid { gap: 32px; }
+  .ucs__cards { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 999px) {
+  .ucs__head, .ucs__grid { grid-template-columns: 1fr; }
+  .ucs__spacer { display: none; }
+}
+
+@media (max-width: 767px) {
+  .ucs__h2 { font-size: 32px; letter-spacing: -0.8px; }
+  .ucs__lead { font-size: 16px; }
+  .ucs__cta-h { font-size: 26px; }
+  .ucs__cards { grid-template-columns: 1fr; }
+  .ucs__actions .btn { width: 100%; justify-content: center; }
+}
+</style>

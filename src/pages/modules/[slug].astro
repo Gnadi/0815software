@@ -2,6 +2,8 @@
 import SubPage from '../../layouts/SubPage.astro';
 import ModuleScreenshot from '../../components/ModuleScreenshot.astro';
 import { modules } from '../../data/modules';
+import { useCases } from '../../data/use-cases';
+import { T } from '../../i18n/translations';
 
 export const prerender = true;
 
@@ -17,6 +19,13 @@ export function getStaticPaths() {
 }
 
 const { mod, prev, next } = Astro.props;
+
+// The example businesses on /use-cases that run this module, then those that
+// could add it. The copy is the same sentence the use-case page shows.
+const inPractice = [
+  ...useCases.filter((uc) => uc.uses.includes(mod.slug)).map((uc) => ({ uc, kind: 'used', key: `uc.${uc.id}.use.${mod.slug}` })),
+  ...useCases.filter((uc) => uc.next.includes(mod.slug)).map((uc) => ({ uc, kind: 'next', key: `uc.${uc.id}.next.${mod.slug}` })),
+];
 ---
 
 <SubPage
@@ -90,6 +99,38 @@ const { mod, prev, next } = Astro.props;
       </div>
     </div>
   </section>
+
+  <!-- In practice: the use cases this module appears in -->
+  {inPractice.length > 0 && (
+    <section class="detail-uc-section">
+      <div class="detail-body__inner">
+        <div class="section-rail" aria-hidden="true">
+          <div class="section-rail__num">§ P1.03</div>
+          <div class="section-rail__name" data-i18n="page.rail.inPractice">In practice</div>
+        </div>
+        <div class="detail-body__content">
+          <h2 class="detail-body__sub" data-i18n="detail.inPractice.h">How businesses use it</h2>
+          <ul class="detail-uc">
+            {inPractice.map(({ uc, kind, key }) => (
+              <li>
+                <a class="detail-uc__item" href={`/use-cases#${uc.id}`}>
+                  <span class="detail-uc__label">
+                    {uc.n} · <span data-i18n={`uc.${uc.id}.sector`}>{T.en[`uc.${uc.id}.sector`]}</span>
+                    {kind === 'used'
+                      ? <span class="detail-uc__tag detail-uc__tag--used" data-i18n="detail.inPractice.used">IN USE TODAY</span>
+                      : <span class="detail-uc__tag" data-i18n="detail.inPractice.next">OPTIONAL LATER</span>}
+                  </span>
+                  <span class="detail-uc__title" data-i18n={`uc.${uc.id}.title`}>{T.en[`uc.${uc.id}.title`]}</span>
+                  <span class="detail-uc__text" data-i18n={key}>{T.en[key]}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+          <a href="/use-cases" class="btn btn--ghost" data-i18n="detail.inPractice.all">All use cases →</a>
+        </div>
+      </div>
+    </section>
+  )}
 
   <!-- Prev / Next -->
   <nav class="detail-nav" aria-label="Module navigation">
@@ -220,6 +261,60 @@ const { mod, prev, next } = Astro.props;
   display: flex;
   gap: 14px;
   flex-wrap: wrap;
+}
+
+/* ─── In practice ─────────────────────────────────────────────────── */
+.detail-uc-section {
+  padding: var(--sec-y-sm) var(--pad-x);
+  border-bottom: 1px solid var(--line);
+}
+.detail-uc {
+  border-top: 1px solid var(--line);
+  margin-bottom: 40px;
+}
+.detail-uc__item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--line);
+  transition: padding-left 120ms ease-out;
+}
+.detail-uc__item:hover { padding-left: 8px; }
+.detail-uc__item:hover .detail-uc__title { opacity: 0.7; }
+.detail-uc__label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  color: var(--accent);
+}
+/* In use = filled, potential = outlined, as in the /use-cases matrix. */
+.detail-uc__tag {
+  padding: 2px 6px;
+  border: 1px solid var(--line-strong);
+  color: var(--fg-dim);
+}
+.detail-uc__tag--used {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--bg);
+}
+.detail-uc__title {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+  color: var(--fg);
+  transition: opacity 100ms ease-out;
+}
+.detail-uc__text {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--fg-dim);
 }
 
 /* ─── Prev / next ─────────────────────────────────────────────────── */
