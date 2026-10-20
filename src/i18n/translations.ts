@@ -1,8 +1,13 @@
+import { UC } from './use-cases';
+
 export type Lang = 'en' | 'de';
 export const LANGS: readonly Lang[] = ['en', 'de'];
 
 export const T: Record<Lang, Record<string, string>> = {
   en: {
+    // /use-cases copy lives in its own file (src/i18n/use-cases.ts).
+    ...UC.en,
+
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.compare':       `Your own SaaS`,
     'nav.modules':       `Modules`,
@@ -239,6 +244,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'page.modules.found.h2': `The foundation under every module.`,
     'page.modules.found.body': `So that no module has to reinvent login, sending emails or storing files, all modules share common building blocks: the platform services. You never operate them directly. They are the reason you log in only once, a customer is the same in every module, and every invoice number is issued exactly once. Your installation contains only the services your chosen modules need.`,
     'page.modules.found.cta': `Technical details →`,
+    'page.modules.usecases': `See how businesses combine them →`,
     'svc.identity.plain': `One login for every module, with users and permissions`,
     'svc.workflow-engine.plain': `Automates routine steps, such as reminders or approvals`,
     'svc.notification-hub.plain': `Sends emails, text messages and other notifications`,
@@ -588,6 +594,8 @@ export const T: Record<Lang, Record<string, string>> = {
   },
 
   de: {
+    ...UC.de,
+
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.compare':       `Ihr eigenes SaaS`,
     'nav.modules':       `Module`,
@@ -820,6 +828,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'page.modules.found.h2': `Das Fundament unter jedem Modul.`,
     'page.modules.found.body': `Damit kein Modul Anmeldung, E-Mail-Versand oder Dateiablage neu erfinden muss, teilen sich alle Module gemeinsame Grundbausteine: die Platform Services. Sie bedienen sie nie direkt. Sie sorgen dafür, dass Sie sich nur einmal anmelden, dass ein Kunde in jedem Modul derselbe ist und dass jede Rechnungsnummer genau einmal vergeben wird. Ihre Installation enthält nur die Dienste, die Ihre gewählten Module brauchen.`,
     'page.modules.found.cta': `Technische Details →`,
+    'page.modules.usecases': `So kombinieren Betriebe die Module →`,
     'svc.identity.plain': `Eine Anmeldung für alle Module, mit Benutzern und Berechtigungen`,
     'svc.workflow-engine.plain': `Automatisiert Routineschritte, etwa Erinnerungen oder Freigaben`,
     'svc.notification-hub.plain': `Verschickt E-Mails, SMS und andere Benachrichtigungen`,
