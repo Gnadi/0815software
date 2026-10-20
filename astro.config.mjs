@@ -1,8 +1,10 @@
 import { defineConfig } from 'astro/config';
 import vercel from '@astrojs/vercel';
 import sitemap from '@astrojs/sitemap';
+import tailwindcss from '@tailwindcss/vite';
 
-// Tailwind v3 is handled via PostCSS (postcss.config.mjs) — no Astro integration needed.
+// Tailwind runs as a Vite plugin: since Astro 7 (Vite 8) the PostCSS plugin
+// no longer gets to resolve `@import "tailwindcss"` before Vite does.
 // To run locally: npx @astrojs/node or just use `astro dev` (server rendering works in dev).
 
 export default defineConfig({
@@ -10,6 +12,9 @@ export default defineConfig({
   output: 'static',
   adapter: vercel(),
   integrations: [sitemap()],
+  vite: {
+    plugins: [tailwindcss()],
+  },
   redirects: {
     // MOD-15 was called Dashboard before it was renamed Workspace, and the old
     // detail page was linked from the landing page and indexed under that slug.
