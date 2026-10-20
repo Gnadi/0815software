@@ -33,8 +33,9 @@ export const T: Record<Lang, Record<string, string>> = {
     'rail.contact':      `Contact`,
 
     // ─── Use cases (landing §07) ────────────────────────────────────────
-    'usecases.h2':       `Six businesses.<br />The same modules.`,
-    'usecases.lead':     `A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit: what the modules look like in their daily work, and what is still open.`,
+    'usecases.h2':       `Six businesses.<br />Solved with today’s modules.`,
+    'usecases.lead':     `A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit: real everyday problems, solved by modules that already exist. Set up, not developed.`,
+    'usecases.ready':    `READY TODAY`,
     'usecases.more':     `View use case →`,
     'usecases.cta':      `All use cases →`,
 
@@ -293,8 +294,8 @@ export const T: Record<Lang, Record<string, string>> = {
     'detail.allModules':       'All modules',
     'page.rail.inPractice':    'In practice',
     'detail.inPractice.h':     'How businesses use it',
-    'detail.inPractice.used':  'IN USE',
-    'detail.inPractice.next':  'POTENTIAL',
+    'detail.inPractice.used':  'IN USE TODAY',
+    'detail.inPractice.next':  'OPTIONAL LATER',
     'detail.inPractice.all':   'All use cases →',
 
     // ─── Catalogue detail copy (/platform, /modules and their pages) ────
@@ -635,8 +636,9 @@ export const T: Record<Lang, Record<string, string>> = {
     'rail.contact':      `Kontakt`,
 
     // ─── Anwendungsfälle (Landing §07) ──────────────────────────────────
-    'usecases.h2':       `Sechs Betriebe.<br />Dieselben Module.`,
-    'usecases.lead':     `Ein Restaurant, ein Handwerksbetrieb, eine Steuerberatung, ein Großhandel, eine Agentur und ein Verein: wie die Module in ihrem Alltag aussehen und was noch offen ist.`,
+    'usecases.h2':       `Sechs Betriebe.<br />Gelöst mit den Modulen von heute.`,
+    'usecases.lead':     `Ein Restaurant, ein Handwerksbetrieb, eine Steuerberatung, ein Großhandel, eine Agentur und ein Verein: echte Alltagsprobleme, gelöst mit Modulen, die es schon gibt. Eingerichtet, nicht entwickelt.`,
+    'usecases.ready':    `HEUTE EINSETZBAR`,
     'usecases.more':     `Anwendungsfall ansehen →`,
     'usecases.cta':      `Alle Anwendungsfälle →`,
 
@@ -891,8 +893,8 @@ export const T: Record<Lang, Record<string, string>> = {
     'detail.allModules':       'Alle Module',
     'page.rail.inPractice':    'In der Praxis',
     'detail.inPractice.h':     'So setzen Betriebe es ein',
-    'detail.inPractice.used':  'IM EINSATZ',
-    'detail.inPractice.next':  'POTENZIAL',
+    'detail.inPractice.used':  'HEUTE IM EINSATZ',
+    'detail.inPractice.next':  'OPTIONAL, SPÄTER',
     'detail.inPractice.all':   'Alle Anwendungsfälle →',
 
     // ─── Catalogue detail copy (/platform, /modules and their pages) ────

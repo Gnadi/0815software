@@ -19,9 +19,9 @@ import { T } from '../i18n/translations';
       <div class="section-label-inline" aria-hidden="true">
         <span class="section-label-inline__num">§ 07</span> · <span data-i18n="rail.usecases">Use cases</span>
       </div>
-      <h2 class="ucs__h2" data-i18n-html="usecases.h2">Six businesses.<br />The same modules.</h2>
+      <h2 class="ucs__h2" data-i18n-html="usecases.h2">Six businesses.<br />Solved with today’s modules.</h2>
       <p class="ucs__lead" data-i18n="usecases.lead">
-        A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit: what the modules look like in their daily work, and what is still open.
+        A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit: real everyday problems, solved by modules that already exist. Set up, not developed.
       </p>
     </div>
   </div>
@@ -35,7 +35,10 @@ import { T } from '../i18n/translations';
           <span class="ucs-card__title" data-i18n={`uc.${uc.id}.title`}>{T.en[`uc.${uc.id}.title`]}</span>
           <span class="ucs-card__profile" data-i18n={`uc.${uc.id}.profile`}>{T.en[`uc.${uc.id}.profile`]}</span>
           <span class="ucs-card__teaser" data-i18n={`uc.${uc.id}.teaser`}>{T.en[`uc.${uc.id}.teaser`]}</span>
-          <span class="ucs-card__more" data-i18n="usecases.more">View use case →</span>
+          <span class="ucs-card__foot">
+            <span class="ucs-card__ready"><span aria-hidden="true">✓</span> <span data-i18n="usecases.ready">READY TODAY</span></span>
+            <span class="ucs-card__more" data-i18n="usecases.more">View use case →</span>
+          </span>
         </a>
       ))}
     </div>
@@ -144,6 +147,24 @@ import { T } from '../i18n/translations';
   padding-top: 16px;
   border-top: 1px solid var(--line);
   margin-bottom: 20px;
+}
+
+.ucs-card__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.ucs-card__ready {
+  padding: 4px 8px;
+  background: var(--fg);
+  color: var(--bg);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
 }
 
 .ucs-card__more {

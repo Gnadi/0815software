@@ -136,15 +136,36 @@ const matrix = modules
             {uc.n} · <span data-i18n="page.uc.label.example">{t('page.uc.label.example')}</span> · <span data-i18n={`uc.${uc.id}.profile`}>{t(`uc.${uc.id}.profile`)}</span>
           </p>
           <h2 class="uc-case__title" data-i18n={`uc.${uc.id}.title`}>{t(`uc.${uc.id}.title`)}</h2>
+          <p class="uc-ready">
+            <span class="uc-ready__mark" aria-hidden="true">✓</span>
+            <span data-i18n="page.uc.ready">{t('page.uc.ready')}</span>
+          </p>
 
           <div class="uc-case__top">
             <div class="uc-story">
               <h3 class="uc-key" data-i18n="page.uc.story">{t('page.uc.story')}</h3>
               <p class="uc-story__text" data-i18n-html={`uc.${uc.id}.story`} set:html={t(`uc.${uc.id}.story`)} />
+              <p class="uc-story__note" data-i18n="page.uc.today.note">{t('page.uc.today.note')}</p>
             </div>
             <aside class="uc-side">
-              <h3 class="uc-key" data-i18n="page.uc.situation">{t('page.uc.situation')}</h3>
-              <p class="uc-case__situation" data-i18n={`uc.${uc.id}.situation`}>{t(`uc.${uc.id}.situation`)}</p>
+              <h3 class="uc-key" data-i18n="page.uc.solved">{t('page.uc.solved')}</h3>
+              <ol class="uc-solved">
+                {uc.solved.map((slug, n) => (
+                  <li class="uc-solved__item">
+                    <p class="uc-solved__before">
+                      <span class="uc-solved__tag" data-i18n="page.uc.before">{t('page.uc.before')}</span>
+                      <span data-i18n={`uc.${uc.id}.solved.${n}.before`}>{t(`uc.${uc.id}.solved.${n}.before`)}</span>
+                    </p>
+                    <p class="uc-solved__after">
+                      <span class="uc-solved__tag uc-solved__tag--today" data-i18n="page.uc.after">{t('page.uc.after')}</span>
+                      <span data-i18n={`uc.${uc.id}.solved.${n}.after`}>{t(`uc.${uc.id}.solved.${n}.after`)}</span>
+                    </p>
+                    <a class="uc-solved__mod" href={`/modules/${slug}`}>
+                      {mod(slug).n} · <span data-i18n={`mod.${slug}.title`}>{mod(slug).title}</span> →
+                    </a>
+                  </li>
+                ))}
+              </ol>
               <h3 class="uc-key" data-i18n="page.uc.uses">{t('page.uc.uses')}</h3>
               <ul class="uc-chips">
                 {uc.uses.map((slug) => (
@@ -159,45 +180,50 @@ const matrix = modules
             </aside>
           </div>
 
-          <h3 class="uc-key" data-i18n="page.uc.potential">{t('page.uc.potential')}</h3>
-          <div class="uc-potential">
-            <div class="uc-pot">
-              <h4 class="uc-pot__h"><span class="uc-dot uc-dot--next" aria-hidden="true"></span> <span data-i18n="page.uc.next">{t('page.uc.next')}</span></h4>
-              <ul class="uc-pot__list">
-                {uc.next.map((slug) => (
-                  <li>
-                    <a class="uc-pot__mod" href={`/modules/${slug}`}>
-                      <span class="uc-pot__title">{mod(slug).n} · <span data-i18n={`mod.${slug}.title`}>{mod(slug).title}</span> <span aria-hidden="true">→</span></span>
-                      <span class="uc-pot__body" data-i18n={`uc.${uc.id}.next.${slug}`}>{t(`uc.${uc.id}.next.${slug}`)}</span>
-                    </a>
-                  </li>
-                ))}
-              </ul>
+          <details class="uc-later">
+            <summary class="uc-later__summary">
+              <span class="uc-later__h" data-i18n="page.uc.potential">{t('page.uc.potential')}</span>
+              <span class="uc-later__note" data-i18n="page.uc.potential.note">{t('page.uc.potential.note')}</span>
+            </summary>
+            <div class="uc-potential">
+              <div class="uc-pot">
+                <h4 class="uc-pot__h"><span class="uc-dot uc-dot--next" aria-hidden="true"></span> <span data-i18n="page.uc.next">{t('page.uc.next')}</span></h4>
+                <ul class="uc-pot__list">
+                  {uc.next.map((slug) => (
+                    <li>
+                      <a class="uc-pot__mod" href={`/modules/${slug}`}>
+                        <span class="uc-pot__title">{mod(slug).n} · <span data-i18n={`mod.${slug}.title`}>{mod(slug).title}</span> <span aria-hidden="true">→</span></span>
+                        <span class="uc-pot__body" data-i18n={`uc.${uc.id}.next.${slug}`}>{t(`uc.${uc.id}.next.${slug}`)}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div class="uc-pot">
+                <h4 class="uc-pot__h" data-i18n="page.uc.custom">{t('page.uc.custom')}</h4>
+                <p class="uc-pot__note" data-i18n="page.uc.custom.note">{t('page.uc.custom.note')}</p>
+                <ul class="uc-pot__list">
+                  {range(uc.custom).map((c) => (
+                    <li class="uc-pot__item">
+                      <span class="uc-pot__title" data-i18n={`uc.${uc.id}.custom.${c}.title`}>{t(`uc.${uc.id}.custom.${c}.title`)}</span>
+                      <span class="uc-pot__body" data-i18n={`uc.${uc.id}.custom.${c}.body`}>{t(`uc.${uc.id}.custom.${c}.body`)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div class="uc-pot">
+                <h4 class="uc-pot__h" data-i18n="page.uc.ai">{t('page.uc.ai')}</h4>
+                <p class="uc-pot__note">
+                  <a href="/platform/ai-platform" data-i18n="page.uc.ai.note">{t('page.uc.ai.note')}</a>
+                </p>
+                <ul class="uc-pot__list uc-pot__list--plain">
+                  {range(uc.ai).map((a) => (
+                    <li class="uc-pot__ai" data-i18n={`uc.${uc.id}.ai.${a}`}>{t(`uc.${uc.id}.ai.${a}`)}</li>
+                  ))}
+                </ul>
+              </div>
             </div>
-            <div class="uc-pot">
-              <h4 class="uc-pot__h" data-i18n="page.uc.custom">{t('page.uc.custom')}</h4>
-              <p class="uc-pot__note" data-i18n="page.uc.custom.note">{t('page.uc.custom.note')}</p>
-              <ul class="uc-pot__list">
-                {range(uc.custom).map((c) => (
-                  <li class="uc-pot__item">
-                    <span class="uc-pot__title" data-i18n={`uc.${uc.id}.custom.${c}.title`}>{t(`uc.${uc.id}.custom.${c}.title`)}</span>
-                    <span class="uc-pot__body" data-i18n={`uc.${uc.id}.custom.${c}.body`}>{t(`uc.${uc.id}.custom.${c}.body`)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div class="uc-pot">
-              <h4 class="uc-pot__h" data-i18n="page.uc.ai">{t('page.uc.ai')}</h4>
-              <p class="uc-pot__note">
-                <a href="/platform/ai-platform" data-i18n="page.uc.ai.note">{t('page.uc.ai.note')}</a>
-              </p>
-              <ul class="uc-pot__list uc-pot__list--plain">
-                {range(uc.ai).map((a) => (
-                  <li class="uc-pot__ai" data-i18n={`uc.${uc.id}.ai.${a}`}>{t(`uc.${uc.id}.ai.${a}`)}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
+          </details>
         </div>
       </div>
     </section>
@@ -410,8 +436,24 @@ const matrix = modules
   line-height: 1.05;
   letter-spacing: -1.2px;
   max-width: 820px;
-  margin-bottom: 48px;
+  margin-bottom: 20px;
 }
+
+/* The claim each case makes, set as a stamp: what you see here exists. */
+.uc-ready {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  margin-bottom: 48px;
+  background: var(--fg);
+  color: var(--bg);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.8px;
+}
+.uc-ready__mark { font-size: 12px; }
 
 .uc-case__top {
   display: grid;
@@ -442,12 +484,58 @@ const matrix = modules
   padding-left: 32px;
 }
 
-.uc-case__situation {
-  font-size: 15px;
-  line-height: 1.6;
-  color: var(--fg-dim);
-  margin-bottom: 32px;
+.uc-story__note {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--fg);
+  max-width: 720px;
 }
+
+.uc-solved { margin-bottom: 32px; border-top: 1px solid var(--line); }
+
+.uc-solved__item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.uc-solved__before,
+.uc-solved__after {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.uc-solved__before { color: var(--fg-mute); }
+.uc-solved__after { color: var(--fg); }
+
+.uc-solved__tag {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  padding-top: 3px;
+}
+.uc-solved__tag--today { color: var(--accent); font-weight: 600; }
+
+.uc-solved__mod {
+  margin-left: 64px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: var(--accent);
+  letter-spacing: 0.6px;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+  align-self: flex-start;
+}
+.uc-solved__mod:hover { text-decoration-color: var(--fg); }
 
 .uc-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 
@@ -470,11 +558,47 @@ const matrix = modules
   letter-spacing: 0.6px;
 }
 
-/* Potential */
+/* Optional, later: folded away so the case reads as what exists today. */
+.uc-later {
+  border-top: 1px solid var(--line);
+}
+
+.uc-later__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 20px;
+  padding: 20px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.uc-later__summary::-webkit-details-marker { display: none; }
+.uc-later__summary::before {
+  content: '+';
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  color: var(--fg-dim);
+  width: 14px;
+}
+.uc-later[open] > .uc-later__summary::before { content: '−'; }
+.uc-later__summary:hover .uc-later__h { color: var(--fg); }
+.uc-later__summary:focus-visible { outline: 2px solid var(--fg); outline-offset: 4px; }
+
+.uc-later__h {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--fg-dim);
+  transition: color 100ms ease-out;
+}
+
+.uc-later__note { font-size: 13px; color: var(--fg-mute); }
+
 .uc-potential {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--line);
+  margin-bottom: 8px;
 }
 
 .uc-pot {
@@ -615,6 +739,7 @@ const matrix = modules
   .uc-case__title { font-size: 30px; letter-spacing: -0.8px; margin-bottom: 32px; }
   .uc-matrix__h { font-size: 22px; }
   .uc-story__text { font-size: 17px; }
+  .uc-ready { margin-bottom: 32px; }
   .uc-potential { grid-template-columns: 1fr; }
   .uc-pot { border-right: none; border-top: 1px solid var(--line); padding: 20px; }
   .uc-pot:first-child { border-top: none; }

@@ -117,8 +117,8 @@ const inPractice = [
                   <span class="detail-uc__label">
                     {uc.n} · <span data-i18n={`uc.${uc.id}.sector`}>{T.en[`uc.${uc.id}.sector`]}</span>
                     {kind === 'used'
-                      ? <span class="detail-uc__tag detail-uc__tag--used" data-i18n="detail.inPractice.used">IN USE</span>
-                      : <span class="detail-uc__tag" data-i18n="detail.inPractice.next">POTENTIAL</span>}
+                      ? <span class="detail-uc__tag detail-uc__tag--used" data-i18n="detail.inPractice.used">IN USE TODAY</span>
+                      : <span class="detail-uc__tag" data-i18n="detail.inPractice.next">OPTIONAL LATER</span>}
                   </span>
                   <span class="detail-uc__title" data-i18n={`uc.${uc.id}.title`}>{T.en[`uc.${uc.id}.title`]}</span>
                   <span class="detail-uc__text" data-i18n={key}>{T.en[key]}</span>
