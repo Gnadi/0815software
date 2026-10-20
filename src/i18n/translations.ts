@@ -10,6 +10,7 @@ export const T: Record<Lang, Record<string, string>> = {
 
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.compare':       `Your own SaaS`,
+    'nav.usecases':      `Use cases`,
     'nav.modules':       `Modules`,
     'nav.demo':          `Demo`,
     'nav.how':           `How it works`,
@@ -21,6 +22,7 @@ export const T: Record<Lang, Record<string, string>> = {
     // ─── Section rails (the § labels beside each section) ───────────────
     'rail.hero':         `Overview`,
     'rail.compare':      `Own SaaS`,
+    'rail.usecases':     `Use cases`,
     'rail.pillars':      `Promises`,
     'rail.why':          `Difference`,
     'rail.catch':        `Questions`,
@@ -29,6 +31,14 @@ export const T: Record<Lang, Record<string, string>> = {
     'rail.glossary':     `Glossary`,
     'rail.about':        `About`,
     'rail.contact':      `Contact`,
+
+    // ─── Use cases (landing §02) ────────────────────────────────────────
+    'usecases.h2':       `Six businesses.<br />The same modules.`,
+    'usecases.lead':     `A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit: see which modules each one runs, how work flows between them, and what is still open.`,
+    'usecases.inuse':    `MODULES IN USE`,
+    'usecases.more':     `View use case →`,
+    'usecases.cta':      `All use cases →`,
+    'usecases.cta2':     `Browse the modules →`,
 
     // ─── Hero ───────────────────────────────────────────────────────────
     'hero.eyebrow':      `Your own SaaS, built from modules`,
@@ -603,6 +613,7 @@ export const T: Record<Lang, Record<string, string>> = {
 
     // ─── Nav ────────────────────────────────────────────────────────────
     'nav.compare':       `Ihr eigenes SaaS`,
+    'nav.usecases':      `Anwendungsfälle`,
     'nav.modules':       `Module`,
     'nav.demo':          `Demo`,
     'nav.how':           `Ablauf`,
@@ -614,6 +625,7 @@ export const T: Record<Lang, Record<string, string>> = {
     // ─── Section rails ──────────────────────────────────────────────────
     'rail.hero':         `Überblick`,
     'rail.compare':      `Eigenes SaaS`,
+    'rail.usecases':     `Anwendungsfälle`,
     'rail.pillars':      `Versprechen`,
     'rail.why':          `Unterschied`,
     'rail.catch':        `Fragen`,
@@ -622,6 +634,14 @@ export const T: Record<Lang, Record<string, string>> = {
     'rail.glossary':     `Begriffe`,
     'rail.about':        `Über uns`,
     'rail.contact':      `Kontakt`,
+
+    // ─── Anwendungsfälle (Landing §02) ──────────────────────────────────
+    'usecases.h2':       `Sechs Betriebe.<br />Dieselben Module.`,
+    'usecases.lead':     `Ein Gasthof, ein Handwerksbetrieb, eine Steuerberatung, ein Großhandel, eine Agentur und ein Verein: Sehen Sie, welche Module jeder einsetzt, wie die Arbeit zwischen ihnen fließt und was noch offen ist.`,
+    'usecases.inuse':    `MODULE IM EINSATZ`,
+    'usecases.more':     `Anwendungsfall ansehen →`,
+    'usecases.cta':      `Alle Anwendungsfälle →`,
+    'usecases.cta2':     `Zu den Modulen →`,
 
     // ─── Hero ───────────────────────────────────────────────────────────
     'hero.eyebrow':      `Ihr eigenes SaaS, aus Modulen gebaut`,

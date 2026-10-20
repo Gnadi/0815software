@@ -1,5 +1,5 @@
 ---
-// §03 — Pillars (Three promises)
+// §04 — Pillars (Three promises)
 // Each promise names its technical term once, links it to the glossary, and
 // says what it means for the reader. Grid: 120px | 1fr | 1fr | 1fr
 
@@ -38,12 +38,12 @@ const pillars = [
   <!-- Heading row -->
   <div class="pillars__head">
     <div class="section-rail" aria-hidden="true">
-      <div class="section-rail__num">§ 03</div>
+      <div class="section-rail__num">§ 04</div>
       <div class="section-rail__name" data-i18n="rail.pillars">Promises</div>
     </div>
     <div>
       <div class="section-label-inline" aria-hidden="true">
-        <span class="section-label-inline__num">§ 03</span> · <span data-i18n="rail.pillars">Promises</span>
+        <span class="section-label-inline__num">§ 04</span> · <span data-i18n="rail.pillars">Promises</span>
       </div>
       <h2 class="pillars__h2" data-i18n-html="pillars.h2">
         Three promises.<br />
@@ -57,7 +57,7 @@ const pillars = [
     <div class="pillars__spacer" aria-hidden="true"></div>
     {pillars.map((p, i) => (
       <article class="pillar">
-        <div class="pillar__num">§ 03.0{i + 1}</div>
+        <div class="pillar__num">§ 04.0{i + 1}</div>
         <h3 class="pillar__title" data-i18n={`pillar.${i}.title`}>{p.title}</h3>
         <p class="pillar__body" data-i18n-html={`pillar.${i}.body`} set:html={p.body} />
         {(p.can || p.cannot) && (
