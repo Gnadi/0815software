@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-12-support-tickets",
   "version": "0.1.0",
-  "description": "MOD-12 Support Ticket System \u2014 inbound queue, assignment, status tracking, and derived SLA timers. Email and web intake.",
+  "description": "MOD-12 Support Ticket System — inbound queue, assignment, status tracking, and derived SLA timers. Email and web intake.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -34,6 +34,6 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.3.4",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-06-procurement-tracker",
   "version": "0.1.0",
-  "description": "MOD-06 Procurement Tracker \u2014 RFQ, purchase orders, multi-tier approval workflows. Export to any ERP CSV format.",
+  "description": "MOD-06 Procurement Tracker — RFQ, purchase orders, multi-tier approval workflows. Export to any ERP CSV format.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -34,6 +34,6 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.3.4",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }

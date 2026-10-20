@@ -1,7 +1,7 @@
 {
   "name": "@0815software/ps-05-integration-hub",
   "version": "0.1.0",
-  "description": "PS-05 Integration Hub \u2014 centralized third-party integrations: encrypted connections, a provider registry, a REST/GraphQL proxy, and inbound webhook verification.",
+  "description": "PS-05 Integration Hub — centralized third-party integrations: encrypted connections, a provider registry, a REST/GraphQL proxy, and inbound webhook verification.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -26,6 +26,6 @@
     "supertest": "^7.1.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }

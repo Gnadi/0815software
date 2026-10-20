@@ -1,7 +1,7 @@
 {
   "name": "@0815software/ps-04-ai-platform",
   "version": "0.1.0",
-  "description": "PS-04 AI Platform \u2014 shared AI capabilities: chat, embeddings, RAG and prompt management behind a provider abstraction (deterministic mock by default, Anthropic when configured).",
+  "description": "PS-04 AI Platform — shared AI capabilities: chat, embeddings, RAG and prompt management behind a provider abstraction (deterministic mock by default, Anthropic when configured).",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -26,6 +26,6 @@
     "supertest": "^7.1.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "@0815software/ps-03-notification-hub",
   "version": "0.1.0",
-  "description": "PS-03 Notification Hub \u2014 centralized notification delivery across email, SMS, push and chat channels, with templates and a retryable queue.",
+  "description": "PS-03 Notification Hub — centralized notification delivery across email, SMS, push and chat channels, with templates and a retryable queue.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -26,6 +26,6 @@
     "supertest": "^7.1.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }

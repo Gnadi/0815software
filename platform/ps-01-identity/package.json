@@ -1,7 +1,7 @@
 {
   "name": "@0815software/ps-01-identity",
   "version": "0.1.0",
-  "description": "PS-01 Identity \u2014 shared authentication and authorization service: organizations, users, roles, permissions, API keys, HMAC/JWT-style sessions, multi-tenancy.",
+  "description": "PS-01 Identity — shared authentication and authorization service: organizations, users, roles, permissions, API keys, HMAC/JWT-style sessions, multi-tenancy.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -23,10 +23,10 @@
     "@types/express": "^5.0.5",
     "@types/node": "^22.19.11",
     "@types/supertest": "^6.0.3",
-    "@vitest/coverage-v8": "^3.2.7",
+    "@vitest/coverage-v8": "^4.1.12",
     "supertest": "^7.1.4",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }

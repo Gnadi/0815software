@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-01-customer-portal",
   "version": "0.1.0",
-  "description": "MOD-01 Customer Portal \u2014 self-service access to orders, documents, and status. No account manager required.",
+  "description": "MOD-01 Customer Portal — self-service access to orders, documents, and status. No account manager required.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -34,6 +34,6 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.3.4",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }
