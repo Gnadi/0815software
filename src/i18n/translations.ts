@@ -282,6 +282,11 @@ export const T: Record<Lang, Record<string, string>> = {
     'detail.allServices':      'All services',
     'detail.startProject':     'Start a project →',
     'detail.allModules':       'All modules',
+    'page.rail.inPractice':    'In practice',
+    'detail.inPractice.h':     'How businesses use it',
+    'detail.inPractice.used':  'IN USE',
+    'detail.inPractice.next':  'POTENTIAL',
+    'detail.inPractice.all':   'All use cases →',
 
     // ─── Catalogue detail copy (/platform, /modules and their pages) ────
     'svc.identity.overview':                         'A single authority for identity and access across every module. Passwords are hashed with Node’s scrypt; sessions are stateless HMAC tokens with token-version revocation on password change; API keys authenticate machines. Every query is scoped to the caller’s organization, and a resource in another tenant returns 404, never 403. POST /api/tokens/verify is the contract other services use to check a caller’s identity.',
@@ -866,6 +871,11 @@ export const T: Record<Lang, Record<string, string>> = {
     'detail.allServices':      'Alle Dienste',
     'detail.startProject':     'Projekt starten →',
     'detail.allModules':       'Alle Module',
+    'page.rail.inPractice':    'In der Praxis',
+    'detail.inPractice.h':     'So setzen Betriebe es ein',
+    'detail.inPractice.used':  'IM EINSATZ',
+    'detail.inPractice.next':  'POTENZIAL',
+    'detail.inPractice.all':   'Alle Anwendungsfälle →',
 
     // ─── Catalogue detail copy (/platform, /modules and their pages) ────
     'svc.identity.overview':                         'Eine einzige Instanz für Identität und Zugriff über alle Module hinweg. Passwörter werden mit Nodes scrypt gehasht; Sessions sind zustandslose HMAC-Tokens, die sich über eine Token-Version bei Passwortwechsel widerrufen lassen; API-Keys authentifizieren Maschinen. Jede Abfrage ist auf die Organisation des Aufrufers begrenzt, und eine Ressource in einem anderen Mandanten liefert 404, nie 403. POST /api/tokens/verify ist der Vertrag, über den andere Dienste die Identität eines Aufrufers prüfen.',
