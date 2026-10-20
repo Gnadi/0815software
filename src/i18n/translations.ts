@@ -32,13 +32,11 @@ export const T: Record<Lang, Record<string, string>> = {
     'rail.about':        `About`,
     'rail.contact':      `Contact`,
 
-    // ─── Use cases (landing §02) ────────────────────────────────────────
+    // ─── Use cases (landing §07) ────────────────────────────────────────
     'usecases.h2':       `Six businesses.<br />The same modules.`,
-    'usecases.lead':     `A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit: see which modules each one runs, how work flows between them, and what is still open.`,
-    'usecases.inuse':    `MODULES IN USE`,
+    'usecases.lead':     `A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit: what the modules look like in their daily work, and what is still open.`,
     'usecases.more':     `View use case →`,
     'usecases.cta':      `All use cases →`,
-    'usecases.cta2':     `Browse the modules →`,
 
     // ─── Hero ───────────────────────────────────────────────────────────
     'hero.eyebrow':      `Your own SaaS, built from modules`,
@@ -46,7 +44,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'hero.subhead':      `Everyday software for your business: invoicing, time tracking, customer management, an online shop. You put together your own package from ready-made modules, and we run it for you if you like. You use it in the browser just like rented software (<a class="term" href="#g-saas">SaaS</a>), but without license fees, and it belongs to you, <a class="term" href="#g-source">source code</a> included.`,
     'hero.cta1':         `Request a project →`,
     'hero.cta3':         `Try the live demo →`,
-    'hero.cta2':         `View the code ↗`,
+    'hero.cta2':         `See the use cases →`,
     'spec.h':            `AT A GLANCE`,
     'spec.k.0':          `LICENSE FEE`,
     'spec.v.0':          `€0.00`,
@@ -96,6 +94,7 @@ export const T: Record<Lang, Record<string, string>> = {
 
     // ─── Pillars ────────────────────────────────────────────────────────
     'pillars.h2':        `Three promises.<br />No small print.`,
+    'pillars.code':      `View the code ↗`,
     'pillar.0.title':    `Open source`,
     'pillar.0.body':     `The blueprint of the software, the <a class="term" href="#g-source">source code</a>, is public. Anyone can check what it does; nothing is hidden. You receive the complete code and may change it, extend it, or hand it to another IT firm.`,
     'pillar.0.more':     `What does open source mean? →`,
@@ -635,13 +634,11 @@ export const T: Record<Lang, Record<string, string>> = {
     'rail.about':        `Über uns`,
     'rail.contact':      `Kontakt`,
 
-    // ─── Anwendungsfälle (Landing §02) ──────────────────────────────────
+    // ─── Anwendungsfälle (Landing §07) ──────────────────────────────────
     'usecases.h2':       `Sechs Betriebe.<br />Dieselben Module.`,
-    'usecases.lead':     `Ein Gasthof, ein Handwerksbetrieb, eine Steuerberatung, ein Großhandel, eine Agentur und ein Verein: Sehen Sie, welche Module jeder einsetzt, wie die Arbeit zwischen ihnen fließt und was noch offen ist.`,
-    'usecases.inuse':    `MODULE IM EINSATZ`,
+    'usecases.lead':     `Ein Restaurant, ein Handwerksbetrieb, eine Steuerberatung, ein Großhandel, eine Agentur und ein Verein: wie die Module in ihrem Alltag aussehen und was noch offen ist.`,
     'usecases.more':     `Anwendungsfall ansehen →`,
     'usecases.cta':      `Alle Anwendungsfälle →`,
-    'usecases.cta2':     `Zu den Modulen →`,
 
     // ─── Hero ───────────────────────────────────────────────────────────
     'hero.eyebrow':      `Ihr eigenes SaaS, aus Modulen gebaut`,
@@ -649,7 +646,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'hero.subhead':      `Alltägliche Software für Ihr Unternehmen: Rechnungen, Zeiterfassung, Kundenverwaltung, Onlineshop. Sie stellen sich Ihr eigenes Paket aus fertigen Modulen zusammen, und wir betreiben es auf Wunsch für Sie. Sie nutzen es im Browser wie gemietete Software (<a class="term" href="#g-saas">SaaS</a>), aber ohne Lizenzgebühren, und es gehört Ihnen, samt <a class="term" href="#g-source">Quellcode</a>.`,
     'hero.cta1':         `Projekt anfragen →`,
     'hero.cta3':         `Live-Demo ausprobieren →`,
-    'hero.cta2':         `Code ansehen ↗`,
+    'hero.cta2':         `Zu den Anwendungsfällen →`,
     'spec.h':            `AUF EINEN BLICK`,
     'spec.k.0':          `LIZENZGEBÜHR`,
     'spec.v.0':          `0,00 €`,
@@ -699,6 +696,7 @@ export const T: Record<Lang, Record<string, string>> = {
 
     // ─── Pillars ────────────────────────────────────────────────────────
     'pillars.h2':        `Drei Versprechen.<br />Ohne Kleingedrucktes.`,
+    'pillars.code':      `Code ansehen ↗`,
     'pillar.0.title':    `Open Source`,
     'pillar.0.body':     `Der Bauplan der Software, der <a class="term" href="#g-source">Quellcode</a>, ist öffentlich. Alle können prüfen, was sie tut; nichts ist versteckt. Sie erhalten den vollständigen Code und dürfen ihn ändern, erweitern oder einer anderen IT-Firma übergeben.`,
     'pillar.0.more':     `Was heißt Open Source? →`,

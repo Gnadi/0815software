@@ -31,8 +31,9 @@ strong copywriting. A solid v1.
 - ~~Pricing contradiction: "€0 to build" (Pillars) vs. "fixed-price quote" (Contact)~~ →
   **fixed:** copy now says the *license* is €0 and commissioned work is paid; spec card
   row renamed `PRICE` → `LICENSE FEE`.
-- Case studies / status / changelog contain illustrative content — label as samples or
-  make them real. The "read the source" promise needs real module repos behind it.
+- ~~Case studies~~ → **replaced** by `/use-cases`, whose six businesses are labelled as
+  examples; `/case-studies` redirects there. Status / changelog still contain illustrative
+  content — label as samples or make them real. The "read the source" promise needs real module repos behind it.
 
 ### 3. SEO / i18n architecture
 - ~~No OG/Twitter meta, canonical, sitemap, robots.txt, JSON-LD, or 404 page~~ →

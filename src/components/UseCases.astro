@@ -1,10 +1,10 @@
 ---
-// §02 — Use cases ("Six businesses, one catalogue")
-// The six example businesses from /use-cases, straight under the hero, so a
-// visitor sees the modules at work in a business like theirs before reading
-// how the model works. Each card opens that business on /use-cases.
+// §07 — Use cases ("Six businesses, one catalogue")
+// The six example businesses from /use-cases, right before the project
+// procedure: a visitor sees the modules at work in a business like theirs,
+// then how a project runs. Each card tells one moment from that business's
+// day and opens it on /use-cases.
 // Grid: 120px | 1fr | 1fr | 1fr
-import { getModule } from '../data/modules';
 import { useCases } from '../data/use-cases';
 import { T } from '../i18n/translations';
 ---
@@ -12,16 +12,16 @@ import { T } from '../i18n/translations';
 <section id="use-cases" class="ucs">
   <div class="ucs__head">
     <div class="section-rail" aria-hidden="true">
-      <div class="section-rail__num">§ 02</div>
+      <div class="section-rail__num">§ 07</div>
       <div class="section-rail__name" data-i18n="rail.usecases">Use cases</div>
     </div>
     <div>
       <div class="section-label-inline" aria-hidden="true">
-        <span class="section-label-inline__num">§ 02</span> · <span data-i18n="rail.usecases">Use cases</span>
+        <span class="section-label-inline__num">§ 07</span> · <span data-i18n="rail.usecases">Use cases</span>
       </div>
       <h2 class="ucs__h2" data-i18n-html="usecases.h2">Six businesses.<br />The same modules.</h2>
       <p class="ucs__lead" data-i18n="usecases.lead">
-        A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit: see which modules each one runs, how work flows between them, and what is still open.
+        A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit: what the modules look like in their daily work, and what is still open.
       </p>
     </div>
   </div>
@@ -34,12 +34,7 @@ import { T } from '../i18n/translations';
           <span class="ucs-card__label">{uc.n} · <span data-i18n={`uc.${uc.id}.sector`}>{T.en[`uc.${uc.id}.sector`]}</span></span>
           <span class="ucs-card__title" data-i18n={`uc.${uc.id}.title`}>{T.en[`uc.${uc.id}.title`]}</span>
           <span class="ucs-card__profile" data-i18n={`uc.${uc.id}.profile`}>{T.en[`uc.${uc.id}.profile`]}</span>
-          <span class="ucs-card__key" data-i18n="usecases.inuse">MODULES IN USE</span>
-          <span class="ucs-card__mods">
-            {uc.uses.map((slug) => (
-              <span class="ucs-card__mod" data-i18n={`mod.${slug}.title`}>{getModule(slug)!.title}</span>
-            ))}
-          </span>
+          <span class="ucs-card__teaser" data-i18n={`uc.${uc.id}.teaser`}>{T.en[`uc.${uc.id}.teaser`]}</span>
           <span class="ucs-card__more" data-i18n="usecases.more">View use case →</span>
         </a>
       ))}
@@ -48,9 +43,13 @@ import { T } from '../i18n/translations';
 
   <div class="ucs__grid">
     <div class="ucs__spacer" aria-hidden="true"></div>
-    <div class="ucs__actions">
-      <a href="/use-cases" class="btn btn--primary" data-i18n="usecases.cta">All use cases →</a>
-      <a href="/modules" class="btn btn--ghost" data-i18n="usecases.cta2">Browse the modules →</a>
+    <div class="ucs__cta">
+      <h3 class="ucs__cta-h" data-i18n="page.uc.cta.h2">{T.en['page.uc.cta.h2']}</h3>
+      <p class="ucs__cta-body" data-i18n="page.uc.cta.body">{T.en['page.uc.cta.body']}</p>
+      <div class="ucs__actions">
+        <a href="#contact" class="btn btn--primary" data-i18n="page.uc.cta.quote">{T.en['page.uc.cta.quote']}</a>
+        <a href="/use-cases" class="btn btn--ghost" data-i18n="usecases.cta">All use cases →</a>
+      </div>
     </div>
   </div>
 </section>
@@ -137,31 +136,14 @@ import { T } from '../i18n/translations';
   margin-bottom: 20px;
 }
 
-.ucs-card__key {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: var(--fg-mute);
-  letter-spacing: 1px;
+.ucs-card__teaser {
+  flex: 1;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--fg-dim);
   padding-top: 16px;
   border-top: 1px solid var(--line);
-  margin-bottom: 10px;
-}
-
-.ucs-card__mods {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
   margin-bottom: 20px;
-  flex: 1;
-  align-content: flex-start;
-}
-
-.ucs-card__mod {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  color: var(--fg-dim);
-  padding: 3px 7px;
-  border: 1px solid var(--line-strong);
 }
 
 .ucs-card__more {
@@ -172,6 +154,28 @@ import { T } from '../i18n/translations';
   text-transform: uppercase;
   color: var(--accent);
   transition: color 100ms ease-out;
+}
+
+.ucs__cta {
+  padding-top: 40px;
+  border-top: 1px solid var(--line);
+}
+
+.ucs__cta-h {
+  font-family: 'Inter Tight', sans-serif;
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: -0.8px;
+  line-height: 1.15;
+  margin-bottom: 16px;
+}
+
+.ucs__cta-body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--fg-dim);
+  max-width: 560px;
+  margin-bottom: 28px;
 }
 
 .ucs__actions { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -189,6 +193,7 @@ import { T } from '../i18n/translations';
 @media (max-width: 767px) {
   .ucs__h2 { font-size: 32px; letter-spacing: -0.8px; }
   .ucs__lead { font-size: 16px; }
+  .ucs__cta-h { font-size: 26px; }
   .ucs__cards { grid-template-columns: 1fr; }
   .ucs__actions .btn { width: 100%; justify-content: center; }
 }
