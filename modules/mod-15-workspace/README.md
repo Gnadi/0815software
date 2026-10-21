@@ -200,3 +200,15 @@ something else — one sick module must cost one widget, never the board — and
 ## Licence
 
 MIT. See [LICENSE](./LICENSE).
+
+## Users and access levels
+
+Standalone, the shell has one login — the local admin — and it manages
+everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), people
+sign in as themselves, but a shell still admits **platform administrators
+only** (`platform:admin`, or whatever `IDENTITY_PERMISSION` names). The reason
+is the handoff: the shell signs its user into every module on the board, and it
+cannot yet tell each module what that person may do there — so admitting anyone
+less than an administrator would hand them `manage` everywhere. The modules
+themselves already enforce per-person levels; see
+[`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).

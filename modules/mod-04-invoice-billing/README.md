@@ -767,8 +767,9 @@ these, that's commissioned work — exactly the kind 0815software does:
 
 - **Sending email** — standalone, "send" means mark-as-sent and assigns the
   number (no SMTP). Real delivery is available opt-in via PS-03 (see above).
-- **Multi-user accounts and roles** — one staff admin by design (same
-  auth pattern as MOD-02/03). No per-user audit trail.
+- **A local user table, per-customer permissions** — standalone this is
+  one staff admin; several people with their own levels come from PS-01
+  (see [Users and access levels](#users-and-access-levels)).
 - **Other currencies and VAT regimes** — EUR only, Austrian rates
   (0/10/20%). Reverse-charge is just a 0% line with a note.
 - **Recurring invoices, quotes, dunning runs** — the clean REST API is
@@ -796,6 +797,24 @@ these, that's commissioned work — exactly the kind 0815software does:
 ## License
 
 MIT © 0815software — see [LICENSE](LICENSE).
+
+## Users and access levels
+
+Standalone, this module has one login — the local admin — and it manages
+everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), every
+person signs in as themselves and gets the level PS-01 grants them here:
+
+| PS-01 permission | Level | May |
+| --- | --- | --- |
+| `module:invoice-billing:view` | `view` | read everything, change nothing |
+| `module:invoice-billing:edit` | `edit` | the day-to-day work: create, update, delete |
+| `module:invoice-billing:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
+
+`module:*:<level>` grants a level in every module. Reads need `view`, any other
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/payment-runs` → `manage`; `POST /api/payment-runs/:id/submit` → `manage`; `POST /api/payment-runs/:id/mark-executed` → `manage`; `POST /api/payment-runs/:id/discard` → `manage`. A refused request answers **403**
+`{ error, required, access }`; `GET /api/me` reports the caller's `access`.
+Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
+manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## The shell contract — appearing on a dashboard
 

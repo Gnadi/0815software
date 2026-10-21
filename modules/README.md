@@ -64,7 +64,16 @@ the build rather than misleading a generator.
 - Loader for TypeScript: [`registry.ts`](./registry.ts)
 
 Adding a module means: the package, a registry entry, and a copy block in
-`src/data/modules.ts`. See [`docs/PROVISIONING.md`](../docs/PROVISIONING.md).
+`src/data/modules.ts` — `node scripts/new-module.mjs --help` scaffolds all
+three. See [`docs/PROVISIONING.md`](../docs/PROVISIONING.md).
+
+## Users and access levels
+
+No module keeps a user table. With PS-01 Identity wired, each person signs in
+as themselves and gets `view`, `edit` or `manage` per module from PS-01
+permissions (`module:<slug>:<level>`); standalone, the local admin login
+manages. Each module enforces it in one place against one policy file,
+`server/access.ts`. See [`docs/ACCESS-LEVELS.md`](../docs/ACCESS-LEVELS.md).
 
 ## Consuming the Platform Services
 

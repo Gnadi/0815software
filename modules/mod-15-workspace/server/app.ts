@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import type Database from 'better-sqlite3';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import {
+  accessOf,
   actorOf,
   checkCredentials,
   clearedCookie,
@@ -27,7 +28,7 @@ import {
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import type { PeerClient } from './peers.js';
 import type { ModuleSessions } from './sessions.js';
-import { createHandoff, isRedeemPath, safeServiceTokenEqual } from './handoff.js';
+import { createHandoff, isRedeemPath, requestedAccess, safeServiceTokenEqual } from './handoff.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import { CATALOGUE } from '../shared/catalogue.js';
 import { ACTIONS, actionById } from '../shared/actions.js';
@@ -171,18 +172,22 @@ export function createApp({
 
     app.post('/api/session/handoff', (req, res) => {
       requireServiceToken(req);
-      const { actor, path } = body(req);
+      const { actor, path, access } = body(req);
+      const level = requestedAccess(access);
       if (typeof actor !== 'string' || actor.trim() === '') throw new DomainError(422, 'actor is required');
       const target = path === undefined ? '/' : path;
       if (!isRedeemPath(target)) throw new DomainError(422, 'path must be module-relative');
-      res.json(handoff.issue(actor.trim(), target));
+      if (level === null) throw new DomainError(422, 'access must be view, edit or manage');
+      res.json(handoff.issue(actor.trim(), target, Date.now(), level));
     });
 
     app.post('/api/session/issue', (req, res) => {
       requireServiceToken(req);
-      const { actor } = body(req);
+      const { actor, access } = body(req);
+      const level = requestedAccess(access);
       if (typeof actor !== 'string' || actor.trim() === '') throw new DomainError(422, 'actor is required');
-      res.json(handoff.issueSession(actor.trim()));
+      if (level === null) throw new DomainError(422, 'access must be view, edit or manage');
+      res.json(handoff.issueSession(actor.trim(), Date.now(), level));
     });
 
     // The browser lands here from a frame's `src`. Deliberately NOT under /api:
@@ -216,8 +221,11 @@ export function createApp({
     // their authority rather than a borrowed admin account. Standalone there is
     // no such token and the feed is simply empty.
     if (verdict?.ok && verdict.identityToken) sessions.rememberIdentity(actor, verdict.identityToken);
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
-    res.json({ ok: true, username: actor });
+    // The level rides in the token next to the actor: the local admin manages,
+    // a PS-01 identity gets what its module permissions grant.
+    const access = verdict !== null && verdict.ok ? verdict.access : 'manage';
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
+    res.json({ ok: true, username: actor, access });
   });
 
   // ── Everything below requires a valid session ────────────────────────
@@ -232,7 +240,7 @@ export function createApp({
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: actorOf(res, auth) });
+    res.json({ username: actorOf(res, auth), access: accessOf(res) });
   });
 
   // ── The catalogue: what this stack contains ──────────────────────────

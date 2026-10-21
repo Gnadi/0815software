@@ -208,8 +208,9 @@ This is an *internal* tool — put it behind your VPN or reverse proxy.
 Kept out deliberately to stay a 4–5 week module. If you need any of
 these, that's commissioned work — exactly the kind 0815software does:
 
-- **Multi-user accounts and roles** — this ships a single staff admin by
-  design (same auth pattern as MOD-02). No per-user audit trail.
+- **A local user table, per-warehouse permissions** — standalone this
+  ships a single staff admin; several people with their own levels come
+  from PS-01 (see [Users and access levels](#users-and-access-levels)).
 - **Warehouse/supplier management UI** — both are simple seeded tables;
   edit them in SQLite or extend the seed.
 - **Sales-side stock reservation** — no allocations, backorders or
@@ -232,6 +233,24 @@ state changes on [PS-07 Audit Log](../../platform/ps-07-audit-log) via the
 shared [`@0815software/platform-clients`](../../platform/clients) package.
 Calls are best-effort and opt-in — unset, the module runs standalone with no
 outbound calls. See `server/platform.ts`.
+
+## Users and access levels
+
+Standalone, this module has one login — the local admin — and it manages
+everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), every
+person signs in as themselves and gets the level PS-01 grants them here:
+
+| PS-01 permission | Level | May |
+| --- | --- | --- |
+| `module:inventory-management:view` | `view` | read everything, change nothing |
+| `module:inventory-management:edit` | `edit` | the day-to-day work: create, update, delete |
+| `module:inventory-management:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
+
+`module:*:<level>` grants a level in every module. Reads need `view`, any other
+method needs `edit`. This module needs no rule beyond the method default and sign-out; the policy is still one file, [`server/access.ts`](./server/access.ts). A refused request answers **403**
+`{ error, required, access }`; `GET /api/me` reports the caller's `access`.
+Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
+manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## The shell contract — appearing on a dashboard
 

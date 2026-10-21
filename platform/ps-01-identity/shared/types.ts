@@ -12,7 +12,13 @@ export type OrgStatus = (typeof ORG_STATUSES)[number];
 export const USER_STATUSES = ['active', 'disabled'] as const;
 export type UserStatus = (typeof USER_STATUSES)[number];
 
-/** The full permission catalog. Every role permission must be one of these. */
+import { isModulePermission, type ModulePermission } from './module-access.js';
+
+/**
+ * The system permission catalog — every permission PS-01 enforces itself.
+ * A role may also carry module permissions (`module:<slug>:<level>`, see
+ * `module-access.ts`), which PS-01 stores and returns but never enforces.
+ */
 export const PERMISSIONS = [
   'org:read',
   'org:write',
@@ -26,7 +32,8 @@ export const PERMISSIONS = [
   // through the identity seam. Held by owner and admin system roles.
   'platform:admin',
 ] as const;
-export type Permission = (typeof PERMISSIONS)[number];
+export type SystemPermission = (typeof PERMISSIONS)[number];
+export type Permission = SystemPermission | ModulePermission;
 
 export const SYSTEM_ROLE_KEYS = ['owner', 'admin', 'member', 'viewer'] as const;
 export type SystemRoleKey = (typeof SYSTEM_ROLE_KEYS)[number];
@@ -38,7 +45,7 @@ export function isUserStatus(v: string): v is UserStatus {
   return (USER_STATUSES as readonly string[]).includes(v);
 }
 export function isPermission(v: string): v is Permission {
-  return (PERMISSIONS as readonly string[]).includes(v);
+  return (PERMISSIONS as readonly string[]).includes(v) || isModulePermission(v);
 }
 
 // ── Wire interfaces ────────────────────────────────────────────────────

@@ -366,9 +366,9 @@ never fails intake. Everything is opt-in (`NOTIFICATION_URL`, `AUDIT_URL`,
   ingestion endpoint ships; the mail bridge is the integration point.
 - **Business hours, calendars, and pause-on-pending SLA.** Wall-clock
   targets only.
-- **Multi-agent accounts & permissions.** One shared agent login (the
-  MOD-03/04 pattern); the agent roster used for *assignment* is seeded and
-  read-only in the UI.
+- **Per-queue permissions.** Agents get their own logins and levels from
+  PS-01 (see [Users and access levels](#users-and-access-levels)); the agent
+  roster used for *assignment* is still seeded and read-only in the UI.
 - **Customer accounts / passwords.** Requesters are identified by a signed
   per-ticket link, not a login.
 - **Notifications** (email/SMS/push), **CSAT surveys**, **canned
@@ -380,6 +380,24 @@ never fails intake. Everything is opt-in (`NOTIFICATION_URL`, `AUDIT_URL`,
 ---
 
 MIT © 2026 0815software. See [LICENSE](./LICENSE).
+
+## Users and access levels
+
+Standalone, this module has one login — the local admin — and it manages
+everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), every
+person signs in as themselves and gets the level PS-01 grants them here:
+
+| PS-01 permission | Level | May |
+| --- | --- | --- |
+| `module:support-tickets:view` | `view` | read everything, change nothing |
+| `module:support-tickets:edit` | `edit` | the day-to-day work: create, update, delete |
+| `module:support-tickets:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
+
+`module:*:<level>` grants a level in every module. Reads need `view`, any other
+method needs `edit`. This module needs no rule beyond the method default and sign-out; the policy is still one file, [`server/access.ts`](./server/access.ts). A refused request answers **403**
+`{ error, required, access }`; `GET /api/me` reports the caller's `access`.
+Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
+manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## The shell contract — appearing on a dashboard
 

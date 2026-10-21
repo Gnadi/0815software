@@ -1,11 +1,13 @@
-import { IdentityClient, ServiceError } from '@0815software/platform-clients';
+import { accessLevelFor, IdentityClient, PLATFORM_ADMIN, ServiceError, type AccessLevel } from '@0815software/platform-clients';
+import { MODULE_SLUG } from './access.js';
 
 /**
  * SSO login-exchange (copy-in, standalone). When IDENTITY_URL + IDENTITY_ORG
- * are set, PS-01 Identity validates the admin login and must grant the
- * required permission (default `platform:admin`); the module then issues its
- * OWN local session exactly as before — only credential validation is
- * delegated. When unset, mod-15 falls back to its local admin credentials.
+ * are set, PS-01 Identity validates the login and must grant access to
+ * this module (`module:<slug>:<level>`, or `platform:admin`); the
+ * module then issues its OWN local session, carrying that level, exactly as
+ * before — only credential validation is delegated. When unset, mod-15 falls
+ * back to its local admin credentials.
  */
 
 /**
@@ -17,6 +19,8 @@ export type LoginOutcome =
   | {
       ok: true;
       actor: string;
+      /** What PS-01 says they may do in this module. */
+      access: AccessLevel;
       /**
        * The PS-01 session token that validated this login.
        *
@@ -41,7 +45,11 @@ export interface SsoConfig {
   identityUrl?: string;
   /** PS-01 org slug users authenticate against. */
   identityOrg?: string;
-  /** Permission the PS-01 user must hold (default `platform:admin`). */
+  /**
+   * Legacy override: a single PS-01 permission that admits a user as a
+   * manager of this module. Unset — the default — derives the level from the
+   * user's `module:<slug>:<level>` permissions (`platform:admin` = manage).
+   */
   identityPermission?: string;
 }
 
@@ -74,7 +82,12 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
   const target = ssoTarget(cfg);
   if (!target) return nullVerifier;
   const org = target.org;
-  const permission = cfg.identityPermission ?? 'platform:admin';
+  // A shell still admits platform administrators only. It hands its user on to
+  // every module on the board (handoff.ts), and it cannot yet tell those
+  // modules what that person may do in each of them — so letting anyone less
+  // than an administrator in would hand them `manage` everywhere. Until the
+  // shell resolves each module's level from PS-01, the old rule stands.
+  const permission = cfg.identityPermission ?? PLATFORM_ADMIN;
   const client = new IdentityClient({ baseUrl: target.url });
   return async (username, password): Promise<LoginOutcome> => {
     if (typeof username !== 'string' || typeof password !== 'string') return { ok: false, reason: 'rejected' };
@@ -84,10 +97,17 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
       if (!verdict.valid) return { ok: false, reason: 'rejected' };
       // PS-01 returns the principal's permissions on verify (Phase 1).
       const perms = (verdict as { permissions?: string[] }).permissions ?? [];
-      if (permission && !perms.includes(permission)) return { ok: false, reason: 'rejected' };
+      // No grant on this module is a rejected login, exactly as a missing
+      // `platform:admin` was before levels existed.
+      const access: AccessLevel | null = permission
+        ? perms.includes(permission)
+          ? 'manage'
+          : null
+        : accessLevelFor(perms, MODULE_SLUG);
+      if (access === null) return { ok: false, reason: 'rejected' };
       // The PS-01 email is the identity worth recording: stable, unique within
       // the organization, and readable by whoever reads the trail later.
-      return { ok: true, actor: user.email, identityToken: token };
+      return { ok: true, actor: user.email, access, identityToken: token };
     } catch (err) {
       // Both fail closed — SSO, once configured, is never silently bypassed by
       // the local fallback. They are not the same answer to the caller though.

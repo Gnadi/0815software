@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import type Database from 'better-sqlite3';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import {
+  accessOf,
   actorOf,
   checkCredentials,
   clearedCookie,
@@ -136,8 +137,11 @@ export function createApp({
     // behind a principal, so the activity feed is read AS this person, with
     // their authority rather than a borrowed admin account. Standalone there is
     // no such token and the feed is simply empty.
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
-    res.json({ ok: true, username: actor });
+    // The level rides in the token next to the actor: the local admin manages,
+    // a PS-01 identity gets what its module permissions grant.
+    const access = verdict !== null && verdict.ok ? verdict.access : 'manage';
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
+    res.json({ ok: true, username: actor, access });
   });
 
   // ── Everything below requires a valid session ────────────────────────
@@ -152,7 +156,7 @@ export function createApp({
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: actorOf(res, auth) });
+    res.json({ username: actorOf(res, auth), access: accessOf(res) });
   });
 
   // ── The catalogue: what this stack contains ──────────────────────────

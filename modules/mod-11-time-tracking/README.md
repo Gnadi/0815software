@@ -311,9 +311,10 @@ This is an *internal* tool — put it behind your VPN or reverse proxy.
 Kept out deliberately to stay a 2–3 week module. If you need any of
 these, that's commissioned work — exactly the kind 0815software does:
 
-- **Per-employee login and self-service entry** — this is a single-admin
-  tool (same auth pattern as MOD-02/03/04); one staff user enters and
-  approves time. No employee accounts, no roles, no "my timesheet".
+- **Self-service entry ("my timesheet")** — staff get their own logins and
+  levels from PS-01, and approving needs `manage` (see
+  [Users and access levels](#users-and-access-levels)), but `edit` still
+  enters time for anyone: entries are not yet tied to the signed-in person.
 - **A running timer / punch clock** — you enter durations, you don't
   start/stop a stopwatch.
 - **Full offline PWA / background sync** — the app is local-first and
@@ -339,6 +340,24 @@ state changes on [PS-07 Audit Log](../../platform/ps-07-audit-log) via the
 shared [`@0815software/platform-clients`](../../platform/clients) package.
 Calls are best-effort and opt-in — unset, the module runs standalone. See
 `server/platform.ts`.
+
+## Users and access levels
+
+Standalone, this module has one login — the local admin — and it manages
+everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), every
+person signs in as themselves and gets the level PS-01 grants them here:
+
+| PS-01 permission | Level | May |
+| --- | --- | --- |
+| `module:time-tracking:view` | `view` | read everything, change nothing |
+| `module:time-tracking:edit` | `edit` | the day-to-day work: create, update, delete |
+| `module:time-tracking:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
+
+`module:*:<level>` grants a level in every module. Reads need `view`, any other
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/timesheets/approve` → `manage`; `POST /api/timesheets/reject` → `manage`. A refused request answers **403**
+`{ error, required, access }`; `GET /api/me` reports the caller's `access`.
+Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
+manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## The shell contract — appearing on a dashboard
 

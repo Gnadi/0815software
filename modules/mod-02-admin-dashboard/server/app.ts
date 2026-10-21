@@ -3,6 +3,7 @@ import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
 import { getResource, resources, type ResourceDef } from '../shared/resources.js';
 import {
+  accessOf,
   actorOf,
   checkCredentials,
   clearedCookie,
@@ -11,7 +12,7 @@ import {
   sessionCookie,
   type AuthConfig,
 } from './auth.js';
-import { createHandoff, isRedeemPath, safeServiceTokenEqual } from './handoff.js';
+import { createHandoff, isRedeemPath, requestedAccess, safeServiceTokenEqual } from './handoff.js';
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { toCsv } from './csv.js';
@@ -234,8 +235,11 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
-    res.json({ ok: true, username: actor });
+    // The level rides in the token next to the actor: the local admin manages,
+    // a PS-01 identity gets what its module permissions grant.
+    const access = viaSso !== null && viaSso.ok ? viaSso.access : 'manage';
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
+    res.json({ ok: true, username: actor, access });
   });
 
   // ── Machine-to-machine ───────────────────────────────────────────────
@@ -285,7 +289,8 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   if (handoff) {
     app.post('/api/session/handoff', (req, res) => {
       if (refuseWithoutServiceToken(req, res)) return;
-      const { actor, path } = payload(req);
+      const { actor, path, access } = payload(req);
+      const level = requestedAccess(access);
       if (typeof actor !== 'string' || actor.trim() === '') {
         res.status(422).json({ error: 'actor is required' });
         return;
@@ -295,17 +300,26 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
         res.status(422).json({ error: 'path must be module-relative' });
         return;
       }
-      res.json(handoff.issue(actor.trim(), target));
+      if (level === null) {
+        res.status(422).json({ error: 'access must be view, edit or manage' });
+        return;
+      }
+      res.json(handoff.issue(actor.trim(), target, Date.now(), level));
     });
 
     app.post('/api/session/issue', (req, res) => {
       if (refuseWithoutServiceToken(req, res)) return;
-      const { actor } = payload(req);
+      const { actor, access } = payload(req);
+      const level = requestedAccess(access);
       if (typeof actor !== 'string' || actor.trim() === '') {
         res.status(422).json({ error: 'actor is required' });
         return;
       }
-      res.json(handoff.issueSession(actor.trim()));
+      if (level === null) {
+        res.status(422).json({ error: 'access must be view, edit or manage' });
+        return;
+      }
+      res.json(handoff.issueSession(actor.trim(), Date.now(), level));
     });
 
     // The browser lands here from an iframe `src`. Deliberately NOT under
@@ -334,7 +348,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.get('/api/config', (_req, res) => {
-    res.json({ resources, username: actorOf(res, auth) });
+    res.json({ resources, username: actorOf(res, auth), access: accessOf(res) });
   });
 
   app.get('/api/:resource/export.csv', (req, res) => {
