@@ -1,5 +1,5 @@
-// ─── Use-case copy (/use-cases) ─────────────────────────────────────────────
-// Kept apart from translations.ts because it is long and belongs to one page;
+// ─── Use-case copy (/use-cases/<id>) ────────────────────────────────────────
+// Kept apart from translations.ts because it is long and belongs to these pages;
 // translations.ts spreads it into T, so the language toggle sees it like any
 // other key. The structure the keys follow is in src/data/use-cases.ts.
 
@@ -7,21 +7,20 @@ export const UC: { en: Record<string, string>; de: Record<string, string> } = {
   en: {
     // ─── Page chrome ────────────────────────────────────────────────────
     'page.uc.rail':            `Use cases`,
-    'page.uc.eyebrow':         `DIN 0815/UC · USE CASES`,
-    'page.uc.heading': `Six businesses,<br />solved today.`,
-    'page.uc.lead': `A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit. Each one solves its everyday problems with modules that exist today: set up, not developed.`,
-    'page.uc.rail.overview':   `Overview`,
-    'page.uc.intro': `These businesses are examples, not customers: typical companies with typical problems. Every problem below is solved with modules that exist today and run in the live demo. We set them up with your users, locations and approval limits; nothing has to be developed. Further ideas are tucked away under “Optional, later”: none of them is needed to get started.`,
-    'page.uc.matrix.h':        `Who uses what`,
-    'page.uc.matrix.module':   `MODULE`,
-    'page.uc.matrix.used': `In use today`,
-    'page.uc.matrix.next': `Optional later`,
+    'page.uc.back':            `← All use cases`,
+    'page.uc.example.note': `This business is an example, not a customer: a typical company with typical problems. Everything on this page is solved with modules that exist today and run in the live demo. We set them up with your users, locations and approval limits; nothing has to be developed.`,
+    'page.uc.rail.story':      `In practice`,
+    'page.uc.story.h':         `How it runs today`,
+    'page.uc.rail.solved':     `Solved`,
+    'page.uc.solved.h':        `What is solved today`,
+    'page.uc.rail.setup':      `Setup`,
+    'page.uc.setup.h':         `The modules and what each one does here`,
+    'page.uc.setup.note': `Every one of them is a standard module from the catalogue. Here is what it does in this business; the module page shows everything else it can do.`,
+    'page.uc.setup.more':      `Module details →`,
+    'page.uc.rail.later':      `Later`,
     'page.uc.label.example':   `EXAMPLE`,
-    'page.uc.uses':            `MODULES IN USE`,
-    'page.uc.story': `HOW IT RUNS TODAY`,
     'page.uc.ready': `READY TODAY · NO DEVELOPMENT`,
     'page.uc.today.note': `Everything in this story is what the modules do today. We set them up; nothing is developed.`,
-    'page.uc.solved': `SOLVED`,
     'page.uc.before': `Before`,
     'page.uc.after': `Today`,
     'page.uc.cta.quote':       `Request a quote →`,
@@ -255,21 +254,20 @@ export const UC: { en: Record<string, string>; de: Record<string, string> } = {
   de: {
     // ─── Seitenrahmen ───────────────────────────────────────────────────
     'page.uc.rail':            `Anwendungsfälle`,
-    'page.uc.eyebrow':         `DIN 0815/UC · ANWENDUNGSFÄLLE`,
-    'page.uc.heading': `Sechs Betriebe,<br />heute gelöst.`,
-    'page.uc.lead': `Ein Restaurant, ein Handwerksbetrieb, eine Steuerberatung, ein Großhandel, eine Agentur und ein Verein. Jeder löst seine Alltagsprobleme mit Modulen, die es heute schon gibt: eingerichtet, nicht entwickelt.`,
-    'page.uc.rail.overview':   `Überblick`,
-    'page.uc.intro': `Diese Betriebe sind Beispiele, keine Kunden: typische Unternehmen mit typischen Problemen. Jedes Problem unten lösen Module, die es heute gibt und die in der Live-Demo laufen. Wir richten sie mit Ihren Benutzern, Lagerorten und Freigabegrenzen ein; entwickelt werden muss nichts. Weitere Ideen stehen unter „Optional, später“: Keine davon brauchen Sie, um loszulegen.`,
-    'page.uc.matrix.h':        `Wer nutzt was`,
-    'page.uc.matrix.module':   `MODUL`,
-    'page.uc.matrix.used': `Heute im Einsatz`,
-    'page.uc.matrix.next': `Optional, später`,
+    'page.uc.back':            `← Alle Anwendungsfälle`,
+    'page.uc.example.note': `Dieser Betrieb ist ein Beispiel, kein Kunde: ein typisches Unternehmen mit typischen Problemen. Alles auf dieser Seite lösen Module, die es heute gibt und die in der Live-Demo laufen. Wir richten sie mit Ihren Benutzern, Lagerorten und Freigabegrenzen ein; entwickelt werden muss nichts.`,
+    'page.uc.rail.story':      `Im Alltag`,
+    'page.uc.story.h':         `So läuft es heute`,
+    'page.uc.rail.solved':     `Gelöst`,
+    'page.uc.solved.h':        `Was heute gelöst ist`,
+    'page.uc.rail.setup':      `Einrichtung`,
+    'page.uc.setup.h':         `Die Module und was jedes hier leistet`,
+    'page.uc.setup.note': `Jedes davon ist ein Standardmodul aus dem Katalog. Hier steht, was es in diesem Betrieb leistet; die Modulseite zeigt, was es sonst noch kann.`,
+    'page.uc.setup.more':      `Zum Modul →`,
+    'page.uc.rail.later':      `Später`,
     'page.uc.label.example':   `BEISPIEL`,
-    'page.uc.uses':            `MODULE IM EINSATZ`,
-    'page.uc.story': `SO LÄUFT ES HEUTE`,
     'page.uc.ready': `HEUTE EINSETZBAR · OHNE ENTWICKLUNG`,
     'page.uc.today.note': `Alles in dieser Geschichte können die Module heute. Wir richten sie ein, entwickelt wird nichts.`,
-    'page.uc.solved': `GELÖST`,
     'page.uc.before': `Vorher`,
     'page.uc.after': `Heute`,
     'page.uc.cta.quote':       `Angebot anfragen →`,

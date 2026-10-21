@@ -1,10 +1,11 @@
 // ─── Use cases ──────────────────────────────────────────────────────────────
-// Example businesses for the /use-cases page: which modules each one runs, how
-// it looks in practice, and what is still open — further catalogue modules,
-// building blocks that are not a standard module yet, and work for Claude.
+// Example businesses: the landing page lists them, and each one has its own page
+// at /use-cases/<id> with which modules it runs, how it looks in practice, and
+// what is still open — further catalogue modules, building blocks that are not
+// a standard module yet, and work for Claude.
 //
 // Only the structure lives here. Every string is a dictionary entry in
-// src/i18n/use-cases.ts, keyed `uc.<id>.…`, so the page and the language toggle
+// src/i18n/use-cases.ts, keyed `uc.<id>.…`, so the pages and the language toggle
 // read the same copy. Module references are registry slugs and are checked
 // against the catalogue below, so a renamed or removed module fails the build
 // instead of rendering a dead link.
@@ -12,7 +13,7 @@ import { modules } from './modules';
 import { UC } from '../i18n/use-cases';
 
 export interface UseCase {
-  /** Anchor on the page and the key prefix: `uc.<id>.title`, `uc.<id>.situation`, … */
+  /** URL slug (/use-cases/<id>) and the key prefix: `uc.<id>.title`, `uc.<id>.situation`, … */
   id: string;
   n: string;
   /**

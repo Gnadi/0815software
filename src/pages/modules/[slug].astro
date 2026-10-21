@@ -20,8 +20,8 @@ export function getStaticPaths() {
 
 const { mod, prev, next } = Astro.props;
 
-// The example businesses on /use-cases that run this module, then those that
-// could add it. The copy is the same sentence the use-case page shows.
+// The example businesses (/use-cases/<id>) that run this module, then those that
+// could add it. The copy is the same sentence the use case's own page shows.
 const inPractice = [
   ...useCases.filter((uc) => uc.uses.includes(mod.slug)).map((uc) => ({ uc, kind: 'used', key: `uc.${uc.id}.use.${mod.slug}` })),
   ...useCases.filter((uc) => uc.next.includes(mod.slug)).map((uc) => ({ uc, kind: 'next', key: `uc.${uc.id}.next.${mod.slug}` })),
@@ -113,7 +113,7 @@ const inPractice = [
           <ul class="detail-uc">
             {inPractice.map(({ uc, kind, key }) => (
               <li>
-                <a class="detail-uc__item" href={`/use-cases#${uc.id}`}>
+                <a class="detail-uc__item" href={`/use-cases/${uc.id}`}>
                   <span class="detail-uc__label">
                     {uc.n} · <span data-i18n={`uc.${uc.id}.sector`}>{T.en[`uc.${uc.id}.sector`]}</span>
                     {kind === 'used'
@@ -126,7 +126,7 @@ const inPractice = [
               </li>
             ))}
           </ul>
-          <a href="/use-cases" class="btn btn--ghost" data-i18n="detail.inPractice.all">All use cases →</a>
+          <a href="/#use-cases" class="btn btn--ghost" data-i18n="detail.inPractice.all">All use cases →</a>
         </div>
       </div>
     </section>
@@ -292,7 +292,7 @@ const inPractice = [
   letter-spacing: 0.8px;
   color: var(--accent);
 }
-/* In use = filled, potential = outlined, as in the /use-cases matrix. */
+/* In use = filled, potential = outlined, as on the use-case pages. */
 .detail-uc__tag {
   padding: 2px 6px;
   border: 1px solid var(--line-strong);

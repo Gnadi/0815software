@@ -19,7 +19,10 @@ export default defineConfig({
     // MOD-15 was called Dashboard before it was renamed Workspace, and the old
     // detail page was linked from the landing page and indexed under that slug.
     '/modules/dashboard': '/modules/workspace',
-    // The case studies were replaced by the use cases; keep old links working.
-    '/case-studies': '/use-cases',
+    // The case studies were replaced by the use cases, and the page that listed
+    // all use cases at length by the list on the landing page plus one page per
+    // use case (/use-cases/<id>); keep old links working.
+    '/case-studies': '/#use-cases',
+    '/use-cases': '/#use-cases',
   },
 });
