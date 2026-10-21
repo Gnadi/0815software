@@ -203,12 +203,19 @@ MIT. See [LICENSE](./LICENSE).
 
 ## Users and access levels
 
-Standalone, the shell has one login — the local admin — and it manages
-everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), people
-sign in as themselves, but a shell still admits **platform administrators
-only** (`platform:admin`, or whatever `IDENTITY_PERMISSION` names). The reason
-is the handoff: the shell signs its user into every module on the board, and it
-cannot yet tell each module what that person may do there — so admitting anyone
-less than an administrator would hand them `manage` everywhere. The modules
-themselves already enforce per-person levels; see
+Standalone, the shell has one login — the local admin — and it opens every
+module at `manage`, as before. With PS-01 Identity wired (`IDENTITY_URL` +
+`IDENTITY_ORG`), people sign in as themselves; `module:workspace:view` (or any
+higher level, `module:*:…`, or `platform:admin`) lets them in. Boards are
+personal, so `view` is enough to arrange your own.
+
+What a board does in OTHER modules is decided by those modules. At login the
+shell keeps the person's PS-01 permissions ([`server/grants.ts`](./server/grants.ts),
+in memory, for the length of the shell session) and, whenever it signs them
+into a module, passes the level PS-01 grants on THAT module — never the
+shell's own. A module PS-01 grants nothing on is refused ("no access to this
+module") instead of opened at a default; after a restart or logout the shell
+asks the person to sign in again. Run module versions that accept the
+`access` field on the handoff (October 2026 or later) before admitting
+non-administrators. The contract is in
 [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).

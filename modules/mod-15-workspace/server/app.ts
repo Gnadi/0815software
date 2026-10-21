@@ -29,6 +29,7 @@ import { noopPlatform, type PlatformHooks } from './platform.js';
 import type { PeerClient } from './peers.js';
 import type { ModuleSessions } from './sessions.js';
 import { createHandoff, isRedeemPath, requestedAccess, safeServiceTokenEqual } from './handoff.js';
+import { createGrants, type Grants } from './grants.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import { CATALOGUE } from '../shared/catalogue.js';
 import { ACTIONS, actionById } from '../shared/actions.js';
@@ -79,6 +80,11 @@ export interface AppOptions {
    */
   loginMode?: LoginMode;
   /**
+   * What each signed-in person may do in the OTHER modules (`grants.ts`).
+   * Defaults to an in-memory store sized to this shell's session lifetime.
+   */
+  grants?: Grants;
+  /**
    * The platform machine token (PLATFORM_SERVICE_TOKEN), for the handoff routes
    * below. This shell CONSUMES the token to call its peers; these two routes are
    * the other direction — another shell calling this one.
@@ -106,6 +112,7 @@ export function createApp({
   platform = noopPlatform,
   verifyLogin = nullVerifier,
   loginMode = LOCAL_LOGIN,
+  grants = createGrants({ sso: loginMode.sso, ttlMs: auth.ttlHours * 3600_000 }),
   serviceToken,
   shellOrigins = [],
 }: AppOptions): express.Express {
@@ -224,6 +231,9 @@ export function createApp({
     // The level rides in the token next to the actor: the local admin manages,
     // a PS-01 identity gets what its module permissions grant.
     const access = verdict !== null && verdict.ok ? verdict.access : 'manage';
+    // And what they may do everywhere else, for the panes and actions that sign
+    // them into other modules (grants.ts).
+    if (verdict?.ok) grants.remember(actor, verdict.permissions);
     res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
     res.json({ ok: true, username: actor, access });
   });
@@ -235,6 +245,7 @@ export function createApp({
     // Drop any module sessions held for this person: they were obtained so the
     // board could act as them, and the board is no longer theirs to act on.
     sessions.forget(actorOf(res, auth));
+    grants.forget(actorOf(res, auth));
     res.setHeader('Set-Cookie', clearedCookie());
     res.json({ ok: true });
   });
@@ -371,7 +382,10 @@ export function createApp({
     // to have been checked upstream.
     if (!isModulePath(path)) throw new DomainError(422, 'path must be module-relative');
 
-    const result = await peers.handoff(moduleId, actorOf(res, auth), path);
+    // The level PS-01 grants this person on THAT module, never this shell's own.
+    const level = grants.levelFor(actorOf(res, auth), moduleId);
+    if (!level.ok) throw new DomainError(409, level.problem);
+    const result = await peers.handoff(moduleId, actorOf(res, auth), path, level.access);
     if (!result.ok) throw new DomainError(409, result.problem);
     res.json({ url: result.url });
   });
@@ -407,7 +421,11 @@ export function createApp({
     }
 
     const actor = actorOf(res, auth);
-    const session = await sessions.cookieFor(actor, action.targetModule);
+    // The target decides whether this person may run the action, at the level
+    // PS-01 grants them there — the shell only says which level that is.
+    const level = grants.levelFor(actor, action.targetModule);
+    if (!level.ok) throw new DomainError(409, level.problem);
+    const session = await sessions.cookieFor(actor, action.targetModule, level.access);
     if (!session.ok) throw new DomainError(409, session.problem);
 
     const result = await peers.callAs(action.targetModule, session.cookie, action.path, {

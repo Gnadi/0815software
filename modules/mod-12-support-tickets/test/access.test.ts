@@ -128,18 +128,14 @@ describe('an SSO login gets the level PS-01 grants', () => {
     return buildLoginVerifier({ identityUrl: 'http://identity.test', identityOrg: 'acme' });
   }
 
-  // The two shells still admit platform administrators only (see their sso.ts).
-  const shell = MODULE_SLUG === 'workspace' || MODULE_SLUG === 'mosaic';
-
   it('platform:admin manages, as it always did', async () => {
     const outcome = await identity(['platform:admin'])('ada@example', 'pw');
     expect(outcome).toMatchObject({ ok: true, actor: 'ada@example', access: 'manage' });
   });
 
-  it(shell ? 'a module grant alone does not open a shell' : 'a module grant gives exactly its level', async () => {
+  it('a module grant gives exactly its level', async () => {
     const outcome = await identity([`module:${MODULE_SLUG}:view`])('ada@example', 'pw');
-    if (shell) expect(outcome).toEqual({ ok: false, reason: 'rejected' });
-    else expect(outcome).toMatchObject({ ok: true, access: 'view' });
+    expect(outcome).toMatchObject({ ok: true, access: 'view' });
   });
 
   it('no grant on this module is a rejected login', async () => {

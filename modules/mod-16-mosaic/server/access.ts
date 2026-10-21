@@ -23,6 +23,17 @@ export const MODULE_SLUG = 'mosaic';
 export const ACCESS_RULES: readonly AccessRule[] = [
   // Signing out is never refused, whatever the level.
   { method: 'POST', path: '/api/logout', access: 'view' },
+  // Boards are personal — every query filters on the owner — so arranging your
+  // own is not editing anything anyone else sees: `view` is enough. What a
+  // board DOES in other modules is decided by those modules, at the level PS-01
+  // grants there (grants.ts).
+  { method: 'POST', path: '/api/boards', access: 'view' },
+  { method: 'PUT', path: '/api/boards/:id', access: 'view' },
+  { method: 'DELETE', path: '/api/boards/:id', access: 'view' },
+  { method: 'POST', path: '/api/boards/:id/active', access: 'view' },
+  { method: 'POST', path: '/api/boards/:id/panes', access: 'view' },
+  { method: 'DELETE', path: '/api/boards/:id/panes/:paneId', access: 'view' },
+  { method: 'PUT', path: '/api/boards/:id/layout', access: 'view' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

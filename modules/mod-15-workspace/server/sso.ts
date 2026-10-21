@@ -1,4 +1,4 @@
-import { accessLevelFor, IdentityClient, PLATFORM_ADMIN, ServiceError, type AccessLevel } from '@0815software/platform-clients';
+import { accessLevelFor, IdentityClient, ServiceError, type AccessLevel } from '@0815software/platform-clients';
 import { MODULE_SLUG } from './access.js';
 
 /**
@@ -35,6 +35,12 @@ export type LoginOutcome =
        * with exactly their authority — not with a borrowed admin account.
        */
       identityToken: string;
+      /**
+       * Everything PS-01 says they hold. A shell signs its user into the other
+       * modules on the board, and tells each of them the level these grant
+       * there (`grants.ts`) — so it has to keep them, not just its own level.
+       */
+      permissions: string[];
     }
   | { ok: false; reason: 'rejected' | 'unavailable' }
   | null;
@@ -82,12 +88,7 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
   const target = ssoTarget(cfg);
   if (!target) return nullVerifier;
   const org = target.org;
-  // A shell still admits platform administrators only. It hands its user on to
-  // every module on the board (handoff.ts), and it cannot yet tell those
-  // modules what that person may do in each of them — so letting anyone less
-  // than an administrator in would hand them `manage` everywhere. Until the
-  // shell resolves each module's level from PS-01, the old rule stands.
-  const permission = cfg.identityPermission ?? PLATFORM_ADMIN;
+  const permission = cfg.identityPermission;
   const client = new IdentityClient({ baseUrl: target.url });
   return async (username, password): Promise<LoginOutcome> => {
     if (typeof username !== 'string' || typeof password !== 'string') return { ok: false, reason: 'rejected' };
@@ -107,7 +108,7 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
       if (access === null) return { ok: false, reason: 'rejected' };
       // The PS-01 email is the identity worth recording: stable, unique within
       // the organization, and readable by whoever reads the trail later.
-      return { ok: true, actor: user.email, access, identityToken: token };
+      return { ok: true, actor: user.email, access, identityToken: token, permissions: perms };
     } catch (err) {
       // Both fail closed — SSO, once configured, is never silently bypassed by
       // the local fallback. They are not the same answer to the caller though.

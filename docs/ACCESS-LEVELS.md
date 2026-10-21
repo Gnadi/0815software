@@ -63,6 +63,18 @@ Four files, each with one job:
 | `server/auth.ts` | carries the level in the session token; `requireAuth` enforces the policy; `accessOf(res)` reads it |
 | `server/handoff.ts` | a shell may name a level (`access`), signed into the ticket; unnamed = `manage` |
 
+## Through a shell
+
+MOD-15 Workspace and MOD-16 Mosaic sign their user into the modules on the
+board. They admit anyone PS-01 grants a level on the shell itself, keep the
+person's PS-01 permissions from login (`server/grants.ts`, in memory, for the
+shell session's lifetime) and pass the level PS-01 grants on **the target**
+as `access` on every handoff and session issue — so a person never gets more
+in a module through a board than signing into it directly would give them.
+No grant on the target: the pane or action is refused. The module's session
+vault in MOD-15 keys on the level too, so a session minted at `view` is never
+replayed for `edit`.
+
 **Default-deny by method.** A rule is only written where the method default is
 wrong — a `POST` that merely reads (`view`), or an action consequential enough
 for `manage`:
@@ -99,11 +111,6 @@ UIs do not do that yet; a refused request answers **403**
 
 ## Not yet
 
-- **Shells (MOD-15, MOD-16) admit platform administrators only.** A shell signs
-  its user into every module on the board and cannot yet tell each module what
-  that person may do there. The next step: resolve the target's level from
-  PS-01 (the shell already holds the person's PS-01 token for PS-07 reads) and
-  pass it as `access` on the handoff, which the modules already accept.
 - **Per-record rules** ("only my own timesheet", "only this warehouse") —
   a level covers the whole module.
 - **MOD-01, MOD-07, MOD-09** have their own user models (customers, the public
