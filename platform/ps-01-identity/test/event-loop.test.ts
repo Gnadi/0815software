@@ -127,26 +127,41 @@ describe('password hashing stays off the event loop', () => {
     // parallel batch look 3x too slow. It failed CI roughly one run in seven
     // under load while the implementation was entirely correct.
     const attempts = 4;
-    let started = Date.now();
-    for (let i = 0; i < attempts; i++) await verifyPassword('a-password', stored);
-    const serial = Date.now() - started;
+    const measure = async () => {
+      let started = Date.now();
+      for (let i = 0; i < attempts; i++) await verifyPassword('a-password', stored);
+      const serial = Date.now() - started;
 
-    started = Date.now();
-    await Promise.all(Array.from({ length: attempts }, () => verifyPassword('a-password', stored)));
-    const concurrent = Date.now() - started;
+      started = Date.now();
+      await Promise.all(Array.from({ length: attempts }, () => verifyPassword('a-password', stored)));
+      const concurrent = Date.now() - started;
+      return { serial, concurrent, ratio: concurrent / serial };
+    };
 
     // libuv's threadpool is 4 threads by default, so four hashes overlap and
     // the batch costs about one. On the event loop they cannot overlap at all,
     // and the two arms come out equal — measured at 0.98–1.02 with `scryptSync`
     // restored, against 0.25–0.46 for the async form even with every core
     // saturated. The bar sits in the wide gap between those.
-    const ratio = concurrent / serial;
+    //
+    // Even so, the other test files run in parallel workers on the same few
+    // cores, and a burst from them can land on the concurrent arm alone: CI
+    // measured 0.76 once with the implementation correct. So take up to five
+    // rounds and keep the best. That is not a retry that hides a regression:
+    // with the hashing back on the loop no round can overlap, so every one of
+    // them stays near 1 and the best does too.
+    let best = await measure();
+    for (let round = 1; round < 5 && best.ratio >= 0.7; round++) {
+      const next = await measure();
+      if (next.ratio < best.ratio) best = next;
+    }
     expect(
-      ratio,
-      `4 verifications took ${concurrent}ms concurrently vs ${serial}ms serially (${ratio.toFixed(2)}) —` +
+      best.ratio,
+      `4 verifications took ${best.concurrent}ms concurrently vs ${best.serial}ms serially (${best.ratio.toFixed(2)}) in the best of 5 rounds —` +
         ' a ratio near 1 means they did not overlap, so the hashing is back on the event loop',
     ).toBeLessThan(0.7);
-  });
+    // Five rounds of eight hashes can outlast the default 5s on a loaded runner.
+  }, 20_000);
 
   it('keeps answering /api/tokens/verify while logins are being processed', async () => {
     // A spray: every guess hits a DIFFERENT account, so the per-account
