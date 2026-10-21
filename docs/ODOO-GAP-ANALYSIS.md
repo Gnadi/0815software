@@ -250,15 +250,17 @@ Mensch, der haftet — das ist ohnehin das Geschäftsmodell.
 
 ### Konkrete Schritte, um das Argument einzulösen
 
-1. **`CLAUDE.md`/`AGENTS.md` im Root** (fehlt heute): Architekturregeln,
+1. ✅ **`CLAUDE.md` im Root** (umgesetzt): Architekturregeln,
    Modul-Idiom, „Adding a module“, Testbefehle, die Invarianten-Philosophie.
-2. **Modul-Vorlage/Generator** (`scripts/new-module.mjs`): Paketgerüst mit
+2. ✅ **Modul-Vorlage/Generator** (`scripts/new-module.mjs`, umgesetzt): Paketgerüst mit
    Auth, `summary.ts`, `platform.ts`, Shell-Contract, Registry-Eintrag und
    Copy-Block — damit KI-Erzeugtes vom ersten Commit an konform ist.
 3. **Eine Spezifikation pro Modul vor dem Code** (Invarianten, Out-of-scope,
    Datenmodell — die README-Struktur gibt es schon), als Prompt-Vorlage.
-4. **Mehrbenutzer-Fundament zuerst** (Abschnitt 2, Punkt 1) — sonst
-   vervielfältigt KI das Single-Admin-Muster in jedes neue Modul.
+4. ✅ **Mehrbenutzer-Fundament zuerst** (Abschnitt 2, Punkt 1; umgesetzt,
+   `docs/ACCESS-LEVELS.md`) — sonst vervielfältigt KI das Single-Admin-Muster
+   in jedes neue Modul. Offen: die Shells (MOD-15/16) und die UIs der
+   Bestandsmodule, die Schaltflächen noch nicht nach Stufe ausblenden.
 5. **Positionierung:** nicht „Odoo-Klon“, sondern „die DACH-Pflichtteile, die
    Odoo Community fehlen (EBICS, SEPA, E-Rechnung, Finanzamtszahlung),
    MIT-lizenziert, ohne Upgrade-Zwang, mit beweisbaren Invarianten“.
