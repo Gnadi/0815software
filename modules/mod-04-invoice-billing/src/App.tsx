@@ -4,6 +4,7 @@ import { BillsView } from './components/BillsView';
 import { CreditorsView } from './components/CreditorsView';
 import { CustomerLedger } from './components/CustomerLedger';
 import { CustomersView } from './components/CustomersView';
+import { ExportView } from './components/ExportView';
 import { InvoiceDetail } from './components/InvoiceDetail';
 import { InvoiceEditor } from './components/InvoiceEditor';
 import { IncomingPaymentsView } from './components/IncomingPaymentsView';
@@ -21,7 +22,8 @@ export type View =
   | { name: 'creditors' }
   | { name: 'runs' }
   | { name: 'run'; id: number }
-  | { name: 'incoming' };
+  | { name: 'incoming' }
+  | { name: 'exports' };
 
 const NAV: { view: View; label: string }[] = [
   { view: { name: 'invoices' }, label: 'Invoices' },
@@ -34,6 +36,8 @@ const NAV: { view: View; label: string }[] = [
   { view: { name: 'bills' }, label: 'Bills' },
   { view: { name: 'runs' }, label: 'Payment runs' },
   { view: { name: 'creditors' }, label: 'Creditors' },
+  // For the tax adviser: DATEV / BMD, and the e-invoicing self-check.
+  { view: { name: 'exports' }, label: 'Exports' },
 ];
 
 /**
@@ -65,6 +69,7 @@ export function initialView(path: string, search: string): View {
   if (path === '/payment-runs') return { name: 'runs' };
   if (path === '/bills') return { name: 'bills' };
   if (path === '/creditors') return { name: 'creditors' };
+  if (path === '/exports') return { name: 'exports' };
   return { name: 'invoices' };
 }
 
@@ -180,6 +185,7 @@ export function App() {
           <BillsView onOpenRun={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />
         )}
         {view.name === 'creditors' && <CreditorsView onAuthLost={onAuthLost} />}
+        {view.name === 'exports' && <ExportView onAuthLost={onAuthLost} />}
         {view.name === 'incoming' && <IncomingPaymentsView onAuthLost={onAuthLost} />}
         {view.name === 'runs' && (
           <PaymentRunsView onOpen={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />

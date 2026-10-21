@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { computeTotals, VAT_RATES, type LineAmounts } from '../../shared/money';
-import type { FieldError } from '../../shared/types';
+import { EXEMPTION_DEFAULT_REASON } from '../../shared/einvoice';
+import { computeTotals, VAT_RATES, vatRatesFor, type LineAmounts } from '../../shared/money';
+import { TAX_EXEMPTION_CATEGORIES, type FieldError, type TaxExemptionCategory } from '../../shared/types';
 import { api, ApiError, type CustomerRow } from '../api';
 import { centsToInput, fmtEur, parseEurToCents } from '../format';
 
@@ -20,6 +21,16 @@ interface EditableLine {
 
 const EMPTY_LINE: EditableLine = { description: '', quantity: '1', unitPrice: '', vatRate: '20' };
 
+/** What each VAT category of the 0 % lines means, in the words an invoice uses. */
+const CATEGORY_LABEL: Record<TaxExemptionCategory, string> = {
+  E: 'Exempt (steuerfrei) — state the legal ground',
+  AE: 'Reverse charge (Steuerschuldnerschaft des Leistungsempfängers)',
+  K: 'Intra-EU supply of goods (innergemeinschaftliche Lieferung)',
+  G: 'Export outside the EU (Ausfuhrlieferung)',
+  Z: 'Zero-rated (Nullsatz)',
+  O: 'Not subject to VAT (nicht steuerbar)',
+};
+
 function parsedLines(lines: EditableLine[]): LineAmounts[] {
   return lines.map((l) => ({
     quantity: Number(l.quantity.replace(',', '.')) || 0,
@@ -34,6 +45,12 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
   const [terms, setTerms] = useState('14');
   const [note, setNote] = useState('');
   const [lines, setLines] = useState<EditableLine[]>([{ ...EMPTY_LINE }]);
+  const [buyerReference, setBuyerReference] = useState('');
+  const [deliveryDate, setDeliveryDate] = useState('');
+  const [exemption, setExemption] = useState('');
+  const [exemptionReason, setExemptionReason] = useState('');
+  // The rates the seller's country charges; all of them until it is known.
+  const [rates, setRates] = useState<readonly number[]>(VAT_RATES);
   const [loaded, setLoaded] = useState(id === null);
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldError[]>([]);
@@ -43,12 +60,23 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
     try {
       const { customers: list } = await api.customers();
       setCustomers(list);
+      const config = await api.einvoiceConfig().catch(() => null);
+      const sellerRates = config?.seller.country ? vatRatesFor(config.seller.country) : VAT_RATES;
+      setRates(sellerRates);
+      if (id === null) {
+        const standard = Math.max(...sellerRates);
+        setLines((prev) => prev.map((l) => (l.description === '' && l.unitPrice === '' ? { ...l, vatRate: String(standard) } : l)));
+      }
       setCustomerId((c) => c || String(list[0]?.id ?? ''));
       if (id !== null) {
         const detail = await api.invoiceDetail(id);
         setCustomerId(String(detail.customer_id));
         setTerms(String(detail.payment_terms_days));
         setNote(detail.note ?? '');
+        setBuyerReference(detail.buyer_reference ?? '');
+        setDeliveryDate(detail.delivery_date ?? '');
+        setExemption(detail.tax_exemption_category ?? '');
+        setExemptionReason(detail.tax_exemption_reason ?? '');
         setLines(
           detail.lines.map((l) => ({
             description: l.description,
@@ -85,6 +113,10 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
         customer_id: Number(customerId),
         payment_terms_days: Number(terms),
         note: note.trim() || null,
+        buyer_reference: buyerReference.trim() || null,
+        delivery_date: deliveryDate || null,
+        tax_exemption_category: exemption || null,
+        tax_exemption_reason: exemptionReason.trim() || null,
         lines: lines.map((l) => ({
           description: l.description,
           quantity: Number(l.quantity.replace(',', '.')),
@@ -161,6 +193,25 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
             <span className="field__label mono">NOTE</span>
             <input className="field__input" value={note} onChange={(e) => setNote(e.target.value)} />
           </label>
+          <label className="field">
+            <span className="field__label mono">SERVICE DATE</span>
+            <input
+              className="field__input"
+              type="date"
+              value={deliveryDate}
+              title="Leistungsdatum — empty means the issue date"
+              onChange={(e) => setDeliveryDate(e.target.value)}
+            />
+          </label>
+          <label className="field editor__note">
+            <span className="field__label mono">BUYER REFERENCE · LEITWEG-ID</span>
+            <input
+              className="field__input"
+              value={buyerReference}
+              placeholder="Empty → the customer's default"
+              onChange={(e) => setBuyerReference(e.target.value)}
+            />
+          </label>
         </div>
 
         <div className="section-title mono">LINE ITEMS</div>
@@ -199,7 +250,7 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
             <label className="field">
               <span className="field__label mono">VAT</span>
               <select className="field__input" value={line.vatRate} onChange={(e) => setLine(i, { vatRate: e.target.value })}>
-                {VAT_RATES.map((r) => (
+                {(rates.includes(Number(line.vatRate)) ? rates : [...rates, Number(line.vatRate)]).map((r) => (
                   <option key={r} value={r}>
                     {r}%
                   </option>
@@ -219,10 +270,40 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
         <button
           className="toolbar__clear mono"
           type="button"
-          onClick={() => setLines([...lines, { ...EMPTY_LINE }])}
+          onClick={() => setLines([...lines, { ...EMPTY_LINE, vatRate: String(Math.max(...rates)) }])}
         >
           + ADD LINE
         </button>
+
+        {lines.some((l) => Number(l.vatRate) === 0) && (
+          <div className="editor__meta">
+            <label className="field editor__note">
+              <span className="field__label mono">
+                WHY 0 % VAT <span className="field__req">*</span>
+              </span>
+              <select className="field__input" value={exemption} onChange={(e) => setExemption(e.target.value)}>
+                <option value="">— choose (required for an e-invoice) —</option>
+                {TAX_EXEMPTION_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c} · {CATEGORY_LABEL[c]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field editor__note">
+              <span className="field__label mono">EXEMPTION TEXT ON THE INVOICE</span>
+              <input
+                className="field__input"
+                value={exemptionReason}
+                placeholder={
+                  (exemption && EXEMPTION_DEFAULT_REASON[exemption as TaxExemptionCategory]) ||
+                  'e.g. Steuerfrei nach § 4 Nr. 14 UStG'
+                }
+                onChange={(e) => setExemptionReason(e.target.value)}
+              />
+            </label>
+          </div>
+        )}
 
         <div className="totals">
           <div className="totals__row mono">

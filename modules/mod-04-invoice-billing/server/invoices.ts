@@ -11,6 +11,7 @@ import type {
   Payment,
   PaymentStatus,
   StoredStatus,
+  TaxExemptionCategory,
 } from '../shared/types.js';
 
 /** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
@@ -70,16 +71,22 @@ interface InvoiceStoredRow {
   cancelled_at: string | null;
   cancellation_reason: string | null;
   created_at: string;
+  buyer_reference: string | null;
+  delivery_date: string | null;
+  tax_exemption_category: TaxExemptionCategory | null;
+  tax_exemption_reason: string | null;
+  seller_snapshot: string | null;
+  buyer_snapshot: string | null;
 }
 
-function getInvoice(db: Database.Database, id: number): InvoiceStoredRow {
+export function getInvoice(db: Database.Database, id: number): InvoiceStoredRow {
   return requireRow(
     db.prepare('SELECT * FROM invoices WHERE id = ?').get(id) as InvoiceStoredRow | undefined,
     'Invoice',
   );
 }
 
-function invoiceLines(db: Database.Database, invoiceId: number): InvoiceLine[] {
+export function invoiceLines(db: Database.Database, invoiceId: number): InvoiceLine[] {
   const rows = db
     .prepare('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY position, id')
     .all(invoiceId) as Omit<InvoiceLine, 'net_cents'>[];
@@ -182,6 +189,11 @@ export function invoiceDetail(
     ...row,
     payment_terms_days: invoice.payment_terms_days,
     note: invoice.note,
+    buyer_reference: invoice.buyer_reference,
+    delivery_date: invoice.delivery_date,
+    tax_exemption_category: invoice.tax_exemption_category,
+    tax_exemption_reason: invoice.tax_exemption_reason,
+    parties_frozen: invoice.seller_snapshot !== null && invoice.buyer_snapshot !== null,
     cancelled_at: invoice.cancelled_at,
     cancellation_reason: invoice.cancellation_reason,
     lines,
@@ -205,6 +217,11 @@ export interface DraftInput {
   note: string | null;
   lines: LineInput[];
   createdAt?: string;
+  /** E-invoice fields — optional so every existing caller keeps working. */
+  buyerReference?: string | null;
+  deliveryDate?: string | null;
+  taxExemptionCategory?: TaxExemptionCategory | null;
+  taxExemptionReason?: string | null;
 }
 
 function writeLines(db: Database.Database, invoiceId: number, lines: LineInput[]): void {
@@ -223,10 +240,20 @@ export function createDraft(db: Database.Database, input: DraftInput): number {
   return db.transaction(() => {
     const info = db
       .prepare(
-        `INSERT INTO invoices (customer_id, status, payment_terms_days, note, created_at)
-         VALUES (?, 'draft', ?, ?, ?)`,
+        `INSERT INTO invoices (customer_id, status, payment_terms_days, note, created_at,
+                               buyer_reference, delivery_date, tax_exemption_category, tax_exemption_reason)
+         VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(input.customerId, input.paymentTermsDays, input.note, input.createdAt ?? nowIso());
+      .run(
+        input.customerId,
+        input.paymentTermsDays,
+        input.note,
+        input.createdAt ?? nowIso(),
+        input.buyerReference ?? null,
+        input.deliveryDate ?? null,
+        input.taxExemptionCategory ?? null,
+        input.taxExemptionReason ?? null,
+      );
     const invoiceId = Number(info.lastInsertRowid);
     writeLines(db, invoiceId, input.lines);
     return invoiceId;
@@ -245,8 +272,18 @@ export function updateDraft(db: Database.Database, id: number, input: DraftInput
   getCustomer(db, input.customerId);
   db.transaction(() => {
     db.prepare(
-      'UPDATE invoices SET customer_id = ?, payment_terms_days = ?, note = ? WHERE id = ?',
-    ).run(input.customerId, input.paymentTermsDays, input.note, id);
+      `UPDATE invoices SET customer_id = ?, payment_terms_days = ?, note = ?, buyer_reference = ?,
+         delivery_date = ?, tax_exemption_category = ?, tax_exemption_reason = ? WHERE id = ?`,
+    ).run(
+      input.customerId,
+      input.paymentTermsDays,
+      input.note,
+      input.buyerReference ?? null,
+      input.deliveryDate ?? null,
+      input.taxExemptionCategory ?? null,
+      input.taxExemptionReason ?? null,
+      id,
+    );
     db.prepare('DELETE FROM invoice_lines WHERE invoice_id = ?').run(id);
     writeLines(db, id, input.lines);
   })();
@@ -277,6 +314,12 @@ export function finalizeInvoice(
   id: number,
   issueDate?: string,
   numberOverride?: string,
+  /**
+   * Freezes the seller and the buyer into the invoice in the same transaction
+   * that numbers it (server/einvoice-data.ts). Optional so tests that only care
+   * about numbering can leave it out; the API always passes it.
+   */
+  freeze?: (invoiceId: number) => void,
 ): { number: string; issue_date: string; due_date: string } {
   const invoice = getInvoice(db, id);
   if (invoice.status !== 'draft') {
@@ -314,6 +357,7 @@ export function finalizeInvoice(
     db.prepare(
       "UPDATE invoices SET number = ?, status = 'sent', issue_date = ?, due_date = ? WHERE id = ?",
     ).run(number, issue, due, id);
+    freeze?.(id);
     return { number, issue_date: issue, due_date: due };
   })();
 }

@@ -174,7 +174,7 @@ describe('totals are derived from lines with per-line rounding', () => {
       .set('Cookie', cookie)
       .send({
         customer_id: 1,
-        lines: [{ description: '', quantity: -1, unit_price_cents: 10.5, vat_rate: 19 }],
+        lines: [{ description: '', quantity: -1, unit_price_cents: 10.5, vat_rate: 16 }],
       });
     expect(bad.status).toBe(422);
     const fields = bad.body.details.map((d: { field: string }) => d.field);

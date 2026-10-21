@@ -59,7 +59,7 @@ export function openDb(path: string): Database.Database {
       description      TEXT NOT NULL,
       quantity         REAL NOT NULL CHECK (quantity > 0),
       unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
-      vat_rate         INTEGER NOT NULL CHECK (vat_rate IN (0, 10, 20))
+      vat_rate         INTEGER NOT NULL CHECK (vat_rate IN (0, 7, 10, 13, 19, 20))
     );
     CREATE INDEX IF NOT EXISTS idx_lines_invoice ON invoice_lines (invoice_id);
 
@@ -241,9 +241,92 @@ export function openDb(path: string): Database.Database {
     db.exec('ALTER TABLE payment_runs ADD COLUMN remittance_checked INTEGER');
   }
 
+  // ── E-invoicing (XRechnung / ZUGFeRD) ──────────────────────────────
+  // Germany's 7 % and 19 % and Austria's 13 % beside the original 0 / 10 / 20.
+  // A CHECK cannot be altered in SQLite, so a database created before this
+  // gets its line table rebuilt once — same rows, same ids, wider CHECK. The
+  // report views read the table and are dropped first (ALTER … RENAME refuses
+  // to run while a view names a table that no longer exists); they are rebuilt
+  // below on every open anyway.
+  const linesSql = (
+    db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'invoice_lines'").get() as { sql: string }
+  ).sql;
+  if (linesSql.includes('IN (0, 10, 20)')) {
+    db.transaction(() => {
+      dropReportViews(db);
+      db.exec(`
+        CREATE TABLE invoice_lines_widened (
+          id               INTEGER PRIMARY KEY AUTOINCREMENT,
+          invoice_id       INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+          position         INTEGER NOT NULL,
+          description      TEXT NOT NULL,
+          quantity         REAL NOT NULL CHECK (quantity > 0),
+          unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
+          vat_rate         INTEGER NOT NULL CHECK (vat_rate IN (0, 7, 10, 13, 19, 20))
+        );
+        INSERT INTO invoice_lines_widened (id, invoice_id, position, description, quantity, unit_price_cents, vat_rate)
+          SELECT id, invoice_id, position, description, quantity, unit_price_cents, vat_rate FROM invoice_lines;
+        DROP TABLE invoice_lines;
+        ALTER TABLE invoice_lines_widened RENAME TO invoice_lines;
+        CREATE INDEX IF NOT EXISTS idx_lines_invoice ON invoice_lines (invoice_id);
+      `);
+    })();
+  }
+
+  // The customer master data an e-invoice needs and a printed address block
+  // does not carry: structured address, where the buyer receives e-invoices,
+  // a default buyer reference (the Leitweg-ID of a German public body), and
+  // the customer's personal account for the DATEV / BMD export. All nullable —
+  // see shared/address.ts for how an empty structured field is filled in.
+  if (!columns('customers').includes('country_code')) {
+    for (const column of ['street', 'postcode', 'city', 'country_code', 'buyer_reference', 'einvoice_address']) {
+      db.exec(`ALTER TABLE customers ADD COLUMN ${column} TEXT`);
+    }
+    db.exec('ALTER TABLE customers ADD COLUMN debtor_account INTEGER');
+  }
+
+  // What an issued invoice must keep saying, whatever the master data does
+  // later. `seller_snapshot` / `buyer_snapshot` are JSON frozen in the same
+  // transaction that assigns the number (server/einvoice-data.ts) — the
+  // e-invoice and the PDF read them, so re-downloading an invoice in three
+  // years yields the parties as they were on the day it was issued. GoBD and
+  // § 14 UStG ask for exactly that; the payment runs already work this way.
+  if (!columns('invoices').includes('seller_snapshot')) {
+    for (const column of [
+      'buyer_reference',
+      'delivery_date',
+      'tax_exemption_category',
+      'tax_exemption_reason',
+      'seller_snapshot',
+      'buyer_snapshot',
+    ]) {
+      db.exec(`ALTER TABLE invoices ADD COLUMN ${column} TEXT`);
+    }
+  }
+
+  // The bookkeeping export settings (DATEV consultant / client number, chart
+  // of accounts, revenue accounts, BMD tax codes). One row, edited on the
+  // export screen — see server/accounting-export.ts for the defaults.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS accounting_settings (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      settings   TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+
   ensureReportViews(db);
 
   return db;
+}
+
+function dropReportViews(db: Database.Database): void {
+  db.exec(`
+    DROP VIEW IF EXISTS report_receivables_aging;
+    DROP VIEW IF EXISTS report_payments;
+    DROP VIEW IF EXISTS report_invoice_lines;
+    DROP VIEW IF EXISTS report_invoices;
+  `);
 }
 
 /**
@@ -290,12 +373,7 @@ export function openDb(path: string): Database.Database {
  */
 function ensureReportViews(db: Database.Database): void {
   // Reverse dependency order: dependants first.
-  db.exec(`
-    DROP VIEW IF EXISTS report_receivables_aging;
-    DROP VIEW IF EXISTS report_payments;
-    DROP VIEW IF EXISTS report_invoice_lines;
-    DROP VIEW IF EXISTS report_invoices;
-  `);
+  dropReportViews(db);
 
   db.exec(`
     -- One row per non-draft invoice: the header, the customer, the money.

@@ -9,36 +9,52 @@
  * needs, and the output is valid PDF 1.4 that every viewer opens.
  */
 
+import { EXEMPTION_DEFAULT_REASON } from '../shared/einvoice.js';
 import { fmtEur } from '../shared/money.js';
 import type { Customer, InvoiceDetail } from '../shared/types.js';
 import type { SellerConfig } from './config.js';
 
 export const A4 = { width: 595.28, height: 841.89 };
 
-const FONTS = {
+export const FONTS = {
   F1: 'Helvetica',
   F2: 'Helvetica-Bold',
   F3: 'Courier',
   F4: 'Courier-Bold',
 } as const;
-type FontKey = keyof typeof FONTS;
+export type FontKey = keyof typeof FONTS;
 
 /** Courier glyph width: 600/1000 em — exact, per the AFM spec. */
 const COURIER_EM = 0.6;
 
-/** Map a JS string to escaped WinAnsi bytes for a PDF string literal. */
-function winAnsi(text: string): string {
-  const HIGH: Record<string, number> = {
-    '€': 0x80, '‚': 0x82, '„': 0x84, '…': 0x85,
-    '†': 0x86, '‡': 0x87, '‰': 0x89, '‹': 0x8b,
-    '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94,
-    '•': 0x95, '–': 0x96, '—': 0x97, '›': 0x9b,
-    '−': 0x2d, // minus sign → hyphen
-  };
-  let out = '';
+const HIGH: Record<string, number> = {
+  '€': 0x80, '‚': 0x82, '„': 0x84, '…': 0x85,
+  '†': 0x86, '‡': 0x87, '‰': 0x89, '‹': 0x8b,
+  '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94,
+  '•': 0x95, '–': 0x96, '—': 0x97, '›': 0x9b,
+  '−': 0x2d, // minus sign → hyphen
+};
+
+/**
+ * A JS string as WinAnsi codes. Control characters (a tab pasted into a line
+ * description) become spaces: they have no glyph, and a PDF/A may not show
+ * the .notdef box in their place.
+ */
+export function winAnsiCodes(text: string): number[] {
+  const codes: number[] = [];
   for (const ch of text) {
     let code = ch.codePointAt(0)!;
     if (code > 0xff) code = HIGH[ch] ?? 0x3f; // '?'
+    else if (code < 0x20 || (code >= 0x7f && code < 0xa0)) code = 0x20;
+    codes.push(code);
+  }
+  return codes;
+}
+
+/** Escaped WinAnsi bytes for a PDF string literal. */
+function escapeCodes(codes: number[]): string {
+  let out = '';
+  for (const code of codes) {
     if (code === 0x5c) out += '\\\\';
     else if (code === 0x28) out += '\\(';
     else if (code === 0x29) out += '\\)';
@@ -53,11 +69,17 @@ const n = (value: number): string => String(Math.round(value * 100) / 100);
 /** One page of drawing ops. y runs DOWN from the top edge (like CSS). */
 export class Page {
   private ops: string[] = [];
+  /** Which WinAnsi codes each font shows — what a PDF/A font subset must keep. */
+  readonly used = new Map<FontKey, Set<number>>();
 
   /** Left-aligned text. `gray` 0 = black … 1 = white. */
   text(font: FontKey, size: number, x: number, y: number, value: string, gray = 0): void {
+    const codes = winAnsiCodes(value);
+    const used = this.used.get(font) ?? new Set<number>();
+    for (const code of codes) used.add(code);
+    this.used.set(font, used);
     this.ops.push(
-      `${n(gray)} g BT /${font} ${n(size)} Tf ${n(x)} ${n(A4.height - y)} Td (${winAnsi(value)}) Tj ET`,
+      `${n(gray)} g BT /${font} ${n(size)} Tf ${n(x)} ${n(A4.height - y)} Td (${escapeCodes(codes)}) Tj ET`,
     );
   }
 
@@ -139,12 +161,30 @@ function tableHead(page: Page, y: number): number {
   return y + 22;
 }
 
+/** The customer fields the letterhead prints. */
+export type PdfCustomer = Pick<Customer, 'name' | 'address' | 'vat_id'>;
+
 /** Render an invoice as a letterhead-style PDF. */
-export function renderInvoicePdf(
+export function renderInvoicePdf(invoice: InvoiceDetail, customer: PdfCustomer, seller: SellerConfig): Buffer {
+  return buildPdf(layoutInvoice(invoice, customer, seller));
+}
+
+/**
+ * Lay an invoice out as pages. Shared by the plain PDF above and the PDF/A-3
+ * that carries a ZUGFeRD invoice (server/pdfa.ts), so the two cannot differ
+ * in anything but the fonts they are set in.
+ */
+export function layoutInvoice(
   invoice: InvoiceDetail,
-  customer: Customer,
+  customer: PdfCustomer,
   seller: SellerConfig,
-): Buffer {
+  /**
+   * Lay out the CANCELLATION of `invoice` instead — the credit note a
+   * ZUGFeRD cancellation carries (type 381), with its own number and date and
+   * a reference to the invoice it cancels.
+   */
+  cancellation?: { number: string; date: string },
+): Page[] {
   const pages: Page[] = [];
   let page = new Page();
   pages.push(page);
@@ -152,7 +192,10 @@ export function renderInvoicePdf(
   // ── Letterhead ──
   page.text('F2', 26, M, 78, '0815');
   page.text('F3', 6.5, M, 92, `${seller.name.toUpperCase()} · STANDARD BUSINESS SOFTWARE`, 0.45);
-  page.textRight('F4', 13, R, 78, invoice.status === 'cancelled' ? 'CANCELLED INVOICE' : 'INVOICE');
+  page.textRight(
+    'F4', 13, R, 78,
+    cancellation ? 'CREDIT NOTE · CANCELLATION' : invoice.status === 'cancelled' ? 'CANCELLED INVOICE' : 'INVOICE',
+  );
   page.line(M, 106, R, 0.8, 0.2);
 
   // ── Seller / bill-to / meta ──
@@ -173,13 +216,26 @@ export function renderInvoicePdf(
   }
 
   const metaX = 356;
-  const meta: [string, string][] = [
-    ['INVOICE NO', invoice.number ?? 'DRAFT'],
-    ['ISSUE DATE', invoice.issue_date ?? '—'],
-    ['DUE DATE', invoice.due_date ?? '—'],
-    ['TERMS', `${invoice.payment_terms_days} DAYS NET`],
-  ];
-  if (invoice.status === 'cancelled') {
+  const meta: [string, string][] = cancellation
+    ? [
+        ['CREDIT NOTE NO', cancellation.number],
+        ['ISSUE DATE', cancellation.date],
+        ['CANCELS', invoice.number ?? '—'],
+        ['INVOICE DATE', invoice.issue_date ?? '—'],
+      ]
+    : [
+        ['INVOICE NO', invoice.number ?? 'DRAFT'],
+        ['ISSUE DATE', invoice.issue_date ?? '—'],
+        ['DUE DATE', invoice.due_date ?? '—'],
+        ['TERMS', `${invoice.payment_terms_days} DAYS NET`],
+      ];
+  // The date of supply is a mandatory invoice field (§ 14 Abs. 4 Nr. 6 UStG,
+  // § 11 Abs. 1 Z 3 lit. d UStG-AT). Without its own, it is the issue date.
+  if (invoice.issue_date !== null) {
+    meta.splice(2, 0, ['SERVICE DATE', invoice.delivery_date ?? invoice.issue_date]);
+  }
+  if (invoice.buyer_reference) meta.push(['YOUR REF', truncate(invoice.buyer_reference, 24)]);
+  if (invoice.status === 'cancelled' && !cancellation) {
     meta.push(['CANCELLED', invoice.cancelled_at?.slice(0, 10) ?? '']);
   }
   let metaY = y;
@@ -241,15 +297,28 @@ export function renderInvoicePdf(
 
   // ── Notes / cancellation ──
   y += 12;
+  if (cancellation) {
+    page.text('F2', 9, M, y, `Cancels invoice ${invoice.number} of ${invoice.issue_date} in full.`, 0.2);
+    y += 16;
+  }
   if (invoice.status === 'cancelled' && invoice.cancellation_reason) {
-    page.text('F2', 9, M, y, `Cancelled: ${invoice.cancellation_reason}`, 0.2);
+    page.text('F2', 9, M, y, `${cancellation ? 'Reason' : 'Cancelled'}: ${invoice.cancellation_reason}`, 0.2);
     y += 16;
   }
   if (invoice.note) {
     page.text('F1', 8.5, M, y, truncate(invoice.note, 100), 0.3);
     y += 16;
   }
-  if (invoice.status !== 'cancelled') {
+  // Why the 0 % lines carry no VAT. Required on the document itself — e.g.
+  // "Steuerschuldnerschaft des Leistungsempfängers" for reverse charge.
+  if (invoice.tax_exemption_category && invoice.lines.some((l) => l.vat_rate === 0)) {
+    const reason = invoice.tax_exemption_reason ?? EXEMPTION_DEFAULT_REASON[invoice.tax_exemption_category];
+    if (reason) {
+      page.text('F2', 8.5, M, y, truncate(reason, 100), 0.2);
+      y += 16;
+    }
+  }
+  if (invoice.status !== 'cancelled' && !cancellation) {
     const due = invoice.due_date ?? '—';
     page.text(
       'F1', 8.5, M, y,
@@ -264,7 +333,7 @@ export function renderInvoicePdf(
   page.line(M, fy - 14, R, 0.5, 0.6);
   page.text('F3', 7, M, fy, `${seller.name} · VAT ${seller.vatId}`, 0.45);
   page.text('F3', 7, M, fy + 11, `IBAN ${seller.iban} · BIC ${seller.bic}`, 0.45);
-  page.textRight('F3', 7, R, fy, invoice.number ?? 'DRAFT', 0.45);
+  page.textRight('F3', 7, R, fy, cancellation?.number ?? invoice.number ?? 'DRAFT', 0.45);
 
-  return buildPdf(pages);
+  return pages;
 }

@@ -6,7 +6,7 @@ credit transfer file to pay them. Part of the
 [0815software](https://0815software.com) module catalogue — standard
 business software, MIT-licensed, always free.
 
-Three correctness properties are the point of this module, and the test
+Five correctness properties are the point of this module, and the test
 suite proves each of them:
 
 1. **Totals are never stored, they are derived.** An invoice stores line
@@ -29,6 +29,11 @@ suite proves each of them:
    payment run, enforced by a unique index rather than by care, and a
    produced file never changes afterwards. See
    [Bills and the SEPA payment file](#bills-and-the-sepa-payment-file).
+5. **An issued invoice keeps saying what it said.** Finalizing freezes the
+   seller and the buyer into the invoice; the PDF, the XRechnung and the
+   ZUGFeRD file are rendered from that copy, so a later address change never
+   rewrites an invoice already sent — and every e-invoice file is produced only
+   when it validates. See [E-invoices](#e-invoices-xrechnung-and-zugferd).
 
 ## Stack
 
@@ -40,12 +45,16 @@ Deliberately standard and boring (same as MOD-01 … MOD-03):
 | API      | Node + Express 5                              |
 | Storage  | better-sqlite3 (single file, zero services)   |
 | PDF      | Hand-rolled minimal writer — zero deps        |
+| PDF/A-3  | Same writer + TrueType subsetting (ZUGFeRD)   |
 | Styling  | Hand-rolled CSS, no framework                 |
 | Tests    | Vitest + Supertest                            |
 
 Runtime dependencies: `express`, `better-sqlite3`, `react`, `react-dom`.
 That's all — the PDF generator is ~200 lines of this repository, fully
-offline, no CDN, no external services.
+offline, no CDN, no external services. The PDF/A-3 container for ZUGFeRD
+(`server/pdfa.ts`, `server/ttf.ts`) is equally dependency-free; it embeds
+Liberation Sans / Mono, shipped in `assets/fonts` under the SIL Open Font
+License.
 
 ## Quickstart
 
@@ -84,13 +93,19 @@ money going out:
 
 ```
 customers          name, email, vat_id, address              (CRUD via UI/API)
+                   + street, postcode, city, country_code, buyer_reference,
+                   einvoice_address, debtor_account   (all optional)
 invoices           number (NULL for drafts), customer, status,
                    issue_date, due_date, payment_terms_days,
-                   note, cancellation audit trail
+                   note, cancellation audit trail,
+                   buyer_reference, delivery_date, tax_exemption_category
+                   / _reason, seller_snapshot / buyer_snapshot (JSON,
+                   frozen at finalize — see E-invoices)
 invoice_lines      invoice, position, description, quantity,
-                   unit_price_cents, vat_rate (0 | 10 | 20)
+                   unit_price_cents, vat_rate (0 | 7 | 10 | 13 | 19 | 20)
 payments           invoice, date, amount_cents, note
 invoice_counters   year → last_seq                           (the number source)
+accounting_settings  one row: DATEV / BMD export settings (JSON)
 
 creditors          name, iban (validated), bic, note         (who we pay)
 bills              creditor, reference, remittance, amount_cents (GROSS),
@@ -237,6 +252,11 @@ draft ──finalize──▶ sent ──payments cover gross──▶ paid   (d
   id, control sum, the transfers inside it, a download button, and the
   two ends: mark executed (settles its bills) or discard (releases
   them).
+- **E-invoices** — XRechnung 3.0 (XML) and ZUGFeRD (PDF/A-3, EN 16931) for
+  every issued invoice, and for a cancellation as a credit note; the detail
+  view lists exactly what is still missing, by EN 16931 business term.
+- **Exports** — the issued invoices of a period as a DATEV Buchungsstapel or a
+  BMD NTCS booking import, with the account settings on the same screen.
 - **Auth** — single staff login from env vars; stateless HMAC-signed
   session cookie (HttpOnly, SameSite=Lax, optional Secure), exactly as
   in MOD-02/MOD-03.
@@ -259,6 +279,11 @@ All via environment variables (see [`.env.example`](.env.example)):
 | `SELLER_VAT_ID`     | `ATU00000000`          | Letterhead: seller VAT id                |
 | `SELLER_IBAN`       | *(example IBAN)*       | PDF footer **and the debtor account of every payment file** |
 | `SELLER_BIC`        | `EXAMPLEX`             | PDF footer: BIC; the debtor agent when set |
+| `SELLER_STREET` · `SELLER_POSTCODE` · `SELLER_CITY` · `SELLER_COUNTRY` | *(read from `SELLER_ADDRESS`)* | E-invoice: structured seller address (BT-35/38/37/40) |
+| `SELLER_TAX_NUMBER` | —                      | E-invoice: German Steuernummer (BT-32)   |
+| `SELLER_REGISTRATION` | —                    | E-invoice: register number, e.g. `HRB 12345` (BT-30) — needed without a VAT id |
+| `SELLER_CONTACT_NAME` · `SELLER_PHONE` · `SELLER_EMAIL` | — | E-invoice: seller contact — mandatory for XRechnung (BT-41/42/43) |
+| `SELLER_EINVOICE_ADDRESS` | *(`SELLER_EMAIL`)* | E-invoice: seller electronic address (BT-34) |
 
 The server prints a warning on startup while the default password is in
 use. The dev server does not load `.env` files by itself — export the
@@ -300,6 +325,15 @@ POST   /api/invoices/:id/cancel        {reason} — keeps the number
 POST   /api/invoices/:id/payments      {amount_cents, date?, note?}
                                        overpayment → 422
 GET    /api/invoices/:id/pdf           the invoice as a generated PDF
+GET    /api/invoices/:id/einvoice      what XRechnung / ZUGFeRD would still refuse
+GET    /api/invoices/:id/xrechnung.xml ?document=cancellation for the credit note
+GET    /api/invoices/:id/zugferd.pdf   PDF/A-3 with factur-x.xml; ?document=cancellation
+GET    /api/einvoice-config            the seller as e-invoices see it + what is missing
+
+GET    /api/accounting-settings        DATEV / BMD settings + suggested accounts
+PUT    /api/accounting-settings
+GET    /api/exports/datev.csv          ?from=&to=&payments=1 — EXTF Buchungsstapel
+GET    /api/exports/bmd.csv            ?from=&to= — BMD NTCS booking import
 
 GET    /api/payment-config             the debtor account + whether it is usable
 
@@ -482,6 +516,68 @@ Every call is best-effort — a downstream outage is logged and never fails the
 invoice — and entirely opt-in: with the URLs unset (`NOTIFICATION_URL`,
 `FILES_URL`, `AUDIT_URL`, `PLATFORM_SERVICE_TOKEN`) the module behaves exactly
 as before, standalone, with no outbound calls. See `server/platform.ts`.
+
+## E-invoices: XRechnung and ZUGFeRD
+
+From **1 January 2027** a German business whose previous-year turnover exceeded
+**€800,000** must issue its domestic B2B invoices as e-invoices (§ 14 UStG as
+amended by the Wachstumschancengesetz); everyone else follows on 1 January
+2028, and every business must already be able to receive them. A PDF by email
+is not an e-invoice. This module issues both formats the law accepts in
+practice:
+
+| Format | What it is | Download |
+| ------ | ---------- | -------- |
+| **XRechnung 3.0** | EN 16931 with the German CIUS (KoSIT), CII syntax — required by German public bodies | `GET /api/invoices/:id/xrechnung.xml` |
+| **ZUGFeRD 2.x / Factur-X, profile EN 16931** | a PDF/A-3 a person reads, with the same XML embedded as `factur-x.xml` | `GET /api/invoices/:id/zugferd.pdf` |
+
+Both come from **one model and one renderer** (`shared/einvoice.ts`), fed by
+the invoice as issued (`server/einvoice-data.ts`). The money is this module's
+own — per-line rounding, VAT once per rate — which is exactly what the
+EN 16931 rules recompute, so the XML states the PDF's figures to the cent.
+
+- **Refused rather than wrong.** A file is only produced when it would
+  validate. Otherwise `422` lists every missing field with its business term
+  (`BT-49: XRechnung requires the buyer electronic address …`), and the
+  invoice screen shows the same list before anyone downloads.
+- **Frozen at issue.** Finalizing copies seller and buyer into the invoice;
+  re-downloading next year gives the same file. Invoices issued before this
+  release have no copy and read today's master data (`parties_frozen: false`).
+- **0 % needs a reason.** A draft with 0 % lines names its VAT category —
+  `E` exempt (with the legal ground), `AE` reverse charge, `K` intra-EU supply,
+  `G` export, `Z` zero-rated, `O` not subject — and the reason is printed on
+  the PDF and written to the XML.
+- **A cancellation is a document.** A cancelled invoice keeps its original
+  e-invoice; its cancellation is a credit note (type 381, number
+  `<invoice>-ST`) referring to it — `?document=cancellation`.
+- **Validated outside this repository.** Every case in
+  `test/einvoice-cases.ts` passed Mustang (EN 16931 + XRechnung 3.0
+  schematron, veraPDF for PDF/A-3b) before its golden file was committed; the
+  suite pins those bytes and checks the Factur-X XSD on every run.
+  `npm run einvoice:validate` repeats the external check (needs Java).
+
+What to set up, field by field, and what is deliberately not covered:
+[`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
+
+## Bookkeeping export: DATEV and BMD
+
+**Exports** in the navigation turns the issued invoices of a period into the
+file the tax adviser imports:
+
+- **DATEV** — the DATEV-Format *Buchungsstapel* (EXTF 700, format version 13,
+  all 125 columns, Windows-1252): one booking per invoice and VAT rate, debtor
+  in Soll against the revenue account at the gross amount; a cancellation as
+  the reverse booking on its own date; payments optionally against the bank
+  account. The suggested accounts are the SKR03 / SKR04 automatic revenue
+  accounts, so no BU key is needed.
+- **BMD NTCS** — the booking import with named columns: debtor, revenue
+  account, numeric document number, gross amount with the VAT opposite, the
+  BMD tax code per VAT group.
+
+Account numbers belong to the adviser's chart, not to this module: the
+settings start from suggestions, every one is editable, and an export that
+needs an unconfigured account refuses with the list instead of guessing.
+**Run the first file through the adviser's import preview.**
 
 ## Billing an accepted offer
 
@@ -769,8 +865,10 @@ these, that's commissioned work — exactly the kind 0815software does:
   number (no SMTP). Real delivery is available opt-in via PS-03 (see above).
 - **Multi-user accounts and roles** — one staff admin by design (same
   auth pattern as MOD-02/03). No per-user audit trail.
-- **Other currencies and VAT regimes** — EUR only, Austrian rates
-  (0/10/20%). Reverse-charge is just a 0% line with a note.
+- **Other currencies and VAT regimes** — EUR only; the Austrian (0/10/13/20 %)
+  and German (0/7/19 %) rates. A 0 % line names its VAT category (exempt,
+  reverse charge, intra-EU supply, export, zero-rated, not subject); one
+  category per invoice.
 - **Recurring invoices, quotes, dunning runs** — the clean REST API is
   the hook for automation; reminders are a note field, not a workflow.
 - **Formal credit notes** — corrections are cancellation + new invoice.
@@ -779,8 +877,10 @@ these, that's commissioned work — exactly the kind 0815software does:
   manually or via the API; no CAMT/MT940 parsing, no PSP integration.
   The payment file goes out; nothing comes back in automatically, which
   is why marking a run executed is a human action.
-- **e-Invoicing formats** (ebInterface, XRechnung, ZUGFeRD/Factur-X) —
-  the PDF is a plain human-readable document.
+- **ebInterface, UBL and PEPPOL transport** — XRechnung and ZUGFeRD are
+  produced in CII syntax and downloaded; nothing is sent over PEPPOL, and the
+  Austrian ebInterface format is not written. Incoming e-invoices are not
+  read on the bills side. See [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
 - **EBICS (or any other) bank transport** — the module produces the file
   and stops there; see
   [Bills and the SEPA payment file](#bills-and-the-sepa-payment-file).

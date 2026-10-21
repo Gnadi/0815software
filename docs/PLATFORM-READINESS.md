@@ -424,10 +424,13 @@ because an erasure that half-succeeds across four services is worse than one
 performed deliberately.
 
 ### D2. Invoice/legal specifics
-PS-10 delivers gapless numbering (a real DACH requirement — good). Still open:
-e-invoicing formats (ZUGFeRD/XRechnung), immutable long-term invoice archival,
-and tamper-evidence for the invoices themselves (PS-07 covers events, not the
-documents).
+PS-10 delivers gapless numbering (a real DACH requirement — good).
+**Shipped:** e-invoicing formats — MOD-04 issues XRechnung 3.0 and ZUGFeRD
+(PDF/A-3, EN 16931) from parties frozen at issue, plus DATEV / BMD booking
+exports ([`E-RECHNUNG.md`](./E-RECHNUNG.md)). **Still open:** immutable
+long-term invoice archival and tamper-evidence for the documents themselves
+(PS-07 covers events, not the documents; PS-06 archives the PDF only), and
+reading incoming e-invoices on the bills side.
 
 ---
 

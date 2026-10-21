@@ -14,9 +14,30 @@ interface FormState {
   email: string;
   vat_id: string;
   address: string;
+  street: string;
+  postcode: string;
+  city: string;
+  country_code: string;
+  buyer_reference: string;
+  einvoice_address: string;
+  debtor_account: string;
 }
 
-const EMPTY: FormState = { id: null, name: '', email: '', vat_id: '', address: '' };
+const EMPTY: FormState = {
+  id: null, name: '', email: '', vat_id: '', address: '', street: '', postcode: '', city: '',
+  country_code: '', buyer_reference: '', einvoice_address: '', debtor_account: '',
+};
+
+/** The e-invoice fields, optional: empty ones are read from the address block. */
+const EINVOICE_FIELDS: { key: keyof FormState; label: string; placeholder?: string }[] = [
+  { key: 'street', label: 'STREET', placeholder: 'from the address' },
+  { key: 'postcode', label: 'POSTCODE', placeholder: 'from the address' },
+  { key: 'city', label: 'CITY', placeholder: 'from the address' },
+  { key: 'country_code', label: 'COUNTRY (ISO)', placeholder: 'DE, AT … — else from the VAT id' },
+  { key: 'buyer_reference', label: 'BUYER REFERENCE · LEITWEG-ID', placeholder: 'required for XRechnung' },
+  { key: 'einvoice_address', label: 'E-INVOICE ADDRESS', placeholder: 'empty → email' },
+  { key: 'debtor_account', label: 'DEBTOR ACCOUNT (DATEV / BMD)', placeholder: 'empty → numbered' },
+];
 
 export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
   const [rows, setRows] = useState<CustomerRow[] | null>(null);
@@ -55,6 +76,13 @@ export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
         email: form.email.trim() || null,
         vat_id: form.vat_id.trim() || null,
         address: form.address.trim() || null,
+        street: form.street.trim() || null,
+        postcode: form.postcode.trim() || null,
+        city: form.city.trim() || null,
+        country_code: form.country_code.trim() || null,
+        buyer_reference: form.buyer_reference.trim() || null,
+        einvoice_address: form.einvoice_address.trim() || null,
+        debtor_account: form.debtor_account.trim() || null,
       };
       if (form.id === null) await api.createCustomer(values);
       else await api.updateCustomer(form.id, values);
@@ -152,6 +180,13 @@ export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
                           email: c.email ?? '',
                           vat_id: c.vat_id ?? '',
                           address: c.address ?? '',
+                          street: c.street ?? '',
+                          postcode: c.postcode ?? '',
+                          city: c.city ?? '',
+                          country_code: c.country_code ?? '',
+                          buyer_reference: c.buyer_reference ?? '',
+                          einvoice_address: c.einvoice_address ?? '',
+                          debtor_account: c.debtor_account === null || c.debtor_account === undefined ? '' : String(c.debtor_account),
                         })
                       }
                     >
@@ -229,6 +264,20 @@ export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
                   onChange={(e) => setForm({ ...form, address: e.target.value })}
                 />
               </label>
+              <div className="field__label mono" style={{ gridColumn: '1 / -1', marginTop: 8 }}>
+                E-INVOICE (XRECHNUNG / ZUGFERD) · OPTIONAL
+              </div>
+              {EINVOICE_FIELDS.map((f) => (
+                <label key={f.key} className="field">
+                  <span className="field__label mono">{f.label}</span>
+                  <input
+                    className="field__input"
+                    value={form[f.key] as string}
+                    placeholder={f.placeholder}
+                    onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                  />
+                </label>
+              ))}
             </div>
             <div className="modal__actions">
               <button className="btn btn--ghost" type="button" onClick={() => setForm(null)}>

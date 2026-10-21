@@ -233,6 +233,7 @@ describe('the views exist and the migration is idempotent', () => {
         .all() as { name: string }[]
     ).map((t) => t.name);
     expect(tables).toEqual([
+      'accounting_settings',
       'bills',
       'creditors',
       'customers',
