@@ -1,0 +1,11 @@
+{
+  // The package tsconfig covers only what it builds, so it does not include
+  // these tests. Vite 8, which Vitest 4 transforms with, then keeps walking up
+  // and lands on the repository root config, which extends
+  // `astro/tsconfigs/strict` and fails in CI, where the root is not installed.
+  // This file gives the tests a config of their own, as deploy/tsconfig.json
+  // does for that package.
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "noEmit": true, "rootDir": ".." },
+  "include": ["."]
+}
