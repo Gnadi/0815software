@@ -1,9 +1,9 @@
 ---
 // §07 — Use cases ("Six businesses, one catalogue")
-// The six example businesses from /use-cases, right before the project
-// procedure: a visitor sees the modules at work in a business like theirs,
-// then how a project runs. Each card tells one moment from that business's
-// day and opens it on /use-cases.
+// The list of the six example businesses, right before the project procedure:
+// a visitor sees the modules at work in a business like theirs, then how a
+// project runs. Each card tells one moment from that business's day and opens
+// its own page, /use-cases/<id>, which describes the case in full.
 // Grid: 120px | 1fr | 1fr | 1fr
 import { useCases } from '../data/use-cases';
 import { T } from '../i18n/translations';
@@ -30,7 +30,7 @@ import { T } from '../i18n/translations';
     <div class="ucs__spacer" aria-hidden="true"></div>
     <div class="ucs__cards">
       {useCases.map((uc) => (
-        <a class="ucs-card" href={`/use-cases#${uc.id}`}>
+        <a class="ucs-card" href={`/use-cases/${uc.id}`}>
           <span class="ucs-card__label">{uc.n} · <span data-i18n={`uc.${uc.id}.sector`}>{T.en[`uc.${uc.id}.sector`]}</span></span>
           <span class="ucs-card__title" data-i18n={`uc.${uc.id}.title`}>{T.en[`uc.${uc.id}.title`]}</span>
           <span class="ucs-card__profile" data-i18n={`uc.${uc.id}.profile`}>{T.en[`uc.${uc.id}.profile`]}</span>
@@ -51,7 +51,7 @@ import { T } from '../i18n/translations';
       <p class="ucs__cta-body" data-i18n="page.uc.cta.body">{T.en['page.uc.cta.body']}</p>
       <div class="ucs__actions">
         <a href="#contact" class="btn btn--primary" data-i18n="page.uc.cta.quote">{T.en['page.uc.cta.quote']}</a>
-        <a href="/use-cases" class="btn btn--ghost" data-i18n="usecases.cta">All use cases →</a>
+        <a href="/demo" class="btn btn--ghost" data-i18n="page.uc.cta.demo">{T.en['page.uc.cta.demo']}</a>
       </div>
     </div>
   </div>

@@ -5,7 +5,7 @@ export const LANGS: readonly Lang[] = ['en', 'de'];
 
 export const T: Record<Lang, Record<string, string>> = {
   en: {
-    // /use-cases copy lives in its own file (src/i18n/use-cases.ts).
+    // Use-case copy lives in its own file (src/i18n/use-cases.ts).
     ...UC.en,
 
     // ─── Nav ────────────────────────────────────────────────────────────
@@ -37,7 +37,6 @@ export const T: Record<Lang, Record<string, string>> = {
     'usecases.lead':     `A restaurant, a tradesman, a tax office, a wholesaler, an agency and a non-profit: real everyday problems, solved by modules that already exist. Set up, not developed.`,
     'usecases.ready':    `READY TODAY`,
     'usecases.more':     `View use case →`,
-    'usecases.cta':      `All use cases →`,
 
     // ─── Hero ───────────────────────────────────────────────────────────
     'hero.eyebrow':      `Your own SaaS, built from modules`,
@@ -640,7 +639,6 @@ export const T: Record<Lang, Record<string, string>> = {
     'usecases.lead':     `Ein Restaurant, ein Handwerksbetrieb, eine Steuerberatung, ein Großhandel, eine Agentur und ein Verein: echte Alltagsprobleme, gelöst mit Modulen, die es schon gibt. Eingerichtet, nicht entwickelt.`,
     'usecases.ready':    `HEUTE EINSETZBAR`,
     'usecases.more':     `Anwendungsfall ansehen →`,
-    'usecases.cta':      `Alle Anwendungsfälle →`,
 
     // ─── Hero ───────────────────────────────────────────────────────────
     'hero.eyebrow':      `Ihr eigenes SaaS, aus Modulen gebaut`,
