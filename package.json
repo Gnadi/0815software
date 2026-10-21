@@ -9,13 +9,13 @@
     "preview": "astro preview"
   },
   "dependencies": {
-    "@astrojs/sitemap": "^3.7.3",
-    "@astrojs/vercel": "^10.0.5",
+    "@astrojs/sitemap": "^3.7.4",
+    "@astrojs/vercel": "^11.0.16",
     "@fontsource/instrument-serif": "^5.2.8",
     "@fontsource/inter-tight": "^5.2.7",
     "@fontsource/jetbrains-mono": "^5.2.8",
-    "@tailwindcss/postcss": "^4.2.4",
-    "astro": "^6.1.9",
-    "tailwindcss": "^4.2.4"
+    "@tailwindcss/vite": "^4.3.3",
+    "astro": "^7.4.1",
+    "tailwindcss": "^4.3.3"
   }
 }

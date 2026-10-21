@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-08-reporting-suite",
   "version": "0.1.0",
-  "description": "MOD-08 Reporting Suite \u2014 scheduled exports, pivot tables, and chart embeds built on top of your existing database.",
+  "description": "MOD-08 Reporting Suite — scheduled exports, pivot tables, and chart embeds built on top of your existing database.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -34,6 +34,6 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.3.4",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }

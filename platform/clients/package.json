@@ -12,7 +12,11 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "keywords": [
     "0815software",
     "platform-services",
@@ -46,6 +50,6 @@
   "devDependencies": {
     "@types/node": "^22.19.11",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }

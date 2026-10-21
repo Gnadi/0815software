@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-10-crm-lite",
   "version": "0.1.0",
-  "description": "MOD-10 CRM Lite \u2014 contacts, companies, deals, an append-only activity log and a config-driven pipeline. No AI upsells, no seat caps, no telemetry.",
+  "description": "MOD-10 CRM Lite — contacts, companies, deals, an append-only activity log and a config-driven pipeline. No AI upsells, no seat caps, no telemetry.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -34,6 +34,6 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.3.4",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }

@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-05-employee-directory",
   "version": "0.1.0",
-  "description": "MOD-05 Employee Directory \u2014 org chart, roles, contact data, and department structure. Integrates with HR onboarding.",
+  "description": "MOD-05 Employee Directory — org chart, roles, contact data, and department structure. Integrates with HR onboarding.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -34,6 +34,6 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.3.4",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }

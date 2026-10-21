@@ -1,7 +1,7 @@
 {
   "name": "@0815software/mod-02-admin-dashboard",
   "version": "0.1.0",
-  "description": "MOD-02 Admin Dashboard \u2014 internal CRUD interface over any data model. Tables, filters, bulk actions, exports.",
+  "description": "MOD-02 Admin Dashboard — internal CRUD interface over any data model. Tables, filters, bulk actions, exports.",
   "license": "MIT",
   "type": "module",
   "private": true,
@@ -34,6 +34,6 @@
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
     "vite": "^7.3.4",
-    "vitest": "^3.2.4"
+    "vitest": "^4.1.12"
   }
 }
