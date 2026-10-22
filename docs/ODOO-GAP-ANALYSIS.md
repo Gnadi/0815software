@@ -56,7 +56,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | CRM | ✅ MOD-10 (Pipeline, Aktivitäten, Übergabe an MOD-13) | Mehrbenutzer, Web-Lead-Formular, CSV-Import fehlen; Philosophie „no AI“ ist ein Verkaufsargument, beibehalten |
 | Sales (Angebot → Auftrag) | 🟡 MOD-13 Angebote → MOD-04 Rechnung | ❌ **Auftrag/Lieferschein fehlt** — größte fachliche Lücke im Kernprozess |
 | Point of Sale | ❌ | ⛔ in AT RKSV-pflichtig (Signatureinheit, DEP, FinanzOnline) — Haftungsrisiko ohne Lizenzertrag |
-| Subscriptions (E) | ❌ | 🔜 als **Erweiterung von MOD-04** (wiederkehrende Rechnungen), nicht als Modul |
+| Subscriptions (E) | 🟡 MOD-04 wiederkehrende Rechnungen (Vorlagen → Entwürfe je Periode) | ✅ als Erweiterung von MOD-04 umgesetzt; nutzungsbasierte Abrechnung und Proration bleiben offen |
 | Rental (E) | ❌ | ⛔ Nische; über Terminbuchung + MOD-03 abbildbar |
 | Amazon-Connector (E) | ❌ | ⛔ PS-05 ist der Haken, Auftragsarbeit |
 
@@ -144,9 +144,10 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 2. ✅ **MOD-04: E-Rechnung.** XRechnung/ZUGFeRD (DE, PR #37) und
    ebInterface 6.1 (AT, Bund), jeweils gegen das offizielle Schema geprüft
    (`docs/E-RECHNUNG.md`). Offen: UBL/PEPPOL-Versand, Eingangsrechnungen lesen.
-3. **MOD-04: Wiederkehrende Rechnungen** (= Odoo Subscriptions light),
-   **Teilgutschriften** als eigener Belegtyp (die Storno-Gutschrift gibt es
-   seit PR #37). ✅ **Mahnwesen** umgesetzt (Stufen abgeleitet, Mahnungen
+3. ✅ **MOD-04: Wiederkehrende Rechnungen** (= Odoo Subscriptions light:
+   Vorlage → höchstens ein Entwurf je Periode). **Teilgutschriften** als
+   eigener Belegtyp (die Storno-Gutschrift gibt es seit PR #37). ✅
+   **Mahnwesen** umgesetzt (Stufen abgeleitet, Mahnungen
    unveränderlich gespeichert, Versand über PS-03).
 4. ✅ **MOD-04: Buchhaltungsexport** BMD (AT) und DATEV-Buchungsstapel (DE)
    (PR #37). Offen: Belegverknüpfung zu PS-06.

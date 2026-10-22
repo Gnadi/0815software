@@ -314,6 +314,35 @@ export function openDb(path: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_dunning_notices_invoice ON dunning_notices(invoice_id);
   `);
 
+  // Recurring invoices: the template (its draft as JSON — the same shape a
+  // draft is validated into) and one row per period that produced a draft.
+  // UNIQUE (template, period) is what makes generating idempotent
+  // (server/recurring.ts). Runs are history and are never deleted; a run's
+  // invoice_id goes NULL if its draft is deleted, and the period stays done.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS recurring_invoices (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      name        TEXT    NOT NULL,
+      customer_id INTEGER NOT NULL REFERENCES customers(id),
+      interval    TEXT    NOT NULL CHECK (interval IN ('monthly', 'quarterly', 'yearly')),
+      start_date  TEXT    NOT NULL,
+      end_date    TEXT,
+      active      INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+      draft       TEXT    NOT NULL,
+      created_at  TEXT    NOT NULL,
+      created_by  TEXT    NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS recurring_runs (
+      template_id  INTEGER NOT NULL REFERENCES recurring_invoices(id),
+      period_start TEXT    NOT NULL,
+      period_end   TEXT    NOT NULL,
+      invoice_id   INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
+      created_at   TEXT    NOT NULL,
+      actor        TEXT    NOT NULL,
+      UNIQUE (template_id, period_start)
+    );
+  `);
+
   // The supplier number a customer assigned us — ebInterface's
   // InvoiceRecipientsBillerID, which the Republic of Austria requires.
   if (!columns('customers').includes('supplier_number')) {

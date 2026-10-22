@@ -245,6 +245,8 @@ describe('the views exist and the migration is idempotent', () => {
       'payment_run_items',
       'payment_runs',
       'payments',
+      'recurring_invoices',
+      'recurring_runs',
       'seller_settings',
     ]);
     expect(tables.some((t) => t.startsWith('report_'))).toBe(false);

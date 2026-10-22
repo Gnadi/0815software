@@ -115,6 +115,17 @@ import {
   writeDunningSettings,
 } from './dunning.js';
 import type { DunningNotice } from '../shared/types.js';
+import { RECURRING_INTERVALS, type RecurringInterval } from '../shared/types.js';
+import {
+  createTemplate,
+  deleteTemplate,
+  generateAll,
+  generateDrafts,
+  getTemplate,
+  listTemplates,
+  updateTemplate,
+  type TemplateInput,
+} from './recurring.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -321,6 +332,39 @@ function validateDraft(input: Record<string, unknown>): DraftInput {
   });
   if (errors.length > 0) fail(errors);
   return { customerId, paymentTermsDays, note, lines, buyerReference, deliveryDate, taxExemptionCategory, taxExemptionReason };
+}
+
+/**
+ * A recurring template: the schedule fields plus a draft, validated exactly
+ * as a draft is — all errors at once, schedule and lines together.
+ */
+function validateTemplate(input: Record<string, unknown>): TemplateInput {
+  const errors: FieldError[] = [];
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  if (name === '' || name.length > 120) errors.push({ field: 'name', message: 'Name is required (max 120 characters)' });
+  const interval = input.interval as RecurringInterval;
+  if (!(RECURRING_INTERVALS as readonly unknown[]).includes(interval)) {
+    errors.push({ field: 'interval', message: `Interval must be one of: ${RECURRING_INTERVALS.join(', ')}` });
+  }
+  const startDate = optDate(input.start_date, 'start_date', errors);
+  if (startDate === null && !errors.some((e) => e.field === 'start_date')) {
+    errors.push({ field: 'start_date', message: 'A start date is required' });
+  }
+  const endDate = optDate(input.end_date, 'end_date', errors);
+  if (startDate !== null && endDate !== null && endDate < startDate) {
+    errors.push({ field: 'end_date', message: 'The end date cannot be before the start date' });
+  }
+  const active = input.active === undefined ? true : input.active === true;
+  let draft: DraftInput | null = null;
+  try {
+    draft = validateDraft(input);
+  } catch (err) {
+    if (!(err instanceof DomainError)) throw err;
+    errors.push(...err.details);
+  }
+  if (errors.length > 0 || draft === null) fail(errors);
+  const { customerId, createdAt: _createdAt, deliveryDate: _deliveryDate, ...rest } = draft;
+  return { name, customerId, interval, startDate: startDate!, endDate, active, draft: rest };
 }
 
 export interface AppOptions {
@@ -1028,6 +1072,45 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     writeDunningSettings(db, settings, actor);
     await platform.settingsChanged?.({ actor, section: 'dunning', fields: ['levels', 'min_days_between', 'interest_rate_percent'] });
     res.json({ settings, ...dunningSettingsMeta(db) });
+  });
+
+  // ── Recurring invoices (server/recurring.ts) ─────────────────────────
+  // A template only ever produces DRAFTS, at most one per period; a person
+  // still checks and sends each. Generating one template is ordinary work;
+  // a run over every template is `manage` (server/access.ts).
+  const assertTemplateRates = (input: TemplateInput) =>
+    assertSellerRates(input.draft.lines.map((l) => l.vatRate), (i) => `lines[${i}].vat_rate`);
+
+  app.get('/api/recurring', (_req, res) => {
+    res.json({ templates: listTemplates(db), today: todayIso() });
+  });
+
+  app.post('/api/recurring', (req, res) => {
+    const input = validateTemplate(body(req));
+    assertTemplateRates(input);
+    const templateId = createTemplate(db, input, actorOf(res, auth));
+    res.status(201).json(getTemplate(db, templateId));
+  });
+
+  app.put('/api/recurring/:id', (req, res) => {
+    const input = validateTemplate(body(req));
+    assertTemplateRates(input);
+    updateTemplate(db, Number(req.params.id), input);
+    res.json(getTemplate(db, Number(req.params.id)));
+  });
+
+  app.delete('/api/recurring/:id', (req, res) => {
+    deleteTemplate(db, Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  app.post('/api/recurring/:id/generate', (req, res) => {
+    const created = generateDrafts(db, Number(req.params.id), actorOf(res, auth));
+    res.json({ created, template: getTemplate(db, Number(req.params.id)) });
+  });
+
+  app.post('/api/recurring/run', (_req, res) => {
+    res.json({ created: generateAll(db, actorOf(res, auth)) });
   });
 
   // ── Settings: the seller, as the admin maintains it ──────────────────

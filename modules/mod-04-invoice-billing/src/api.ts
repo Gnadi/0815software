@@ -17,6 +17,30 @@ import type {
 import type { EInvoiceProblem, SellerParty } from '../shared/einvoice';
 import type { EInvoiceFormat } from '../shared/ebinterface';
 import type { DunningNotice, DunningRow, DunningSettings } from '../shared/types';
+import type { RecurringInterval, RecurringTemplate, TaxExemptionCategory } from '../shared/types';
+
+/** What the recurring-template form sends: the schedule plus a draft's fields. */
+export interface RecurringPayload {
+  name: string;
+  customer_id: number;
+  interval: RecurringInterval;
+  start_date: string;
+  end_date: string | null;
+  active: boolean;
+  payment_terms_days: number;
+  note: string | null;
+  buyer_reference: string | null;
+  tax_exemption_category: TaxExemptionCategory | '' | null;
+  tax_exemption_reason: string | null;
+  lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[];
+}
+
+interface GeneratedDraft {
+  template_id: number;
+  period_start: string;
+  period_end: string;
+  invoice_id: number;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -146,6 +170,17 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(settings),
     }),
+  /** Recurring templates, each with its due periods (derived). */
+  recurring: () => request<{ templates: RecurringTemplate[]; today: string }>('/api/recurring'),
+  createRecurring: (payload: RecurringPayload) =>
+    request<RecurringTemplate>('/api/recurring', { method: 'POST', body: JSON.stringify(payload) }),
+  updateRecurring: (id: number, payload: RecurringPayload) =>
+    request<RecurringTemplate>(`/api/recurring/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteRecurring: (id: number) => request<{ ok: true }>(`/api/recurring/${id}`, { method: 'DELETE' }),
+  generateRecurring: (id: number) =>
+    request<{ created: GeneratedDraft[]; template: RecurringTemplate }>(`/api/recurring/${id}/generate`, { method: 'POST' }),
+  /** Drafts for every template's due periods — `manage`. */
+  recurringRun: () => request<{ created: GeneratedDraft[] }>('/api/recurring/run', { method: 'POST' }),
   accountingSettings: () => request<AccountingSettingsResponse>('/api/accounting-settings'),
   saveAccountingSettings: (settings: AccountingSettings) =>
     request<{ settings: AccountingSettings; updated_at: string | null; updated_by: string | null }>('/api/accounting-settings', {

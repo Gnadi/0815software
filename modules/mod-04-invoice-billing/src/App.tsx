@@ -14,6 +14,7 @@ import { IncomingPaymentsView } from './components/IncomingPaymentsView';
 import { InvoicesView } from './components/InvoicesView';
 import { Login } from './components/Login';
 import { PaymentRunDetailView, PaymentRunsView } from './components/PaymentRunsView';
+import { RecurringView } from './components/RecurringView';
 
 export type View =
   | { name: 'invoices'; status?: string }
@@ -28,11 +29,14 @@ export type View =
   | { name: 'incoming' }
   | { name: 'exports' }
   | { name: 'dunning' }
+  | { name: 'recurring' }
   | { name: 'settings' };
 
 const NAV: { view: View; label: string }[] = [
   { view: { name: 'invoices' }, label: 'Invoices' },
   { view: { name: 'customers' }, label: 'Customers' },
+  // The same invoice every period, as drafts to check and send.
+  { view: { name: 'recurring' }, label: 'Recurring' },
   // Money coming in. Present in every deployment: without a bank connection
   // the screen says so and points back at the invoice, which is where a
   // payment has always been recorded.
@@ -80,6 +84,7 @@ export function initialView(path: string, search: string): View {
   if (path === '/creditors') return { name: 'creditors' };
   if (path === '/exports') return { name: 'exports' };
   if (path === '/dunning') return { name: 'dunning' };
+  if (path === '/recurring') return { name: 'recurring' };
   if (path === '/settings') return { name: 'settings' };
   return { name: 'invoices' };
 }
@@ -205,6 +210,9 @@ export function App() {
           {view.name === 'incoming' && <IncomingPaymentsView onAuthLost={onAuthLost} />}
           {view.name === 'dunning' && (
             <DunningView onOpenInvoice={(id) => setView({ name: 'invoice', id })} onAuthLost={onAuthLost} />
+          )}
+          {view.name === 'recurring' && (
+            <RecurringView onOpenInvoice={(id) => setView({ name: 'invoice', id })} onAuthLost={onAuthLost} />
           )}
           {view.name === 'runs' && (
             <PaymentRunsView onOpen={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />

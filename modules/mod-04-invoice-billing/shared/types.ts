@@ -493,3 +493,34 @@ export interface DunningRow {
   next_on: string | null;
   due_now: boolean;
 }
+
+// ── Recurring invoices (server/recurring.ts) ────────────────────────────
+
+export const RECURRING_INTERVALS = ['monthly', 'quarterly', 'yearly'] as const;
+export type RecurringInterval = (typeof RECURRING_INTERVALS)[number];
+
+/** A template that turns each period into a draft. Its schedule is derived, never stored. */
+export interface RecurringTemplate {
+  id: number;
+  name: string;
+  customer_id: number;
+  customer_name: string;
+  interval: RecurringInterval;
+  start_date: string;
+  /** Last day a period may START on; null = open-ended. */
+  end_date: string | null;
+  active: boolean;
+  payment_terms_days: number;
+  note: string | null;
+  lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[];
+  buyer_reference: string | null;
+  tax_exemption_category: TaxExemptionCategory | null;
+  tax_exemption_reason: string | null;
+  /** Periods that have begun and have no draft yet. */
+  due_periods: number;
+  /** The first period not yet invoiced; null when paused or ended. */
+  next_period_start: string | null;
+  /** The latest generated periods, newest first. */
+  recent: { period_start: string; period_end: string; invoice_id: number | null; number: string | null; status: string | null }[];
+  created_by: string;
+}

@@ -88,8 +88,8 @@ The server seeds an empty database automatically on first start, so
 
 ## Data model
 
-Nine tables, no stored derived state — five for money coming in, four for
-money going out:
+Thirteen tables, no stored derived state — money coming in, reminding
+and repeating it, and money going out:
 
 ```
 customers          name, email, vat_id, address              (CRUD via UI/API)
@@ -107,6 +107,13 @@ payments           invoice, date, amount_cents, note
 invoice_counters   year → last_seq                           (the number source)
 accounting_settings  one row: DATEV / BMD export settings (JSON), who saved it
 seller_settings      one row: the seller fields the admin set (JSON), who saved it
+dunning_settings     one row: the dunning levels (JSON), who saved it
+dunning_notices      invoice, level, what was claimed and the letter text
+                     UNIQUE (invoice, level)   ← append-only
+recurring_invoices   name, customer, interval, start/end date, active,
+                     the draft it produces (JSON)
+recurring_runs       template, period start/end, the draft it produced
+                     UNIQUE (template, period_start)   ← once per period
 
 creditors          name, iban (validated), bic, note         (who we pay)
 bills              creditor, reference, remittance, amount_cents (GROSS),
@@ -349,6 +356,11 @@ POST   /api/dunning/run                every due notice at once (manage)
 GET    /api/dunning-notices/:id/pdf    the letter, as it went out
 GET    /api/dunning-settings · PUT (manage)   levels, days between notices, interest rate
 
+GET    /api/recurring                  templates, each with due periods (derived)
+POST   /api/recurring · PUT/DELETE /api/recurring/:id   (409: start locked / has history)
+POST   /api/recurring/:id/generate     a draft per due period, at most once each
+POST   /api/recurring/run              every template at once (manage)
+
 GET    /api/settings/seller            the seller: each field, its value and source
 PUT    /api/settings/seller            the admin's overrides — empty falls back
 GET    /api/accounting-settings        DATEV / BMD settings + suggested accounts
@@ -426,6 +438,14 @@ identical; refusing to pay a bill that is already in a run, both through
 the API and at the unique index; a run's frozen creditor surviving a
 later IBAN correction; discard releasing the bills and never reusing a
 `MsgId`; and mark-executed settling every bill in the run.
+
+`test/dunning.test.ts` pins the reminder rules: levels in order with the
+minimum gap, a payment ending the run, one notice per level at the unique
+index, and a letter that renders byte-identical on every download.
+`test/recurring.test.ts` pins the recurring rules: month-end clamping
+without drift, at most one draft per period (also at the unique index), a
+deleted draft not being regenerated, bounded catch-up, the end date, the
+start-date lock and the access levels.
 
 ## Deploy notes
 
@@ -622,6 +642,35 @@ Overdue invoices with an open amount, and which reminder each needs next
 Not covered: collection agencies and court reminders (Mahnklage /
 gerichtliches Mahnverfahren), booking fees or interest as receivables, and a
 scheduled automatic run — PS-02 can call `POST /api/dunning/run` on a schedule.
+
+## Recurring invoices (wiederkehrende Rechnungen)
+
+The same invoice every month, quarter or year (`server/recurring.ts`, the
+**Recurring** screen).
+
+- **Drafts, never issued.** A template holds a customer, lines and terms plus
+  a rhythm (first period start, interval, optional last start). Generating
+  turns every period that has begun into a DRAFT — dated to the period's
+  first day (Leistungsdatum), with *Leistungszeitraum dd.mm.yyyy – dd.mm.yyyy*
+  in its note. A person checks and sends it; numbering stays gapless.
+- **At most once per period, by construction.** `recurring_runs` records
+  which period produced which draft, UNIQUE (template, period). Generating
+  twice, or two people at once, yields no doubles. A draft deleted by hand
+  leaves its period done — it is not regenerated behind anyone's back.
+- **Derived periods.** Period *n* starts *n* intervals after the start date,
+  the day clamped to the month (31 Jan → 28 Feb → 31 Mar) — nothing chained,
+  so nothing drifts. Which periods are due is computed on every read.
+- **Bounded catch-up.** A paused template or a server that was off gets each
+  missed period as its own draft, at most 24 per call.
+- **Editing changes the future only.** Generated drafts are ordinary drafts.
+  The start date is locked once a period is invoiced (409); a template with
+  history is paused or ended, not deleted (409).
+- **Who may do what.** Reading is `view`; templates and generating one are
+  `edit`; *Generate all* (`POST /api/recurring/run`) is `manage` — PS-02 can
+  call it on a schedule.
+
+Not covered: usage-based lines, proration of a changed price within a
+period, and sending the drafts automatically.
 
 ## Bookkeeping export: DATEV and BMD
 
@@ -936,8 +985,9 @@ these, that's commissioned work — exactly the kind 0815software does:
   and German (0/7/19 %) rates. A 0 % line names its VAT category (exempt,
   reverse charge, intra-EU supply, export, zero-rated, not subject); one
   category per invoice.
-- **Recurring invoices** — the clean REST API is the hook for automation.
-  Quotes are MOD-13 Offers; reminders are the Dunning screen.
+- **Subscriptions beyond fixed templates** — usage-based billing, proration,
+  automatic sending. Recurring drafts are the Recurring screen, quotes are
+  MOD-13 Offers, reminders are the Dunning screen.
 - **Formal credit notes** — corrections are cancellation + new invoice.
   A credit-note document type (negative invoice) is an extension.
 - **Bank reconciliation without PS-12** — standalone, payments are recorded

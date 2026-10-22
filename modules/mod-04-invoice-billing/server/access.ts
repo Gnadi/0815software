@@ -42,6 +42,8 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'POST', path: '/api/dunning/run', access: 'manage' },
   // The dunning levels, fees and interest rate are policy, not daily work.
   { method: 'PUT', path: '/api/dunning-settings', access: 'manage' },
+  // Drafts for every template at once — the month-end run, not daily work.
+  { method: 'POST', path: '/api/recurring/run', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);
