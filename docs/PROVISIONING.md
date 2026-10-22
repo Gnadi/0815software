@@ -56,8 +56,13 @@ Two properties make it trustworthy rather than decorative:
   secrets, and that no declared env var is fictional. Corrupt an entry and the
   suite fails naming the mismatch.
 
-Adding a module: build the package, add a registry entry, add a copy block to
-`src/data/modules.ts`. `node scripts/new-module.mjs … --register` does all three
+Adding a module: first ask whether it is one. The generator compares the
+title, slug and description with every module's registry entry and README and
+refuses while an existing module already covers the topic — extend that module
+instead (absences went into MOD-11, next to the time they replace), or re-run
+with `--justify "<why this is not part of MOD-xx>"`; the reason lands in the new
+README under "Why a module of its own". Then build the package, add a registry
+entry, add a copy block to `src/data/modules.ts`. `node scripts/new-module.mjs … --register` does all three
 — the package from the shared copy-ins and an example domain, with per-person
 access levels (`docs/ACCESS-LEVELS.md`) and green tests from the start — and
 prints what is left by hand (translations, the pinned module counts in the

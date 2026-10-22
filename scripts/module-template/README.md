@@ -92,6 +92,10 @@ do. The contract is [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 `dev:api`, `dev:web`, `seed`, `build`, `start`, `backup`, `test`.
 
+## Why a module of its own
+
+{{JUSTIFICATION}}
+
 ## Out of scope
 
 Write down what this module deliberately does NOT do, and why — it is the
