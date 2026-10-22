@@ -4,6 +4,7 @@ import { api, ApiError, stockExportUrl } from '../api';
 import { fmtQty } from '../format';
 import { MovementModal, type MovementMode } from './MovementModal';
 import { Can } from '../access';
+import { ScanBox } from './ScanBox';
 
 interface Props {
   warehouses: Warehouse[];
@@ -70,6 +71,8 @@ export function StockOverview({ warehouses, onOpenProduct, onAuthLost }: Props) 
           </Can>
         </div>
       </div>
+
+      <ScanBox label="SCAN TO OPEN" onFound={(product) => onOpenProduct(product.id)} onAuthLost={onAuthLost} />
 
       {error && <div className="resource__error mono">{error}</div>}
 

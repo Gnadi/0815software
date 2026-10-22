@@ -83,6 +83,13 @@ export function openDb(path: string): Database.Database {
     );
   `);
 
+  // The manufacturer's GTIN (EAN/UPC), optional: what a scanner reads off the
+  // packaging. Unique when present; a product without one is scanned by the
+  // Code 128 SKU label this module prints.
+  const productColumns = (db.prepare('PRAGMA table_info(products)').all() as { name: string }[]).map((c) => c.name);
+  if (!productColumns.includes('barcode')) db.exec('ALTER TABLE products ADD COLUMN barcode TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_products_barcode ON products (barcode) WHERE barcode IS NOT NULL');
+
   // A database from before goods issues has the old CHECK on movements.type.
   // SQLite cannot alter a CHECK, so the table is rebuilt once, in one
   // transaction, rows and ids unchanged — the ledger is copied, not rewritten.

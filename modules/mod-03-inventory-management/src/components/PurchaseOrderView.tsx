@@ -3,6 +3,7 @@ import type { PurchaseOrderDetail, Warehouse } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDateTime, fmtQty } from '../format';
 import { StatusBadge } from './StatusBadge';
+import { ScanBox } from './ScanBox';
 import { Can, useCan } from '../access';
 
 interface Props {
@@ -126,6 +127,24 @@ export function PurchaseOrderView({ id, warehouses, onBack, onAuthLost }: Props)
       </div>
 
       {error && <div className="resource__error mono">{error}</div>}
+
+      {receivable && (
+        <ScanBox
+          label="SCAN TO COUNT IN"
+          onAuthLost={onAuthLost}
+          onFound={(product) => {
+            // One scan, one unit: the line for that product counts up.
+            const line = po.lines.find((l) => l.product_id === product.id);
+            if (!line) {
+              setError(`${product.sku} is not on this purchase order`);
+              return;
+            }
+            setError('');
+            const current = Number((receiveQty[line.id] ?? '0').replace(',', '.')) || 0;
+            setReceiveQty({ ...receiveQty, [line.id]: String(current + 1) });
+          }}
+        />
+      )}
 
       <form onSubmit={(e) => void receive(e)}>
         <div className="table-wrap">

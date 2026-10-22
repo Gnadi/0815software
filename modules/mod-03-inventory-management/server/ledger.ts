@@ -83,7 +83,7 @@ export function stockOverview(
   const search = opts.search?.trim();
   const products = db
     .prepare(
-      `SELECT id, sku, name, unit, reorder_point FROM products
+      `SELECT id, sku, name, unit, reorder_point, barcode FROM products
        ${search ? 'WHERE sku LIKE ? ESCAPE \'\\\' OR name LIKE ? ESCAPE \'\\\'' : ''}
        ORDER BY sku`,
     )

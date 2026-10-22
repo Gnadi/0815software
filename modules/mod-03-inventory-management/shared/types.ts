@@ -40,6 +40,8 @@ export interface Product {
   name: string;
   unit: Unit;
   reorder_point: number;
+  /** GTIN (EAN-13/8, UPC-A, GTIN-14) with a valid check digit, or null. */
+  barcode: string | null;
 }
 
 export interface Supplier {
@@ -72,6 +74,7 @@ export interface StockRow {
   name: string;
   unit: Unit;
   reorder_point: number;
+  barcode: string | null;
   /** Level per warehouse id (only warehouses with movements appear). */
   levels: Record<number, number>;
   total: number;

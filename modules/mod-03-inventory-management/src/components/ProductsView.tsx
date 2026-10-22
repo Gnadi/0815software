@@ -15,9 +15,10 @@ interface FormState {
   name: string;
   unit: string;
   reorder_point: string;
+  barcode: string;
 }
 
-const EMPTY: FormState = { sku: '', name: '', unit: 'pcs', reorder_point: '0' };
+const EMPTY: FormState = { sku: '', name: '', unit: 'pcs', reorder_point: '0', barcode: '' };
 
 export function ProductsView({ onOpen, onAuthLost }: Props) {
   const [rows, setRows] = useState<StockRow[] | null>(null);
@@ -60,6 +61,7 @@ export function ProductsView({ onOpen, onAuthLost }: Props) {
       name: form.name,
       unit: form.unit,
       reorder_point: form.reorder_point === '' ? 0 : Number(form.reorder_point),
+      barcode: form.barcode.trim() || null,
     };
     try {
       if (form.id === undefined) await api.createProduct(values);
@@ -164,6 +166,7 @@ export function ProductsView({ onOpen, onAuthLost }: Props) {
                             name: row.name,
                             unit: row.unit,
                             reorder_point: String(row.reorder_point),
+                            barcode: row.barcode ?? '',
                           })
                         }
                       >
@@ -249,6 +252,17 @@ export function ProductsView({ onOpen, onAuthLost }: Props) {
                 {fieldError('reorder_point') && (
                   <span className="field__error mono">{fieldError('reorder_point')}</span>
                 )}
+              </label>
+              <label className="field">
+                <span className="field__label mono">BARCODE (EAN / UPC)</span>
+                <input
+                  className="field__input mono"
+                  inputMode="numeric"
+                  placeholder="optional — scan or type"
+                  value={form.barcode}
+                  onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+                />
+                {fieldError('barcode') && <span className="field__error mono">{fieldError('barcode')}</span>}
               </label>
             </div>
             <div className="modal__actions">

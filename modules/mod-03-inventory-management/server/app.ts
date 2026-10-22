@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
 import { UNITS, type FieldError, type Unit } from '../shared/types.js';
+import { isValidGtin } from '../shared/barcode.js';
 import {
   accessOf,
   actorOf,
@@ -81,6 +82,7 @@ interface ProductInput {
   name: string;
   unit: Unit;
   reorder_point: number;
+  barcode: string | null;
 }
 
 function validateProduct(input: Record<string, unknown>): ProductInput {
@@ -100,8 +102,24 @@ function validateProduct(input: Record<string, unknown>): ProductInput {
   if (Number.isNaN(reorder) || reorder < 0) {
     errors.push({ field: 'reorder_point', message: 'Reorder point must be a number ≥ 0' });
   }
+  // Spaces as printed under the bars are dropped; the check digit is what a
+  // scanner verifies, so a typo is refused here rather than at the till.
+  let barcode: string | null = null;
+  if (input.barcode !== undefined && input.barcode !== null && input.barcode !== '') {
+    const raw = typeof input.barcode === 'string' ? input.barcode.replace(/\s+/g, '') : '';
+    if (!isValidGtin(raw)) {
+      errors.push({ field: 'barcode', message: 'Barcode must be an EAN-13, EAN-8, UPC-A or GTIN-14 with a valid check digit' });
+    } else barcode = raw;
+  }
   if (errors.length > 0) fail(errors);
-  return { sku, name, unit, reorder_point: reorder };
+  return { sku, name, unit, reorder_point: reorder, barcode };
+}
+
+/** One barcode, one product — named as such rather than as a SKU clash. */
+function assertBarcodeFree(db: Database.Database, barcode: string | null, ownId: number | null): void {
+  if (barcode === null) return;
+  const other = db.prepare('SELECT sku FROM products WHERE barcode = ? AND id IS NOT ?').get(barcode, ownId) as { sku: string } | undefined;
+  if (other) fail([{ field: 'barcode', message: `Barcode ${barcode} already belongs to ${other.sku}` }]);
 }
 
 export interface AppOptions {
@@ -368,11 +386,24 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
 
   app.post('/api/products', (req, res) => {
     const values = validateProduct(body(req));
+    assertBarcodeFree(db, values.barcode, null);
     const info = db
-      .prepare('INSERT INTO products (sku, name, unit, reorder_point) VALUES (?, ?, ?, ?)')
-      .run(values.sku, values.name, values.unit, values.reorder_point);
+      .prepare('INSERT INTO products (sku, name, unit, reorder_point, barcode) VALUES (?, ?, ?, ?, ?)')
+      .run(values.sku, values.name, values.unit, values.reorder_point, values.barcode);
     void platform.audit({ actor: actorOf(res, auth), action: 'product.created', resource: `product:${info.lastInsertRowid}`, after: values });
     res.status(201).json(db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid));
+  });
+
+  // What a scan resolves to: the product whose GTIN or SKU it is. Scanners
+  // type the code and Enter, so the screens send whatever was read.
+  app.get('/api/products/lookup', (req, res) => {
+    const code = typeof req.query.code === 'string' ? req.query.code.trim() : '';
+    if (code === '') fail([{ field: 'code', message: 'code is required' }]);
+    const product =
+      db.prepare('SELECT * FROM products WHERE barcode = ?').get(code.replace(/\s+/g, '')) ??
+      db.prepare('SELECT * FROM products WHERE sku = ?').get(code.toUpperCase());
+    if (!product) throw new DomainError(404, `No product with barcode or SKU ${code}`);
+    res.json({ product });
   });
 
   app.get('/api/products/:id', (req, res) => {
@@ -385,11 +416,13 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const existing = db.prepare('SELECT id FROM products WHERE id = ?').get(req.params.id);
     if (!existing) throw new DomainError(404, 'Product not found');
     const values = validateProduct(body(req));
-    db.prepare('UPDATE products SET sku = ?, name = ?, unit = ?, reorder_point = ? WHERE id = ?').run(
+    assertBarcodeFree(db, values.barcode, Number(req.params.id));
+    db.prepare('UPDATE products SET sku = ?, name = ?, unit = ?, reorder_point = ?, barcode = ? WHERE id = ?').run(
       values.sku,
       values.name,
       values.unit,
       values.reorder_point,
+      values.barcode,
       req.params.id,
     );
     res.json(db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id));

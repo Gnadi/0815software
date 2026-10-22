@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { MovementRow, Product } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDateTime, fmtQty } from '../format';
+import { BarcodeLabel } from './BarcodeLabel';
 
 interface Props {
   id: number;
@@ -78,10 +79,18 @@ export function ProductDetail({ id, onBack, onAuthLost }: Props) {
           </h1>
           <p className="resource__desc">
             Unit {product.unit} · reorder point {fmtQty(product.reorder_point)}
+            {product.barcode && <> · barcode <span className="mono">{product.barcode}</span></>}
             {low && <span className="lowflag mono">LOW</span>}
           </p>
         </div>
+        <div className="resource__actions">
+          <button className="btn btn--ghost" onClick={() => window.print()}>
+            PRINT LABEL
+          </button>
+        </div>
       </div>
+
+      <BarcodeLabel product={product} />
 
       <div className="stat-row">
         {stock.map((s) => (
