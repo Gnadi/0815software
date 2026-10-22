@@ -11,7 +11,7 @@
 
 import { EXEMPTION_DEFAULT_REASON } from '../shared/einvoice.js';
 import { fmtEur } from '../shared/money.js';
-import type { Customer, InvoiceDetail } from '../shared/types.js';
+import type { CreditNote, Customer, InvoiceDetail } from '../shared/types.js';
 import type { SellerConfig } from './config.js';
 
 export const A4 = { width: 595.28, height: 841.89 };
@@ -170,6 +170,39 @@ export function renderInvoicePdf(invoice: InvoiceDetail, customer: PdfCustomer, 
 }
 
 /**
+ * The invoice as a partial credit note shows it: the credit note's lines and
+ * totals under the invoice's header data (parties, service date, reference,
+ * VAT exemption), with nothing paid or open — the document states what is
+ * credited, not where the account stands.
+ */
+export function creditNoteView(invoice: InvoiceDetail, note: CreditNote): InvoiceDetail {
+  return {
+    ...invoice,
+    status: 'sent',
+    lines: note.lines,
+    vat_breakdown: note.vat_breakdown,
+    net_cents: note.net_cents,
+    vat_cents: note.vat_cents,
+    gross_cents: note.gross_cents,
+    credited_cents: 0,
+    paid_cents: 0,
+    open_cents: 0,
+    note: null,
+    cancellation_reason: null,
+    payments: [],
+    credit_notes: [],
+    creditable: [],
+  };
+}
+
+/** Render a partial credit note — the same layout, its own number and date. */
+export function renderCreditNotePdf(invoice: InvoiceDetail, note: CreditNote, customer: PdfCustomer, seller: SellerConfig): Buffer {
+  return buildPdf(
+    layoutInvoice(creditNoteView(invoice, note), customer, seller, { number: note.number, date: note.issue_date, reason: note.reason }),
+  );
+}
+
+/**
  * Lay an invoice out as pages. Shared by the plain PDF above and the PDF/A-3
  * that carries a ZUGFeRD invoice (server/pdfa.ts), so the two cannot differ
  * in anything but the fonts they are set in.
@@ -179,12 +212,14 @@ export function layoutInvoice(
   customer: PdfCustomer,
   seller: SellerConfig,
   /**
-   * Lay out the CANCELLATION of `invoice` instead — the credit note a
-   * ZUGFeRD cancellation carries (type 381), with its own number and date and
-   * a reference to the invoice it cancels.
+   * Lay out a CREDIT NOTE on `invoice` instead (type 381), with its own
+   * number and date and a reference to the invoice: its cancellation when
+   * there is no `reason`, a partial credit note (whose lines `invoice` then
+   * carries, see `creditNoteView`) when there is.
    */
-  cancellation?: { number: string; date: string },
+  cancellation?: { number: string; date: string; reason?: string },
 ): Page[] {
+  const partial = cancellation?.reason !== undefined;
   const pages: Page[] = [];
   let page = new Page();
   pages.push(page);
@@ -194,7 +229,13 @@ export function layoutInvoice(
   page.text('F3', 6.5, M, 92, `${seller.name.toUpperCase()} · STANDARD BUSINESS SOFTWARE`, 0.45);
   page.textRight(
     'F4', 13, R, 78,
-    cancellation ? 'CREDIT NOTE · CANCELLATION' : invoice.status === 'cancelled' ? 'CANCELLED INVOICE' : 'INVOICE',
+    partial
+      ? 'CREDIT NOTE'
+      : cancellation
+        ? 'CREDIT NOTE · CANCELLATION'
+        : invoice.status === 'cancelled'
+          ? 'CANCELLED INVOICE'
+          : 'INVOICE',
   );
   page.line(M, 106, R, 0.8, 0.2);
 
@@ -220,7 +261,7 @@ export function layoutInvoice(
     ? [
         ['CREDIT NOTE NO', cancellation.number],
         ['ISSUE DATE', cancellation.date],
-        ['CANCELS', invoice.number ?? '—'],
+        [partial ? 'CORRECTS' : 'CANCELS', invoice.number ?? '—'],
         ['INVOICE DATE', invoice.issue_date ?? '—'],
       ]
     : [
@@ -297,7 +338,12 @@ export function layoutInvoice(
 
   // ── Notes / cancellation ──
   y += 12;
-  if (cancellation) {
+  if (partial) {
+    page.text('F2', 9, M, y, `Partial credit on invoice ${invoice.number} of ${invoice.issue_date}.`, 0.2);
+    y += 16;
+    page.text('F2', 9, M, y, `Reason: ${truncate(cancellation!.reason!, 90)}`, 0.2);
+    y += 16;
+  } else if (cancellation) {
     page.text('F2', 9, M, y, `Cancels invoice ${invoice.number} of ${invoice.issue_date} in full.`, 0.2);
     y += 16;
   }

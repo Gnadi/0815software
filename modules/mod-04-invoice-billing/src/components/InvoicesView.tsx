@@ -37,24 +37,30 @@ export function InvoicesView({ initialStatus, onOpen, onNew, onAuthLost }: Props
   // state of its own to keep.
   const [importing, setImporting] = useState(false);
 
-  const importOffer = useCallback(async () => {
-    const offerNumber = window.prompt('Offer number to bill (e.g. AN-2026-0007):')?.trim();
-    if (!offerNumber) return;
-    setImporting(true);
-    try {
-      const invoice = await api.importOffer(offerNumber);
-      setError('');
-      if (!invoice.imported) {
-        window.alert(`Offer ${offerNumber} was already billed — opening that invoice.`);
+  // The same for a delivery note from MOD-17: one invoice per delivery.
+  const importDocument = useCallback(
+    async (what: 'offer' | 'delivery note') => {
+      const number = window
+        .prompt(what === 'offer' ? 'Offer number to bill (e.g. AN-2026-0007):' : 'Delivery note number to bill (e.g. LS-2026-0001):')
+        ?.trim();
+      if (!number) return;
+      setImporting(true);
+      try {
+        const invoice = what === 'offer' ? await api.importOffer(number) : await api.importDeliveryNote(number);
+        setError('');
+        if (!invoice.imported) {
+          window.alert(`${what === 'offer' ? 'Offer' : 'Delivery note'} ${number} was already billed — opening that invoice.`);
+        }
+        onOpen(invoice.id);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) onAuthLost();
+        else setError(err instanceof Error ? err.message : `Failed to import the ${what}`);
+      } finally {
+        setImporting(false);
       }
-      onOpen(invoice.id);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) onAuthLost();
-      else setError(err instanceof Error ? err.message : 'Failed to import the offer');
-    } finally {
-      setImporting(false);
-    }
-  }, [onOpen, onAuthLost]);
+    },
+    [onOpen, onAuthLost],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -86,8 +92,13 @@ export function InvoicesView({ initialStatus, onOpen, onNew, onAuthLost }: Props
         </div>
         <div className="resource__actions">
           <Can>
-            <button className="btn" onClick={() => void importOffer()} disabled={importing}>
+            <button className="btn" onClick={() => void importDocument('offer')} disabled={importing}>
               {importing ? 'IMPORTING…' : 'IMPORT OFFER'}
+            </button>
+          </Can>
+          <Can>
+            <button className="btn" onClick={() => void importDocument('delivery note')} disabled={importing}>
+              BILL DELIVERY NOTE
             </button>
           </Can>
           <Can>

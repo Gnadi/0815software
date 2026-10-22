@@ -60,7 +60,7 @@ each suite. `deploy/test/new-module.test.ts` fails when they drift apart.
 ## Adding a module
 
 ```sh
-node scripts/new-module.mjs --n 17 --slug project-tasks \
+node scripts/new-module.mjs --n 18 --slug project-tasks \
   --title "Projects & Tasks" --label Projects --description "…" --register
 ```
 

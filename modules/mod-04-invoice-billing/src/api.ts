@@ -14,7 +14,33 @@ import type {
   ReceivableOutcome,
   ReceivableSuggestions,
 } from '../shared/types';
-import type { EInvoiceProblem, EInvoiceProfile, SellerParty } from '../shared/einvoice';
+import type { EInvoiceProblem, SellerParty } from '../shared/einvoice';
+import type { EInvoiceFormat } from '../shared/ebinterface';
+import type { DunningNotice, DunningRow, DunningSettings } from '../shared/types';
+import type { CreditNote, RecurringInterval, RecurringTemplate, TaxExemptionCategory } from '../shared/types';
+
+/** What the recurring-template form sends: the schedule plus a draft's fields. */
+export interface RecurringPayload {
+  name: string;
+  customer_id: number;
+  interval: RecurringInterval;
+  start_date: string;
+  end_date: string | null;
+  active: boolean;
+  payment_terms_days: number;
+  note: string | null;
+  buyer_reference: string | null;
+  tax_exemption_category: TaxExemptionCategory | '' | null;
+  tax_exemption_reason: string | null;
+  lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[];
+}
+
+interface GeneratedDraft {
+  template_id: number;
+  period_start: string;
+  period_end: string;
+  invoice_id: number;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -114,10 +140,21 @@ export const api = {
       '/api/invoices/import-offer',
       post({ offer_number: offerNumber }),
     ),
+  /** Bill one delivery note from MOD-17 — idempotent on its number, like an offer. */
+  importDeliveryNote: (number: string) =>
+    request<InvoiceDetail & { imported: boolean }>(
+      '/api/invoices/import-delivery-note',
+      post({ delivery_note_number: number }),
+    ),
   updateDraft: (id: number, values: Record<string, unknown>) =>
     request<InvoiceDetail>(`/api/invoices/${id}`, { method: 'PUT', body: JSON.stringify(values) }),
   deleteDraft: (id: number) => request<{ ok: true }>(`/api/invoices/${id}`, { method: 'DELETE' }),
   finalize: (id: number) => request<InvoiceDetail>(`/api/invoices/${id}/finalize`, post()),
+  /** A partial credit note — issued at once, never changed. */
+  issueCreditNote: (
+    id: number,
+    payload: { reason: string; issue_date?: string; lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[] },
+  ) => request<CreditNote>(`/api/invoices/${id}/credit-notes`, { method: 'POST', body: JSON.stringify(payload) }),
   cancel: (id: number, reason: string) =>
     request<InvoiceDetail>(`/api/invoices/${id}/cancel`, post({ reason })),
   recordPayment: (id: number, values: Record<string, unknown>) =>
@@ -126,13 +163,35 @@ export const api = {
   // ── E-invoices and bookkeeping exports ───────────────────────────────
   /** The seller as e-invoices see it, and what each profile still misses. */
   einvoiceConfig: () =>
-    request<{ seller: SellerParty; problems: Record<EInvoiceProfile, EInvoiceProblem[]> }>('/api/einvoice-config'),
+    request<{ seller: SellerParty; problems: Record<EInvoiceFormat, EInvoiceProblem[]> }>('/api/einvoice-config'),
   /** Whether an issued invoice can be downloaded as XRechnung / ZUGFeRD, and what is missing. */
   einvoiceStatus: (id: number) => request<EInvoiceStatus>(`/api/invoices/${id}/einvoice`),
   /** The seller as the admin maintains it — each field with its source. */
   sellerSettings: () => request<SellerSettingsResponse>('/api/settings/seller'),
   saveSellerSettings: (values: Record<string, string>) =>
     request<SellerSettingsResponse>('/api/settings/seller', { method: 'PUT', body: JSON.stringify(values) }),
+  /** Overdue invoices and where each stands (derived), with the dunning settings. */
+  dunning: () => request<{ rows: DunningRow[]; settings: DunningSettings }>('/api/dunning'),
+  issueDunningNotice: (invoiceId: number) =>
+    request<DunningNotice>(`/api/invoices/${invoiceId}/dunning-notices`, { method: 'POST' }),
+  /** Every invoice whose next notice is due — `manage`. */
+  dunningRun: () => request<{ issued: DunningNotice[] }>('/api/dunning/run', { method: 'POST' }),
+  saveDunningSettings: (settings: DunningSettings) =>
+    request<{ settings: DunningSettings; updated_at: string | null; updated_by: string | null }>('/api/dunning-settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
+  /** Recurring templates, each with its due periods (derived). */
+  recurring: () => request<{ templates: RecurringTemplate[]; today: string }>('/api/recurring'),
+  createRecurring: (payload: RecurringPayload) =>
+    request<RecurringTemplate>('/api/recurring', { method: 'POST', body: JSON.stringify(payload) }),
+  updateRecurring: (id: number, payload: RecurringPayload) =>
+    request<RecurringTemplate>(`/api/recurring/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteRecurring: (id: number) => request<{ ok: true }>(`/api/recurring/${id}`, { method: 'DELETE' }),
+  generateRecurring: (id: number) =>
+    request<{ created: GeneratedDraft[]; template: RecurringTemplate }>(`/api/recurring/${id}/generate`, { method: 'POST' }),
+  /** Drafts for every template's due periods — `manage`. */
+  recurringRun: () => request<{ created: GeneratedDraft[] }>('/api/recurring/run', { method: 'POST' }),
   accountingSettings: () => request<AccountingSettingsResponse>('/api/accounting-settings'),
   saveAccountingSettings: (settings: AccountingSettings) =>
     request<{ settings: AccountingSettings; updated_at: string | null; updated_by: string | null }>('/api/accounting-settings', {
@@ -205,7 +264,7 @@ export type EInvoiceStatus =
       available: true;
       parties_frozen: boolean;
       cancellation: boolean;
-      problems: Record<EInvoiceProfile, EInvoiceProblem[]>;
+      problems: Record<EInvoiceFormat, EInvoiceProblem[]>;
     };
 
 export interface RevenueAccount {
@@ -249,7 +308,7 @@ export interface SellerSettingsResponse {
   updated_at: string | null;
   updated_by: string | null;
   seller: SellerParty;
-  problems: Record<EInvoiceProfile, EInvoiceProblem[]>;
+  problems: Record<EInvoiceFormat, EInvoiceProblem[]>;
 }
 
 export interface AccountingSettingsResponse {
@@ -261,13 +320,36 @@ export interface AccountingSettingsResponse {
   revenue_labels: Record<string, string>;
 }
 
-/** Download links for the e-invoice files of an issued invoice. */
-export function xrechnungUrl(id: number, cancellation = false): string {
-  return `/api/invoices/${id}/xrechnung.xml${cancellation ? '?document=cancellation' : ''}`;
+/** The letter of a dunning notice, as it went out. */
+export function dunningLetterUrl(noticeId: number): string {
+  return `/api/dunning-notices/${noticeId}/pdf`;
 }
 
-export function zugferdUrl(id: number, cancellation = false): string {
-  return `/api/invoices/${id}/zugferd.pdf${cancellation ? '?document=cancellation' : ''}`;
+/** Which document of an invoice: itself, its cancellation, or a partial credit note (by id). */
+export type EInvoiceDocument = 'invoice' | 'cancellation' | number;
+
+function documentQuery(document: EInvoiceDocument): string {
+  if (typeof document === 'number') return `?credit_note=${document}`;
+  return document === 'cancellation' ? '?document=cancellation' : '';
+}
+
+/** Download links for the e-invoice files of an issued invoice. */
+export function xrechnungUrl(id: number, document: EInvoiceDocument = 'invoice'): string {
+  return `/api/invoices/${id}/xrechnung.xml${documentQuery(document)}`;
+}
+
+/** ebInterface 6.1 — the Austrian e-invoice (e-rechnung.gv.at). */
+export function ebInterfaceUrl(id: number, document: EInvoiceDocument = 'invoice'): string {
+  return `/api/invoices/${id}/ebinterface.xml${documentQuery(document)}`;
+}
+
+export function zugferdUrl(id: number, document: EInvoiceDocument = 'invoice'): string {
+  return `/api/invoices/${id}/zugferd.pdf${documentQuery(document)}`;
+}
+
+/** A partial credit note as a plain PDF. */
+export function creditNotePdfUrl(invoiceId: number, creditNoteId: number): string {
+  return `/api/invoices/${invoiceId}/credit-notes/${creditNoteId}/pdf`;
 }
 
 /** The payables figures the bills screen shows above its list. */

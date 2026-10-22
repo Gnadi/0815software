@@ -14,7 +14,8 @@ import { DomainError, nowIso } from './invoices.js';
  * VAT rate, with the amounts from `computeTotals` (per-line rounding, VAT once
  * per rate). A cancelled invoice is booked twice — its issue, and its reversal
  * on the day it was cancelled — because both happened, and the adviser's
- * ledger has to show the number was issued.
+ * ledger has to show the number was issued. A partial credit note is booked
+ * like a reversal, for its own amounts, on its own date and number.
  *
  * WHAT IS NOT GUESSED. Account numbers and tax codes belong to the adviser's
  * chart of accounts, not to this module. The settings ship with the usual
@@ -246,9 +247,9 @@ export function writeSettings(
 
 /** One booking: a receivable (or its reversal, or a payment) on one revenue group. */
 export interface Booking {
-  kind: 'invoice' | 'cancellation' | 'payment';
+  kind: 'invoice' | 'cancellation' | 'credit_note' | 'payment';
   date: string;
-  /** The invoice number; the cancellation's carries the -ST suffix. */
+  /** The invoice number; the cancellation's carries -ST, a credit note's is its own (-GS<n>). */
   document: string;
   invoice_number: string;
   customer_id: number;
@@ -353,6 +354,44 @@ export function bookingsFor(
     }
   }
 
+  // Credit notes of the period, by their own date — the invoice they correct
+  // may lie in an earlier period, which is exactly when the VAT is corrected.
+  const credits = db
+    .prepare(
+      `SELECT cn.id AS credit_note_id, cn.number AS credit_number, cn.issue_date AS credit_date,
+              i.number, i.delivery_date, i.payment_terms_days, i.tax_exemption_category, i.customer_id, i.buyer_snapshot,
+              c.name AS customer_name, c.vat_id AS customer_vat_id, c.debtor_account
+       FROM credit_notes cn JOIN invoices i ON i.id = cn.invoice_id JOIN customers c ON c.id = i.customer_id
+       WHERE cn.issue_date BETWEEN @from AND @to ORDER BY cn.issue_date, cn.number`,
+    )
+    .all(range) as (Omit<InvoiceRow, 'id' | 'status' | 'issue_date' | 'cancelled_at'> & {
+    credit_note_id: number;
+    credit_number: string;
+    credit_date: string;
+  })[];
+  const creditLines = db.prepare('SELECT quantity, unit_price_cents, vat_rate FROM credit_note_lines WHERE credit_note_id = ? ORDER BY position, id');
+  for (const cn of credits) {
+    const buyer = cn.buyer_snapshot ? (JSON.parse(cn.buyer_snapshot) as { name: string; vat_id: string | null }) : null;
+    for (const r of computeTotals(creditLines.all(cn.credit_note_id) as LineAmounts[]).by_rate) {
+      out.push({
+        kind: 'credit_note',
+        date: cn.credit_date,
+        document: cn.credit_number,
+        invoice_number: cn.number,
+        customer_id: cn.customer_id,
+        customer_name: buyer?.name ?? cn.customer_name,
+        customer_vat_id: buyer ? buyer.vat_id : cn.customer_vat_id,
+        customer_account: cn.debtor_account,
+        revenue_key: revenueKeyOf(r.rate, cn.tax_exemption_category),
+        rate: r.rate,
+        gross_cents: r.base_cents + r.vat_cents,
+        vat_cents: r.vat_cents,
+        delivery_date: cn.delivery_date,
+        payment_terms_days: cn.payment_terms_days,
+      });
+    }
+  }
+
   if (options.payments) {
     const payments = db
       .prepare(
@@ -389,6 +428,13 @@ export function bookingsFor(
 }
 
 // ── Shared text plumbing ───────────────────────────────────────────────
+
+/** The booking text both formats carry: who, and for a reversal which document. */
+function bookingText(b: Booking): string {
+  if (b.kind === 'cancellation') return `Storno ${b.invoice_number} ${b.customer_name}`;
+  if (b.kind === 'credit_note') return `Gutschrift ${b.document} zu ${b.invoice_number} ${b.customer_name}`;
+  return b.customer_name;
+}
 
 /** Characters Windows-1252 places at 0x80–0x9F. */
 const CP1252_HIGH: Record<number, number> = {
@@ -538,7 +584,7 @@ export function datevExport(
       contra = revenue.account;
       side = b.kind === 'invoice' ? 'S' : 'H';
       buKey = revenue.bu_key ?? '';
-      text = b.kind === 'invoice' ? b.customer_name : `Storno ${b.invoice_number} ${b.customer_name}`;
+      text = bookingText(b);
     }
     const row = new Array<string>(BUCHUNGSSTAPEL_COLUMNS.length).fill('');
     row[0] = decimalComma(b.gross_cents); // Umsatz (ohne Soll/Haben-Kz)
@@ -627,8 +673,8 @@ export function bmdExport(
       });
       continue;
     }
-    const sign = b.kind === 'cancellation' ? '-' : '';
-    const vatSign = b.kind === 'cancellation' ? '' : '-';
+    const sign = b.kind === 'invoice' ? '' : '-';
+    const vatSign = b.kind === 'invoice' ? '-' : '';
     const debtor = b.customer_account ?? settings.debtor_start + b.customer_id;
     const fields = [
       '0', // satzart: Buchungszeile
@@ -642,7 +688,7 @@ export function bmdExport(
       revenue.tax_code,
       `${sign}${decimalComma(b.gross_cents)}`,
       b.vat_cents === 0 ? '0,00' : `${vatSign}${decimalComma(b.vat_cents)}`,
-      quoted(b.kind === 'invoice' ? b.customer_name : `Storno ${b.invoice_number} ${b.customer_name}`, 60),
+      quoted(bookingText(b), 60),
       quoted(b.document, 30),
       String(b.payment_terms_days),
     ];

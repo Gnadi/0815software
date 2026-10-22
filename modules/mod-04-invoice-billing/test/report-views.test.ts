@@ -36,6 +36,7 @@ import {
 import { computeTotals } from '../shared/money.js';
 
 const REPORT_VIEWS = [
+  'report_credit_notes',
   'report_invoices',
   'report_invoice_lines',
   'report_payments',
@@ -122,6 +123,7 @@ describe('the views exist and the migration is idempotent', () => {
       'paid_cents',
       'outstanding_cents',
       'days_overdue',
+      'credited_cents',
     ]);
     expect(columns('report_invoice_lines')).toEqual([
       'invoice_number',
@@ -143,6 +145,19 @@ describe('the views exist and the migration is idempotent', () => {
       'payment_date',
       'amount_cents',
       'note',
+      'invoice_status',
+      'invoice_is_cancelled',
+    ]);
+    expect(columns('report_credit_notes')).toEqual([
+      'credit_note_number',
+      'invoice_number',
+      'issue_date',
+      'reason',
+      'customer_id',
+      'customer_name',
+      'net_cents',
+      'vat_cents',
+      'gross_cents',
       'invoice_status',
       'invoice_is_cancelled',
     ]);
@@ -235,14 +250,20 @@ describe('the views exist and the migration is idempotent', () => {
     expect(tables).toEqual([
       'accounting_settings',
       'bills',
+      'credit_note_lines',
+      'credit_notes',
       'creditors',
       'customers',
+      'dunning_notices',
+      'dunning_settings',
       'invoice_counters',
       'invoice_lines',
       'invoices',
       'payment_run_items',
       'payment_runs',
       'payments',
+      'recurring_invoices',
+      'recurring_runs',
       'seller_settings',
     ]);
     expect(tables.some((t) => t.startsWith('report_'))).toBe(false);

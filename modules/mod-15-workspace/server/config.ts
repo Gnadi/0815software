@@ -119,6 +119,7 @@ function peerEnv(env: NodeJS.ProcessEnv): Record<string, { url?: string; publicU
     'mod-12-support-tickets': { url: env.SUPPORT_URL, publicUrl: env.SUPPORT_PUBLIC_URL },
     'mod-13-offers': { url: env.OFFERS_URL, publicUrl: env.OFFERS_PUBLIC_URL },
     'mod-14-subsidies-funds': { url: env.SUBSIDIES_URL, publicUrl: env.SUBSIDIES_PUBLIC_URL },
+    'mod-17-orders-delivery': { url: env.ORDERS_URL, publicUrl: env.ORDERS_PUBLIC_URL },
   };
 }
 

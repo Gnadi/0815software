@@ -289,7 +289,7 @@ export const platform: PlatformService[] = [
       'GET/POST /api/sequences · GET /api/sequences/:scope',
       'GET /api/health · GET /api/ready · GET /api/metrics',
     ],
-    consumers: 'MOD-04 Invoice & Billing, MOD-13 Offers, MOD-06 Procurement, MOD-07 Storefront.',
+    consumers: 'MOD-04 Invoice & Billing — gapless invoice numbers across instances. Other modules number their documents locally.',
   },
   {
     n: 'PS-11',
@@ -315,7 +315,7 @@ export const platform: PlatformService[] = [
       'POST /api/parties/:id/merge · /archive · /erase',
       'GET/POST /api/parties/:id/refs',
     ],
-    consumers: 'MOD-04 Invoice & Billing, MOD-13 Offers, MOD-10 CRM Lite, MOD-06 Procurement.',
+    consumers: 'MOD-04 Invoice & Billing, MOD-06 Procurement, MOD-10 CRM Lite, MOD-13 Offers, MOD-15 Workspace, MOD-17 Orders & Delivery Notes.',
   },
   {
     n: 'PS-12',

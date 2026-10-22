@@ -46,6 +46,11 @@ export interface Customer {
   buyer_reference?: string | null;
   /** BT-49 where the buyer receives e-invoices. Empty → `email`. */
   einvoice_address?: string | null;
+  /**
+   * Our supplier number at this customer (ebInterface InvoiceRecipientsBillerID).
+   * The Republic of Austria assigns one and requires it on every invoice.
+   */
+  supplier_number?: string | null;
   /** The customer's personal account (Debitor) in DATEV / BMD. Empty → numbered from settings. */
   debtor_account?: number | null;
 }
@@ -107,7 +112,11 @@ export interface InvoiceRow {
   net_cents: number;
   vat_cents: number;
   gross_cents: number;
+  /** Gross of the partial credit notes on this invoice (Teilgutschriften). */
+  credited_cents: number;
   paid_cents: number;
+  /** gross − credited − paid, never below 0; 0 for drafts and cancelled invoices. */
+  open_cents: number;
   created_at: string;
 }
 
@@ -139,17 +148,41 @@ export interface InvoiceDetail extends InvoiceRow {
   lines: InvoiceLine[];
   vat_breakdown: VatBreakdownRow[];
   payments: Payment[];
-  /** gross − paid (0 for drafts and cancelled invoices). */
-  open_cents: number;
+  credit_notes: CreditNote[];
+  /** Per VAT rate, the net a further credit note may still take back. */
+  creditable: VatBreakdownRow[];
+}
+
+/**
+ * A partial credit note (Teilgutschrift / Rechnungskorrektur): its own
+ * document with its own number, correcting part of one issued invoice.
+ * Immutable once issued; amounts are positive, as on a type-381 document.
+ */
+export interface CreditNote {
+  id: number;
+  invoice_id: number;
+  invoice_number: string;
+  /** "<invoice number>-GS<n>". */
+  number: string;
+  issue_date: string;
+  reason: string;
+  lines: InvoiceLine[];
+  vat_breakdown: VatBreakdownRow[];
+  net_cents: number;
+  vat_cents: number;
+  gross_cents: number;
+  actor: string;
+  created_at: string;
 }
 
 /** One row of a customer statement, in chronological order. */
 export interface LedgerEntry {
   date: string;
-  type: 'invoice' | 'cancellation' | 'payment';
+  type: 'invoice' | 'cancellation' | 'credit_note' | 'payment';
   invoice_id: number;
+  /** The invoice's number — the credit note's own for a credit note. */
   number: string;
-  /** Signed cents: +gross for invoices, −gross for cancellations, −amount for payments. */
+  /** Signed cents: +gross for invoices, −gross for cancellations and credit notes, −amount for payments. */
   amount_cents: number;
   /** Running balance after this entry. */
   balance_cents: number;
@@ -160,8 +193,10 @@ export interface Ledger {
   entries: LedgerEntry[];
   /** Gross total of finalized, non-cancelled invoices. */
   invoiced_cents: number;
+  /** Gross of the credit notes on those invoices. */
+  credited_cents: number;
   paid_cents: number;
-  /** invoiced − paid — always equals the last entry's running balance. */
+  /** invoiced − credited − paid — always equals the last entry's running balance. */
   balance_cents: number;
 }
 
@@ -431,4 +466,91 @@ export interface ReceivableOutcome {
   invoiceId: number;
   status: 'recorded' | 'already_applied' | 'refused';
   message?: string;
+}
+
+// ── Dunning (server/dunning.ts) ─────────────────────────────────────────
+
+export interface DunningLevel {
+  /** What the letter is called, e.g. "Zahlungserinnerung", "1. Mahnung". */
+  name: string;
+  /** From how many days after the due date this level may go out. */
+  days_after_due: number;
+  /** Mahnspesen stated on the letter, in cents. Not booked onto the invoice. */
+  fee_cents: number;
+  /** The body of the letter, after the salutation. */
+  text: string;
+}
+
+export interface DunningSettings {
+  levels: DunningLevel[];
+  /** At least this many days between two notices for the same invoice. */
+  min_days_between: number;
+  /** Default interest per year, stated on the letter; null = none. */
+  interest_rate_percent: number | null;
+}
+
+/** A notice that went out — append-only; the letter is rendered from it. */
+export interface DunningNotice {
+  id: number;
+  invoice_id: number;
+  level: number;
+  level_name: string;
+  issued_on: string;
+  days_overdue: number;
+  open_cents: number;
+  fee_cents: number;
+  interest_rate_percent: number | null;
+  interest_cents: number;
+  text: string;
+  actor: string;
+  created_at: string;
+}
+
+/** Where an overdue invoice stands — derived on every read, never stored. */
+export interface DunningRow {
+  invoice_id: number;
+  number: string;
+  customer_id: number;
+  customer_name: string;
+  due_date: string;
+  days_overdue: number;
+  open_cents: number;
+  notices: DunningNotice[];
+  /** The level that comes next, or null after the last one. */
+  next_level: number | null;
+  next_level_name: string | null;
+  /** From when the next notice may go out. */
+  next_on: string | null;
+  due_now: boolean;
+}
+
+// ── Recurring invoices (server/recurring.ts) ────────────────────────────
+
+export const RECURRING_INTERVALS = ['monthly', 'quarterly', 'yearly'] as const;
+export type RecurringInterval = (typeof RECURRING_INTERVALS)[number];
+
+/** A template that turns each period into a draft. Its schedule is derived, never stored. */
+export interface RecurringTemplate {
+  id: number;
+  name: string;
+  customer_id: number;
+  customer_name: string;
+  interval: RecurringInterval;
+  start_date: string;
+  /** Last day a period may START on; null = open-ended. */
+  end_date: string | null;
+  active: boolean;
+  payment_terms_days: number;
+  note: string | null;
+  lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[];
+  buyer_reference: string | null;
+  tax_exemption_category: TaxExemptionCategory | null;
+  tax_exemption_reason: string | null;
+  /** Periods that have begun and have no draft yet. */
+  due_periods: number;
+  /** The first period not yet invoiced; null when paused or ended. */
+  next_period_start: string | null;
+  /** The latest generated periods, newest first. */
+  recent: { period_start: string; period_end: string; invoice_id: number | null; number: string | null; status: string | null }[];
+  created_by: string;
 }

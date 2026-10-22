@@ -18,6 +18,7 @@ export const MOVEMENT_TYPES = [
   'transfer_in',
   'adjustment',
   'po_receipt',
+  'goods_issue',
 ] as const;
 export type MovementType = (typeof MOVEMENT_TYPES)[number];
 
@@ -104,4 +105,15 @@ export interface PurchaseOrderDetail extends PurchaseOrder {
 export interface FieldError {
   field: string;
   message: string;
+}
+
+/** Goods issued for another module's delivery (MOD-17 delivery notes). */
+export interface GoodsIssue {
+  id: number;
+  source: string;
+  reference: string;
+  warehouse_code: string;
+  actor: string;
+  created_at: string;
+  lines: { sku: string; product_id: number; quantity: number }[];
 }

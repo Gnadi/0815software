@@ -180,6 +180,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.subsidies-funds.task':      `Keep track of grants, applications and deadlines`,
     'mod.workspace.task':            `One overview across all your modules`,
     'mod.mosaic.task':               `Several modules side by side on one screen`,
+    'mod.orders-delivery.task':      `Confirm orders, deliver them in parts, hand each delivery to invoicing`,
     // ─── Catalogue rows (§ 05.01 services, § 05.02 modules) ─────────────
     // Keyed by slug, not by index, so reordering a catalogue cannot silently
     // reassign copy. The English strings must be listed here as well as in
@@ -226,6 +227,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.subsidies-funds.title':       'Subsidies & Funds',
     'mod.workspace.title':             'Workspace',
     'mod.mosaic.title':   'Mosaic',
+    'mod.orders-delivery.title':   'Orders & Delivery Notes',
 
     // ─── /platform and /modules pages (headers, card chrome, prose) ─────
     'page.rail.platform':      'Platform',
@@ -367,14 +369,14 @@ export const T: Record<Lang, Record<string, string>> = {
     'svc.number.resp.2':                             'Token-based formatting, e.g. INV-{YYYY}-{seq:0000} → INV-2026-0001',
     'svc.number.resp.3':                             'Period reset by year, month or day; gapless within the period',
     'svc.number.resp.4':                             'A sensible default format auto-created for an unknown scope',
-    'svc.number.consumers':                          'MOD-04 Invoice & Billing, MOD-13 Offers, MOD-06 Procurement, MOD-07 Storefront.',
+    'svc.number.consumers':                          'MOD-04 Invoice & Billing — gapless invoice numbers across instances. Other modules number their documents locally.',
     'svc.customers.overview':                        'A customer who licensed three modules used to get three counterparty lists and expected one: Invoice & Billing and Offers each owned a customers table, CRM Lite its own companies, Procurement its own suppliers, and nothing reconciled them. PS-11 holds the party master record and, deliberately, nothing else — no pipeline, no activities, no notes. Parties are kinds: a customer is someone you sell to, a supplier someone you buy from, and matching never crosses the two. Modules resolve a party by external reference or by matching attributes, and merges keep the losing record resolvable so old links never break.',
     'svc.customers.resp.0':                          'Party master records by kind, with customers and suppliers kept apart',
     'svc.customers.resp.1':                          'Resolve-or-create by external reference or matching attributes',
     'svc.customers.resp.2':                          'External references per source module, so each keeps its own ids',
     'svc.customers.resp.3':                          'Merge with the losing record left resolvable; archive and GDPR erase',
     'svc.customers.resp.4':                          'The one counterparty list a multi-module stack agrees on',
-    'svc.customers.consumers':                       'MOD-04 Invoice & Billing, MOD-13 Offers, MOD-10 CRM Lite, MOD-06 Procurement.',
+    'svc.customers.consumers':                       'MOD-04 Invoice & Billing, MOD-06 Procurement, MOD-10 CRM Lite, MOD-13 Offers, MOD-15 Workspace, MOD-17 Orders & Delivery Notes.',
     'svc.banking.overview':                          'MOD-04 already produces a valid pain.001 SEPA credit transfer per payment run; today a human downloads it and uploads it in online banking. EBICS is the protocol that removes the manual step, and this is a Platform Service rather than a module feature for one reason above the others: an EBICS subscriber holds RSA private keys that are sufficient to move money, and those keys belong in exactly one place, guarded once. Private keys are AES-256-GCM ciphertext at rest, are never returned by any endpoint, and are reached through one function that takes a purpose rather than a key id. The protocol layer is Node built-ins only — the exclusive XML canonicaliser and the XML-DSig signature are implemented here rather than taken as dependencies. It speaks twenty order types — every one the H005 schema set gives its own order-data structure except H3K — plus the customer protocol the national annexes define, and it reads back what the bank sends: account statements become bookings a module can search, so an incoming payment finds its invoice. Every message it builds is validated against the published schemas on every test run — the EBICS ones, the ISO 20022 statement schemas, and Austria’s stricter subset — and the order-type tables are transcribed rather than guessed. That discipline is what found each of the defects this service has had, including two that no amount of testing against itself would have shown. Nothing in it has yet spoken to a real bank.',
     'svc.banking.resp.0':                              'Subscriber key custody: A005/A006 signing, X002 authentication, E002 encryption',
     'svc.banking.resp.1':                              'The EBICS key exchange — INI, HIA, HPB — and a printable INI letter',
@@ -510,6 +512,13 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.mosaic.feat.3':   'Named boards for the arrangements you keep coming back to',
     'mod.workspace.scope':                           '4–5 WKS',
     'mod.mosaic.scope':   '3–4 WKS',
+    'mod.orders-delivery.body':   'The step between the accepted offer and the invoice: order confirmations, partial deliveries with delivery notes, and every delivery billed on its own.',
+    'mod.orders-delivery.overview':   'An accepted offer from Offers becomes a numbered order confirmation, cent for cent; or an order is entered by hand. It is delivered in as many delivery notes as it takes — never more than was ordered, with what is still open derived from the notes, never stored. Each delivery note is a fixed, numbered document with its own PDF, and Invoicing bills it by its number: one invoice per delivery, idempotent, and the order knows which deliveries are billed. Self-contained: one package.json, works without any other module, MIT.',
+    'mod.orders-delivery.feat.0':   'Order confirmation from an accepted offer, or by hand',
+    'mod.orders-delivery.feat.1':   'Partial deliveries — never past the order, open quantity derived',
+    'mod.orders-delivery.feat.2':   'Numbered, fixed delivery notes with their own PDF',
+    'mod.orders-delivery.feat.3':   'Each delivery billed on its own in Invoicing, exactly once',
+    'mod.orders-delivery.scope':   '2–3 WKS',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      `How a project works.`,
@@ -784,6 +793,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.subsidies-funds.task':      `Förderungen, Anträge und Fristen im Blick`,
     'mod.workspace.task':            `Eine Übersicht über alle Ihre Module`,
     'mod.mosaic.task':               `Mehrere Module nebeneinander auf einem Bildschirm`,
+    'mod.orders-delivery.task':      `Aufträge bestätigen, in Teilen liefern, jede Lieferung zur Rechnung geben`,
     // ─── Catalogue rows (§ 05.01 services, § 05.02 modules) ─────────────
     'svc.identity.title':            'Identität',
     'svc.identity.purpose':          'Gemeinsame Authentifizierung und Autorisierung — ein Login, ein Satz Benutzer und Rollen, strikte Mandantentrennung.',
@@ -826,6 +836,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.subsidies-funds.title':       'Förderungen & Fonds',
     'mod.workspace.title':             'Workspace',
     'mod.mosaic.title':   'Mosaic',
+    'mod.orders-delivery.title':   'Aufträge & Lieferscheine',
 
     // ─── /platform and /modules pages (headers, card chrome, prose) ─────
     'page.rail.platform':      'Plattform',
@@ -967,14 +978,14 @@ export const T: Record<Lang, Record<string, string>> = {
     'svc.number.resp.2':                             'Formatierung aus Bausteinen, z. B. INV-{YYYY}-{seq:0000} → INV-2026-0001',
     'svc.number.resp.3':                             'Periodenwechsel jährlich, monatlich oder täglich; lückenlos innerhalb der Periode',
     'svc.number.resp.4':                             'Ein sinnvolles Standardformat, automatisch angelegt für einen unbekannten Bereich',
-    'svc.number.consumers':                          'MOD-04 Rechnung & Abrechnung, MOD-13 Angebote, MOD-06 Beschaffung, MOD-07 Onlineshop.',
+    'svc.number.consumers':                          'MOD-04 Rechnung & Abrechnung — lückenlose Rechnungsnummern über Instanzen hinweg. Andere Module nummerieren ihre Belege lokal.',
     'svc.customers.overview':                        'Ein Kunde, der drei Module lizenziert hat, bekam bisher drei Geschäftspartnerlisten und erwartete eine: Rechnung & Abrechnung und Angebote führten je eine eigene Kundentabelle, CRM Lite eigene Firmen, Beschaffung eigene Lieferanten — und nichts glich sie ab. PS-11 hält den Stammsatz des Geschäftspartners und bewusst nichts sonst: keine Pipeline, keine Aktivitäten, keine Notizen. Geschäftspartner haben eine Art: Ein Kunde ist jemand, an den Sie verkaufen, ein Lieferant jemand, bei dem Sie einkaufen — und der Abgleich überschreitet diese Grenze nie. Module lösen einen Geschäftspartner über eine externe Referenz oder passende Merkmale auf, und Zusammenführungen halten den unterlegenen Satz auflösbar, sodass alte Verweise nie brechen.',
     'svc.customers.resp.0':                          'Stammsätze für Geschäftspartner nach Art, Kunden und Lieferanten getrennt gehalten',
     'svc.customers.resp.1':                          'Auflösen oder Anlegen über externe Referenz oder passende Merkmale',
     'svc.customers.resp.2':                          'Externe Referenzen je Quellmodul, sodass jedes seine eigenen IDs behält',
     'svc.customers.resp.3':                          'Zusammenführen mit auflösbar bleibendem Verlierer; Archivieren und DSGVO-Löschung',
     'svc.customers.resp.4':                          'Die eine Geschäftspartnerliste, auf die sich ein Mehr-Modul-Stack einigt',
-    'svc.customers.consumers':                       'MOD-04 Rechnung & Abrechnung, MOD-13 Angebote, MOD-10 CRM Lite, MOD-06 Beschaffung.',
+    'svc.customers.consumers':                       'MOD-04 Rechnung & Abrechnung, MOD-06 Beschaffung, MOD-10 CRM Lite, MOD-13 Angebote, MOD-15 Workspace, MOD-17 Aufträge & Lieferscheine.',
     'svc.banking.overview':                          'MOD-04 erzeugt je Zahlungslauf bereits eine gültige SEPA-Überweisung (pain.001); heute lädt ein Mensch sie herunter und im Online-Banking wieder hoch. EBICS ist das Protokoll, das diesen Handgriff entfernt — und dies ist aus einem Grund ein Platform Service und kein Modul-Feature: ein EBICS-Teilnehmer hält private RSA-Schlüssel, die genügen, um Geld zu bewegen, und die gehören an genau eine Stelle, einmal bewacht. Private Schlüssel liegen als AES-256-GCM-Chiffrat, werden von keinem Endpunkt je zurückgegeben und sind über eine einzige Funktion erreichbar, die einen Zweck entgegennimmt statt einer Schlüssel-ID. Die Protokollschicht nutzt ausschließlich Node-Bordmittel — der exklusive XML-Kanonisierer und die XML-DSig-Signatur sind hier implementiert statt als Abhängigkeit geholt. Der Dienst spricht zwanzig Auftragsarten — jede, der der H005-Schemasatz eine eigene Order-Data-Struktur gibt, außer H3K —, dazu das Kundenprotokoll aus den nationalen Anlagen, und liest zurück, was die Bank schickt: Kontoauszüge werden zu Buchungen, die ein Modul durchsuchen kann, damit ein Zahlungseingang seine Rechnung findet. Jede erzeugte Nachricht wird bei jedem Testlauf gegen die veröffentlichten Schemas geprüft — die von EBICS, die ISO-20022-Auszugsschemas und Österreichs strengeren Subset — und die Auftragsartentabellen sind abgeschrieben, nicht geraten. Diese Disziplin hat jeden Defekt gefunden, den dieser Dienst hatte, darunter zwei, die kein Test gegen sich selbst je gezeigt hätte. Nichts davon hat bisher mit einer echten Bank gesprochen.',
     'svc.banking.resp.0':                              'Verwahrung der Teilnehmerschlüssel: A005/A006 zum Signieren, X002 zur Authentifizierung, E002 zur Verschlüsselung',
     'svc.banking.resp.1':                              'Der EBICS-Schlüsseltausch — INI, HIA, HPB — samt druckbarem INI-Brief',
@@ -1110,6 +1121,13 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.mosaic.feat.3':   'Benannte Boards für die Anordnungen, zu denen Sie immer zurückkehren',
     'mod.workspace.scope':                           '4–5 WKS',
     'mod.mosaic.scope':   '3–4 WKS',
+    'mod.orders-delivery.body':   'Der Schritt zwischen angenommenem Angebot und Rechnung: Auftragsbestätigungen, Teillieferungen mit Lieferscheinen und jede Lieferung einzeln verrechnet.',
+    'mod.orders-delivery.overview':   'Ein angenommenes Angebot aus Angebote wird zur nummerierten Auftragsbestätigung, auf den Cent genau; oder ein Auftrag wird direkt erfasst. Geliefert wird in so vielen Lieferscheinen wie nötig — nie mehr als bestellt, und was noch offen ist, wird aus den Lieferscheinen abgeleitet, nie gespeichert. Jeder Lieferschein ist ein fester, nummerierter Beleg mit eigenem PDF, und Rechnungen verrechnet ihn über seine Nummer: eine Rechnung je Lieferung, idempotent, und der Auftrag weiß, welche Lieferungen verrechnet sind. Eigenständig: ein package.json, läuft ohne jedes andere Modul, MIT.',
+    'mod.orders-delivery.feat.0':   'Auftragsbestätigung aus angenommenem Angebot oder direkt erfasst',
+    'mod.orders-delivery.feat.1':   'Teillieferungen — nie über den Auftrag hinaus, Offenes abgeleitet',
+    'mod.orders-delivery.feat.2':   'Nummerierte, unveränderliche Lieferscheine mit eigenem PDF',
+    'mod.orders-delivery.feat.3':   'Jede Lieferung einzeln in Rechnungen verrechnet, genau einmal',
+    'mod.orders-delivery.scope':   '2–3 WKS',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      `So läuft ein Projekt ab.`,

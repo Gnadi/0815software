@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="http://www.ebinterface.at/schema/6p1/" GeneratingSystem="0815software MOD-04 Invoice &amp; Billing" DocumentType="CreditMemo" InvoiceCurrency="EUR" Language="de">
+  <InvoiceNumber>RE-2026-0042-GS1</InvoiceNumber>
+  <InvoiceDate>2026-10-28</InvoiceDate>
+  <CancelledOriginalDocument>
+    <InvoiceNumber>RE-2026-0042</InvoiceNumber>
+    <InvoiceDate>2026-10-21</InvoiceDate>
+    <DocumentType>Invoice</DocumentType>
+    <Comment>Storniert die Rechnung RE-2026-0042 vom 21.10.2026</Comment>
+  </CancelledOriginalDocument>
+  <Delivery>
+    <Date>2026-10-15</Date>
+  </Delivery>
+  <Biller>
+    <VATIdentificationNumber>ATU12345678</VATIdentificationNumber>
+    <FurtherIdentification IdentificationType="FN">123456a</FurtherIdentification>
+    <Address>
+      <Name>Muster &amp; Söhne GmbH</Name>
+      <Street>Lassallestraße 5</Street>
+      <Town>Wien</Town>
+      <ZIP>1020</ZIP>
+      <Country CountryCode="AT">Österreich</Country>
+      <Phone>+43 1 234567</Phone>
+      <Email>rechnung@muster.at</Email>
+    </Address>
+    <Contact>
+      <Name>Erika Mustermann</Name>
+      <Phone>+43 1 234567</Phone>
+      <Email>rechnung@muster.at</Email>
+    </Contact>
+  </Biller>
+  <InvoiceRecipient>
+    <VATIdentificationNumber>ATU87654321</VATIdentificationNumber>
+    <OrderReference>
+      <OrderID>4500012345</OrderID>
+    </OrderReference>
+    <Address>
+      <Name>Kunde GmbH</Name>
+      <Street>Hauptplatz 1</Street>
+      <Town>Graz</Town>
+      <ZIP>8010</ZIP>
+      <Country CountryCode="AT">Österreich</Country>
+      <Email>ap@kunde.at</Email>
+    </Address>
+  </InvoiceRecipient>
+  <Details>
+    <ItemList>
+      <ListLineItem>
+        <PositionNumber>1</PositionNumber>
+        <Description>Preisnachlass Wartung</Description>
+        <Quantity Unit="C62">1</Quantity>
+        <UnitPrice>50.00</UnitPrice>
+        <TaxItem>
+          <TaxableAmount>50.00</TaxableAmount>
+          <TaxPercent TaxCategoryCode="S">20</TaxPercent>
+        </TaxItem>
+        <LineItemAmount>50.00</LineItemAmount>
+      </ListLineItem>
+    </ItemList>
+  </Details>
+  <Tax>
+    <TaxItem>
+      <TaxableAmount>50.00</TaxableAmount>
+      <TaxPercent TaxCategoryCode="S">20</TaxPercent>
+      <TaxAmount>10.00</TaxAmount>
+    </TaxItem>
+  </Tax>
+  <TotalGrossAmount>60.00</TotalGrossAmount>
+  <PayableAmount>60.00</PayableAmount>
+  <PaymentConditions>
+    <Comment>Gutschrift — wird mit offenen Beträgen verrechnet oder erstattet.</Comment>
+  </PaymentConditions>
+  <Comment>Gutschrift zur Rechnung RE-2026-0042 vom 2026-10-21: Preisnachlass wegen Verzug</Comment>
+</Invoice>

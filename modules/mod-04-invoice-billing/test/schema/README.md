@@ -55,3 +55,16 @@ Mustang-CLI 2.26.0 (`schema/ZF_250/EN16931/`). `einvoice.test.ts` validates
 every e-invoice case against them with `xmllint`. XRechnung in CII syntax uses
 the same structure, and its additional rules are schematron, not schema. See
 `docs/E-RECHNUNG.md` for the external check.
+
+## `ebinterface-6p1/` — the ebInterface 6.1 schema
+
+`Invoice.xsd`, the official **ebInterface 6.1** schema ("Official ebInterface
+e-Invoice schema, Schema version: 6.1, Last update: 2022-06-25"), unmodified,
+from AUSTRIAPRO's development repository
+`github.com/austriapro/ebinterface-standards` (`schemas/ebInterface6p1/`,
+commit `f7e4e4e`, 2026-10-07). Beside it two of that repository's own
+samples: `ebinterface_6p1_sample_more_consistent.xml` (valid) and
+`ebinterface_6p1_sample_ecosio_invalid.xml` (deliberately invalid).
+`ebinterface.test.ts` validates every case against the schema with `xmllint`,
+and first checks that the valid sample passes and the invalid one fails — so a
+green run means the validator actually looked.

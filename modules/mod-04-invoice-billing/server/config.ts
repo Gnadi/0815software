@@ -167,6 +167,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       // MOD-13 Offers — when set, an accepted offer can be billed with one
       // action. Unset means this module behaves exactly as it did before.
       offersUrl: env.OFFERS_URL || undefined,
+      // MOD-17 Orders & Delivery Notes — when set, a delivery note can be
+      // billed by its number, one invoice per delivery.
+      ordersUrl: env.ORDERS_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
       invoiceChannel: env.NOTIFICATION_INVOICE_CHANNEL || undefined,
     },

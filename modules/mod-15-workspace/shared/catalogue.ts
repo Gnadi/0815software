@@ -59,6 +59,7 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
   { id: 'mod-12-support-tickets', n: 'MOD-12', label: 'Support', urlEnv: 'SUPPORT_URL', publicUrlEnv: 'SUPPORT_PUBLIC_URL', embeddable: true },
   { id: 'mod-13-offers', n: 'MOD-13', label: 'Offers', urlEnv: 'OFFERS_URL', publicUrlEnv: 'OFFERS_PUBLIC_URL', embeddable: true },
   { id: 'mod-14-subsidies-funds', n: 'MOD-14', label: 'Subsidies', urlEnv: 'SUBSIDIES_URL', publicUrlEnv: 'SUBSIDIES_PUBLIC_URL', embeddable: true },
+  { id: 'mod-17-orders-delivery', n: 'MOD-17', label: 'Orders', urlEnv: 'ORDERS_URL', publicUrlEnv: 'ORDERS_PUBLIC_URL', embeddable: true },
 ];
 
 export function catalogueEntry(id: string): CatalogueEntry | undefined {

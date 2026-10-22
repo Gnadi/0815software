@@ -1,4 +1,4 @@
-# E-Rechnung — XRechnung, ZUGFeRD, DATEV and BMD in MOD-04
+# E-Rechnung — XRechnung, ZUGFeRD, ebInterface, DATEV and BMD in MOD-04
 
 How MOD-04 Invoice & Billing issues e-invoices and hands its invoices to the
 tax adviser: what the law asks for, what the module produces, what an
@@ -29,9 +29,11 @@ XRechnung qualifies, and so does ZUGFeRD from profile EN 16931 (formerly
 writes them.
 
 Austria has no general B2B mandate. Invoices to the Austrian federal
-government go through e-Rechnung.gv.at as ebInterface or PEPPOL UBL, and
-neither is produced here (see [Not covered](#not-covered)). An Austrian
-installation uses this for German customers, and for the BMD export.
+government (since 2014) go through e-Rechnung.gv.at as **ebInterface** or
+PEPPOL UBL. This module writes **ebInterface 6.1** (see
+[ebInterface](#ebinterface-the-austrian-format)); UBL is not written. An
+Austrian installation uses ebInterface for the Republic and Austrian
+recipients, XRechnung/ZUGFeRD for German customers, and the BMD export.
 
 ## What the module produces
 
@@ -73,8 +75,17 @@ of cancellation, with BT-25/26 referring to the cancelled invoice and the
 payment means set to 97 (settled between the parties). It is available for
 both formats with `?document=cancellation`.
 
-A partial correction is a cancellation plus a new invoice, as before. A
-corrected invoice (type 384) is not produced.
+### Partial credit notes (Teilgutschriften)
+
+A correction of PART of an invoice — returned goods, a price reduction — is a
+credit note of its own: type code 381, number `<invoice number>-GS<n>`
+(counting per invoice), dated on its own day, with BT-25/26 naming the
+invoice and only its own lines. The invoice's parties, service date, buyer
+reference and VAT exemption carry over. Per VAT rate, all credit notes
+together never exceed the invoice's base or VAT, so the VAT correction is
+exact. Download with `?credit_note=<id>` in all three formats (ebInterface:
+`CreditMemo`). The golden case `teilgutschrift` is validated by Mustang like
+the others. A corrected invoice (type 384) is not produced.
 
 ### Tax categories
 
@@ -148,7 +159,8 @@ and the country falls back to the VAT id's prefix.
 | ----- | ------------- | ---------- |
 | street / postcode / city / country (ISO) | BT-50, BT-53, BT-52, BT-55 | country for both. City and postcode for XRechnung |
 | VAT id | BT-48 | reverse charge, intra-EU supply |
-| buyer reference | BT-10 | **XRechnung**. The **Leitweg-ID** for a public body, otherwise the reference the customer wants quoted (order number, contact). An invoice can carry its own |
+| buyer reference | BT-10 | **XRechnung**. The **Leitweg-ID** for a public body, otherwise the reference the customer wants quoted (order number, contact). For ebInterface it is the order reference (`OrderID`) — the **Auftragsreferenz** the Austrian federal government requires. An invoice can carry its own |
+| our supplier number | — | **ebInterface** `InvoiceRecipientsBillerID` — the **Lieferantennummer** the Austrian federal government assigns and requires. Frozen at issue like every party field |
 | e-invoice address | BT-49 | **XRechnung**. Defaults to the email. A Leitweg-ID here is sent with scheme `0204`, an email with `EM` |
 
 ### Per invoice (editor)
@@ -206,6 +218,47 @@ specification identifier and the rules change, and this document and the
 golden files need a new pass. The sources, and the gaps in the standards
 themselves, are in [`E-RECHNUNG-REVIEW.md`](./E-RECHNUNG-REVIEW.md).
 
+## ebInterface, the Austrian format
+
+**ebInterface 6.1** (AUSTRIAPRO / WKO) — `GET /api/invoices/:id/ebinterface.xml`,
+`?document=cancellation` for the credit note. It is the format the Republic of
+Austria accepts through e-Rechnung.gv.at besides PEPPOL UBL, and what many
+Austrian recipients read. It is not an EN 16931 syntax, so it has its own
+renderer (`shared/ebinterface.ts`) — over the **same** `EInvoiceModel`, the
+same frozen parties and the same money:
+
+- **Tax categories** as the specification recommends: `S` for the seller
+  country's standard rate (20 % in AT, 19 % in DE), `AA` for a reduced one
+  (10 %, 13 %, 7 %), and at 0 % the invoice's exemption category, which
+  already uses the same UN/CEFACT 5305 codes (`E`, `AE`, `K`, `G`, `Z`, `O`).
+  The exemption reason goes into the 0 % tax item's comment.
+- **Amounts.** Each line carries its net amount and category; the tax is
+  stated once per (rate, category) in the summary, rounded the way this
+  module rounds it. `TotalGrossAmount = Σ LineItemAmount + Σ TaxAmount =
+  PayableAmount` — asserted for every case.
+- **No VAT id** (Kleinunternehmer, a public body): `ATU00000000`, as the
+  specification prescribes; it needs no register number in its place.
+- **The Republic's two identifiers.** The customer's *supplier number* is
+  written as `Biller/InvoiceRecipientsBillerID` (Lieferantennummer), the buyer
+  reference as `InvoiceRecipient/OrderReference/OrderID` (Auftragsreferenz).
+  Both are written whenever known; the module does not decide which recipient
+  requires them. For an invoice to a federal body, fill in both.
+- **Cancellation** = `DocumentType="CreditMemo"` with positive amounts (which
+  the specification defines as a credit note), `CancelledOriginalDocument`
+  naming the invoice, and no payment instructions.
+- **Register number**: `FN …` → `FurtherIdentification IdentificationType="FN"`,
+  anything else → `FR`; a Steuernummer → `FASTNR`.
+
+**Validation.** `test/schema/ebinterface-6p1/Invoice.xsd` is the official 6.1
+schema from AUSTRIAPRO's standards repository; every case (the four Austrian
+ones in `test/ebinterface-cases.ts` and all eleven EN 16931 cases) is checked
+against it with `xmllint` on every test run. The schema's own sample passes
+and its deliberately broken sample fails, which proves the check looks. The
+Austrian cases have golden files (`npm run ebinterface:fixtures` regenerates
+them). Not done yet: a run through the federal test system (test.erb.gv.at),
+which also checks the identifiers against the Republic's records — do that
+with a real supplier number before the first live invoice.
+
 ## DATEV export
 
 Someone with the `manage` level enters the DATEV settings on **Settings →
@@ -225,6 +278,7 @@ spelling, Windows-1252, CRLF.
 | ------- | ----- | ---------- | ------ | --- | ---------- | ----------- |
 | invoice, per VAT rate | debtor | revenue account of the rate / category | gross of that rate | S | issue date | invoice number |
 | cancellation, per VAT rate | debtor | same | same | **H** | cancellation date | `<number>-ST` |
+| partial credit note, per VAT rate | debtor | same | its gross at that rate | **H** | credit note date | `<number>-GS<n>` |
 | payment (optional) | bank account | debtor | amount | S | payment date | invoice number (OPOS) |
 
 - **Revenue accounts.** The suggestions are the SKR03 / SKR04 automatic
@@ -264,7 +318,8 @@ account, the gross `betrag` with the `steuer` opposite in sign, `buchcode` 1.
 `belegnr` is the numeric part of the invoice number (`INV-2026-0001` →
 `20260001`), because BMD document numbers are numeric. The full number goes
 in `extbelegnr`. A cancellation is the same rows with the signs inverted,
-the way BMD books an outgoing credit note. The date format (TT.MM.JJJJ or
+the way BMD books an outgoing credit note; a partial credit note likewise,
+for its own amounts, with its own number in `extbelegnr`. The date format (TT.MM.JJJJ or
 JJJJMMTT), the booking symbol (default `AR`) and the first debtor account
 (default 200000) are settings.
 
@@ -286,8 +341,8 @@ if a customer needs it.
 - **Receiving.** The bills side does not read incoming XRechnung or ZUGFeRD.
   The receiving obligation is met by any mailbox that keeps the XML; reading
   it into a bill is a feature still to build.
-- **ebInterface and UBL.** Neither the Austrian government format nor the UBL
-  syntax is written. Both are new renderers over the same `EInvoiceModel`.
+- **UBL.** The PEPPOL UBL syntax is not written; it would be a new renderer
+  over the same `EInvoiceModel`, as ebInterface is.
 - **Allowances, charges, discounts, units.** Lines carry no allowances or
   charges and are always in unit `C62` (piece). Skonto terms are not encoded.
 - **Archiving.** The module stores the data, not the issued bytes. The files

@@ -16,11 +16,13 @@ import {
   invoiceParties,
   pdfParties,
   sellerParty,
+  ebInterfaceFile,
   xrechnungFile,
   zugferdFile,
   type EInvoiceDocument,
 } from './einvoice-data.js';
 import { eInvoiceProblems, type EInvoiceModel } from '../shared/einvoice.js';
+import { ebInterfaceProblems } from '../shared/ebinterface.js';
 import {
   bmdExport,
   datevExport,
@@ -54,6 +56,7 @@ import {
   DomainError,
   finalizeInvoice,
   getCustomer,
+  getInvoice,
   invoiceDetail,
   listInvoices,
   nowIso,
@@ -92,7 +95,8 @@ import {
 } from './bills.js';
 import { MAX_AMOUNT_CENTS, MAX_REMITTANCE, sepaAmount } from '../shared/sepa.js';
 import { BILL_STATUSES, type BillStatus } from '../shared/types.js';
-import { renderInvoicePdf } from './pdf.js';
+import { renderCreditNotePdf, renderInvoicePdf } from './pdf.js';
+import { issueCreditNote } from './credit-notes.js';
 import { fmtEur } from '../shared/money.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
 import { apply as applyReceivables, suggest } from './receivables.js';
@@ -100,6 +104,29 @@ import { importTransfer, MODULE_ID } from './transfer-import.js';
 import type { DocumentTransfer } from '../shared/transfer.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import { likeTerm } from './invoices.js';
+import {
+  claimedCents,
+  dunningOverview,
+  dunningSettingsMeta,
+  getDunningNotice,
+  issueDunningNotice,
+  readDunningSettings,
+  renderDunningLetter,
+  validateDunningSettings,
+  writeDunningSettings,
+} from './dunning.js';
+import type { DunningNotice } from '../shared/types.js';
+import { RECURRING_INTERVALS, type RecurringInterval } from '../shared/types.js';
+import {
+  createTemplate,
+  deleteTemplate,
+  generateAll,
+  generateDrafts,
+  getTemplate,
+  listTemplates,
+  updateTemplate,
+  type TemplateInput,
+} from './recurring.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -152,11 +179,12 @@ interface CustomerInput {
   buyer_reference: string | null;
   einvoice_address: string | null;
   debtor_account: number | null;
+  supplier_number: string | null;
 }
 
 const CUSTOMER_COLUMNS = [
   'name', 'email', 'vat_id', 'address', 'street', 'postcode', 'city',
-  'country_code', 'buyer_reference', 'einvoice_address', 'debtor_account',
+  'country_code', 'buyer_reference', 'einvoice_address', 'debtor_account', 'supplier_number',
 ] as const;
 
 function validateCustomer(input: Record<string, unknown>): CustomerInput {
@@ -181,6 +209,7 @@ function validateCustomer(input: Record<string, unknown>): CustomerInput {
   }
   const buyer_reference = optText(input.buyer_reference, 'buyer_reference', errors, 200);
   const einvoice_address = optText(input.einvoice_address, 'einvoice_address', errors, 200);
+  const supplier_number = optText(input.supplier_number, 'supplier_number', errors, 100);
   let debtor_account: number | null = null;
   if (input.debtor_account !== undefined && input.debtor_account !== null && input.debtor_account !== '') {
     debtor_account = Number(input.debtor_account);
@@ -191,7 +220,7 @@ function validateCustomer(input: Record<string, unknown>): CustomerInput {
   if (errors.length > 0) fail(errors);
   return {
     name, email, vat_id, address, street, postcode, city, country_code,
-    buyer_reference, einvoice_address, debtor_account,
+    buyer_reference, einvoice_address, debtor_account, supplier_number,
   };
 }
 
@@ -280,9 +309,16 @@ function validateDraft(input: Record<string, unknown>): DraftInput {
   }
   const taxExemptionReason = optText(input.tax_exemption_reason, 'tax_exemption_reason', errors, 300);
 
-  const rawLines = Array.isArray(input.lines) ? (input.lines as Record<string, unknown>[]) : [];
+  const lines = validateLines(input.lines, errors);
+  if (errors.length > 0) fail(errors);
+  return { customerId, paymentTermsDays, note, lines, buyerReference, deliveryDate, taxExemptionCategory, taxExemptionReason };
+}
+
+/** Line items as a draft and a credit note take them — every error into `errors`. */
+function validateLines(raw: unknown, errors: FieldError[]): LineInput[] {
+  const rawLines = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
   if (rawLines.length === 0) errors.push({ field: 'lines', message: 'At least one line item is required' });
-  const lines: LineInput[] = rawLines.map((line, i) => {
+  return rawLines.map((line, i) => {
     const description = typeof line.description === 'string' ? line.description.trim() : '';
     if (description === '' || description.length > 200) {
       errors.push({ field: `lines[${i}].description`, message: 'Description is required (max 200 characters)' });
@@ -302,8 +338,39 @@ function validateDraft(input: Record<string, unknown>): DraftInput {
     }
     return { description, quantity, unitPriceCents, vatRate };
   });
-  if (errors.length > 0) fail(errors);
-  return { customerId, paymentTermsDays, note, lines, buyerReference, deliveryDate, taxExemptionCategory, taxExemptionReason };
+}
+
+/**
+ * A recurring template: the schedule fields plus a draft, validated exactly
+ * as a draft is — all errors at once, schedule and lines together.
+ */
+function validateTemplate(input: Record<string, unknown>): TemplateInput {
+  const errors: FieldError[] = [];
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  if (name === '' || name.length > 120) errors.push({ field: 'name', message: 'Name is required (max 120 characters)' });
+  const interval = input.interval as RecurringInterval;
+  if (!(RECURRING_INTERVALS as readonly unknown[]).includes(interval)) {
+    errors.push({ field: 'interval', message: `Interval must be one of: ${RECURRING_INTERVALS.join(', ')}` });
+  }
+  const startDate = optDate(input.start_date, 'start_date', errors);
+  if (startDate === null && !errors.some((e) => e.field === 'start_date')) {
+    errors.push({ field: 'start_date', message: 'A start date is required' });
+  }
+  const endDate = optDate(input.end_date, 'end_date', errors);
+  if (startDate !== null && endDate !== null && endDate < startDate) {
+    errors.push({ field: 'end_date', message: 'The end date cannot be before the start date' });
+  }
+  const active = input.active === undefined ? true : input.active === true;
+  let draft: DraftInput | null = null;
+  try {
+    draft = validateDraft(input);
+  } catch (err) {
+    if (!(err instanceof DomainError)) throw err;
+    errors.push(...err.details);
+  }
+  if (errors.length > 0 || draft === null) fail(errors);
+  const { customerId, createdAt: _createdAt, deliveryDate: _deliveryDate, ...rest } = draft;
+  return { name, customerId, interval, startDate: startDate!, endDate, active, draft: rest };
 }
 
 export interface AppOptions {
@@ -677,6 +744,46 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     res.status(result.replayed ? 200 : 201).json({ ...detail, imported: !result.replayed });
   });
 
+  // ── Bill a delivery note (MOD-17) ────────────────────────────────────
+  // The same hand-over as an offer, for an order delivered in parts: each
+  // delivery note becomes its own DRAFT for exactly what was delivered.
+  // Idempotent on the delivery note number; MOD-17 is told it was billed
+  // (best-effort — the idempotency here is what prevents a second invoice).
+  app.post('/api/invoices/import-delivery-note', async (req, res) => {
+    const raw = body(req).delivery_note_number;
+    if (typeof raw !== 'string' || raw.trim() === '') {
+      fail([{ field: 'delivery_note_number', message: 'delivery_note_number is required' }]);
+    }
+    const number = (raw as string).trim();
+    let transfer: unknown;
+    try {
+      transfer = (await platform.fetchDeliveryNote?.(number)) ?? null;
+    } catch (err) {
+      if (err instanceof OfferFetchError) throw new DomainError(err.status === 404 ? 404 : 502, err.message);
+      throw err;
+    }
+    if (transfer === null) {
+      throw new DomainError(501, 'No order source is configured — set ORDERS_URL to bill delivery notes from MOD-17');
+    }
+    const party = (transfer as DocumentTransfer).customer;
+    const partyId =
+      party && typeof party === 'object'
+        ? await platform.resolveParty({
+            name: party.name,
+            email: party.email,
+            vatId: party.vat_id,
+            addressLines: party.address_lines ?? [],
+            source: party.source ?? MODULE_ID,
+            externalId: party.external_id ?? number,
+          })
+        : null;
+    const result = importTransfer(db, transfer, { partyId, kind: 'delivery' });
+    if (partyId !== null) await platform.linkParty(partyId, result.customerId);
+    const actor = actorOf(res, auth);
+    if (!result.replayed) await platform.deliveryNoteBilled?.({ number, invoiceId: result.invoiceId, actor });
+    res.status(result.replayed ? 200 : 201).json({ ...invoiceDetail(db, result.invoiceId), imported: !result.replayed });
+  });
+
   app.get('/api/invoices/:id', (req, res) => {
     res.json(invoiceDetail(db, Number(req.params.id)));
   });
@@ -742,6 +849,43 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     if (errors.length > 0) fail(errors);
     cancelInvoice(db, Number(req.params.id), reason!);
     res.json(invoiceDetail(db, Number(req.params.id)));
+  });
+
+  // ── Partial credit notes (server/credit-notes.ts) ────────────────────
+  // Issued at once and never changed; each line is validated like a draft's.
+  app.post('/api/invoices/:id/credit-notes', async (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const reason = optText(input.reason, 'reason', errors, 300)?.trim() ?? null;
+    if (!reason) errors.push({ field: 'reason', message: 'A credit note states why — a reason is required' });
+    const issueDate = optDate(input.issue_date, 'issue_date', errors);
+    const lines = validateLines(input.lines, errors);
+    if (errors.length > 0) fail(errors);
+    const actor = actorOf(res, auth);
+    const note = issueCreditNote(db, Number(req.params.id), { issueDate, reason: reason!, lines }, actor);
+    try {
+      await platform.creditNoteIssued?.({
+        number: note.number,
+        invoiceNumber: note.invoice_number,
+        totalFormatted: fmtEur(note.gross_cents),
+        reason: note.reason,
+        actor,
+      });
+    } catch (err) {
+      // A platform side-effect must never fail the credit note itself.
+      console.warn('[mod-04] platform.creditNoteIssued failed:', err);
+    }
+    res.status(201).json(note);
+  });
+
+  app.get('/api/invoices/:id/credit-notes/:noteId/pdf', (req, res) => {
+    const invoice = invoiceDetail(db, Number(req.params.id));
+    const note = invoice.credit_notes.find((n) => n.id === Number(req.params.noteId));
+    if (!note) throw new DomainError(404, 'Credit note not found');
+    const parties = pdfParties(invoiceParties(db, invoice.id, seller));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${note.number}.pdf"`);
+    res.send(renderCreditNotePdf(invoice, note, parties.customer, parties.seller));
   });
 
   app.post('/api/invoices/:id/payments', (req, res) => {
@@ -879,7 +1023,17 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
   // when it would validate: otherwise 422, naming every missing field with
   // its business term, so the operator fixes the master data rather than
   // learning about it from the recipient's rejection.
-  const documentOf = (raw: unknown): EInvoiceDocument => {
+  // ?document=cancellation for the cancellation, ?credit_note=<id> for a
+  // partial credit note — each its own type-381 document.
+  const documentOf = (query: Request['query']): EInvoiceDocument => {
+    if (query.credit_note !== undefined) {
+      const creditNoteId = Number(query.credit_note);
+      if (!Number.isInteger(creditNoteId) || creditNoteId <= 0) {
+        fail([{ field: 'credit_note', message: 'credit_note must be a positive integer id' }]);
+      }
+      return { creditNoteId };
+    }
+    const raw = query.document;
     if (raw === undefined || raw === 'invoice') return 'invoice';
     if (raw === 'cancellation') return 'cancellation';
     fail([{ field: 'document', message: 'document must be invoice or cancellation' }]);
@@ -907,14 +1061,23 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
   });
 
   app.get('/api/invoices/:id/xrechnung.xml', (req, res) => {
-    const file = xrechnungFile(db, Number(req.params.id), seller, documentOf(req.query.document));
+    const file = xrechnungFile(db, Number(req.params.id), seller, documentOf(req.query));
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.send(file.xml);
+  });
+
+  // ebInterface 6.1 — the Austrian format, for e-rechnung.gv.at and Austrian
+  // recipients (shared/ebinterface.ts). Same model, same 422-before-wrong rule.
+  app.get('/api/invoices/:id/ebinterface.xml', (req, res) => {
+    const file = ebInterfaceFile(db, Number(req.params.id), seller, documentOf(req.query));
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
     res.send(file.xml);
   });
 
   app.get('/api/invoices/:id/zugferd.pdf', (req, res) => {
-    const file = zugferdFile(db, Number(req.params.id), seller, documentOf(req.query.document));
+    const file = zugferdFile(db, Number(req.params.id), seller, documentOf(req.query));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
     res.send(file.pdf);
@@ -941,6 +1104,108 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     res.json({ settings, ...settingsStamp(db) });
   });
 
+  // ── Dunning (server/dunning.ts) ──────────────────────────────────────
+  // Where each overdue invoice stands is derived on every read; a notice that
+  // went out is stored, append-only. Issuing one is ordinary work (`edit`); a
+  // run over every due invoice and the settings are `manage` (server/access.ts).
+  const announce = async (notice: DunningNotice, actor: string): Promise<void> => {
+    const invoice = getInvoice(db, notice.invoice_id);
+    const customer = getCustomer(db, invoice.customer_id);
+    await platform.dunningNoticeIssued?.({
+      invoiceNumber: invoice.number ?? '',
+      levelName: notice.level_name,
+      customerEmail: customer.email,
+      customerName: customer.name,
+      claimedFormatted: fmtEur(claimedCents(notice)),
+      text: notice.text,
+      actor,
+    });
+  };
+
+  app.get('/api/dunning', (_req, res) => {
+    res.json({ rows: dunningOverview(db), settings: readDunningSettings(db) });
+  });
+
+  app.post('/api/invoices/:id/dunning-notices', async (req, res) => {
+    const actor = actorOf(res, auth);
+    const notice = issueDunningNotice(db, Number(req.params.id), actor);
+    await announce(notice, actor);
+    res.status(201).json(notice);
+  });
+
+  // Every invoice whose next notice is due, at once. One invoice that cannot
+  // be reminded (it was paid a second ago) does not stop the others.
+  app.post('/api/dunning/run', async (_req, res) => {
+    const actor = actorOf(res, auth);
+    const issued: DunningNotice[] = [];
+    for (const row of dunningOverview(db).filter((r) => r.due_now)) {
+      const notice = issueDunningNotice(db, row.invoice_id, actor);
+      issued.push(notice);
+      await announce(notice, actor);
+    }
+    res.json({ issued });
+  });
+
+  app.get('/api/dunning-notices/:id/pdf', (req, res) => {
+    const notice = getDunningNotice(db, Number(req.params.id));
+    const pdf = renderDunningLetter(db, notice, seller);
+    const invoice = getInvoice(db, notice.invoice_id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${invoice.number}_mahnung_${notice.level}.pdf"`);
+    res.send(pdf);
+  });
+
+  app.get('/api/dunning-settings', (_req, res) => {
+    res.json({ settings: readDunningSettings(db), ...dunningSettingsMeta(db) });
+  });
+
+  app.put('/api/dunning-settings', async (req, res) => {
+    const actor = actorOf(res, auth);
+    const settings = validateDunningSettings(body(req));
+    writeDunningSettings(db, settings, actor);
+    await platform.settingsChanged?.({ actor, section: 'dunning', fields: ['levels', 'min_days_between', 'interest_rate_percent'] });
+    res.json({ settings, ...dunningSettingsMeta(db) });
+  });
+
+  // ── Recurring invoices (server/recurring.ts) ─────────────────────────
+  // A template only ever produces DRAFTS, at most one per period; a person
+  // still checks and sends each. Generating one template is ordinary work;
+  // a run over every template is `manage` (server/access.ts).
+  const assertTemplateRates = (input: TemplateInput) =>
+    assertSellerRates(input.draft.lines.map((l) => l.vatRate), (i) => `lines[${i}].vat_rate`);
+
+  app.get('/api/recurring', (_req, res) => {
+    res.json({ templates: listTemplates(db), today: todayIso() });
+  });
+
+  app.post('/api/recurring', (req, res) => {
+    const input = validateTemplate(body(req));
+    assertTemplateRates(input);
+    const templateId = createTemplate(db, input, actorOf(res, auth));
+    res.status(201).json(getTemplate(db, templateId));
+  });
+
+  app.put('/api/recurring/:id', (req, res) => {
+    const input = validateTemplate(body(req));
+    assertTemplateRates(input);
+    updateTemplate(db, Number(req.params.id), input);
+    res.json(getTemplate(db, Number(req.params.id)));
+  });
+
+  app.delete('/api/recurring/:id', (req, res) => {
+    deleteTemplate(db, Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  app.post('/api/recurring/:id/generate', (req, res) => {
+    const created = generateDrafts(db, Number(req.params.id), actorOf(res, auth));
+    res.json({ created, template: getTemplate(db, Number(req.params.id)) });
+  });
+
+  app.post('/api/recurring/run', (_req, res) => {
+    res.json({ created: generateAll(db, actorOf(res, auth)) });
+  });
+
   // ── Settings: the seller, as the admin maintains it ──────────────────
   // server/seller-settings.ts holds the precedence (Settings > PS-11 > env)
   // and the validation. Issued invoices are unaffected by a change here:
@@ -957,7 +1222,11 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     };
     return {
       seller: party,
-      problems: { xrechnung: eInvoiceProblems(probe, 'xrechnung'), zugferd: eInvoiceProblems(probe, 'zugferd') },
+      problems: {
+        xrechnung: eInvoiceProblems(probe, 'xrechnung'),
+        zugferd: eInvoiceProblems(probe, 'zugferd'),
+        ebinterface: ebInterfaceProblems(probe),
+      },
     };
   };
 

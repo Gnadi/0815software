@@ -298,6 +298,10 @@
           {
             "id": "mod-13-offers",
             "urlEnv": "OFFERS_URL"
+          },
+          {
+            "id": "mod-17-orders-delivery",
+            "urlEnv": "ORDERS_URL"
           }
         ]
       },
@@ -790,6 +794,11 @@
             "id": "mod-14-subsidies-funds",
             "urlEnv": "SUBSIDIES_URL",
             "publicUrlEnv": "SUBSIDIES_PUBLIC_URL"
+          },
+          {
+            "id": "mod-17-orders-delivery",
+            "urlEnv": "ORDERS_URL",
+            "publicUrlEnv": "ORDERS_PUBLIC_URL"
           }
         ]
       },
@@ -902,6 +911,11 @@
             "id": "mod-15-workspace",
             "urlEnv": "WORKSPACE_URL",
             "publicUrlEnv": "WORKSPACE_PUBLIC_URL"
+          },
+          {
+            "id": "mod-17-orders-delivery",
+            "urlEnv": "ORDERS_URL",
+            "publicUrlEnv": "ORDERS_PUBLIC_URL"
           }
         ]
       },
@@ -922,6 +936,56 @@
         "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
         "publishesReportViews": false
+      }
+    },
+    {
+      "id": "mod-17-orders-delivery",
+      "n": "MOD-17",
+      "slug": "orders-delivery",
+      "title": "Orders & Delivery Notes",
+      "label": "Orders",
+      "defaultPort": 3017,
+      "scope": "2–3 WKS",
+      "services": {
+        "required": [],
+        "optional": [
+          "ps-01-identity",
+          "ps-07-audit-log",
+          "ps-11-customers"
+        ]
+      },
+      "env": {
+        "required": [],
+        "optional": [
+          "SELLER_ADDRESS",
+          "SELLER_NAME",
+          "SELLER_REFRESH_MS",
+          "SELLER_VAT_ID",
+          "SHELL_ORIGIN"
+        ],
+        "secrets": [
+          "ADMIN_PASSWORD",
+          "SESSION_SECRET"
+        ]
+      },
+      "constraints": {
+        "supportsSso": true,
+        "embeddable": true,
+        "needsPublicBaseUrl": false,
+        "acceptsSourceDb": false,
+        "publishesReportViews": false
+      },
+      "peers": {
+        "optional": [
+          {
+            "id": "mod-03-inventory-management",
+            "urlEnv": "INVENTORY_URL"
+          },
+          {
+            "id": "mod-13-offers",
+            "urlEnv": "OFFERS_URL"
+          }
+        ]
       }
     }
   ]
