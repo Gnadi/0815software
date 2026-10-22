@@ -1,5 +1,6 @@
 import type { AccessLevel } from './access';
 import type {
+  BoardTask,
   CalendarDay,
   CalendarRow,
   DaySheet,
@@ -13,7 +14,11 @@ import type {
   LeaveEntitlement,
   LeaveRequest,
   LeaveSettings,
+  Milestone,
   Project,
+  ProjectProgress,
+  TaskEvent,
+  TaskStatus,
   TimeEntry,
   TimesheetDetail,
   TimesheetRow,
@@ -158,6 +163,18 @@ export const api = {
   flexEntries: (employeeId: number) => request<{ entries: FlexEntry[] }>(`/api/employees/${employeeId}/flex-entries`),
   addFlexEntry: (employeeId: number, v: Record<string, unknown>) =>
     request<FlexEntry>(`/api/employees/${employeeId}/flex-entries`, post(v)),
+};
+
+export const planning = {
+  portfolio: (archived = false) => request<{ projects: ProjectProgress[] }>(`/api/portfolio${archived ? '?archived=1' : ''}`),
+  board: (projectId: number) =>
+    request<{ progress: ProjectProgress; milestones: Milestone[]; tasks: BoardTask[] }>(`/api/projects/${projectId}/board`),
+  myTasks: (done = false) => request<{ tasks: BoardTask[] }>(`/api/my-tasks${done ? '?done=1' : ''}`),
+  task: (id: number) => request<{ task: BoardTask; events: TaskEvent[] }>(`/api/tasks/${id}`),
+  plan: (id: number, v: Record<string, unknown>) => request<BoardTask>(`/api/tasks/${id}/plan`, put(v)),
+  move: (id: number, status: TaskStatus, note?: string) => request<BoardTask>(`/api/tasks/${id}/status`, post({ status, note })),
+  addMilestone: (projectId: number, v: Record<string, unknown>) => request<Milestone>(`/api/projects/${projectId}/milestones`, post(v)),
+  deleteMilestone: (id: number) => request<{ ok: true }>(`/api/milestones/${id}`, { method: 'DELETE' }),
 };
 
 /** URL of the month's flexitime CSV for payroll. */

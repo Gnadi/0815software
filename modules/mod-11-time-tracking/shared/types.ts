@@ -31,6 +31,8 @@ export interface Project {
   created_at: string;
   /** Derived: number of time entries booked against this project. */
   entry_count: number;
+  /** Planned effort for the whole project; null: no budget. */
+  budget_minutes: number | null;
   tasks: Task[];
 }
 
@@ -41,7 +43,19 @@ export interface Task {
   active: boolean;
   /** Derived: number of time entries booked against this task. */
   entry_count: number;
+  status: TaskStatus;
+  assignee_id: number | null;
+  assignee_name: string | null;
+  due_date: string | null;
+  estimate_minutes: number | null;
+  milestone_id: number | null;
+  description: string | null;
+  /** Derived: the time booked against it. */
+  spent_minutes: number;
 }
+
+export const TASK_STATUSES = ['todo', 'in_progress', 'review', 'done'] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export interface Employee {
   id: number;
@@ -321,4 +335,61 @@ export interface FlexAccount {
   /** How far below the floor (0 above it). */
   under_floor: number;
   months: FlexMonth[];
+}
+
+// ── Planning (server/planning.ts) ──────────────────────────────────────
+
+/** A task on the board, with what is derived about it today. */
+export interface BoardTask extends Task {
+  project_name: string;
+  /** Past its due date and not done. */
+  overdue: boolean;
+  /** More time booked than estimated. */
+  over_estimate: boolean;
+  /** estimate − spent, never below 0; null without an estimate. */
+  remaining_minutes: number | null;
+  /** May the viewer move it across the board (manage, or assigned to them)? */
+  can_move: boolean;
+}
+
+export interface Milestone {
+  id: number;
+  project_id: number;
+  name: string;
+  due_date: string;
+  /** Derived: tasks attached, and how many are done. */
+  task_count: number;
+  done_count: number;
+  /** Derived: every attached task is done (and there is at least one). */
+  reached: boolean;
+  /** Derived: past its date and not reached. */
+  late: boolean;
+}
+
+/** Where a project stands — every figure derived from tasks and entries. */
+export interface ProjectProgress {
+  project_id: number;
+  project_name: string;
+  client: string | null;
+  active: boolean;
+  budget_minutes: number | null;
+  /** Every minute booked on the project, with or without a task. */
+  spent_minutes: number;
+  estimate_minutes: number;
+  /** Tasks per status. */
+  counts: Record<TaskStatus, number>;
+  overdue_tasks: number;
+  late_milestones: number;
+  /** The next milestone not yet reached, by date. */
+  next_milestone: { name: string; due_date: string } | null;
+}
+
+export interface TaskEvent {
+  id: number;
+  task_id: number;
+  from_status: TaskStatus;
+  to_status: TaskStatus;
+  actor: string;
+  note: string | null;
+  at: string;
 }

@@ -53,6 +53,13 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   // corrections, overtime paid out) is the office's decision.
   { method: 'POST', path: '/api/employees/:id/schedules', access: 'manage' },
   { method: 'POST', path: '/api/employees/:id/flex-entries', access: 'manage' },
+  // Planning: who does what by when, estimates and milestones are the office's.
+  // Moving a task across the board is `edit` — and only one's own task, which
+  // depends on the row: server/ownership.ts (mayMoveTask).
+  { method: 'PUT', path: '/api/tasks/:id/plan', access: 'manage' },
+  { method: 'POST', path: '/api/projects/:id/milestones', access: 'manage' },
+  { method: 'PUT', path: '/api/milestones/:id', access: 'manage' },
+  { method: 'DELETE', path: '/api/milestones/:id', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

@@ -23,15 +23,14 @@ Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
   - **MOD-04:** E-Rechnung (XRechnung, ZUGFeRD, ebInterface 6.1), Mahnwesen,
     wiederkehrende Rechnungen, Teilgutschriften, BMD-/DATEV-Export.
 - **Größte verbleibende Lücken:**
-  - **Projekte & Aufgaben** — die Klammer zwischen Angebot, Arbeit, Zeit und
-    Rechnung.
-  - **HR-Grundbedarf:** Mitarbeiter-Self-Service über die Abwesenheiten hinaus
-    (Abwesenheiten sind in MOD-11 umgesetzt).
+  - **Projektplanung in der Tiefe:** Gantt, Abhängigkeiten, Kapazitätsblick
+    (Board, Meilensteine und Budget sind in MOD-11 umgesetzt).
+  - **HR-Grundbedarf:** Mitarbeiter-Self-Service über Abwesenheiten und
+    Gleitzeit hinaus (beides ist in MOD-11 umgesetzt).
   - **Lagertiefe:** Lagerplätze, Kommissionierung, Bewertung (Barcode und
     Reservierung sind umgesetzt).
   - **Eingangsseite:** Belegerkennung (OCR), 3-Way-Match, PEPPOL.
-- **Sinnvollste neue Module** (Abschnitt 3): Projekte & Aufgaben,
-  Terminbuchung, Spesen, Formulare/Umfragen, Wissen.
+- **Sinnvollste neue Module** (Abschnitt 3): Terminbuchung, Spesen, Formulare/Umfragen, Wissen.
   **Nicht bauen:** Finanzbuchhaltung, Lohnverrechnung, Kasse (RKSV), MRP,
   Website-Builder, VoIP, IoT, Social Marketing.
 - **„Open Source + AI“ trägt — für dieses Repo sogar besser als für Odoo**,
@@ -114,10 +113,10 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
-| Project | ❌ (MOD-11 hat Projekte nur als Buchungsziel) | 🔜 **neues Modul „Projekte & Aufgaben“** — die fehlende Klammer zwischen MOD-13, MOD-11 und MOD-04 |
+| Project | ✅ MOD-11 (Board, Meilensteine, Zuständige, Fälligkeiten, Schätzung vs. gebuchte Zeit, Stundenbudget, „Meine Aufgaben“; Angebot → Projekt aus MOD-13) | Kein eigenes Modul: die Projekte lagen schon in MOD-11. Offen: Gantt/Abhängigkeiten, Kapazitätsblick gegen die Arbeitszeitmodelle |
 | Timesheet (Timer, Erinnerung, Freigabe) | 🟡 MOD-11 (Tageserfassung, Wochenfreigabe, „nur eigene Zeiten“, Gleitzeitkonto mit Soll aus datierten Arbeitszeitmodellen, Überstunden über der Obergrenze, Auszahlung, Monats-CSV für die Lohnverrechnung) | Timer, Erinnerungen ergänzen |
 | Helpdesk (E) | ✅ MOD-12 | Anhänge (PS-06), Textbausteine, Geschäftszeiten-SLA, CSAT, IMAP-Brücke |
-| Planning (E) | ❌ | 🟡 in „Projekte & Aufgaben“ als Ressourcenansicht, nicht separat |
+| Planning (E) | ❌ | 🟡 als Kapazitätsblick in MOD-11 (Zuständige × Arbeitszeitmodelle), nicht separat |
 | Appointments (E) | ❌ | 🔜 **neues Modul „Terminbuchung“** — für KMU (Arzt, Handwerk, Beratung) einer der greifbarsten Nutzen |
 | Field Service (E) | ❌ | 🟡 später: Projekte + Terminbuchung + Mobile-Ansicht |
 
@@ -127,7 +126,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | --- | --- | --- |
 | Discuss | ❌ | ⛔ Matrix/Mattermost; PS-03 hat Slack/Teams |
 | Approvals (E) | 🟡 MOD-06 (Freigabestufen), PS-02 | 🟡 generische Freigaben als Workspace-Aktion (MOD-15) auf PS-02 statt eigenem Modul |
-| To-Do | ❌ | in „Projekte & Aufgaben“ |
+| To-Do | 🟡 MOD-11 „Meine Aufgaben“ (projektgebunden) | Persönliche Aufgaben ohne Projekt: offen |
 | Calendar | ❌ | 🟡 CalDAV/iCal-Feeds aus Terminbuchung, Abwesenheiten, MOD-14-Fristen |
 | VoIP, IoT (E) | ❌ | ⛔ |
 | Knowledge (E) | ❌ | 🟡 **neues Modul „Wissen“** (Markdown-Wiki, Versionen, PS-09-Suche, PS-04-RAG) — liefert auch die Wissensdatenbank für MOD-12 |
@@ -182,7 +181,8 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 1. ✅ **MOD-03 Barcode + Reservierung** (umgesetzt).
 2. ✅ **Abwesenheiten in MOD-11** (umgesetzt — kein eigenes Modul, sie gehören
    zur Zeiterfassung).
-3. **MOD-18 Projekte & Aufgaben** — das größte fehlende Stück.
+3. ✅ **Projekte & Aufgaben in MOD-11** (umgesetzt — die Projekte und Aufgaben
+   lagen schon dort; Board, Meilensteine, Zuständige, Schätzungen, Budget).
 4. **PS-04 Dokumentextraktion** + **MOD-06 3-Way-Match** — die Eingangsseite.
 5. **MOD-11 Timer/Self-Service**, **MOD-12 Anhänge/CSAT** — Komfort in
    bestehenden Modulen.
@@ -191,7 +191,6 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 
 | # | Modul | Odoo-Pendant | Warum | Grobe Größe | Platform Services |
 | --- | --- | --- | --- | --- | --- |
-| MOD-18 | **Projekte & Aufgaben** | Project, To-Do, Planning | Klammer Angebot → Arbeit → Zeit → Rechnung; Kanban + Meilensteine + Ressourcenblick | 4–5 Wo | 01, 02, 03, 07 |
 | MOD-20 | **Terminbuchung** | Appointments | Öffentliche Buchungsseite, Ressourcen, iCal; kein Doppelbuchen als bewiesene Invariante | 3–4 Wo | 03, 08 (Anzahlung) |
 | MOD-21 | **Spesen & Reisekosten** | Expenses | Belegfoto → PS-04-Extraktion → Freigabe → Export/Auszahlung via MOD-04 SEPA; AT-Taggeld/Kilometergeld als Konfig | 3–4 Wo | 04, 06, 07, 12 |
 | MOD-22 | **Formulare & Umfragen** | Surveys, Web-Lead-Formulare | Ein Baustein, viele Konsumenten (MOD-10, MOD-12, MOD-14) | 2–3 Wo | 03, 02 |

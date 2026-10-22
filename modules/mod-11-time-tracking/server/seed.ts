@@ -11,6 +11,7 @@ import {
 } from './tracking.js';
 import { addEntitlement, createRequest, decideRequest } from './leave.js';
 import { addSchedule } from './schedules.js';
+import { createMilestone, moveTask, planTask } from './planning.js';
 import { addFlexEntry, flexAccount } from './flextime.js';
 
 /**
@@ -146,6 +147,24 @@ export function seed(db: Database.Database): void {
     submitTimesheet(db, anna, lastWeek, 'admin');
     submitTimesheet(db, bob, lastWeek, 'admin');
     submitTimesheet(db, clara, lastWeek, 'admin');
+
+    // ── Planning ───────────────────────────────────────────────────────
+    // The Acme relaunch as a planned project: a budget, a go-live milestone,
+    // tasks on the board with people, dates and estimates — one of them late.
+    const boss = { actor: 'admin', access: 'manage' as const };
+    db.prepare('UPDATE projects SET budget_minutes = ? WHERE id = ?').run(80 * 60, acme);
+    const goLive = createMilestone(db, acme, 'Go-live', addDays(thisWeek, 25)).id;
+    const acmeBackend = (db.prepare("SELECT id FROM tasks WHERE project_id = ? AND name = 'Backend'").get(acme) as { id: number }).id;
+    const plan = (taskId: number, assigneeId: number, dueIn: number, estimateHours: number, milestoneId: number | null, description: string | null = null) =>
+      planTask(db, taskId, { assigneeId, dueDate: addDays(thisWeek, dueIn), estimateMinutes: estimateHours * 60, milestoneId, description });
+    plan(acmeDesign, clara, -3, 8, goLive, 'Wireframes and the visual design for every page');
+    plan(acmeFrontend, anna, 11, 24, goLive);
+    plan(acmeBackend, bob, 18, 16, goLive);
+    moveTask(db, acmeDesign, 'in_progress', null, boss);
+    moveTask(db, acmeFrontend, 'in_progress', null, boss);
+    plan(donauImpl, bob, 30, 60, null);
+    moveTask(db, donauImpl, 'in_progress', null, boss);
+    plan(internalMaint, david, -1, 4, null);
 
     // ── Working time ───────────────────────────────────────────────────
     // Flexitime accounts from the first seeded week: full-time, part-time on

@@ -43,3 +43,15 @@ export function assertMayRecordFor(
   }
   if (own !== employeeId) throw new DomainError(403, 'You can only record your own time');
 }
+
+/**
+ * May `actor` move a task across the board? `manage` plans and moves any task;
+ * `edit` moves the tasks assigned to them — the person doing the work says
+ * where it stands. Who does what (assigning) stays with `manage`, so an editor
+ * cannot take over a colleague's task by moving it.
+ */
+export function mayMoveTask(db: Database.Database, actor: string, access: AccessLevel, assigneeId: number | null): boolean {
+  if (access === 'manage') return true;
+  if (access !== 'edit' || assigneeId === null) return false;
+  return employeeOf(db, actor) === assigneeId;
+}

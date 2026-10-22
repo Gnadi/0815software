@@ -143,6 +143,7 @@ describe('is it a module at all? — the overlap check before anything is writte
     ['Dunning', 'dunning', 'Payment reminders for overdue invoices.', 'mod-04-invoice-billing'],
     ['Delivery Notes', 'delivery-notes', 'Delivery notes for shipped goods.', 'mod-17-orders-delivery'],
     ['Stock Count', 'stock-count', 'Inventory counts per warehouse.', 'mod-03-inventory-management'],
+    ['Projects & Tasks', 'project-tasks', 'Projects, tasks, milestones and a kanban board.', 'mod-11-time-tracking'],
   ])('%s → points at %s', (title, slug, description, home) => {
     expect(homes(title, slug, description)[0]).toBe(home);
   });

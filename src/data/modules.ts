@@ -349,10 +349,11 @@ const presentation: Record<string, ModulePresentation> = {
     },
   },
   'mod-11-time-tracking': {
-    body: 'Project allocation, daily entry, absences, flexitime, and export to payroll or billing. Works offline.',
+    body: 'Projects with a task board, daily entry, absences, flexitime, and export to payroll or billing. Works offline.',
     overview:
       'Project allocation, daily entry, weekly approval, absences (vacation, sick leave, holidays AT/DE), flexitime and overtime, and export to payroll or billing. Time is integer minutes; money is derived, never stored — a time entry records a positive integer number of minutes, and cost is always recomputed from the rate. Works offline.',
     features: [
+      'Projects with board, milestones, estimates and budget',
       'Daily entry with project allocation',
       'Weekly approval workflow',
       'Leave and flexitime: approval, holidays AT/DE, balances and overtime derived',
