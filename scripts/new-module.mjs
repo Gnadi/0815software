@@ -4,9 +4,9 @@
  * catalogue — so whoever (or whatever) writes the domain next starts from the
  * right pattern instead of copying the nearest module's quirks.
  *
- *   node scripts/new-module.mjs --n 18 --slug project-tasks \
- *     --title "Projects & Tasks" --label Projects \
- *     --description "Projects, tasks and milestones between the offer and the invoice."
+ *   node scripts/new-module.mjs --n 18 --slug appointments \
+ *     --title "Appointment Booking" --label Appointments \
+ *     --description "A public booking page, resources and iCal feeds."
  *
  * What it produces, in modules/mod-<n>-<slug>/ (or --out):
  *

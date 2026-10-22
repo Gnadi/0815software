@@ -113,6 +113,51 @@ export function openDb(path: string): Database.Database {
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_origin ON projects (origin_reference)');
   }
 
+  // ── Planning (server/planning.ts) ────────────────────────────────────
+  // A task is also a piece of planned work: where it stands, who does it, by
+  // when, and how long it was expected to take. What it has cost so far is
+  // never stored — it is the time booked against it.
+  db.exec(`
+    -- A milestone is a date and a name. Whether it is reached is derived —
+    -- every task attached to it is done — never ticked off by hand.
+    CREATE TABLE IF NOT EXISTS milestones (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name       TEXT    NOT NULL,
+      due_date   TEXT    NOT NULL,
+      created_at TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_milestones_project ON milestones (project_id);
+
+    -- Every move of a task across the board, append-only, with the person.
+    CREATE TABLE IF NOT EXISTS task_events (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      from_status TEXT    NOT NULL,
+      to_status   TEXT    NOT NULL,
+      actor       TEXT    NOT NULL,
+      note        TEXT,
+      at          TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events (task_id);
+  `);
+
+  const taskColumns = columns('tasks');
+  if (!taskColumns.includes('status')) {
+    db.exec("ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'todo' CHECK (status IN ('todo', 'in_progress', 'review', 'done'))");
+  }
+  if (!taskColumns.includes('assignee_id')) db.exec('ALTER TABLE tasks ADD COLUMN assignee_id INTEGER REFERENCES employees(id)');
+  if (!taskColumns.includes('due_date')) db.exec('ALTER TABLE tasks ADD COLUMN due_date TEXT');
+  if (!taskColumns.includes('estimate_minutes')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN estimate_minutes INTEGER CHECK (estimate_minutes IS NULL OR estimate_minutes > 0)');
+  }
+  if (!taskColumns.includes('milestone_id')) db.exec('ALTER TABLE tasks ADD COLUMN milestone_id INTEGER REFERENCES milestones(id)');
+  if (!taskColumns.includes('description')) db.exec('ALTER TABLE tasks ADD COLUMN description TEXT');
+  // A budget in hours for the whole project; spent is derived from the entries.
+  if (!columns('projects').includes('budget_minutes')) {
+    db.exec('ALTER TABLE projects ADD COLUMN budget_minutes INTEGER CHECK (budget_minutes IS NULL OR budget_minutes > 0)');
+  }
+
   // ── Working time (server/schedules.ts, server/flextime.ts) ───────────
   db.exec(`
     -- A person's working-time model from a date on: which weekdays (ISO,

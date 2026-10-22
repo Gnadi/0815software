@@ -1,8 +1,8 @@
 # MOD-11 · Time Tracking
 
-Project allocation, daily entry, weekly approval, absences (vacation,
-sick leave, holidays), flexitime and overtime, and export to payroll or
-billing. Works offline. Part of the
+Project allocation and planning (board, milestones, estimates), daily
+entry, weekly approval, absences (vacation, sick leave, holidays),
+flexitime and overtime, and export to payroll or billing. Works offline. Part of the
 [0815software](https://0815software.com) module catalogue — standard
 business software, MIT-licensed, always free.
 
@@ -37,6 +37,11 @@ suite proves each of them:
    plus an append-only ledger (opening balance, corrections, overtime paid
    out). Working-time models are dated, so a change of contract never
    re-prices the past. See [Flexitime and overtime](#flexitime-and-overtime).
+6. **Planning stores decisions, derives the rest.** Where a task stands,
+   who does it, by when and its estimate are stored; spent, remaining,
+   overdue, a milestone reached and a project's hours against its budget
+   are derived from the time booked and the date. Every move on the board
+   is an append-only event. See [Planning](#planning).
 
 ## Stack
 
@@ -86,11 +91,15 @@ The server seeds an empty database automatically on first start, so
 
 ## Data model
 
-Twelve tables, no stored derived state:
+Fourteen tables, no stored derived state:
 
 ```
-projects          name, client, billable_default, rate_cents, active   (CRUD via UI/API)
-tasks             project, name, active                                (optional, per project)
+projects          name, client, billable_default, rate_cents, active,
+                  budget_minutes?                                      (CRUD via UI/API)
+tasks             project, name, active, status, assignee?, due_date?,
+                  estimate_minutes?, milestone?, description?          (optional, per project)
+milestones        project, name, due_date                              (reached is derived)
+task_events       task, from/to status, actor, note                    (append-only history)
 employees         name, email                                          (email = the person's login)
 work_schedules    employee, valid_from, weekly_minutes?, work_days     (append-only, one row per change)
 flex_entries      employee, kind, minutes, effective_date, note, actor (append-only ledger)
@@ -218,8 +227,12 @@ is intentionally out of scope.
   range, all derived by query.
 - **Export** — range + profile → CSV download (payroll / billing /
   detail).
-- **Projects & Tasks** — CRUD with billable default and hourly rate;
-  optional tasks; archive instead of delete once entries exist.
+- **Projects & Tasks** — CRUD with billable default, hourly rate and an
+  optional budget in hours; optional tasks; archive instead of delete once
+  entries exist. Each project has a **board** (to do → in progress →
+  review → done) with assignees, due dates, estimates and milestones.
+- **My Tasks** — what is assigned to the signed-in person, soonest due
+  first, moved from the same list.
 - **Absences** — request vacation and other leave, record sick leave,
   approve or reject (manage), the year's balance, a team calendar per
   month, and the holiday calendar (AT or DE plus company days).
@@ -269,7 +282,16 @@ PUT    /api/projects/:id
 DELETE /api/projects/:id                409 if the project has entries (archive instead)
 POST   /api/projects/:id/tasks          {name}
 PUT    /api/tasks/:id                    {name, active?}
-DELETE /api/tasks/:id                    409 if the task has entries
+DELETE /api/tasks/:id                    409 if the task has entries or has moved on the board
+GET    /api/tasks/:id                    task + its moves
+PUT    /api/tasks/:id/plan               {assignee_id?, due_date?, estimate_minutes?, milestone_id?, description?}  (manage)
+POST   /api/tasks/:id/status             {status: todo|in_progress|review|done, note?}  assignee or manage
+GET    /api/projects/:id/board           progress, milestones, active tasks with derived figures
+POST   /api/projects/:id/milestones      {name, due_date}  (manage)
+PUT    /api/milestones/:id               {name, due_date}  (manage)
+DELETE /api/milestones/:id               its tasks stay, without a milestone  (manage)
+GET    /api/portfolio                    ?archived=1 → every project: spent, budget, estimate, tasks per status
+GET    /api/my-tasks                     ?done=1 → the signed-in person's tasks
 
 GET    /api/employees
 POST   /api/employees                    {name, email?, work_days?}   work_days "12345" = Mon–Fri
@@ -385,6 +407,11 @@ these, that's commissioned work — exactly the kind 0815software does:
 - **Leave beyond the basics** — no expiry of carried-over days, no
   accrual by month, no sick notes (Krankmeldung uploads), no notification
   e-mails, no deputy rules.
+- **Planning beyond the basics** — no Gantt chart or task dependencies,
+  no resource levelling or capacity view against the working-time models,
+  no sub-tasks, checklists, comments or attachments on a task, and no
+  estimate taken from an offer: an offer's lines have no unit, so hours
+  would be invented (see the offer import below).
 - **Invoice / payroll generation** — this module *exports* CSV for those
   systems (feed BILLING into MOD-04, PAYROLL into your payroll); it does
   not produce invoices or payslips itself.
@@ -414,7 +441,7 @@ person signs in as themselves and gets the level PS-01 grants them here:
 | `module:time-tracking:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
 
 `module:*:<level>` grants a level in every module. Reads need `view`, any other
-method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) reserves approving and rejecting weeks, deciding leave, granting entitlements, the holiday calendar, working-time models and flexitime bookings, and maintaining employees, projects and tasks (including importing an offer as a project), for `manage`. A refused request answers **403**
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) reserves approving and rejecting weeks, deciding leave, granting entitlements, the holiday calendar, working-time models and flexitime bookings, planning tasks (assignee, due date, estimate, milestone) and milestones, and maintaining employees, projects and tasks (including importing an offer as a project), for `manage`. A refused request answers **403**
 `{ error, required, access }`; `GET /api/me` reports the caller's `access`.
 Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
 manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
@@ -470,6 +497,33 @@ Pinned by `test/leave.test.ts` (costs, part-time, calendar settings,
 balance and re-check, overlap and year split, who may do what, withdraw,
 delete guard, sick-leave masking, team calendar) and `test/holidays.test.ts`
 (Easter dates and the full AT/DE lists for 2025 and 2026).
+
+## Planning
+
+Projects and tasks were already here as what time is booked against; they are
+planned here too, so there is one project list, and the hours booked are the
+hours a plan is measured against. (A separate project module would have had to
+keep its list in step with this one.)
+
+- **The board.** A task is to do, in progress, in review or done. The
+  person it is assigned to moves it (`edit`); a manager moves any. Who does
+  it is the manager's decision, so a colleague cannot take over a task by
+  moving it (`mayMoveTask`, `server/ownership.ts`). Every move is a
+  `task_events` row with the person; a task or project that has moved is
+  never deleted — deactivate or archive it.
+- **The plan** — assignee, due date, estimate, milestone, description — is
+  set by `manage`. A milestone of another project is refused.
+- **Derived:** spent = the minutes booked against the task; remaining =
+  estimate − spent (never below zero); over estimate; overdue = past the due
+  date and not done. A milestone is **reached** when every active task on it
+  is done (one with no tasks is not), and **late** when its date passes
+  first. A project's spent counts every minute booked on it, with or without
+  a task, against its budget; its estimate is the sum of its tasks'.
+
+Pinned by `test/planning.test.ts` (planning and its refusals, the budget,
+who moves what and the event trail, deactivated tasks, spent and remaining,
+overdue, milestones reached and late, the portfolio figures, my tasks, kept
+history, and an existing database gaining the columns in place).
 
 ## Flexitime and overtime
 

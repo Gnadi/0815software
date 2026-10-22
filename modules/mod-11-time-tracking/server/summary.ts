@@ -9,6 +9,7 @@ import {
 } from '../shared/summary.js';
 import { absentOn } from './leave.js';
 import { flexOverview } from './flextime.js';
+import { overdueCount } from './planning.js';
 import { listEmployees, listProjects, listTimesheets, rangeSummary, todayIso } from './tracking.js';
 import type { TimesheetRow } from '../shared/types.js';
 
@@ -171,6 +172,14 @@ export function moduleSummary(
         unit: 'people',
         tone: overCap > 0 ? 'warn' : 'good',
         href: '/flexitime',
+      },
+      {
+        key: 'overdue_tasks',
+        label: 'Overdue tasks',
+        value: String(overdueCount(db, today)),
+        unit: 'open',
+        tone: overdueCount(db, today) > 0 ? 'warn' : 'good',
+        href: '/projects',
       },
       {
         key: 'active_projects',

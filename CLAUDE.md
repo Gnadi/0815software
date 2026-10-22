@@ -60,14 +60,14 @@ each suite. `deploy/test/new-module.test.ts` fails when they drift apart.
 ## Adding a module
 
 ```sh
-node scripts/new-module.mjs --n 18 --slug project-tasks \
-  --title "Projects & Tasks" --label Projects --description "…" --register
+node scripts/new-module.mjs --n 18 --slug appointments \
+  --title "Appointment Booking" --label Appointments --description "…" --register
 ```
 
 **First ask whether it is a module at all.** The generator checks the topic
 against every existing module (registry + README) and refuses while one already
-covers it: extend that module instead — absences went into MOD-11, not a new
-"Time Off" module. If it truly stands alone, re-run with
+covers it: extend that module instead — absences, flexitime and project
+planning all went into MOD-11, not into modules of their own. If it truly stands alone, re-run with
 `--justify "<why this is not part of MOD-xx>"`; the reason goes into the README.
 
 It writes a working module (copy-ins from MOD-03, an example domain from

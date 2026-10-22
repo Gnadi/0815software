@@ -40,8 +40,9 @@ import {
   writeLeaveSettings,
   type Viewer,
 } from './leave.js';
-import { FLEX_KINDS, LEAVE_STATUSES, LEAVE_TYPES, type FlexKind, type LeaveStatus, type LeaveType } from '../shared/types.js';
+import { FLEX_KINDS, LEAVE_STATUSES, LEAVE_TYPES, TASK_STATUSES, type FlexKind, type LeaveStatus, type LeaveType, type TaskStatus } from '../shared/types.js';
 import { addSchedule, listSchedules } from './schedules.js';
+import { board, createMilestone, deleteMilestone, getBoardTask, moveTask, planTask, portfolio, taskEvents, tasksOf, updateMilestone } from './planning.js';
 import { addFlexEntry, flexAccount, flexDays, flexMonthCsv, flexOverview, listFlexEntries, monthEnd } from './flextime.js';
 import {
   approveTimesheet,
@@ -137,8 +138,16 @@ function validateProject(input: Record<string, unknown>): ProjectInput {
   const billableDefault = optBool(input.billable_default, 'billable_default', errors) ?? true;
   const rateCents = reqCents(input.rate_cents ?? 0, 'rate_cents', errors);
   const active = optBool(input.active, 'active', errors) ?? true;
+  // Budget in minutes; absent keeps it, null clears it.
+  let budgetMinutes: number | null | undefined;
+  if (input.budget_minutes === null || input.budget_minutes === '') budgetMinutes = null;
+  else if (input.budget_minutes !== undefined) {
+    const b = Number(input.budget_minutes);
+    if (!Number.isInteger(b) || b <= 0 || b > 6_000_000) errors.push({ field: 'budget_minutes', message: 'budget_minutes is a positive whole number of minutes, or null' });
+    else budgetMinutes = b;
+  }
   if (errors.length > 0) fail(errors);
-  return { name, client, billableDefault, rateCents, active };
+  return { name, client, billableDefault, rateCents, active, budgetMinutes };
 }
 
 function validateEmployee(input: Record<string, unknown>): EmployeeInput {
@@ -461,6 +470,90 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const active = optBool(body(req).active, 'active', errors) ?? true;
     if (errors.length > 0) fail(errors);
     updateTask(db, Number(req.params.id), name, active);
+    res.json({ ok: true });
+  });
+
+  // ── Planning (server/planning.ts) ────────────────────────────────────
+  const optDate = (raw: unknown, field: string, errors: FieldError[]): string | null =>
+    raw === undefined || raw === null || raw === '' ? null : reqDate(raw, field, errors);
+  const optRef = (raw: unknown, field: string, errors: FieldError[]): number | null =>
+    raw === undefined || raw === null || raw === '' ? null : reqId(raw, field, errors);
+
+  app.get('/api/portfolio', (req, res) => {
+    res.json({ projects: portfolio(db, req.query.archived === '1') });
+  });
+
+  app.get('/api/projects/:id/board', (req, res) => {
+    res.json(board(db, Number(req.params.id), viewerOf(res)));
+  });
+
+  app.get('/api/my-tasks', (req, res) => {
+    const viewer = viewerOf(res);
+    const own = employeeOf(db, viewer.actor);
+    if (own === null) throw new DomainError(404, 'No employee record carries this login');
+    res.json({ tasks: tasksOf(db, own, viewer, req.query.done === '1') });
+  });
+
+  app.get('/api/tasks/:id', (req, res) => {
+    const id = Number(req.params.id);
+    res.json({ task: getBoardTask(db, id, viewerOf(res)), events: taskEvents(db, id) });
+  });
+
+  app.put('/api/tasks/:id/plan', (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const assigneeId = optRef(input.assignee_id, 'assignee_id', errors);
+    const dueDate = optDate(input.due_date, 'due_date', errors);
+    let estimateMinutes: number | null = null;
+    if (input.estimate_minutes !== undefined && input.estimate_minutes !== null && input.estimate_minutes !== '') {
+      const e = Number(input.estimate_minutes);
+      if (!Number.isInteger(e) || e <= 0 || e > 600_000) errors.push({ field: 'estimate_minutes', message: 'estimate_minutes is a positive whole number of minutes, or null' });
+      else estimateMinutes = e;
+    }
+    const milestoneId = optRef(input.milestone_id, 'milestone_id', errors);
+    const description = optText(input.description, 'description', errors, 2000);
+    if (errors.length > 0) fail(errors);
+    const id = Number(req.params.id);
+    planTask(db, id, { assigneeId, dueDate, estimateMinutes, milestoneId, description });
+    const actor = actorOf(res, auth);
+    void platform.audit({ actor, action: 'task.planned', resource: `task:${id}`, metadata: { assignee_id: assigneeId, due_date: dueDate, estimate_minutes: estimateMinutes } });
+    res.json(getBoardTask(db, id, viewerOf(res)));
+  });
+
+  app.post('/api/tasks/:id/status', (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const status = input.status as TaskStatus;
+    if (!(TASK_STATUSES as readonly unknown[]).includes(status)) errors.push({ field: 'status', message: `status must be one of: ${TASK_STATUSES.join(', ')}` });
+    const note = optText(input.note, 'note', errors, 300);
+    if (errors.length > 0) fail(errors);
+    const viewer = viewerOf(res);
+    const task = moveTask(db, Number(req.params.id), status, note, viewer);
+    void platform.audit({ actor: viewer.actor, action: 'task.moved', resource: `task:${task.id}`, metadata: { status } });
+    res.json(task);
+  });
+
+  const validateMilestone = (input: Record<string, unknown>) => {
+    const errors: FieldError[] = [];
+    const name = typeof input.name === 'string' ? input.name.trim() : '';
+    if (name === '' || name.length > 160) errors.push({ field: 'name', message: 'Name is required (max 160 characters)' });
+    const dueDate = reqDate(input.due_date, 'due_date', errors);
+    if (errors.length > 0) fail(errors);
+    return { name, dueDate };
+  };
+
+  app.post('/api/projects/:id/milestones', (req, res) => {
+    const { name, dueDate } = validateMilestone(body(req));
+    res.status(201).json(createMilestone(db, Number(req.params.id), name, dueDate));
+  });
+
+  app.put('/api/milestones/:id', (req, res) => {
+    const { name, dueDate } = validateMilestone(body(req));
+    res.json(updateMilestone(db, Number(req.params.id), name, dueDate));
+  });
+
+  app.delete('/api/milestones/:id', (req, res) => {
+    deleteMilestone(db, Number(req.params.id));
     res.json({ ok: true });
   });
 

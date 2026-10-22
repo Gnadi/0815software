@@ -840,3 +840,77 @@ select.field__input {
 .receive-bar__hint {
   font-size: 11px;
 }
+
+/* ── Planning: the board ─────────────────────────────────────────────── */
+.backlink {
+  margin-bottom: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-dim);
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+}
+
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+  overflow-x: auto;
+}
+
+.kanban__col {
+  min-width: 0;
+  padding: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.kanban__head {
+  margin-bottom: 10px;
+  font-size: 11px;
+  letter-spacing: 0.8px;
+  color: var(--fg-dim);
+}
+
+.kcard {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.kcard.is-overdue {
+  border-color: var(--danger);
+}
+
+.kcard__name {
+  margin-bottom: 4px;
+}
+
+.kcard__meta {
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+.kcard__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.kcard__moves {
+  display: flex;
+  gap: 4px;
+}
+
+.kcard__plan {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
