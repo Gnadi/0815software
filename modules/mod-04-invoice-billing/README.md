@@ -88,8 +88,8 @@ The server seeds an empty database automatically on first start, so
 
 ## Data model
 
-Nine tables, no stored derived state — five for money coming in, four for
-money going out:
+Fifteen tables, no stored derived state — money coming in, reminding
+and repeating it, and money going out:
 
 ```
 customers          name, email, vat_id, address              (CRUD via UI/API)
@@ -107,6 +107,17 @@ payments           invoice, date, amount_cents, note
 invoice_counters   year → last_seq                           (the number source)
 accounting_settings  one row: DATEV / BMD export settings (JSON), who saved it
 seller_settings      one row: the seller fields the admin set (JSON), who saved it
+dunning_settings     one row: the dunning levels (JSON), who saved it
+dunning_notices      invoice, level, what was claimed and the letter text
+                     UNIQUE (invoice, level)   ← append-only
+credit_notes         invoice, seq, number (<invoice>-GS<seq>), issue_date,
+                     reason, actor   UNIQUE (invoice, seq) ← never updated
+credit_note_lines    credit note, position, description, quantity,
+                     unit_price_cents, vat_rate (positive, like any 381)
+recurring_invoices   name, customer, interval, start/end date, active,
+                     the draft it produces (JSON)
+recurring_runs       template, period start/end, the draft it produced
+                     UNIQUE (template, period_start)   ← once per period
 
 creditors          name, iban (validated), bic, note         (who we pay)
 bills              creditor, reference, remittance, amount_cents (GROSS),
@@ -213,14 +224,18 @@ never sees the tables above.
 ```
 draft ──finalize──▶ sent ──payments cover gross──▶ paid   (derived)
   │                   │
-  delete (ok)         └──cancel (keeps number)──▶ cancelled
+  delete (ok)         ├──credit note (-GS1, -GS2 …)──▶ sent, owes less
+                      └──cancel (keeps number)──▶ cancelled
 ```
 
 - Drafts: fully editable, deletable, no number, never on a statement.
 - Sent: immutable (edits → 409), accepts payments, appears in the ledger.
 - Paid: derived, not a stored state — recorded payments equal gross.
 - Cancelled: keeps its number; no edits, deletes or payments (409).
-  Corrections = cancel + issue a new invoice.
+  A wrong invoice = cancel + issue a new one.
+- Credited in part: a partial credit note takes back part of a correct
+  invoice (see [Partial credit notes](#partial-credit-notes-teilgutschriften));
+  a credited invoice is not cancelled on top (409).
 - **"Send" means mark-as-sent.** There is no email integration — this
   module has zero external services. Download the PDF and deliver it
   however you like.
@@ -253,9 +268,12 @@ draft ──finalize──▶ sent ──payments cover gross──▶ paid   (d
   id, control sum, the transfers inside it, a download button, and the
   two ends: mark executed (settles its bills) or discard (releases
   them).
-- **E-invoices** — XRechnung 3.0 (XML) and ZUGFeRD (PDF/A-3, EN 16931) for
-  every issued invoice, and for a cancellation as a credit note; the detail
+- **E-invoices** — XRechnung 3.0 (XML), ZUGFeRD (PDF/A-3, EN 16931) and the
+  Austrian ebInterface 6.1 (XML, for e-Rechnung.gv.at) for every issued invoice, and for a cancellation as a credit note; the detail
   view lists exactly what is still missing, by EN 16931 business term.
+- **Dunning** — overdue invoices with the reminder each needs next, level by
+  level; every notice that goes out is stored and its letter stays
+  downloadable as sent. Optional email through PS-03.
 - **Exports** — the issued invoices of a period as a DATEV Buchungsstapel or a
   BMD NTCS booking import.
 - **Settings** — the seller (letterhead, bank account, XRechnung contact and
@@ -329,15 +347,30 @@ POST   /api/invoices                   {customer_id, payment_terms_days?, note?,
 GET    /api/invoices/:id               lines, VAT breakdown, payments, derived state
 PUT    /api/invoices/:id               drafts only — sent invoices → 409
 DELETE /api/invoices/:id               drafts only — sent invoices → 409
+POST   /api/invoices/import-delivery-note  {delivery_note_number} — bill one MOD-17 delivery (501 without ORDERS_URL)
 POST   /api/invoices/:id/finalize      {issue_date?} draft → sent, assigns number
-POST   /api/invoices/:id/cancel        {reason} — keeps the number
+POST   /api/invoices/:id/cancel        {reason} — keeps the number (409 once credited)
+POST   /api/invoices/:id/credit-notes  {reason, lines, issue_date?} — partial credit note
+GET    /api/invoices/:id/credit-notes/:noteId/pdf   the credit note as a PDF
 POST   /api/invoices/:id/payments      {amount_cents, date?, note?}
                                        overpayment → 422
 GET    /api/invoices/:id/pdf           the invoice as a generated PDF
-GET    /api/invoices/:id/einvoice      what XRechnung / ZUGFeRD would still refuse
-GET    /api/invoices/:id/xrechnung.xml ?document=cancellation for the credit note
-GET    /api/invoices/:id/zugferd.pdf   PDF/A-3 with factur-x.xml; ?document=cancellation
+GET    /api/invoices/:id/einvoice      what XRechnung / ZUGFeRD / ebInterface would still refuse
+GET    /api/invoices/:id/xrechnung.xml ?document=cancellation · ?credit_note=<id>
+GET    /api/invoices/:id/ebinterface.xml  ebInterface 6.1; ?document=cancellation · ?credit_note=<id> (CreditMemo)
+GET    /api/invoices/:id/zugferd.pdf   PDF/A-3 with factur-x.xml; same parameters
 GET    /api/einvoice-config            the seller as e-invoices see it + what is missing
+
+GET    /api/dunning                    overdue invoices, where each stands (derived), the levels
+POST   /api/invoices/:id/dunning-notices   issue the next notice if due (409 otherwise)
+POST   /api/dunning/run                every due notice at once (manage)
+GET    /api/dunning-notices/:id/pdf    the letter, as it went out
+GET    /api/dunning-settings · PUT (manage)   levels, days between notices, interest rate
+
+GET    /api/recurring                  templates, each with due periods (derived)
+POST   /api/recurring · PUT/DELETE /api/recurring/:id   (409: start locked / has history)
+POST   /api/recurring/:id/generate     a draft per due period, at most once each
+POST   /api/recurring/run              every template at once (manage)
 
 GET    /api/settings/seller            the seller: each field, its value and source
 PUT    /api/settings/seller            the admin's overrides — empty falls back
@@ -416,6 +449,19 @@ identical; refusing to pay a bill that is already in a run, both through
 the API and at the unique index; a run's frozen creditor surviving a
 later IBAN correction; discard releasing the bills and never reusing a
 `MsgId`; and mark-executed settling every bill in the run.
+
+`test/dunning.test.ts` pins the reminder rules: levels in order with the
+minimum gap, a payment ending the run, one notice per level at the unique
+index, and a letter that renders byte-identical on every download.
+`test/credit-notes.test.ts` pins the credit-note rules: its own numbering,
+the per-rate cap on base *and* VAT (the rounding cent included), the
+derived open amount, payment cap and paid status, no cancellation on top,
+the ledger and reporting views agreeing, the export booking it on its own
+date, and the 381 / CreditMemo against both schemas.
+`test/recurring.test.ts` pins the recurring rules: month-end clamping
+without drift, at most one draft per period (also at the unique index), a
+deleted draft not being regenerated, bounded catch-up, the end date, the
+start-date lock and the access levels.
 
 ## Deploy notes
 
@@ -547,6 +593,7 @@ practice:
 | ------ | ---------- | -------- |
 | **XRechnung 3.0** | EN 16931 with the German CIUS (KoSIT), CII syntax — required by German public bodies | `GET /api/invoices/:id/xrechnung.xml` |
 | **ZUGFeRD 2.x / Factur-X, profile EN 16931** | a PDF/A-3 a person reads, with the same XML embedded as `factur-x.xml` | `GET /api/invoices/:id/zugferd.pdf` |
+| **ebInterface 6.1** | the Austrian format (AUSTRIAPRO) — for e-Rechnung.gv.at and Austrian recipients; carries the federal supplier number and order reference | `GET /api/invoices/:id/ebinterface.xml` |
 
 Both come from **one model and one renderer** (`shared/einvoice.ts`), fed by
 the invoice as issued (`server/einvoice-data.ts`). The money is this module's
@@ -575,6 +622,95 @@ EN 16931 rules recompute, so the XML states the PDF's figures to the cent.
 
 What to set up, field by field, and what is deliberately not covered:
 [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
+
+## Dunning (Mahnwesen)
+
+Overdue invoices with an open amount, and which reminder each needs next
+(`server/dunning.ts`, the **Dunning** screen).
+
+- **Derived, never stored: where an invoice stands.** Days overdue, the next
+  level and from when it may go out are computed on every read from the due
+  date, the payments and the notices already sent. A payment takes the
+  invoice off the list with nothing to reset.
+- **Stored, append-only: a notice that went out.** Level, open amount, fee,
+  interest, the text and who issued it — the letter
+  (`GET /api/dunning-notices/:id/pdf`) is rendered from that record and comes
+  out the same on every download. One notice per level and invoice is a
+  database constraint, not only an application rule.
+- **Level by level.** Defaults: *Zahlungserinnerung* from 7 days after the
+  due date, *1. Mahnung* from 21, *2. Mahnung* from 35, and at least 10 days
+  between two notices — an invoice 60 days late gets the reminder today and
+  the next level later, never three letters at once. Up to four levels, each
+  with its own text and fee.
+- **Fees and interest are stated, not booked.** Mahnspesen and default
+  interest appear on the letter and in the notice record, but are not added
+  to the invoice: they are not part of the supply (and not subject to VAT).
+  The interest rate is a setting, not a constant — the statutory B2B rate
+  follows the base rate (§ 456 UGB: 9.2 points above it; § 288 BGB: 9
+  points) and changes twice a year. Interest is simple, per day, on the open
+  amount.
+- **Who may do what.** Reading is `view`; issuing one notice is `edit`; a run
+  over every due invoice and the levels themselves are `manage`.
+- **Delivery.** With PS-03 wired the notice is emailed to the customer's
+  address; with PS-07 it is recorded on the audit trail. Without either, the
+  letter is downloaded and sent by hand.
+
+Not covered: collection agencies and court reminders (Mahnklage /
+gerichtliches Mahnverfahren), booking fees or interest as receivables, and a
+scheduled automatic run — PS-02 can call `POST /api/dunning/run` on a schedule.
+
+## Partial credit notes (Teilgutschriften)
+
+When part of a correct invoice is taken back — goods returned, a price
+reduced after a complaint, a service only partly delivered — **Credit note**
+on the invoice issues a document of its own (`server/credit-notes.ts`).
+
+- **Its own number and date.** `<invoice>-GS1`, `-GS2` … per invoice, issued
+  at once, never edited or deleted. The VAT is corrected in the period of
+  the credit note (§ 16 UStG-AT, § 17 UStG-DE), which is where the DATEV /
+  BMD export books it.
+- **Never more than was invoiced, per VAT rate** — base and VAT, across all
+  credit notes. A rate the invoice does not carry cannot be credited.
+- **Derived effect.** Owed = gross − credited − paid, on every read: the open
+  amount, the payment cap, *paid*, *overdue*, dunning, the dashboard and the
+  ledger all follow. Credited in full and unpaid is *sent* with nothing open.
+  A credit after full payment leaves the customer in credit (negative
+  ledger balance); the refund is a bank transfer outside this module.
+- **Documents.** PDF, and as e-invoice a type-381 XRechnung / ZUGFeRD or an
+  ebInterface CreditMemo naming the invoice (`?credit_note=<id>`).
+- **Not with a cancellation.** A cancelled invoice cannot be credited; a
+  credited one cannot be cancelled — credit the rest instead.
+- **Who.** Issuing is `edit`; the actor is on the document and, with PS-07,
+  on the audit trail.
+
+## Recurring invoices (wiederkehrende Rechnungen)
+
+The same invoice every month, quarter or year (`server/recurring.ts`, the
+**Recurring** screen).
+
+- **Drafts, never issued.** A template holds a customer, lines and terms plus
+  a rhythm (first period start, interval, optional last start). Generating
+  turns every period that has begun into a DRAFT — dated to the period's
+  first day (Leistungsdatum), with *Leistungszeitraum dd.mm.yyyy – dd.mm.yyyy*
+  in its note. A person checks and sends it; numbering stays gapless.
+- **At most once per period, by construction.** `recurring_runs` records
+  which period produced which draft, UNIQUE (template, period). Generating
+  twice, or two people at once, yields no doubles. A draft deleted by hand
+  leaves its period done — it is not regenerated behind anyone's back.
+- **Derived periods.** Period *n* starts *n* intervals after the start date,
+  the day clamped to the month (31 Jan → 28 Feb → 31 Mar) — nothing chained,
+  so nothing drifts. Which periods are due is computed on every read.
+- **Bounded catch-up.** A paused template or a server that was off gets each
+  missed period as its own draft, at most 24 per call.
+- **Editing changes the future only.** Generated drafts are ordinary drafts.
+  The start date is locked once a period is invoiced (409); a template with
+  history is paused or ended, not deleted (409).
+- **Who may do what.** Reading is `view`; templates and generating one are
+  `edit`; *Generate all* (`POST /api/recurring/run`) is `manage` — PS-02 can
+  call it on a schedule.
+
+Not covered: usage-based lines, proration of a changed price within a
+period, and sending the drafts automatically.
 
 ## Bookkeeping export: DATEV and BMD
 
@@ -634,6 +770,21 @@ The transport is isolated in `server/platform.ts` (`fetchOffer`) and the shape i
 `shared/transfer.ts`, so re-pointing it at another source is a contained change.
 See [`docs/CUSTOMER-MASTER-DATA.md`](../../docs/CUSTOMER-MASTER-DATA.md) for why
 this exists and what it deliberately does not solve.
+
+### Billing a delivery note (MOD-17)
+
+When an order is delivered in parts, each delivery is billed on its own:
+**Bill delivery note** in the invoice list, or
+`POST /api/invoices/import-delivery-note` with
+`{ "delivery_note_number": "LS-2026-0001" }`. It is the same hand-over as an
+offer — the same transfer shape (kind `delivery`), the same self-checking
+money, a DRAFT — for exactly the quantities on that delivery note, at the
+order's prices. Idempotent on the delivery note number (recorded as
+`mod-17-orders-delivery:LS-…`, so it can never meet an offer number); MOD-17
+is then told the delivery was billed (best-effort — the idempotency here is
+what prevents a second invoice). Each route bills only its own kind: an offer
+sent to the delivery route, or a delivery to the offer route, is refused.
+With `ORDERS_URL` unset the endpoint answers `501`.
 
 ## Bills and the SEPA payment file
 
@@ -889,20 +1040,22 @@ these, that's commissioned work — exactly the kind 0815software does:
   and German (0/7/19 %) rates. A 0 % line names its VAT category (exempt,
   reverse charge, intra-EU supply, export, zero-rated, not subject); one
   category per invoice.
-- **Recurring invoices, quotes, dunning runs** — the clean REST API is
-  the hook for automation; reminders are a note field, not a workflow.
-- **Formal credit notes** — corrections are cancellation + new invoice.
-  A credit-note document type (negative invoice) is an extension.
-- **Bank reconciliation / payment import** — payments are recorded
-  manually or via the API; no CAMT/MT940 parsing, no PSP integration.
-  The payment file goes out; nothing comes back in automatically, which
-  is why marking a run executed is a human action.
-- **ebInterface, UBL and PEPPOL transport** — XRechnung and ZUGFeRD are
-  produced in CII syntax and downloaded; nothing is sent over PEPPOL, and the
-  Austrian ebInterface format is not written. Incoming e-invoices are not
-  read on the bills side. See [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
-- **EBICS (or any other) bank transport** — the module produces the file
-  and stops there; see
+- **Subscriptions beyond fixed templates** — usage-based billing, proration,
+  automatic sending. Recurring drafts are the Recurring screen, quotes are
+  MOD-13 Offers, reminders are the Dunning screen.
+- **Corrected invoices (type 384) and refunds** — a wrong invoice is
+  cancelled and reissued; part of a correct one is a partial credit note.
+  Paying a customer's credit back is a bank transfer outside this module.
+- **Bank reconciliation without PS-12** — standalone, payments are recorded
+  manually or via the API and a payment run is marked executed by a human.
+  With PS-12 Banking wired, statements come back in and are matched (see
+  [Incoming payments](#incoming-payments--the-other-direction-and-equally-optional)).
+  MT940 and PSP settlement files are not read.
+- **UBL and PEPPOL transport** — the e-invoices are downloaded; nothing is
+  sent over PEPPOL, and the UBL syntax is not written. Incoming e-invoices are
+  not read on the bills side. See [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
+- **Bank transport other than EBICS** — standalone the module produces the
+  file and stops there; PS-12 Banking sends it over EBICS. See
   [Bills and the SEPA payment file](#bills-and-the-sepa-payment-file).
 - **Other payment message versions and schemes** — `pain.001.001.03`
   only. `pain.001.001.09` is a small addition to one renderer

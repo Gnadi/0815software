@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="http://www.ebinterface.at/schema/6p1/" GeneratingSystem="0815software MOD-04 Invoice &amp; Billing" DocumentType="Invoice" InvoiceCurrency="EUR" Language="de">
+  <InvoiceNumber>RE-2026-0042</InvoiceNumber>
+  <InvoiceDate>2026-10-21</InvoiceDate>
+  <Delivery>
+    <Date>2026-10-15</Date>
+  </Delivery>
+  <Biller>
+    <VATIdentificationNumber>ATU00000000</VATIdentificationNumber>
+    <FurtherIdentification IdentificationType="FN">123456a</FurtherIdentification>
+    <Address>
+      <Name>Muster &amp; Söhne GmbH</Name>
+      <Street>Lassallestraße 5</Street>
+      <Town>Wien</Town>
+      <ZIP>1020</ZIP>
+      <Country CountryCode="AT">Österreich</Country>
+      <Phone>+43 1 234567</Phone>
+      <Email>rechnung@muster.at</Email>
+    </Address>
+    <Contact>
+      <Name>Erika Mustermann</Name>
+      <Phone>+43 1 234567</Phone>
+      <Email>rechnung@muster.at</Email>
+    </Contact>
+  </Biller>
+  <InvoiceRecipient>
+    <VATIdentificationNumber>ATU87654321</VATIdentificationNumber>
+    <OrderReference>
+      <OrderID>4500012345</OrderID>
+    </OrderReference>
+    <Address>
+      <Name>Kunde GmbH</Name>
+      <Street>Hauptplatz 1</Street>
+      <Town>Graz</Town>
+      <ZIP>8010</ZIP>
+      <Country CountryCode="AT">Österreich</Country>
+      <Email>ap@kunde.at</Email>
+    </Address>
+  </InvoiceRecipient>
+  <Details>
+    <ItemList>
+      <ListLineItem>
+        <PositionNumber>1</PositionNumber>
+        <Description>Grafikdesign</Description>
+        <Quantity Unit="C62">8</Quantity>
+        <UnitPrice>65.00</UnitPrice>
+        <TaxItem>
+          <TaxableAmount>520.00</TaxableAmount>
+          <TaxPercent TaxCategoryCode="E">0</TaxPercent>
+        </TaxItem>
+        <LineItemAmount>520.00</LineItemAmount>
+      </ListLineItem>
+    </ItemList>
+  </Details>
+  <Tax>
+    <TaxItem>
+      <TaxableAmount>520.00</TaxableAmount>
+      <TaxPercent TaxCategoryCode="E">0</TaxPercent>
+      <TaxAmount>0.00</TaxAmount>
+      <Comment>Umsatzsteuerbefreit – Kleinunternehmer gem. § 6 Abs. 1 Z 27 UStG</Comment>
+    </TaxItem>
+  </Tax>
+  <TotalGrossAmount>520.00</TotalGrossAmount>
+  <PayableAmount>520.00</PayableAmount>
+  <PaymentMethod>
+    <UniversalBankTransaction>
+      <BeneficiaryAccount>
+        <BIC>BKAUATWW</BIC>
+        <IBAN>AT611904300234573201</IBAN>
+        <BankAccountOwner>Muster &amp; Söhne GmbH</BankAccountOwner>
+      </BeneficiaryAccount>
+      <PaymentReference>RE-2026-0042</PaymentReference>
+    </UniversalBankTransaction>
+  </PaymentMethod>
+  <PaymentConditions>
+    <DueDate>2026-11-04</DueDate>
+    <Comment>Zahlbar innerhalb von 14 Tagen ohne Abzug bis 04.11.2026.</Comment>
+  </PaymentConditions>
+</Invoice>

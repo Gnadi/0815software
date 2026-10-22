@@ -22,6 +22,7 @@ const TYPE_LABELS: Record<MovementRow['type'], string> = {
   transfer_in: 'TRANSFER IN',
   adjustment: 'ADJUSTMENT',
   po_receipt: 'PO RECEIPT',
+  goods_issue: 'GOODS ISSUE',
 };
 
 export function ProductDetail({ id, onBack, onAuthLost }: Props) {

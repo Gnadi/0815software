@@ -223,9 +223,9 @@ export function SettingsView({ onAuthLost }: Props) {
         })}
       </div>
       <div className="totals">
-        {(['xrechnung', 'zugferd'] as const).map((profile) => (
+        {(['xrechnung', 'zugferd', 'ebinterface'] as const).map((profile) => (
           <div key={profile} className="totals__row mono" style={{ alignItems: 'flex-start' }}>
-            <span>{profile === 'xrechnung' ? 'XRECHNUNG' : 'ZUGFERD EN 16931'}</span>
+            <span>{{ xrechnung: 'XRECHNUNG', zugferd: 'ZUGFERD EN 16931', ebinterface: 'EBINTERFACE 6.1' }[profile]}</span>
             <span style={{ textAlign: 'right', textTransform: 'none' }}>
               {seller.problems[profile].length === 0
                 ? 'READY'

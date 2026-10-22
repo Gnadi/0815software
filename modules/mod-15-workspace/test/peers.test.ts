@@ -125,7 +125,7 @@ describe('the catalogue', () => {
     const byId = new Map<string, { configured: boolean; embeddable: boolean }>(
       res.body.modules.map((m: { id: string; configured: boolean; embeddable: boolean }) => [m.id, m]),
     );
-    expect(res.body.modules).toHaveLength(14);
+    expect(res.body.modules).toHaveLength(15);
     expect(byId.get('mod-13-offers')).toMatchObject({ configured: true, embeddable: true });
     // Not in this stack.
     expect(byId.get('mod-11-time-tracking')).toMatchObject({ configured: false, embeddable: false });

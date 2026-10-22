@@ -572,6 +572,29 @@ const presentation: Record<string, ModulePresentation> = {
       ],
     },
   },
+  'mod-17-orders-delivery': {
+    body: 'The step between the accepted offer and the invoice: order confirmations, partial deliveries with delivery notes, and every delivery billed on its own.',
+    overview:
+      'An accepted offer from Offers becomes a numbered order confirmation, cent for cent; or an order is entered by hand. It is delivered in as many delivery notes as it takes — never more than was ordered, with what is still open derived from the notes, never stored. Each delivery note is a fixed, numbered document with its own PDF, and Invoicing bills it by its number: one invoice per delivery, idempotent, and the order knows which deliveries are billed. Self-contained: one package.json, works without any other module, MIT.',
+    features: [
+      'Order confirmation from an accepted offer, or by hand',
+      'Partial deliveries — never past the order, open quantity derived',
+      'Numbered, fixed delivery notes with their own PDF',
+      'Each delivery billed on its own in Invoicing, exactly once',
+    ],
+    screen: {
+      variant: 'table',
+      accent: '#8FA36B',
+      nav: ['Orders'],
+      columns: ['Order', 'Customer', 'Delivered', 'Billed', 'Status'],
+      rows: [
+        ['AB-2026-0014', 'Nordwind AG', '8 / 12', '1 of 1', 'Partly delivered'],
+        ['AB-2026-0013', 'Kunde GmbH', '4 / 4', '2 of 2', 'Delivered'],
+        ['AB-2026-0012', 'Beispiel AG', '0 / 3', '—', 'Open'],
+      ],
+      statuses: ['Partly delivered', 'Delivered', 'Open'],
+    },
+  },
 };
 
 function entryFor(mod: ModuleRegistryEntry): ModuleEntry {

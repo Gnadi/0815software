@@ -16,6 +16,7 @@ import { createHandoff, isRedeemPath, requestedAccess, safeServiceTokenEqual } f
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { stockCsv } from './csv.js';
+import { recordGoodsIssue } from './goods-issues.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import {
@@ -237,6 +238,44 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     }
         requireServiceToken(req);
     res.json(moduleSummary(db, parseSummaryContext(req.query as Record<string, unknown>)));
+  });
+
+  // Issue goods for a delivery in another module (MOD-17). Idempotent on
+  // (source, reference); all or nothing; the person comes from the caller.
+  app.post('/api/goods-issues', (req, res) => {
+    requireServiceToken(req);
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const text = (field: string, max: number): string => {
+      const v = input[field];
+      if (typeof v !== 'string' || v.trim() === '' || v.length > max) {
+        errors.push({ field, message: `${field} is required (max ${max} characters)` });
+        return '';
+      }
+      return v.trim();
+    };
+    const source = text('source', 60);
+    const reference = text('reference', 60);
+    const warehouseCode = text('warehouse_code', 30);
+    const actor = text('actor', 200);
+    const raw = Array.isArray(input.lines) ? (input.lines as Record<string, unknown>[]) : [];
+    const lines = raw.map((line, i) => {
+      const sku = typeof line.sku === 'string' ? line.sku.trim() : '';
+      if (sku === '') errors.push({ field: `lines[${i}].sku`, message: 'sku is required' });
+      return { sku, quantity: quantity(line.quantity, `lines[${i}].quantity`, errors) };
+    });
+    if (errors.length > 0) fail(errors);
+    const { issue, replayed } = recordGoodsIssue(db, { source, reference, warehouseCode, actor, lines });
+    if (!replayed) {
+      void platform.audit({ actor, action: 'stock.goods_issue', resource: `goods_issue:${source}:${reference}`, metadata: { warehouse: warehouseCode, lines: issue.lines } });
+    }
+    res.status(replayed ? 200 : 201).json({ ...issue, replayed });
+  });
+
+  // The warehouses, for a caller's settings screen to choose the one it issues from.
+  app.get('/api/goods-issues/warehouses', (req, res) => {
+    requireServiceToken(req);
+    res.json({ warehouses: db.prepare('SELECT code, name FROM warehouses ORDER BY id').all() });
   });
 
   // ── Shell handoff ────────────────────────────────────────────────────

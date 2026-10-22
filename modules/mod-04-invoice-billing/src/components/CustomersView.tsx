@@ -22,11 +22,12 @@ interface FormState {
   buyer_reference: string;
   einvoice_address: string;
   debtor_account: string;
+  supplier_number: string;
 }
 
 const EMPTY: FormState = {
   id: null, name: '', email: '', vat_id: '', address: '', street: '', postcode: '', city: '',
-  country_code: '', buyer_reference: '', einvoice_address: '', debtor_account: '',
+  country_code: '', buyer_reference: '', einvoice_address: '', debtor_account: '', supplier_number: '',
 };
 
 /** The e-invoice fields, optional: empty ones are read from the address block. */
@@ -35,7 +36,8 @@ const EINVOICE_FIELDS: { key: keyof FormState; label: string; placeholder?: stri
   { key: 'postcode', label: 'POSTCODE', placeholder: 'from the address' },
   { key: 'city', label: 'CITY', placeholder: 'from the address' },
   { key: 'country_code', label: 'COUNTRY (ISO)', placeholder: 'DE, AT … — else from the VAT id' },
-  { key: 'buyer_reference', label: 'BUYER REFERENCE · LEITWEG-ID', placeholder: 'required for XRechnung' },
+  { key: 'buyer_reference', label: 'BUYER REFERENCE · LEITWEG-ID · AUFTRAGSREFERENZ', placeholder: 'required for XRechnung and the Austrian federal government' },
+  { key: 'supplier_number', label: 'OUR SUPPLIER NUMBER (LIEFERANTENNUMMER)', placeholder: 'assigned by the customer — required by the Austrian federal government' },
   { key: 'einvoice_address', label: 'E-INVOICE ADDRESS', placeholder: 'empty → email' },
   { key: 'debtor_account', label: 'DEBTOR ACCOUNT (DATEV / BMD)', placeholder: 'empty → numbered' },
 ];
@@ -84,6 +86,7 @@ export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
         buyer_reference: form.buyer_reference.trim() || null,
         einvoice_address: form.einvoice_address.trim() || null,
         debtor_account: form.debtor_account.trim() || null,
+        supplier_number: form.supplier_number.trim() || null,
       };
       if (form.id === null) await api.createCustomer(values);
       else await api.updateCustomer(form.id, values);
@@ -191,6 +194,7 @@ export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
                             buyer_reference: c.buyer_reference ?? '',
                             einvoice_address: c.einvoice_address ?? '',
                             debtor_account: c.debtor_account === null || c.debtor_account === undefined ? '' : String(c.debtor_account),
+                            supplier_number: c.supplier_number ?? '',
                           })
                         }
                       >

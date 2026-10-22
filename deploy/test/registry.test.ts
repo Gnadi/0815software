@@ -94,8 +94,8 @@ describe('registry document', () => {
 
   it('covers every module directory, exactly once, in catalogue order', () => {
     const ids = modules.map((m: any) => m.id);
-    expect(ids).toHaveLength(16);
-    expect(new Set(ids).size).toBe(16);
+    expect(ids).toHaveLength(17);
+    expect(new Set(ids).size).toBe(17);
     expect([...ids].sort()).toEqual(ids);
     for (const mod of modules) expect(mod.n).toBe(`MOD-${mod.id.slice(4, 6)}`);
   });
@@ -300,6 +300,25 @@ describe('public Platform Services catalogue stays in sync', () => {
     const ports = [...source.matchAll(/^ {4}port: (\d+),$/gm)].map((m) => Number(m[1]));
     expect(ports).toEqual(services.map((s: any) => s.defaultPort));
   });
+  // A service page that NAMES its consumers ("MOD-04 …, MOD-13 …") is a claim
+  // the registry can check: exactly the modules that declare the service. The
+  // PS-10 page once named three modules that never called it, and PS-11's
+  // missed two that did. Pages saying "every/any module" make no such claim.
+  it.each(['en', 'de'] as const)('names exactly the modules that use a service, where it names them (%s)', (lang) => {
+    const translations = readFileSync(`${root}/src/i18n/translations.ts`, 'utf8');
+    const block = lang === 'en' ? translations.slice(0, translations.indexOf("de: {")) : translations.slice(translations.indexOf("de: {"));
+    for (const service of services) {
+      const slug = service.id.replace(/^ps-\d+-/, '');
+      const line = new RegExp(`'svc\\.${slug}\\.consumers':\\s*'([^']*)'`).exec(block)?.[1] ?? '';
+      const named = [...line.matchAll(/MOD-(\d{2})/g)].map((m) => `MOD-${m[1]}`).sort();
+      if (named.length === 0) continue;
+      const declared = modules
+        .filter((m: any) => [...m.services.required, ...m.services.optional].includes(service.id))
+        .map((m: any) => m.n)
+        .sort();
+      expect(named, `${service.id} consumers (${lang})`).toEqual(declared);
+    }
+  });
 });
 
 /**
@@ -353,7 +372,7 @@ describe('catalogue copy is translated in every language', () => {
     expect(missing, `missing ${lang} translations`).toEqual([]);
   });
 
-  it('derived a key set that covers all 11 services and all 16 modules', () => {
+  it('derived a key set that covers all 11 services and all 17 modules', () => {
     expect(serviceSlugs).toHaveLength(services.length);
     expect(respCounts).toHaveLength(services.length);
     expect(featCounts).toHaveLength(modules.length);
