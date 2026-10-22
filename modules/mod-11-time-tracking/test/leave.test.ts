@@ -39,8 +39,8 @@ const account = async (cookie: string, employeeId: number, year: number) =>
 beforeEach(async () => {
   db = openDb(':memory:');
   seed(db);
-  // The seed brings example absences; these tests count from an empty ledger.
-  db.exec('DELETE FROM leave_events; DELETE FROM leave_requests; DELETE FROM leave_entitlements;');
+  // The seed brings example absences and schedules; these tests count from empty ledgers.
+  db.exec('DELETE FROM leave_events; DELETE FROM leave_requests; DELETE FROM leave_entitlements; DELETE FROM flex_entries; DELETE FROM work_schedules;');
   const id = (email: string) => (db.prepare('SELECT id FROM employees WHERE email = ?').get(email) as { id: number }).id;
   anna = id('anna@0815software.example');
   bob = id('bob@0815software.example');
@@ -59,11 +59,17 @@ describe('what a request costs — derived', () => {
     expect(weekend.body.details[0].message).toBe('There is no working day in that range');
   });
 
-  it('part-time: only the days the person works', async () => {
-    await request(app).put(`/api/employees/${anna}`).set('Cookie', ADMIN).send({ name: 'Anna Berger', email: 'anna@0815software.example', work_days: '531' }).expect(200);
-    expect((await request(app).get(`/api/employees/${anna}`).set('Cookie', ADMIN)).body.work_days).toBe('135');
+  it('part-time: only the days the person works, by the schedule on each date', async () => {
+    const schedule = (values: Record<string, unknown>) => request(app).post(`/api/employees/${anna}/schedules`).set('Cookie', ADMIN).send(values);
+    await schedule({ valid_from: '2030-01-01', work_days: '531', weekly_minutes: 1200 }).expect(201);
     expect((await ask(ANNA, { type: 'vacation', start_date: '2030-03-04', end_date: '2030-03-08' }).expect(201)).body.days).toBe(3);
-    await request(app).put(`/api/employees/${anna}`).set('Cookie', ADMIN).send({ name: 'Anna Berger', work_days: '1123' }).expect(422);
+    // Full-time from April: March leave keeps its price, April counts five days.
+    await schedule({ valid_from: '2030-04-01', work_days: '12345', weekly_minutes: 2400 }).expect(201);
+    const mine = (await request(app).get(`/api/leave/requests?employee_id=${anna}`).set('Cookie', ANNA)).body.requests;
+    expect(mine[0].days).toBe(3);
+    expect((await ask(ANNA, { type: 'vacation', start_date: '2030-04-08', end_date: '2030-04-12' }).expect(201)).body.days).toBe(5);
+    await schedule({ valid_from: '2030-05-01', work_days: '1123' }).expect(422);
+    await schedule({ valid_from: '2030-04-01', work_days: '12345' }).expect(409);
   });
 
   it('follows the holiday calendar the admin sets: country and company days', async () => {

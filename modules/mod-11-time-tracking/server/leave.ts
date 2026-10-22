@@ -15,6 +15,7 @@ import type {
 } from '../shared/types.js';
 import { DomainError, nowIso, todayIso } from './tracking.js';
 import { employeeOf } from './ownership.js';
+import { listSchedules, worksOn } from './schedules.js';
 
 /**
  * Absences — leave requests, their approval, and what is left of the year.
@@ -25,7 +26,8 @@ import { employeeOf } from './ownership.js';
  * same office that approves a week also decides leave.
  *
  * - **Derived, never stored.** What a request costs is the working days in
- *   its range: the person's own work days (part-time), minus statutory
+ *   its range: the person's work days on each date (server/schedules.ts,
+ *   so part-time and a later change of contract both count), minus statutory
  *   holidays (shared/holidays.ts) and the company's extra days. Remaining
  *   leave = the entitlement ledger − approved vacation days. Changing a
  *   holiday or a work pattern re-prices open requests on the next read.
@@ -41,7 +43,20 @@ import { employeeOf } from './ownership.js';
 
 // ── Settings: the holiday calendar ──────────────────────────────────────
 
-export const DEFAULT_LEAVE_SETTINGS: LeaveSettings = { country: 'AT', extra_holidays: [] };
+/**
+ * The flexitime defaults are a common shape of an Austrian or German flexitime
+ * agreement — up to 40 h carried, down to −20 h — not law: the agreement
+ * (Gleitzeitvereinbarung, AZG § 4b; Betriebsvereinbarung in Germany) sets
+ * them, and the admin enters them here. Ten hours a day is where both laws
+ * stop allowing ordinary working time without a reason (AZG §§ 3, 4; ArbZG § 3).
+ */
+export const DEFAULT_LEAVE_SETTINGS: LeaveSettings = {
+  country: 'AT',
+  extra_holidays: [],
+  flex_cap_minutes: 2400,
+  flex_floor_minutes: -1200,
+  daily_max_minutes: 600,
+};
 
 export function readLeaveSettings(db: Database.Database): LeaveSettings {
   const row = db.prepare('SELECT settings FROM leave_settings WHERE id = 1').get() as { settings: string } | undefined;
@@ -73,8 +88,30 @@ export function validateLeaveSettings(input: Record<string, unknown>): LeaveSett
       if (validDate(h?.date) && name) extra.push({ date: h.date as string, name });
     });
   }
+  // Limits in whole minutes; null switches a cap or floor off.
+  const limit = (field: 'flex_cap_minutes' | 'flex_floor_minutes', sign: 1 | -1): number | null => {
+    const raw = field in input ? input[field] : DEFAULT_LEAVE_SETTINGS[field];
+    if (raw === null) return null;
+    if (!Number.isInteger(raw) || (raw as number) * sign < 0 || Math.abs(raw as number) > 100_000) {
+      errors.push({ field, message: `${field} is a whole number of minutes, ${sign > 0 ? 'zero or more' : 'zero or less'}, or null` });
+      return null;
+    }
+    return raw as number;
+  };
+  const cap = limit('flex_cap_minutes', 1);
+  const floor = limit('flex_floor_minutes', -1);
+  const dailyMax = input.daily_max_minutes ?? DEFAULT_LEAVE_SETTINGS.daily_max_minutes;
+  if (!Number.isInteger(dailyMax) || (dailyMax as number) < 60 || (dailyMax as number) > 1440) {
+    errors.push({ field: 'daily_max_minutes', message: 'daily_max_minutes is a whole number of minutes from 60 to 1440' });
+  }
   if (errors.length > 0) throw new DomainError(422, 'Validation failed', errors);
-  return { country: country as 'AT' | 'DE', extra_holidays: extra.sort((a, b) => a.date.localeCompare(b.date)) };
+  return {
+    country: country as 'AT' | 'DE',
+    extra_holidays: extra.sort((a, b) => a.date.localeCompare(b.date)),
+    flex_cap_minutes: cap,
+    flex_floor_minutes: floor,
+    daily_max_minutes: dailyMax as number,
+  };
 }
 
 export function writeLeaveSettings(db: Database.Database, settings: LeaveSettings, actor: string): void {
@@ -95,12 +132,13 @@ export function holidaysOf(db: Database.Database, year: number): Map<string, str
 
 // ── What a range costs ──────────────────────────────────────────────────
 
-/** Working days from `start` to `end` for someone working `workDays`. */
-export function workingDays(db: Database.Database, workDays: string, start: string, end: string, halfDay = false): number {
+/** Working days from `start` to `end` for the employee, by the schedule on each day. */
+export function workingDays(db: Database.Database, employeeId: number, start: string, end: string, halfDay = false): number {
   const holidays = holidaysOf(db, Number(start.slice(0, 4)));
+  const schedules = listSchedules(db, employeeId);
   let count = 0;
   for (let day = start; day <= end; day = addDaysIso(day, 1)) {
-    if (workDays.includes(String(isoWeekday(day))) && !holidays.has(day)) count += 1;
+    if (worksOn(schedules, day) && !holidays.has(day)) count += 1;
   }
   return halfDay ? count / 2 : count;
 }
@@ -110,11 +148,10 @@ export function workingDays(db: Database.Database, workDays: string, start: stri
 interface EmployeeStored {
   id: number;
   name: string;
-  work_days: string;
 }
 
 function employee(db: Database.Database, id: number): EmployeeStored {
-  const row = db.prepare('SELECT id, name, work_days FROM employees WHERE id = ?').get(id) as EmployeeStored | undefined;
+  const row = db.prepare('SELECT id, name FROM employees WHERE id = ?').get(id) as EmployeeStored | undefined;
   if (!row) throw new DomainError(404, 'Employee not found');
   return row;
 }
@@ -137,7 +174,7 @@ export function mayDecide(db: Database.Database, actor: string, access: AccessLe
 }
 
 /** May `actor` see that an absence is sick leave, and its note? */
-function maySeeReason(db: Database.Database, actor: string, access: AccessLevel, employeeId: number): boolean {
+export function maySeeReason(db: Database.Database, actor: string, access: AccessLevel, employeeId: number): boolean {
   return access === 'manage' || employeeOf(db, actor) === employeeId;
 }
 
@@ -171,7 +208,7 @@ function requestRow(db: Database.Database, id: number): RequestStored {
 }
 
 function costOf(db: Database.Database, row: RequestStored): number {
-  return workingDays(db, employee(db, row.employee_id).work_days, row.start_date, row.end_date, row.half_day === 1);
+  return workingDays(db, row.employee_id, row.start_date, row.end_date, row.half_day === 1);
 }
 
 function toRequest(db: Database.Database, row: RequestStored, viewer: Viewer, today: string): LeaveRequest {
@@ -313,7 +350,7 @@ export function createRequest(db: Database.Database, input: RequestInput, viewer
     if (input.halfDay && input.startDate !== input.endDate) errors.push({ field: 'half_day', message: 'A half day is a single day' });
     if (errors.length > 0) throw new DomainError(422, 'Validation failed', errors);
 
-    const days = workingDays(db, person.work_days, input.startDate, input.endDate, input.halfDay);
+    const days = workingDays(db, person.id, input.startDate, input.endDate, input.halfDay);
     if (days === 0) throw new DomainError(422, 'Validation failed', [{ field: 'start_date', message: 'There is no working day in that range' }]);
 
     const overlap = db
@@ -418,11 +455,7 @@ export function calendar(db: Database.Database, month: string, viewer: Viewer): 
   for (let d = first; d <= last; d = addDaysIso(d, 1)) {
     days.push({ date: d, weekday: isoWeekday(d), holiday: holidays.get(d) ?? null });
   }
-  const people = db.prepare('SELECT id, name, work_days FROM employees ORDER BY name').all() as {
-    id: number;
-    name: string;
-    work_days: string;
-  }[];
+  const people = db.prepare('SELECT id, name FROM employees ORDER BY name').all() as { id: number; name: string }[];
   const rows = db
     .prepare(
       `SELECT * FROM leave_requests WHERE status IN ('requested', 'approved') AND start_date <= ? AND end_date >= ? ORDER BY start_date`,
@@ -431,12 +464,13 @@ export function calendar(db: Database.Database, month: string, viewer: Viewer): 
   return {
     days,
     rows: people.map((p) => {
+      const schedules = listSchedules(db, p.id);
       const absences: CalendarRow['absences'] = [];
       for (const r of rows.filter((x) => x.employee_id === p.id)) {
         const shown: ShownLeaveType = r.type === 'sick' && !maySeeReason(db, viewer.actor, viewer.access, p.id) ? 'absent' : r.type;
         for (const day of days) {
           if (day.date < r.start_date || day.date > r.end_date) continue;
-          if (day.holiday || !p.work_days.includes(String(day.weekday))) continue;
+          if (day.holiday || !worksOn(schedules, day.date)) continue;
           absences.push({ date: day.date, type: shown, status: r.status as 'requested' | 'approved', half: r.half_day === 1 });
         }
       }
@@ -448,8 +482,8 @@ export function calendar(db: Database.Database, month: string, viewer: Viewer): 
 /** Who is away on a day (approved only) — for the shell board. */
 export function absentOn(db: Database.Database, date: string): number {
   const rows = db
-    .prepare("SELECT DISTINCT r.employee_id, e.work_days FROM leave_requests r JOIN employees e ON e.id = r.employee_id WHERE r.status = 'approved' AND r.start_date <= ? AND r.end_date >= ?")
-    .all(date, date) as { employee_id: number; work_days: string }[];
+    .prepare("SELECT DISTINCT employee_id FROM leave_requests WHERE status = 'approved' AND start_date <= ? AND end_date >= ?")
+    .all(date, date) as { employee_id: number }[];
   if (holidaysOf(db, Number(date.slice(0, 4))).has(date)) return 0;
-  return rows.filter((r) => r.work_days.includes(String(isoWeekday(date)))).length;
+  return rows.filter((r) => worksOn(listSchedules(db, r.employee_id), date)).length;
 }

@@ -113,10 +113,44 @@ export function openDb(path: string): Database.Database {
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_origin ON projects (origin_reference)');
   }
 
+  // ── Working time (server/schedules.ts, server/flextime.ts) ───────────
+  db.exec(`
+    -- A person's working-time model from a date on: which weekdays (ISO,
+    -- Monday = 1) and how many minutes a week. A contract change is a new row
+    -- from its date, never an edit — otherwise last year's leave and flexitime
+    -- would silently re-price. No weekly target (NULL) means no flexitime
+    -- account; the work days still decide what a day of leave costs.
+    CREATE TABLE IF NOT EXISTS work_schedules (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id    INTEGER NOT NULL REFERENCES employees(id),
+      valid_from     TEXT    NOT NULL,
+      weekly_minutes INTEGER CHECK (weekly_minutes IS NULL OR (weekly_minutes > 0 AND weekly_minutes <= 4200)),
+      work_days      TEXT    NOT NULL,
+      note           TEXT,
+      actor          TEXT    NOT NULL,
+      created_at     TEXT    NOT NULL,
+      UNIQUE (employee_id, valid_from)
+    );
+
+    -- What moves a flexitime balance besides the days themselves, append-only:
+    -- the balance brought in when the account starts, corrections, and
+    -- overtime paid out (stored negative — it leaves the account). The balance
+    -- itself is derived: these rows plus, per day, worked minus due.
+    CREATE TABLE IF NOT EXISTS flex_entries (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id    INTEGER NOT NULL REFERENCES employees(id),
+      kind           TEXT    NOT NULL CHECK (kind IN ('opening', 'adjustment', 'payout')),
+      minutes        INTEGER NOT NULL CHECK (minutes <> 0),
+      effective_date TEXT    NOT NULL,
+      note           TEXT,
+      actor          TEXT    NOT NULL,
+      created_at     TEXT    NOT NULL,
+      CHECK (kind <> 'payout' OR minutes < 0)
+    );
+    CREATE INDEX IF NOT EXISTS idx_flex_entries_employee ON flex_entries (employee_id, effective_date);
+  `);
+
   // ── Absences (server/leave.ts) ───────────────────────────────────────
-  // Which weekdays a person works (ISO, Monday = 1): part-time staff take a
-  // day of leave only on a day they would have worked.
-  if (!columns('employees').includes('work_days')) db.exec("ALTER TABLE employees ADD COLUMN work_days TEXT NOT NULL DEFAULT '12345'");
 
   db.exec(`
     -- The leave each person is entitled to, as an append-only ledger per year:

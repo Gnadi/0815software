@@ -6,6 +6,9 @@ import type {
   Employee,
   ExportProfileInfo,
   FieldError,
+  FlexAccount,
+  FlexDay,
+  FlexEntry,
   LeaveBalance,
   LeaveEntitlement,
   LeaveRequest,
@@ -14,6 +17,7 @@ import type {
   TimeEntry,
   TimesheetDetail,
   TimesheetRow,
+  WorkSchedule,
 } from '../shared/types';
 
 export class ApiError extends Error {
@@ -139,7 +143,27 @@ export const api = {
     request<{ settings: LeaveSettings; updated_at: string | null; updated_by: string | null }>('/api/leave/settings'),
   saveLeaveSettings: (v: LeaveSettings) =>
     request<{ settings: LeaveSettings; updated_at: string | null; updated_by: string | null }>('/api/leave/settings', put({ ...v })),
+
+  schedules: (employeeId: number) => request<{ schedules: WorkSchedule[] }>(`/api/employees/${employeeId}/schedules`),
+  addSchedule: (employeeId: number, v: Record<string, unknown>) =>
+    request<WorkSchedule>(`/api/employees/${employeeId}/schedules`, post(v)),
+  flexAccount: (employeeId: number) => request<FlexAccount>(`/api/flex/account?employee_id=${employeeId}`),
+  flexDays: (employeeId: number, month: string) =>
+    request<{ month: string; days: FlexDay[] }>(`/api/flex/days?employee_id=${employeeId}&month=${month}`),
+  flexOverview: () =>
+    request<{
+      as_of: string;
+      rows: { employee_id: number; employee_name: string; balance: number; over_cap: number; under_floor: number; days_over_max: number }[];
+    }>('/api/flex/overview'),
+  flexEntries: (employeeId: number) => request<{ entries: FlexEntry[] }>(`/api/employees/${employeeId}/flex-entries`),
+  addFlexEntry: (employeeId: number, v: Record<string, unknown>) =>
+    request<FlexEntry>(`/api/employees/${employeeId}/flex-entries`, post(v)),
 };
+
+/** URL of the month's flexitime CSV for payroll. */
+export function flexCsvUrl(month: string): string {
+  return `/api/export/flex.csv?month=${month}`;
+}
 
 /** URL of the CSV export for a profile over a date range. */
 export function exportCsvUrl(profile: string, from: string, to: string): string {

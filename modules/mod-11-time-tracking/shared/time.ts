@@ -52,6 +52,12 @@ export function fmtHm(minutes: number): string {
   return `${h}:${String(m).padStart(2, '0')}`;
 }
 
+/** "+1:45" / "−0:30" — a balance, which can be negative; fmtHm is for durations. */
+export function fmtSignedHm(minutes: number): string {
+  const abs = Math.abs(minutes);
+  return `${minutes < 0 ? '−' : minutes > 0 ? '+' : ''}${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, '0')}`;
+}
+
 /** "1.234,56 €" from integer cents — deterministic de-AT formatting. */
 export function fmtEur(cents: number): string {
   const sign = cents < 0 ? '−' : '';

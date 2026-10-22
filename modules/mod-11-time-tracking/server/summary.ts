@@ -8,6 +8,7 @@ import {
   type SummaryItem,
 } from '../shared/summary.js';
 import { absentOn } from './leave.js';
+import { flexOverview } from './flextime.js';
 import { listEmployees, listProjects, listTimesheets, rangeSummary, todayIso } from './tracking.js';
 import type { TimesheetRow } from '../shared/types.js';
 
@@ -102,6 +103,8 @@ export function moduleSummary(
   }
   pending.sort((a, b) => a.row.week_start.localeCompare(b.row.week_start));
 
+  // A shell has no person behind it; counts only, so no absence reason shows.
+  const overCap = flexOverview(db, today, { actor: 'shell', access: 'view' }).filter((r) => r.over_cap > 0).length;
   const { n: leaveToDecide } = db.prepare("SELECT COUNT(*) AS n FROM leave_requests WHERE status = 'requested'").get() as { n: number };
 
   const billablePct =
@@ -160,6 +163,14 @@ export function moduleSummary(
         unit: 'requests',
         tone: leaveToDecide > 0 ? 'warn' : 'good',
         href: '/absences',
+      },
+      {
+        key: 'flex_over_cap',
+        label: 'Overtime above cap',
+        value: String(overCap),
+        unit: 'people',
+        tone: overCap > 0 ? 'warn' : 'good',
+        href: '/flexitime',
       },
       {
         key: 'active_projects',

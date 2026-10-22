@@ -40,7 +40,9 @@ import {
   writeLeaveSettings,
   type Viewer,
 } from './leave.js';
-import { LEAVE_STATUSES, LEAVE_TYPES, type LeaveStatus, type LeaveType } from '../shared/types.js';
+import { FLEX_KINDS, LEAVE_STATUSES, LEAVE_TYPES, type FlexKind, type LeaveStatus, type LeaveType } from '../shared/types.js';
+import { addSchedule, listSchedules } from './schedules.js';
+import { addFlexEntry, flexAccount, flexDays, flexMonthCsv, flexOverview, listFlexEntries, monthEnd } from './flextime.js';
 import {
   approveTimesheet,
   createEmployee,
@@ -147,16 +149,8 @@ function validateEmployee(input: Record<string, unknown>): EmployeeInput {
   if (email !== null && !/^\S+@\S+\.\S+$/.test(email)) {
     errors.push({ field: 'email', message: 'Email must look like an email address' });
   }
-  // Work days as ISO weekday digits, e.g. "12345" or "135" for part-time.
-  let workDays: string | undefined;
-  if (input.work_days !== undefined && input.work_days !== null && input.work_days !== '') {
-    const raw = String(input.work_days);
-    if (!/^[1-7]{1,7}$/.test(raw) || new Set(raw).size !== raw.length) {
-      errors.push({ field: 'work_days', message: 'Work days are weekday digits 1 (Mon) to 7 (Sun), each once, e.g. 12345' });
-    } else workDays = [...raw].sort().join('');
-  }
   if (errors.length > 0) fail(errors);
-  return { name, email, workDays };
+  return { name, email };
 }
 
 function validateEntry(input: Record<string, unknown>): EntryInput {
@@ -615,6 +609,92 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     writeLeaveSettings(db, settings, actor);
     void platform.audit({ actor, action: 'leave.settings', resource: 'leave-settings' });
     res.json({ settings, ...leaveSettingsStamp(db) });
+  });
+
+  // ── Working time and flexitime (server/schedules.ts, server/flextime.ts) ──
+  const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+  app.get('/api/employees/:id/schedules', (req, res) => {
+    getEmployee(db, Number(req.params.id));
+    res.json({ schedules: listSchedules(db, Number(req.params.id)) });
+  });
+
+  app.post('/api/employees/:id/schedules', (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const validFrom = reqDate(input.valid_from, 'valid_from', errors);
+    // Weekly hours as whole minutes (38.5 h = 2310); null: no flexitime account.
+    let weeklyMinutes: number | null = null;
+    if (input.weekly_minutes !== null && input.weekly_minutes !== undefined && input.weekly_minutes !== '') {
+      const w = Number(input.weekly_minutes);
+      if (!Number.isInteger(w) || w <= 0 || w > 4200) errors.push({ field: 'weekly_minutes', message: 'weekly_minutes is whole minutes, 1 to 4200 (70 h), or null' });
+      else weeklyMinutes = w;
+    }
+    const raw = String(input.work_days ?? '');
+    if (!/^[1-7]{1,7}$/.test(raw) || new Set(raw).size !== raw.length) {
+      errors.push({ field: 'work_days', message: 'Work days are weekday digits 1 (Mon) to 7 (Sun), each once, e.g. 12345' });
+    }
+    const note = optText(input.note, 'note', errors, 300);
+    if (errors.length > 0) fail(errors);
+    const actor = actorOf(res, auth);
+    const schedule = addSchedule(db, Number(req.params.id), { validFrom, weeklyMinutes, workDays: [...raw].sort().join(''), note }, actor);
+    void platform.audit({ actor, action: 'worktime.schedule', resource: `employee:${req.params.id}`, metadata: { valid_from: validFrom, weekly_minutes: weeklyMinutes } });
+    res.status(201).json(schedule);
+  });
+
+  /** Whose account: the query's employee, or the signed-in person's own. */
+  const accountHolder = (req: Request, res: Response): number => {
+    const id = optInt(req.query.employee_id) ?? employeeOf(db, viewerOf(res).actor);
+    if (id === null || id === undefined) throw new DomainError(404, 'No employee record carries this login');
+    return id;
+  };
+
+  app.get('/api/flex/account', (req, res) => {
+    const errors: FieldError[] = [];
+    const asOf = req.query.as_of === undefined ? todayIso() : reqDate(req.query.as_of, 'as_of', errors);
+    if (errors.length > 0) fail(errors);
+    res.json(flexAccount(db, accountHolder(req, res), asOf, viewerOf(res)));
+  });
+
+  app.get('/api/flex/days', (req, res) => {
+    const month = typeof req.query.month === 'string' && MONTH_RE.test(req.query.month) ? req.query.month : todayIso().slice(0, 7);
+    res.json({ month, days: flexDays(db, accountHolder(req, res), `${month}-01`, monthEnd(month), viewerOf(res)) });
+  });
+
+  app.get('/api/flex/overview', (_req, res) => {
+    res.json({ as_of: todayIso(), rows: flexOverview(db, todayIso(), viewerOf(res)) });
+  });
+
+  app.get('/api/employees/:id/flex-entries', (req, res) => {
+    res.json({ entries: listFlexEntries(db, Number(req.params.id)) });
+  });
+
+  app.post('/api/employees/:id/flex-entries', (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const kind = input.kind as FlexKind;
+    if (!(FLEX_KINDS as readonly unknown[]).includes(kind)) errors.push({ field: 'kind', message: `kind must be one of: ${FLEX_KINDS.join(', ')}` });
+    const minutes = Number(input.minutes);
+    // A payout is the minutes paid, so positive; a correction may go either way.
+    if (!Number.isInteger(minutes) || minutes === 0 || Math.abs(minutes) > 100_000 || (kind === 'payout' && minutes < 0)) {
+      errors.push({ field: 'minutes', message: 'minutes is a non-zero whole number (positive for a payout)' });
+    }
+    const effectiveDate = input.effective_date === undefined ? todayIso() : reqDate(input.effective_date, 'effective_date', errors);
+    const note = optText(input.note, 'note', errors, 300);
+    if (kind === 'adjustment' && !note) errors.push({ field: 'note', message: 'A correction says why' });
+    if (errors.length > 0) fail(errors);
+    const actor = actorOf(res, auth);
+    const entry = addFlexEntry(db, Number(req.params.id), { kind, minutes, effectiveDate, note }, actor, viewerOf(res));
+    void platform.audit({ actor, action: `worktime.${kind}`, resource: `employee:${req.params.id}`, metadata: { minutes: entry.minutes, effective_date: effectiveDate } });
+    res.status(201).json(entry);
+  });
+
+  app.get('/api/export/flex.csv', (req, res) => {
+    if (typeof req.query.month !== 'string' || !MONTH_RE.test(req.query.month)) fail([{ field: 'month', message: 'month must be YYYY-MM' }]);
+    const month = req.query.month as string;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="flexitime-${month}.csv"`);
+    res.send(flexMonthCsv(db, month, viewerOf(res)));
   });
 
   // ── Time entries & daily grid ─────────────────────────────────────────

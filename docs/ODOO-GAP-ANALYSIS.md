@@ -93,7 +93,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
 | Employees | ✅ MOD-05 (Verzeichnis, Org-Baum, Onboarding-Liste) | Mitarbeiter-Self-Service fehlt |
-| Time Off | ✅ MOD-11 (Urlaub, Krankenstand, Sonderurlaub; Freigabe, Resturlaub abgeleitet, Feiertage AT/DE, Teamkalender) | Kein eigenes Modul: Abwesenheiten gehören zur Zeiterfassung. Offen: Verfall von Resturlaub, Zeitausgleich gegen Gleitzeitkonto |
+| Time Off | ✅ MOD-11 (Urlaub, Krankenstand, Sonderurlaub; Freigabe, Resturlaub abgeleitet, Feiertage AT/DE, Teamkalender) | Kein eigenes Modul: Abwesenheiten gehören zur Zeiterfassung. Zeitausgleich wird vom Gleitzeitkonto abgezogen. Offen: Verfall von Resturlaub |
 | Recruitment | ❌ | 🟡 neues Modul, mittlere Priorität (DSGVO-Löschfristen für Bewerbungen sind der Kern) |
 | Appraisals, Referrals (E) | ❌ | ⛔ |
 | Fleet | ❌ | 🟡 im Modul „Anlagen & Wartung“ mit abdecken (Fahrzeug = Anlage) |
@@ -115,7 +115,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
 | Project | ❌ (MOD-11 hat Projekte nur als Buchungsziel) | 🔜 **neues Modul „Projekte & Aufgaben“** — die fehlende Klammer zwischen MOD-13, MOD-11 und MOD-04 |
-| Timesheet (Timer, Erinnerung, Freigabe) | 🟡 MOD-11 (Tageserfassung, Wochenfreigabe) | Timer, Mitarbeiter-Login „meine Zeiten“ ergänzen |
+| Timesheet (Timer, Erinnerung, Freigabe) | 🟡 MOD-11 (Tageserfassung, Wochenfreigabe, „nur eigene Zeiten“, Gleitzeitkonto mit Soll aus datierten Arbeitszeitmodellen, Überstunden über der Obergrenze, Auszahlung, Monats-CSV für die Lohnverrechnung) | Timer, Erinnerungen ergänzen |
 | Helpdesk (E) | ✅ MOD-12 | Anhänge (PS-06), Textbausteine, Geschäftszeiten-SLA, CSAT, IMAP-Brücke |
 | Planning (E) | ❌ | 🟡 in „Projekte & Aufgaben“ als Ressourcenansicht, nicht separat |
 | Appointments (E) | ❌ | 🔜 **neues Modul „Terminbuchung“** — für KMU (Arzt, Handwerk, Beratung) einer der greifbarsten Nutzen |

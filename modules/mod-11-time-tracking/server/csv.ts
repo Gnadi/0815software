@@ -90,7 +90,7 @@ function neutralizeFormula(value: string): string {
   return `'${value}`;
 }
 
-function escapeCell(raw: string, delimiter: string): string {
+export function escapeCell(raw: string, delimiter: string): string {
   const value = neutralizeFormula(raw);
   if (value.includes('"') || value.includes(delimiter) || /[\n\r]/.test(value)) {
     return `"${value.replaceAll('"', '""')}"`;

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Employee, LeaveEntitlement } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { Can } from '../access';
+import { fmtHm } from '../format';
+import { fmtWorkDays, WorkSchedulePanel } from './WorkSchedulePanel';
 
 interface Props {
   onAuthLost: () => void;
@@ -12,8 +14,8 @@ export function EmployeesView({ onAuthLost }: Props) {
   const [error, setError] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [workDays, setWorkDays] = useState('12345');
   const [ledgerFor, setLedgerFor] = useState<Employee | null>(null);
+  const [scheduleFor, setScheduleFor] = useState<Employee | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
 
   const load = useCallback(async () => {
@@ -33,12 +35,11 @@ export function EmployeesView({ onAuthLost }: Props) {
   async function save() {
     setError('');
     try {
-      const values = { name, email: email || null, work_days: workDays };
+      const values = { name, email: email || null };
       if (editing) await api.updateEmployee(editing, values);
       else await api.createEmployee(values);
       setName('');
       setEmail('');
-      setWorkDays('12345');
       setEditing(null);
       await load();
     } catch (err) {
@@ -65,8 +66,8 @@ export function EmployeesView({ onAuthLost }: Props) {
           <h1 className="resource__title">Employees</h1>
           <p className="resource__desc">
             The people who log time and take leave. A person whose login email is on their record
-            records their own time and absences; managers keep the list, work days and vacation
-            entitlements.
+            records their own time and absences; managers keep the list, each person's working
+            time (which also opens their flexitime account) and vacation entitlements.
           </p>
         </div>
       </div>
@@ -87,8 +88,7 @@ export function EmployeesView({ onAuthLost }: Props) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
-          <WorkDaysPicker value={workDays} onChange={setWorkDays} />
-          <button className="btn btn--primary" onClick={() => void save()} disabled={!name.trim() || workDays === ''}>
+          <button className="btn btn--primary" onClick={() => void save()} disabled={!name.trim()}>
             {editing ? 'SAVE' : 'ADD'}
           </button>
           {editing && (
@@ -98,7 +98,6 @@ export function EmployeesView({ onAuthLost }: Props) {
                 setEditing(null);
                 setName('');
                 setEmail('');
-                setWorkDays('12345');
               }}
             >
               CANCEL
@@ -123,7 +122,10 @@ export function EmployeesView({ onAuthLost }: Props) {
               <tr key={emp.id}>
                 <td>{emp.name}</td>
                 <td className="mono">{emp.email ?? '—'}</td>
-                <td className="mono">{fmtWorkDays(emp.work_days)}</td>
+                <td className="mono">
+                  {fmtWorkDays(emp.work_days)}
+                  {emp.weekly_minutes !== null && <span className="table__id"> · {fmtHm(emp.weekly_minutes)} h/wk</span>}
+                </td>
                 <td className="mono">{emp.entry_count}</td>
                 <td>
                   <div className="table__rowactions">
@@ -134,12 +136,14 @@ export function EmployeesView({ onAuthLost }: Props) {
                           setEditing(emp.id);
                           setName(emp.name);
                           setEmail(emp.email ?? '');
-                          setWorkDays(emp.work_days);
                         }}
                       >
                         EDIT
                       </button>
                     </Can>
+                    <button className="rowbtn" onClick={() => setScheduleFor(scheduleFor?.id === emp.id ? null : emp)}>
+                      WORK TIME
+                    </button>
                     <button className="rowbtn" onClick={() => setLedgerFor(ledgerFor?.id === emp.id ? null : emp)}>
                       VACATION
                     </button>
@@ -168,43 +172,9 @@ export function EmployeesView({ onAuthLost }: Props) {
         </table>
       </div>
 
+      {scheduleFor && <WorkSchedulePanel key={scheduleFor.id} employee={scheduleFor} onChanged={() => void load()} onError={setError} />}
       {ledgerFor && <EntitlementLedger employee={ledgerFor} onError={setError} />}
     </div>
-  );
-}
-
-const DAY_LETTERS = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
-
-function fmtWorkDays(days: string): string {
-  return days
-    .split('')
-    .map((d) => DAY_LETTERS[Number(d) - 1])
-    .join(' ');
-}
-
-/** Which ISO weekdays the person works — a part-timer's leave counts only those. */
-function WorkDaysPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <span className="inline-check mono" title="Days worked — leave is counted only on these">
-      {DAY_LETTERS.map((label, i) => {
-        const d = String(i + 1);
-        return (
-          <label key={d}>
-            <input
-              type="checkbox"
-              checked={value.includes(d)}
-              onChange={(e) => {
-                const set = new Set(value.split('').filter(Boolean));
-                if (e.target.checked) set.add(d);
-                else set.delete(d);
-                onChange([...set].sort().join(''));
-              }}
-            />
-            {label}{' '}
-          </label>
-        );
-      })}
-    </span>
   );
 }
 

@@ -48,6 +48,11 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'POST', path: '/api/leave/requests/:id/reject', access: 'manage' },
   { method: 'POST', path: '/api/employees/:id/entitlements', access: 'manage' },
   { method: 'PUT', path: '/api/leave/settings', access: 'manage' },
+  // Working time: the schedule is the contract, and what enters or leaves a
+  // flexitime account besides the days themselves (opening balance,
+  // corrections, overtime paid out) is the office's decision.
+  { method: 'POST', path: '/api/employees/:id/schedules', access: 'manage' },
+  { method: 'POST', path: '/api/employees/:id/flex-entries', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);
