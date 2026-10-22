@@ -312,8 +312,18 @@
           "BANK_CONNECTION",
           "NOTIFICATION_INVOICE_CHANNEL",
           "SELLER_BIC",
+          "SELLER_CITY",
+          "SELLER_CONTACT_NAME",
+          "SELLER_COUNTRY",
+          "SELLER_EINVOICE_ADDRESS",
+          "SELLER_EMAIL",
           "SELLER_IBAN",
+          "SELLER_PHONE",
+          "SELLER_POSTCODE",
           "SELLER_REFRESH_MS",
+          "SELLER_REGISTRATION",
+          "SELLER_STREET",
+          "SELLER_TAX_NUMBER",
           "SHELL_ORIGIN"
         ],
         "secrets": [

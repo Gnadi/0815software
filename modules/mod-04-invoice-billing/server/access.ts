@@ -31,6 +31,13 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'POST', path: '/api/payment-runs/:id/mark-executed', access: 'manage' },
   // Throws a frozen run away.
   { method: 'POST', path: '/api/payment-runs/:id/discard', access: 'manage' },
+  // The company itself: the name, VAT id and IBAN every future invoice and
+  // e-invoice prints, and the debtor account of every payment file. Changing
+  // it is administration, not day-to-day invoicing.
+  { method: 'PUT', path: '/api/settings/seller', access: 'manage' },
+  // The tax adviser's DATEV / BMD numbers, accounts and tax codes — a wrong
+  // value books every exported invoice on the wrong account.
+  { method: 'PUT', path: '/api/accounting-settings', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

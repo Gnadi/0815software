@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { InvoiceDetail as Detail } from '../../shared/types';
-import { api, ApiError, invoicePdfUrl } from '../api';
+import { api, ApiError, invoicePdfUrl, xrechnungUrl, zugferdUrl, type EInvoiceStatus } from '../api';
 import { fmtDate, fmtEur, fmtQty } from '../format';
 import { PaymentBadge, StatusBadge } from './StatusBadge';
 import { Can } from '../access';
@@ -15,6 +15,7 @@ interface Props {
 
 export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: Props) {
   const [invoice, setInvoice] = useState<Detail | null>(null);
+  const [einvoice, setEinvoice] = useState<EInvoiceStatus | null>(null);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -26,7 +27,9 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
 
   const load = useCallback(async () => {
     try {
-      setInvoice(await api.invoiceDetail(id));
+      const detail = await api.invoiceDetail(id);
+      setInvoice(detail);
+      setEinvoice(detail.status === 'draft' ? null : await api.einvoiceStatus(id).catch(() => null));
       setError('');
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) onAuthLost();
@@ -226,6 +229,23 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
         </>
       )}
 
+      {(invoice.delivery_date || invoice.buyer_reference || invoice.tax_exemption_category) && (
+        <p className="resource__desc mono">
+          {invoice.delivery_date && <>SERVICE DATE {fmtDate(invoice.delivery_date)} · </>}
+          {invoice.buyer_reference && <>BUYER REF {invoice.buyer_reference} · </>}
+          {invoice.tax_exemption_category && (
+            <>0 % VAT: {invoice.tax_exemption_category}{invoice.tax_exemption_reason ? ` — ${invoice.tax_exemption_reason}` : ''}</>
+          )}
+        </p>
+      )}
+
+      {einvoice?.available && (
+        <>
+          <div className="section-title mono">E-INVOICE · XRECHNUNG / ZUGFERD</div>
+          <EInvoicePanel id={invoice.id} status={einvoice} />
+        </>
+      )}
+
       {!isDraft && (
         <>
           <div className="section-title mono">
@@ -332,6 +352,62 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
               </button>
             </div>
           </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The e-invoice downloads of an issued invoice. Each format is offered only
+ * when it would validate; otherwise the missing fields are listed with their
+ * EN 16931 business terms, which is what the server would refuse with.
+ */
+function EInvoicePanel({ id, status }: { id: number; status: Extract<EInvoiceStatus, { available: true }> }) {
+  const formats = [
+    { key: 'xrechnung' as const, label: 'XRECHNUNG (XML)', url: xrechnungUrl },
+    { key: 'zugferd' as const, label: 'ZUGFERD (PDF/A-3)', url: zugferdUrl },
+  ];
+  return (
+    <div className="totals">
+      {formats.map((f) => {
+        const problems = status.problems[f.key];
+        return (
+          <div key={f.key} className="totals__row mono" style={{ alignItems: 'flex-start', gap: 16 }}>
+            <span>
+              {f.label}
+              {problems.length > 0 && (
+                <ul className="note-cell" style={{ margin: '6px 0 0', paddingLeft: 18, textTransform: 'none' }}>
+                  {problems.map((p) => (
+                    <li key={`${p.term}-${p.field}`}>
+                      {p.term}: {p.message} <span className="table__id">({p.field})</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </span>
+            {problems.length === 0 ? (
+              <span style={{ display: 'flex', gap: 8 }}>
+                <a className="btn btn--ghost" href={f.url(id)}>
+                  INVOICE ↓
+                </a>
+                {status.cancellation && (
+                  <a className="btn btn--ghost" href={f.url(id, true)}>
+                    CANCELLATION ↓
+                  </a>
+                )}
+              </span>
+            ) : (
+              <span className="table__id">{problems.length} MISSING</span>
+            )}
+          </div>
+        );
+      })}
+      {!status.parties_frozen && (
+        <div className="totals__row mono">
+          <span className="table__id">
+            Issued before e-invoicing existed: seller and customer are read from today’s master data.
+          </span>
         </div>
       )}
     </div>

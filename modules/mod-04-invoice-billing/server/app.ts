@@ -1,8 +1,37 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
-import { VAT_RATES } from '../shared/money.js';
-import { STATUSES, type FieldError, type InvoiceStatus } from '../shared/types.js';
+import { VAT_RATES, vatRatesFor } from '../shared/money.js';
+import {
+  STATUSES,
+  TAX_EXEMPTION_CATEGORIES,
+  type FieldError,
+  type InvoiceStatus,
+  type TaxExemptionCategory,
+} from '../shared/types.js';
+import { COUNTRY_RE } from '../shared/address.js';
+import {
+  eInvoiceReadiness,
+  freezeParties,
+  invoiceParties,
+  pdfParties,
+  sellerParty,
+  xrechnungFile,
+  zugferdFile,
+  type EInvoiceDocument,
+} from './einvoice-data.js';
+import { eInvoiceProblems, type EInvoiceModel } from '../shared/einvoice.js';
+import {
+  bmdExport,
+  datevExport,
+  DATEV_SUGGESTED,
+  readSettings,
+  REVENUE_KEYS,
+  REVENUE_LABELS,
+  settingsStamp,
+  writeSettings,
+} from './accounting-export.js';
+import { readSellerSettings, SellerSource, writeSellerSettings } from './seller-settings.js';
 import {
   accessOf,
   actorOf,
@@ -116,7 +145,19 @@ interface CustomerInput {
   email: string | null;
   vat_id: string | null;
   address: string | null;
+  street: string | null;
+  postcode: string | null;
+  city: string | null;
+  country_code: string | null;
+  buyer_reference: string | null;
+  einvoice_address: string | null;
+  debtor_account: number | null;
 }
+
+const CUSTOMER_COLUMNS = [
+  'name', 'email', 'vat_id', 'address', 'street', 'postcode', 'city',
+  'country_code', 'buyer_reference', 'einvoice_address', 'debtor_account',
+] as const;
 
 function validateCustomer(input: Record<string, unknown>): CustomerInput {
   const errors: FieldError[] = [];
@@ -128,8 +169,30 @@ function validateCustomer(input: Record<string, unknown>): CustomerInput {
   }
   const vat_id = optText(input.vat_id, 'vat_id', errors, 32);
   const address = optText(input.address, 'address', errors, 400);
+  const street = optText(input.street, 'street', errors, 120);
+  const postcode = optText(input.postcode, 'postcode', errors, 16);
+  const city = optText(input.city, 'city', errors, 80);
+  let country_code = optText(input.country_code, 'country_code', errors, 40);
+  if (country_code !== null) {
+    country_code = country_code.trim().toUpperCase();
+    if (!COUNTRY_RE.test(country_code)) {
+      errors.push({ field: 'country_code', message: 'Country must be an ISO 3166 code such as DE or AT' });
+    }
+  }
+  const buyer_reference = optText(input.buyer_reference, 'buyer_reference', errors, 200);
+  const einvoice_address = optText(input.einvoice_address, 'einvoice_address', errors, 200);
+  let debtor_account: number | null = null;
+  if (input.debtor_account !== undefined && input.debtor_account !== null && input.debtor_account !== '') {
+    debtor_account = Number(input.debtor_account);
+    if (!Number.isInteger(debtor_account) || debtor_account < 1 || debtor_account > 999_999_999) {
+      errors.push({ field: 'debtor_account', message: 'Debtor account must be a whole account number' });
+    }
+  }
   if (errors.length > 0) fail(errors);
-  return { name, email, vat_id, address };
+  return {
+    name, email, vat_id, address, street, postcode, city, country_code,
+    buyer_reference, einvoice_address, debtor_account,
+  };
 }
 
 /**
@@ -202,6 +265,20 @@ function validateDraft(input: Record<string, unknown>): DraftInput {
     }
   }
   const note = optText(input.note, 'note', errors, 500);
+  const buyerReference = optText(input.buyer_reference, 'buyer_reference', errors, 200);
+  const deliveryDate = optDate(input.delivery_date, 'delivery_date', errors);
+  let taxExemptionCategory: TaxExemptionCategory | null = null;
+  if (input.tax_exemption_category !== undefined && input.tax_exemption_category !== null && input.tax_exemption_category !== '') {
+    if ((TAX_EXEMPTION_CATEGORIES as readonly unknown[]).includes(input.tax_exemption_category)) {
+      taxExemptionCategory = input.tax_exemption_category as TaxExemptionCategory;
+    } else {
+      errors.push({
+        field: 'tax_exemption_category',
+        message: `VAT exemption must be one of: ${TAX_EXEMPTION_CATEGORIES.join(', ')}`,
+      });
+    }
+  }
+  const taxExemptionReason = optText(input.tax_exemption_reason, 'tax_exemption_reason', errors, 300);
 
   const rawLines = Array.isArray(input.lines) ? (input.lines as Record<string, unknown>[]) : [];
   if (rawLines.length === 0) errors.push({ field: 'lines', message: 'At least one line item is required' });
@@ -226,7 +303,7 @@ function validateDraft(input: Record<string, unknown>): DraftInput {
     return { description, quantity, unitPriceCents, vatRate };
   });
   if (errors.length > 0) fail(errors);
-  return { customerId, paymentTermsDays, note, lines };
+  return { customerId, paymentTermsDays, note, lines, buyerReference, deliveryDate, taxExemptionCategory, taxExemptionReason };
 }
 
 export interface AppOptions {
@@ -235,6 +312,12 @@ export interface AppOptions {
   db: Database.Database;
   auth: AuthConfig;
   seller: SellerConfig;
+  /**
+   * Where the seller's fields come from — Settings screen, PS-11, env. The
+   * server builds it so PS-11's refresh feeds the same object; omitted (tests)
+   * it is built here over `seller`, with nothing managed by PS-11.
+   */
+  sellerSource?: SellerSource;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
   /** Optional Platform Services integration; defaults to a no-op (standalone). */
@@ -274,8 +357,12 @@ export interface AppOptions {
   loginMode?: LoginMode;
 }
 
-export function createApp({ db, hardening, auth, seller, staticDir, platform = noopPlatform, bankingConfigured = false, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [], austrianRemittance = { TAXS: null } }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, seller, sellerSource, staticDir, platform = noopPlatform, bankingConfigured = false, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [], austrianRemittance = { TAXS: null } }: AppOptions): express.Express {
   const app = express();
+  // What the admin set on the Settings screen overrides PS-11 and the env.
+  // (A suite that never renders an invoice may build the app without a seller.)
+  const sellerSources = sellerSource ?? new SellerSource(seller ?? ({} as SellerConfig));
+  if (db) sellerSources.setSettings(readSellerSettings(db).overrides);
   const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
 
   // Transport hardening: security headers, a default-deny CORS policy and
@@ -450,8 +537,11 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
   app.post('/api/customers', (req, res) => {
     const values = validateCustomer(body(req));
     const info = db
-      .prepare('INSERT INTO customers (name, email, vat_id, address, created_at) VALUES (?, ?, ?, ?, ?)')
-      .run(values.name, values.email, values.vat_id, values.address, nowIso());
+      .prepare(
+        `INSERT INTO customers (${CUSTOMER_COLUMNS.join(', ')}, created_at)
+         VALUES (${CUSTOMER_COLUMNS.map((c) => `@${c}`).join(', ')}, @created_at)`,
+      )
+      .run({ ...values, created_at: nowIso() });
     res.status(201).json(db.prepare('SELECT * FROM customers WHERE id = ?').get(info.lastInsertRowid));
   });
 
@@ -462,13 +552,10 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
   app.put('/api/customers/:id', (req, res) => {
     getCustomer(db, Number(req.params.id));
     const values = validateCustomer(body(req));
-    db.prepare('UPDATE customers SET name = ?, email = ?, vat_id = ?, address = ? WHERE id = ?').run(
-      values.name,
-      values.email,
-      values.vat_id,
-      values.address,
-      req.params.id,
-    );
+    db.prepare(`UPDATE customers SET ${CUSTOMER_COLUMNS.map((c) => `${c} = @${c}`).join(', ')} WHERE id = @id`).run({
+      ...values,
+      id: req.params.id,
+    });
     res.json(db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id));
   });
 
@@ -504,8 +591,27 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
     });
   });
 
+  // The rates the SELLER's country charges. validateDraft accepts every rate
+  // the schema stores; this narrows it per installation, so a script, an
+  // offer import or an old client cannot put 19 % on an Austrian invoice — an
+  // e-invoice would then state German VAT, and the BMD export would refuse the
+  // period. Unknown country (nothing configured yet): every stored rate.
+  const assertSellerRates = (rates: number[], fieldOf: (index: number) => string): void => {
+    const country = sellerParty(seller).country;
+    if (!country) return;
+    const allowed = vatRatesFor(country);
+    const errors = rates.flatMap((rate, i) =>
+      allowed.includes(rate)
+        ? []
+        : [{ field: fieldOf(i), message: `${rate} % is not a VAT rate in ${country} — use one of: ${allowed.join(', ')}` }],
+    );
+    if (errors.length > 0) fail(errors);
+  };
+
   app.post('/api/invoices', (req, res) => {
-    const invoiceId = createDraft(db, validateDraft(body(req)));
+    const draft = validateDraft(body(req));
+    assertSellerRates(draft.lines.map((l) => l.vatRate), (i) => `lines[${i}].vat_rate`);
+    const invoiceId = createDraft(db, draft);
     res.status(201).json(invoiceDetail(db, invoiceId));
   });
 
@@ -576,7 +682,9 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
   });
 
   app.put('/api/invoices/:id', (req, res) => {
-    updateDraft(db, Number(req.params.id), validateDraft(body(req)));
+    const draft = validateDraft(body(req));
+    assertSellerRates(draft.lines.map((l) => l.vatRate), (i) => `lines[${i}].vat_rate`);
+    updateDraft(db, Number(req.params.id), draft);
     res.json(invoiceDetail(db, Number(req.params.id)));
   });
 
@@ -589,23 +697,32 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
     const errors: FieldError[] = [];
     const issueDate = optDate(body(req).issue_date, 'issue_date', errors);
     if (errors.length > 0) fail(errors);
+    // Every path to an issued invoice passes here — a draft from an imported
+    // offer included — so the seller's rates are checked once more at issue.
+    const pending = invoiceDetail(db, Number(req.params.id));
+    if (pending.status === 'draft') {
+      assertSellerRates(pending.lines.map((l) => l.vat_rate), (i) => `lines[${i}].vat_rate`);
+    }
     // When PS-10 Number is configured, source the invoice number from it
     // (authoritative, gapless); otherwise the local per-year counter assigns it.
     const numberOverride = await platform.nextInvoiceNumber();
-    finalizeInvoice(db, Number(req.params.id), issueDate ?? undefined, numberOverride ?? undefined);
+    finalizeInvoice(db, Number(req.params.id), issueDate ?? undefined, numberOverride ?? undefined, (invoiceId) =>
+      freezeParties(db, invoiceId, seller),
+    );
     const detail = invoiceDetail(db, Number(req.params.id));
 
     // Fan the freshly-issued invoice out to the Platform Services (email the
     // customer, archive the PDF, record the audit event). Best-effort and a
     // no-op when nothing is configured, so mod-04 still works standalone.
     const customer = getCustomer(db, detail.customer_id);
+    const issued = pdfParties(invoiceParties(db, detail.id, seller));
     try {
       await platform.invoiceIssued({
         number: detail.number ?? `draft-${detail.id}`,
         customerEmail: customer.email,
         customerName: detail.customer_name,
         totalFormatted: fmtEur(detail.gross_cents),
-        pdf: renderInvoicePdf(detail, customer, seller),
+        pdf: renderInvoicePdf(detail, issued.customer, issued.seller),
         // Was `res.locals.username`, which nothing ever set — so every issued
         // invoice reached PS-07 as the literal "admin".
         actor: actorOf(res, auth),
@@ -747,12 +864,156 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
 
   app.get('/api/invoices/:id/pdf', (req, res) => {
     const invoice = invoiceDetail(db, Number(req.params.id));
-    const customer = getCustomer(db, invoice.customer_id);
-    const pdf = renderInvoicePdf(invoice, customer, seller);
+    // An issued invoice prints the parties as they were frozen at issue.
+    const parties = pdfParties(invoiceParties(db, invoice.id, seller));
+    const pdf = renderInvoicePdf(invoice, parties.customer, parties.seller);
     const filename = `${invoice.number ?? `draft-${invoice.id}`}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
     res.send(pdf);
+  });
+
+  // ── E-invoices: XRechnung and ZUGFeRD ─────────────────────────────────
+  // Both are EN 16931 in CII syntax, from one model (shared/einvoice.ts) of
+  // the invoice as issued (server/einvoice-data.ts). A file is only produced
+  // when it would validate: otherwise 422, naming every missing field with
+  // its business term, so the operator fixes the master data rather than
+  // learning about it from the recipient's rejection.
+  const documentOf = (raw: unknown): EInvoiceDocument => {
+    if (raw === undefined || raw === 'invoice') return 'invoice';
+    if (raw === 'cancellation') return 'cancellation';
+    fail([{ field: 'document', message: 'document must be invoice or cancellation' }]);
+  };
+
+  // What the seller side is missing for e-invoicing, independent of any
+  // invoice — the settings banner reads this.
+  app.get('/api/einvoice-config', (_req, res) => {
+    res.json(sellerReadiness());
+  });
+
+  app.get('/api/invoices/:id/einvoice', (req, res) => {
+    const id = Number(req.params.id);
+    const detail = invoiceDetail(db, id);
+    if (detail.status === 'draft') {
+      res.json({ available: false, reason: 'Drafts have no number — send the invoice first', parties_frozen: false });
+      return;
+    }
+    res.json({
+      available: true,
+      parties_frozen: detail.parties_frozen,
+      cancellation: detail.status === 'cancelled',
+      problems: eInvoiceReadiness(db, id, seller),
+    });
+  });
+
+  app.get('/api/invoices/:id/xrechnung.xml', (req, res) => {
+    const file = xrechnungFile(db, Number(req.params.id), seller, documentOf(req.query.document));
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.send(file.xml);
+  });
+
+  app.get('/api/invoices/:id/zugferd.pdf', (req, res) => {
+    const file = zugferdFile(db, Number(req.params.id), seller, documentOf(req.query.document));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.send(file.pdf);
+  });
+
+  // ── Bookkeeping exports: DATEV and BMD ──────────────────────────────
+  // The issued invoices of a period as a booking batch for the tax adviser
+  // (server/accounting-export.ts). Settings first: account numbers belong to
+  // the adviser's chart of accounts, and the export refuses rather than guess.
+  app.get('/api/accounting-settings', (_req, res) => {
+    res.json({
+      settings: readSettings(db),
+      suggested: DATEV_SUGGESTED,
+      revenue_keys: REVENUE_KEYS,
+      revenue_labels: REVENUE_LABELS,
+      ...settingsStamp(db),
+    });
+  });
+
+  app.put('/api/accounting-settings', async (req, res) => {
+    const actor = actorOf(res, auth);
+    const { settings, changed } = writeSettings(db, body(req), actor);
+    if (changed.length > 0) await platform.settingsChanged?.({ actor, section: 'accounting', fields: changed });
+    res.json({ settings, ...settingsStamp(db) });
+  });
+
+  // ── Settings: the seller, as the admin maintains it ──────────────────
+  // server/seller-settings.ts holds the precedence (Settings > PS-11 > env)
+  // and the validation. Issued invoices are unaffected by a change here:
+  // they carry the seller frozen at issue.
+  // What e-invoicing still needs from the seller: a probe invoice with one
+  // taxed line, so whatever is left is about the seller only.
+  const sellerReadiness = () => {
+    const party = sellerParty(seller);
+    const probe: EInvoiceModel = {
+      type_code: '380', number: 'PROBE', issue_date: todayIso(), due_date: todayIso(), delivery_date: todayIso(),
+      payment_terms_days: 14, buyer_reference: 'PROBE', note: null, preceding: null, exemption: null, seller: party,
+      buyer: { name: 'PROBE', address: null, street: 'x', postcode: '1', city: 'x', country: 'DE', vat_id: null, email: 'probe@example.com', einvoice_address: null },
+      lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: party.country === 'AT' ? 20 : 19 }],
+    };
+    return {
+      seller: party,
+      problems: { xrechnung: eInvoiceProblems(probe, 'xrechnung'), zugferd: eInvoiceProblems(probe, 'zugferd') },
+    };
+  };
+
+  const sellerSettingsResponse = () => {
+    const stored = readSellerSettings(db);
+    return {
+      fields: sellerSources.describe(),
+      platform_managed: sellerSources.platformManaged,
+      updated_at: stored.updated_at,
+      updated_by: stored.updated_by,
+      ...sellerReadiness(),
+    };
+  };
+
+  app.get('/api/settings/seller', (_req, res) => {
+    res.json(sellerSettingsResponse());
+  });
+
+  app.put('/api/settings/seller', async (req, res) => {
+    const actor = actorOf(res, auth);
+    const { overrides, changed } = writeSellerSettings(db, body(req), {
+      platformManaged: sellerSources.platformManaged,
+      actor,
+    });
+    sellerSources.setSettings(overrides);
+    if (changed.length > 0) await platform.settingsChanged?.({ actor, section: 'seller', fields: changed });
+    res.json(sellerSettingsResponse());
+  });
+
+  const exportRange = (query: Request['query']): { from: string; to: string } => {
+    const errors: FieldError[] = [];
+    const from = optDate(query.from, 'from', errors);
+    const to = optDate(query.to, 'to', errors);
+    if (from === null && errors.length === 0) errors.push({ field: 'from', message: 'from (YYYY-MM-DD) is required' });
+    if (to === null && errors.length === 0) errors.push({ field: 'to', message: 'to (YYYY-MM-DD) is required' });
+    if (errors.length > 0) fail(errors);
+    return { from: from!, to: to! };
+  };
+
+  app.get('/api/exports/datev.csv', (req, res) => {
+    const file = datevExport(db, exportRange(req.query), {
+      payments: req.query.payments === '1' || req.query.payments === 'true',
+      exportedBy: actorOf(res, auth),
+    });
+    res.setHeader('Content-Type', 'text/csv; charset=windows-1252');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.setHeader('X-Booking-Count', String(file.bookings));
+    res.send(file.content);
+  });
+
+  app.get('/api/exports/bmd.csv', (req, res) => {
+    const file = bmdExport(db, exportRange(req.query));
+    res.setHeader('Content-Type', 'text/csv; charset=windows-1252');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.setHeader('X-Booking-Count', String(file.bookings));
+    res.send(file.content);
   });
 
   // ── Payables: bills, and the bank file that pays them ────────────────

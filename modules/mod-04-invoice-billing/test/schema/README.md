@@ -45,3 +45,13 @@ which this module does not produce.
 A file from `buildPain001` therefore *fails* it, correctly. There is a test
 asserting exactly that failure, with its message, so that nobody later reads
 the omission as a gap and "fixes" it.
+
+## `cii-en16931/` — the Factur-X EN16931 schema
+
+The four XSDs of the ZUGFeRD / Factur-X **EN 16931** profile: the UN/CEFACT
+CII D16B Cross Industry Invoice, restricted to what EN 16931 allows. Taken
+unmodified from the schema set FeRD publishes with ZUGFeRD, as bundled in
+Mustang-CLI 2.26.0 (`schema/ZF_250/EN16931/`). `einvoice.test.ts` validates
+every e-invoice case against them with `xmllint`. XRechnung in CII syntax uses
+the same structure, and its additional rules are schematron, not schema. See
+`docs/E-RECHNUNG.md` for the external check.

@@ -7,6 +7,8 @@ import {
   type LineInput,
 } from './invoices.js';
 import { cancelBill, createBill, createCreditor, markBillPaid } from './bills.js';
+import type { SellerConfig } from './config.js';
+import { freezeParties } from './einvoice-data.js';
 
 /**
  * Example dataset: 5 customers and 12 invoices across both years and
@@ -26,7 +28,7 @@ import { cancelBill, createBill, createCreditor, markBillPaid } from './bills.js
  * Idempotent: the dataset is relational, so seeding is all-or-nothing —
  * if any customers exist the seed is skipped entirely.
  */
-export function seed(db: Database.Database): void {
+export function seed(db: Database.Database, seller?: SellerConfig): void {
   const { count } = db.prepare('SELECT COUNT(*) AS count FROM customers').get() as { count: number };
   if (count > 0) {
     console.log(`[seed] database already contains ${count} customers, skipping`);
@@ -245,7 +247,11 @@ export function seed(db: Database.Database): void {
         lines: spec.lines,
         createdAt: spec.created,
       });
-      if (spec.issue) finalizeInvoice(db, invoiceId, spec.issue);
+      // Frozen like any invoice issued through the API, so a demo stack's
+      // invoices do not change when the seller is edited in Settings.
+      if (spec.issue) {
+        finalizeInvoice(db, invoiceId, spec.issue, undefined, seller ? (id) => freezeParties(db, id, seller) : undefined);
+      }
       for (const [date, amountCents, note] of spec.payments ?? []) {
         recordPayment(db, invoiceId, { date, amountCents, note: note ?? null, createdAt: `${date}T12:00:00Z` });
       }
@@ -331,7 +337,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const { configFromEnv } = await import('./config.js');
   const config = configFromEnv();
   const db = openDb(config.databasePath);
-  seed(db);
+  seed(db, config.seller);
   db.close();
   console.log(`[seed] done — database at ${config.databasePath}`);
 }

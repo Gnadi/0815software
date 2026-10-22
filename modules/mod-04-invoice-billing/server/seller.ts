@@ -1,4 +1,4 @@
-import type { SellerConfig } from './config.js';
+import type { SellerSource } from './seller-settings.js';
 
 /**
  * Where the seller letterhead comes from.
@@ -14,13 +14,14 @@ import type { SellerConfig } from './config.js';
  *
  * - PS-11 has a `self` party  → it wins, field by field (a blank field there
  *   falls back to the env, so a half-filled party cannot blank a letterhead).
- * - PS-11 has none, or is unreachable → the env values stand, unchanged. A
- *   module never *writes* the seller to PS-11: one authority, set once by the
- *   operator with `PUT /api/self`.
+ * - PS-11 has none → the env values stand. PS-11 unreachable → the last party
+ *   it gave stands (see `refreshSellerSource`). A module never *writes* the
+ *   seller to PS-11: one authority, set once by the operator with `PUT /api/self`.
  *
- * `applySeller` mutates the config object in place because `createApp` captured
- * it and the PDF renderer reads its fields at render time. That is what lets the
- * refresh below take effect without a restart.
+ * Above both sits the Settings screen; `SellerSource` (server/seller-settings.ts)
+ * combines the three and updates the live config object in place, because
+ * `createApp` captured it and the PDF renderer reads its fields at render time.
+ * That is what lets a refresh take effect without a restart.
  */
 
 /** The subset of a PS-11 party this module needs for a letterhead. */
@@ -32,43 +33,41 @@ export interface SelfParty {
   bic: string | null;
 }
 
-/** Fetch the `self` party, or null when PS-11 is unset, empty or unreachable. */
+/** Fetch the `self` party: null when PS-11 is unset or has none, a throw when unreachable. */
 export type FetchSelf = () => Promise<SelfParty | null>;
 
 /** How often a long-running process re-reads the seller from PS-11. */
 export const SELLER_REFRESH_MS = 5 * 60_000;
 
 /**
- * Overlay PS-11's `self` party onto `seller`, in place. Returns true when
- * anything came from the platform, so a boot can log which authority it used.
+ * Re-read PS-11's `self` party into the seller sources. PS-11's party is ONE of
+ * the sources (server/seller-settings.ts), so a refresh can never overwrite
+ * what was saved on the Settings screen. Returns true when PS-11 supplied a
+ * party.
+ *
+ * "No party" (null) and "PS-11 unreachable" (a throw) are deliberately
+ * different: the first clears PS-11's fields so the next source stands; the
+ * second changes nothing, because the last party PS-11 gave is far closer to
+ * the truth than the env placeholders — and whatever the seller is at the
+ * moment an invoice is finalized is frozen into it for good.
  */
-export async function applySeller(seller: SellerConfig, fetchSelf: FetchSelf): Promise<boolean> {
+export async function refreshSellerSource(source: SellerSource, fetchSelf: FetchSelf): Promise<boolean> {
   let self: SelfParty | null;
   try {
     self = await fetchSelf();
   } catch {
-    return false; // best-effort: an unreachable PS-11 leaves the env in charge
+    return false; // unreachable: keep the last known state, see above
   }
-  if (!self) return false;
-
-  if (self.name.trim() !== '') seller.name = self.name.trim();
-  if (self.address_lines.length > 0) seller.addressLines = self.address_lines;
-  if (self.vat_id) seller.vatId = self.vat_id;
-  if (self.iban) seller.iban = self.iban;
-  if (self.bic) seller.bic = self.bic;
-  return true;
+  source.setPlatform(self);
+  return self !== null;
 }
 
-/**
- * Keep the seller current for the life of the process. Returns a stop function;
- * the timer is unref'd so it never holds the process open.
- */
-export function startSellerRefresh(
-  seller: SellerConfig,
+export function startSellerSourceRefresh(
+  source: SellerSource,
   fetchSelf: FetchSelf,
   intervalMs = SELLER_REFRESH_MS,
 ): () => void {
-  const timer = setInterval(() => void applySeller(seller, fetchSelf), intervalMs);
+  const timer = setInterval(() => void refreshSellerSource(source, fetchSelf), intervalMs);
   timer.unref?.();
   return () => clearInterval(timer);
 }

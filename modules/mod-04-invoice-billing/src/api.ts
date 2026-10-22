@@ -14,6 +14,7 @@ import type {
   ReceivableOutcome,
   ReceivableSuggestions,
 } from '../shared/types';
+import type { EInvoiceProblem, EInvoiceProfile, SellerParty } from '../shared/einvoice';
 
 export class ApiError extends Error {
   status: number;
@@ -122,6 +123,48 @@ export const api = {
   recordPayment: (id: number, values: Record<string, unknown>) =>
     request<InvoiceDetail>(`/api/invoices/${id}/payments`, post(values)),
 
+  // ── E-invoices and bookkeeping exports ───────────────────────────────
+  /** The seller as e-invoices see it, and what each profile still misses. */
+  einvoiceConfig: () =>
+    request<{ seller: SellerParty; problems: Record<EInvoiceProfile, EInvoiceProblem[]> }>('/api/einvoice-config'),
+  /** Whether an issued invoice can be downloaded as XRechnung / ZUGFeRD, and what is missing. */
+  einvoiceStatus: (id: number) => request<EInvoiceStatus>(`/api/invoices/${id}/einvoice`),
+  /** The seller as the admin maintains it — each field with its source. */
+  sellerSettings: () => request<SellerSettingsResponse>('/api/settings/seller'),
+  saveSellerSettings: (values: Record<string, string>) =>
+    request<SellerSettingsResponse>('/api/settings/seller', { method: 'PUT', body: JSON.stringify(values) }),
+  accountingSettings: () => request<AccountingSettingsResponse>('/api/accounting-settings'),
+  saveAccountingSettings: (settings: AccountingSettings) =>
+    request<{ settings: AccountingSettings; updated_at: string | null; updated_by: string | null }>('/api/accounting-settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
+  /**
+   * Fetch an export as a file. Not a plain link: a refused export answers 422
+   * with the list of missing settings, which the screen has to show.
+   */
+  exportFile: async (path: string): Promise<{ blob: Blob; filename: string; bookings: number }> => {
+    const res = await fetch(path, { credentials: 'same-origin' });
+    if (!res.ok) {
+      let message = `Request failed (${res.status})`;
+      let details: FieldError[] = [];
+      try {
+        const body = (await res.json()) as { error?: string; details?: FieldError[] };
+        if (body.error) message = body.error;
+        if (body.details) details = body.details;
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new ApiError(res.status, message, details);
+    }
+    const disposition = res.headers.get('Content-Disposition') ?? '';
+    return {
+      blob: await res.blob(),
+      filename: /filename="([^"]+)"/.exec(disposition)?.[1] ?? 'export.csv',
+      bookings: Number(res.headers.get('X-Booking-Count') ?? 0),
+    };
+  },
+
   // ── Payables: bills, and the bank file that pays them ────────────────
   /** The debtor account, and whether it is usable — read before offering a run. */
   paymentConfig: () => request<PaymentConfig>('/api/payment-config'),
@@ -155,6 +198,77 @@ export const api = {
   markRunExecuted: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}/mark-executed`, post()),
   discardRun: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}/discard`, post()),
 };
+
+export type EInvoiceStatus =
+  | { available: false; reason: string; parties_frozen: false }
+  | {
+      available: true;
+      parties_frozen: boolean;
+      cancellation: boolean;
+      problems: Record<EInvoiceProfile, EInvoiceProblem[]>;
+    };
+
+export interface RevenueAccount {
+  account: number | null;
+  bu_key?: string | null;
+  tax_code?: string | null;
+}
+
+export interface AccountingSettings {
+  datev: {
+    consultant_number: number | null;
+    client_number: number | null;
+    chart: 'SKR03' | 'SKR04';
+    account_length: number;
+    fiscal_year_start: string;
+    lock: boolean;
+    debtor_start: number;
+    bank_account: number | null;
+    revenue: Record<string, RevenueAccount>;
+  };
+  bmd: {
+    debtor_start: number;
+    symbol: string;
+    date_format: 'dd.mm.yyyy' | 'yyyymmdd';
+    revenue: Record<string, RevenueAccount>;
+  };
+}
+
+export interface SellerFieldState {
+  key: string;
+  env: string;
+  value: string | null;
+  setting: string | null;
+  source: 'settings' | 'platform' | 'env' | 'unset';
+  locked: boolean;
+}
+
+export interface SellerSettingsResponse {
+  fields: SellerFieldState[];
+  platform_managed: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
+  seller: SellerParty;
+  problems: Record<EInvoiceProfile, EInvoiceProblem[]>;
+}
+
+export interface AccountingSettingsResponse {
+  settings: AccountingSettings;
+  updated_at: string | null;
+  updated_by: string | null;
+  suggested: Record<'SKR03' | 'SKR04', Record<string, number>>;
+  revenue_keys: string[];
+  revenue_labels: Record<string, string>;
+}
+
+/** Download links for the e-invoice files of an issued invoice. */
+export function xrechnungUrl(id: number, cancellation = false): string {
+  return `/api/invoices/${id}/xrechnung.xml${cancellation ? '?document=cancellation' : ''}`;
+}
+
+export function zugferdUrl(id: number, cancellation = false): string {
+  return `/api/invoices/${id}/zugferd.pdf${cancellation ? '?document=cancellation' : ''}`;
+}
 
 /** The payables figures the bills screen shows above its list. */
 export interface PayablesTotals {

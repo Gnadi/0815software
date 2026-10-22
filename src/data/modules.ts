@@ -178,7 +178,7 @@ const presentation: Record<string, ModulePresentation> = {
   'mod-04-invoice-billing': {
     body: 'Generate, send, and track invoices — and pay the bills you owe with a SEPA file for your online banking.',
     overview:
-      'Totals are never stored, they are derived: an invoice stores line items only — quantity, unit net price in integer cents and VAT rate — and net, VAT-per-rate and gross are always recomputed from the lines. Send invoices, export clean PDFs, track payment status and keep a running customer ledger. The other direction is covered too: record the bills you owe, tick the ones to pay, and download a valid SEPA credit transfer file (ISO 20022 pain.001) to upload in your online banking — with the IBANs check-digit validated, a bill payable only once, and every produced file frozen. With PS-12 Banking wired the same run goes straight to the bank over EBICS instead, though the download never goes away. Austrian installations can pay the tax office the way the tax office expects, and any payment can name the invoices it settles in a form the supplier’s ledger reads by itself. Every file the module can produce is validated against the published ISO 20022 schema on every test run, and the arithmetic is proven to the cent.',
+      'Totals are never stored, they are derived: an invoice stores line items only — quantity, unit net price in integer cents and VAT rate — and net, VAT-per-rate and gross are always recomputed from the lines. Send invoices, export clean PDFs, track payment status and keep a running customer ledger. The other direction is covered too: record the bills you owe, tick the ones to pay, and download a valid SEPA credit transfer file (ISO 20022 pain.001) to upload in your online banking — with the IBANs check-digit validated, a bill payable only once, and every produced file frozen. With PS-12 Banking wired the same run goes straight to the bank over EBICS instead, though the download never goes away. Austrian installations can pay the tax office the way the tax office expects, and any payment can name the invoices it settles in a form the supplier’s ledger reads by itself. Invoices go out as e-invoices too — XRechnung for German public bodies and ZUGFeRD for everyone else, ready for the German issuing obligation from 1 January 2027 — and the issued invoices of a period export as a DATEV or BMD booking batch for the tax adviser. Every file the module can produce is validated against its published schema, and the arithmetic is proven to the cent.',
     features: [
       'Line-item invoices with per-line VAT rates',
       'Totals recomputed from lines in integer cents — never stored',
@@ -189,6 +189,8 @@ const presentation: Record<string, ModulePresentation> = {
       'Austrian Finanzamtszahlung: the tax structure, the check digit, and every tax office',
       'Structured remittance (EACT) so the supplier’s ledger matches the payment by itself',
       'Incoming payments matched to open invoices, when a bank connection is wired',
+      'E-invoices: XRechnung 3.0 and ZUGFeRD (PDF/A-3, EN 16931), validated against the official rules',
+      'DATEV Buchungsstapel and BMD NTCS export for the tax adviser',
     ],
     screen: {
       variant: 'detail',

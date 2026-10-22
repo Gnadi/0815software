@@ -3,7 +3,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { hardeningFromEnv } from './hardening.js';
-import { applySeller, startSellerRefresh } from './seller.js';
+import { refreshSellerSource, startSellerSourceRefresh } from './seller.js';
+import { SellerSource } from './seller-settings.js';
 import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
 import { buildLoginVerifier, loginModeOf } from './sso.js';
@@ -17,10 +18,6 @@ assertProductionConfig([
   { name: 'ADMIN_PASSWORD', value: config.auth.password },
 ]);
 const db = openDb(config.databasePath);
-
-// First start on an empty database: load the example data so the app is
-// usable immediately. A database with existing data is never touched.
-seed(db);
 
 // When running the compiled server (dist/server/server/index.js), the built
 // client lives at dist/client. In dev (tsx) it usually doesn't exist yet —
@@ -36,14 +33,19 @@ const platform = buildPlatform(config.platform);
 // invoice is rendered with a stale letterhead, then refreshed periodically so
 // changing it in PS-11 does not need a restart. config.seller is mutated in
 // place — createApp captures it and the PDF reads its fields at render time.
-const usingPlatformSeller = await applySeller(config.seller, () => platform.fetchSelf());
-startSellerRefresh(config.seller, () => platform.fetchSelf(), config.sellerRefreshMs);
+//
+// On top of both sits what the admin maintains on the Settings screen
+// (server/seller-settings.ts); createApp loads it from the database.
+const sellerSource = new SellerSource(config.seller, config.platform.customersUrl !== undefined);
+const usingPlatformSeller = await refreshSellerSource(sellerSource, () => platform.fetchSelf());
+startSellerSourceRefresh(sellerSource, () => platform.fetchSelf(), config.sellerRefreshMs);
 
 const app = createApp({
   db,
   hardening: hardeningFromEnv(),
   auth: config.auth,
   seller: config.seller,
+  sellerSource,
   staticDir,
   platform,
   bankingConfigured: config.platform.bankingUrl !== undefined,
@@ -54,13 +56,19 @@ const app = createApp({
   austrianRemittance: config.austrianRemittance,
 });
 
+// First start on an empty database: load the example data so the app is
+// usable immediately. A database with existing data is never touched. After
+// the seller is resolved (Settings, PS-11, env), because the seeded invoices
+// freeze it like any issued invoice does.
+seed(db, config.seller);
+
 app.listen(config.port, () => {
   console.log(`[mod-04] invoice & billing API on http://localhost:${config.port}`);
   if (staticDir) console.log(`[mod-04] serving client from ${staticDir}`);
   console.log(
     usingPlatformSeller
-      ? `[mod-04] seller letterhead from PS-11 Customers: ${config.seller.name}`
-      : `[mod-04] seller letterhead from SELLER_* env: ${config.seller.name}`,
+      ? `[mod-04] seller letterhead from PS-11 Customers + Settings: ${config.seller.name}`
+      : `[mod-04] seller letterhead from Settings / SELLER_* env: ${config.seller.name}`,
   );
   console.log(
     config.platform.bankingUrl === undefined

@@ -15,8 +15,21 @@
  * round() is half-away-from-zero on non-negative inputs (Math.round).
  */
 
-export const VAT_RATES = [0, 10, 20] as const;
+/**
+ * Every rate a line may carry: Austria (0 / 10 / 13 / 20) and Germany
+ * (0 / 7 / 19). One list for the database CHECK and the API; the editor offers
+ * only the rates of the seller's own country (`vatRatesFor`), so an Austrian
+ * installation never sees 19 % in its dropdown.
+ */
+export const VAT_RATES = [0, 7, 10, 13, 19, 20] as const;
 export type VatRate = (typeof VAT_RATES)[number];
+
+/** The rates a seller established in `country` charges domestically. */
+export function vatRatesFor(country: string): readonly number[] {
+  if (country === 'DE') return [0, 7, 19];
+  if (country === 'AT') return [0, 10, 13, 20];
+  return VAT_RATES;
+}
 
 export interface LineAmounts {
   quantity: number;

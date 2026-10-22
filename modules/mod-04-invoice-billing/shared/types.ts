@@ -28,9 +28,48 @@ export interface Customer {
   name: string;
   email: string | null;
   vat_id: string | null;
+  /** The address block as printed on the PDF, one line per line. */
   address: string | null;
   created_at: string;
+  // ── E-invoice master data (all optional; see shared/address.ts) ──
+  /** Structured address. Empty fields are read from `address` instead. */
+  street?: string | null;
+  postcode?: string | null;
+  city?: string | null;
+  /** ISO 3166-1 alpha-2. Empty → the address's country line, else the VAT id's prefix. */
+  country_code?: string | null;
+  /**
+   * BT-10 Buyer reference — the Leitweg-ID for German public bodies, or
+   * whatever reference a business customer wants quoted. The default for this
+   * customer's invoices; an invoice may carry its own.
+   */
+  buyer_reference?: string | null;
+  /** BT-49 where the buyer receives e-invoices. Empty → `email`. */
+  einvoice_address?: string | null;
+  /** The customer's personal account (Debitor) in DATEV / BMD. Empty → numbered from settings. */
+  debtor_account?: number | null;
 }
+
+/**
+ * The VAT category of an invoice's 0 % lines (EN 16931 BT-118 / UNCL 5305).
+ *
+ * A 0 % rate on its own says nothing about WHY no VAT is charged, and an
+ * e-invoice — like the law behind the PDF — has to say it:
+ *
+ *   E   steuerfrei (exempt), e.g. § 4 UStG / § 6 UStG-AT, or the
+ *       Kleinunternehmer under § 19 UStG — the reason is required
+ *   AE  Reverse Charge — the recipient owes the VAT (§ 13b UStG / § 19 UStG-AT)
+ *   K   innergemeinschaftliche Lieferung — intra-EU supply of goods
+ *   G   Ausfuhrlieferung — export outside the EU
+ *   Z   zero-rated (Nullsatz, e.g. photovoltaics in DE)
+ *   O   not subject to VAT (nicht steuerbar) — may not be mixed with other categories
+ *
+ * Lines with a rate above 0 are always `S` (standard). An invoice holds one
+ * category for all its 0 % lines; two different exemptions belong on two
+ * invoices.
+ */
+export const TAX_EXEMPTION_CATEGORIES = ['E', 'AE', 'K', 'G', 'Z', 'O'] as const;
+export type TaxExemptionCategory = (typeof TAX_EXEMPTION_CATEGORIES)[number];
 
 export interface InvoiceLine {
   id: number;
@@ -81,6 +120,20 @@ export interface VatBreakdownRow {
 export interface InvoiceDetail extends InvoiceRow {
   payment_terms_days: number;
   note: string | null;
+  /** BT-10: Leitweg-ID or the customer's reference. Null → the customer's default at issue. */
+  buyer_reference: string | null;
+  /** Leistungsdatum (BT-72). Null → the issue date, and the PDF says so. */
+  delivery_date: string | null;
+  /** Why the 0 % lines carry no VAT — see TAX_EXEMPTION_CATEGORIES. */
+  tax_exemption_category: TaxExemptionCategory | null;
+  tax_exemption_reason: string | null;
+  /**
+   * True when the seller and buyer were frozen into the invoice when it was
+   * issued, so the PDF, the XRechnung and the ZUGFeRD file show them as they
+   * were on that day. False for drafts — and for invoices issued before this
+   * existed, which read today's master data.
+   */
+  parties_frozen: boolean;
   cancelled_at: string | null;
   cancellation_reason: string | null;
   lines: InvoiceLine[];

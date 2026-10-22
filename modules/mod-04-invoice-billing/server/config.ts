@@ -10,6 +10,24 @@ export interface SellerConfig {
   vatId: string;
   iban: string;
   bic: string;
+  // ── E-invoice fields (XRechnung / ZUGFeRD). All optional: an empty one is
+  // read from `addressLines` / `vatId` where it can be (shared/address.ts),
+  // and reported as missing by the e-invoice check where it cannot. ──
+  street?: string | undefined;
+  postcode?: string | undefined;
+  city?: string | undefined;
+  /** ISO 3166-1 alpha-2 — DE or AT for the installations this is built for. */
+  country?: string | undefined;
+  /** German Steuernummer (BT-32), when there is no VAT id or as well as it. */
+  taxNumber?: string | undefined;
+  /** BT-30 — Handelsregister / Firmenbuch number. Needed when there is no VAT id. */
+  registration?: string | undefined;
+  /** BG-6 — XRechnung makes name, phone and email of a contact mandatory. */
+  contactName?: string | undefined;
+  phone?: string | undefined;
+  email?: string | undefined;
+  /** BT-34 — the address e-invoice replies go to. Defaults to `email`. */
+  einvoiceAddress?: string | undefined;
 }
 
 export interface ServerConfig {
@@ -115,6 +133,16 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       vatId: env.SELLER_VAT_ID ?? 'ATU00000000',
       iban: env.SELLER_IBAN ?? 'AT00 0000 0000 0000 0000',
       bic: env.SELLER_BIC ?? 'EXAMPLEX',
+      street: env.SELLER_STREET || undefined,
+      postcode: env.SELLER_POSTCODE || undefined,
+      city: env.SELLER_CITY || undefined,
+      country: env.SELLER_COUNTRY ? env.SELLER_COUNTRY.trim().toUpperCase() : undefined,
+      taxNumber: env.SELLER_TAX_NUMBER || undefined,
+      registration: env.SELLER_REGISTRATION || undefined,
+      contactName: env.SELLER_CONTACT_NAME || undefined,
+      phone: env.SELLER_PHONE || undefined,
+      email: env.SELLER_EMAIL || undefined,
+      einvoiceAddress: env.SELLER_EINVOICE_ADDRESS || undefined,
     },
     austrianRemittance: {
       TAXS: patternFromEnv('AT_TAXS_REMITTANCE_PATTERN', env.AT_TAXS_REMITTANCE_PATTERN),
