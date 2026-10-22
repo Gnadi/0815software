@@ -5,6 +5,7 @@ import { BillsView } from './components/BillsView';
 import { CreditorsView } from './components/CreditorsView';
 import { CustomerLedger } from './components/CustomerLedger';
 import { CustomersView } from './components/CustomersView';
+import { DunningView } from './components/DunningView';
 import { ExportView } from './components/ExportView';
 import { SettingsView } from './components/SettingsView';
 import { InvoiceDetail } from './components/InvoiceDetail';
@@ -26,6 +27,7 @@ export type View =
   | { name: 'run'; id: number }
   | { name: 'incoming' }
   | { name: 'exports' }
+  | { name: 'dunning' }
   | { name: 'settings' };
 
 const NAV: { view: View; label: string }[] = [
@@ -35,6 +37,8 @@ const NAV: { view: View; label: string }[] = [
   // the screen says so and points back at the invoice, which is where a
   // payment has always been recorded.
   { view: { name: 'incoming' }, label: 'Incoming payments' },
+  // Money that should have come in: reminders, level by level.
+  { view: { name: 'dunning' }, label: 'Dunning' },
   // Money going out. The same module, the other direction.
   { view: { name: 'bills' }, label: 'Bills' },
   { view: { name: 'runs' }, label: 'Payment runs' },
@@ -75,6 +79,7 @@ export function initialView(path: string, search: string): View {
   if (path === '/bills') return { name: 'bills' };
   if (path === '/creditors') return { name: 'creditors' };
   if (path === '/exports') return { name: 'exports' };
+  if (path === '/dunning') return { name: 'dunning' };
   if (path === '/settings') return { name: 'settings' };
   return { name: 'invoices' };
 }
@@ -198,6 +203,9 @@ export function App() {
           )}
           {view.name === 'settings' && <SettingsView onAuthLost={onAuthLost} />}
           {view.name === 'incoming' && <IncomingPaymentsView onAuthLost={onAuthLost} />}
+          {view.name === 'dunning' && (
+            <DunningView onOpenInvoice={(id) => setView({ name: 'invoice', id })} onAuthLost={onAuthLost} />
+          )}
           {view.name === 'runs' && (
             <PaymentRunsView onOpen={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />
           )}

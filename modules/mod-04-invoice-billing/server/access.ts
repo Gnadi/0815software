@@ -38,6 +38,10 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   // The tax adviser's DATEV / BMD numbers, accounts and tax codes — a wrong
   // value books every exported invoice on the wrong account.
   { method: 'PUT', path: '/api/accounting-settings', access: 'manage' },
+  // A dunning run writes to every overdue customer at once.
+  { method: 'POST', path: '/api/dunning/run', access: 'manage' },
+  // The dunning levels, fees and interest rate are policy, not daily work.
+  { method: 'PUT', path: '/api/dunning-settings', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

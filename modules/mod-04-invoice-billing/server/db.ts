@@ -285,6 +285,35 @@ export function openDb(path: string): Database.Database {
     db.exec('ALTER TABLE customers ADD COLUMN debtor_account INTEGER');
   }
 
+  // Dunning: the settings (one row, like the export settings) and the notices
+  // that went out — append-only, each the full record of what was claimed on
+  // which day, so its letter can be rendered again unchanged (server/dunning.ts).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dunning_settings (
+      id          INTEGER PRIMARY KEY CHECK (id = 1),
+      settings    TEXT    NOT NULL,
+      updated_at  TEXT    NOT NULL,
+      updated_by  TEXT
+    );
+    CREATE TABLE IF NOT EXISTS dunning_notices (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_id            INTEGER NOT NULL REFERENCES invoices(id),
+      level                 INTEGER NOT NULL CHECK (level >= 1),
+      level_name            TEXT    NOT NULL,
+      issued_on             TEXT    NOT NULL,
+      days_overdue          INTEGER NOT NULL,
+      open_cents            INTEGER NOT NULL CHECK (open_cents > 0),
+      fee_cents             INTEGER NOT NULL DEFAULT 0 CHECK (fee_cents >= 0),
+      interest_rate_percent REAL,
+      interest_cents        INTEGER NOT NULL DEFAULT 0 CHECK (interest_cents >= 0),
+      text                  TEXT    NOT NULL,
+      actor                 TEXT    NOT NULL,
+      created_at            TEXT    NOT NULL,
+      UNIQUE (invoice_id, level)
+    );
+    CREATE INDEX IF NOT EXISTS idx_dunning_notices_invoice ON dunning_notices(invoice_id);
+  `);
+
   // The supplier number a customer assigned us — ebInterface's
   // InvoiceRecipientsBillerID, which the Republic of Austria requires.
   if (!columns('customers').includes('supplier_number')) {

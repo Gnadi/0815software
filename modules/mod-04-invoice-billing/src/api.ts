@@ -16,6 +16,7 @@ import type {
 } from '../shared/types';
 import type { EInvoiceProblem, SellerParty } from '../shared/einvoice';
 import type { EInvoiceFormat } from '../shared/ebinterface';
+import type { DunningNotice, DunningRow, DunningSettings } from '../shared/types';
 
 export class ApiError extends Error {
   status: number;
@@ -134,6 +135,17 @@ export const api = {
   sellerSettings: () => request<SellerSettingsResponse>('/api/settings/seller'),
   saveSellerSettings: (values: Record<string, string>) =>
     request<SellerSettingsResponse>('/api/settings/seller', { method: 'PUT', body: JSON.stringify(values) }),
+  /** Overdue invoices and where each stands (derived), with the dunning settings. */
+  dunning: () => request<{ rows: DunningRow[]; settings: DunningSettings }>('/api/dunning'),
+  issueDunningNotice: (invoiceId: number) =>
+    request<DunningNotice>(`/api/invoices/${invoiceId}/dunning-notices`, { method: 'POST' }),
+  /** Every invoice whose next notice is due — `manage`. */
+  dunningRun: () => request<{ issued: DunningNotice[] }>('/api/dunning/run', { method: 'POST' }),
+  saveDunningSettings: (settings: DunningSettings) =>
+    request<{ settings: DunningSettings; updated_at: string | null; updated_by: string | null }>('/api/dunning-settings', {
+      method: 'PUT',
+      body: JSON.stringify(settings),
+    }),
   accountingSettings: () => request<AccountingSettingsResponse>('/api/accounting-settings'),
   saveAccountingSettings: (settings: AccountingSettings) =>
     request<{ settings: AccountingSettings; updated_at: string | null; updated_by: string | null }>('/api/accounting-settings', {
@@ -260,6 +272,11 @@ export interface AccountingSettingsResponse {
   suggested: Record<'SKR03' | 'SKR04', Record<string, number>>;
   revenue_keys: string[];
   revenue_labels: Record<string, string>;
+}
+
+/** The letter of a dunning notice, as it went out. */
+export function dunningLetterUrl(noticeId: number): string {
+  return `/api/dunning-notices/${noticeId}/pdf`;
 }
 
 /** Download links for the e-invoice files of an issued invoice. */

@@ -256,6 +256,9 @@ draft ──finalize──▶ sent ──payments cover gross──▶ paid   (d
 - **E-invoices** — XRechnung 3.0 (XML), ZUGFeRD (PDF/A-3, EN 16931) and the
   Austrian ebInterface 6.1 (XML, for e-Rechnung.gv.at) for every issued invoice, and for a cancellation as a credit note; the detail
   view lists exactly what is still missing, by EN 16931 business term.
+- **Dunning** — overdue invoices with the reminder each needs next, level by
+  level; every notice that goes out is stored and its letter stays
+  downloadable as sent. Optional email through PS-03.
 - **Exports** — the issued invoices of a period as a DATEV Buchungsstapel or a
   BMD NTCS booking import.
 - **Settings** — the seller (letterhead, bank account, XRechnung contact and
@@ -339,6 +342,12 @@ GET    /api/invoices/:id/xrechnung.xml ?document=cancellation for the credit not
 GET    /api/invoices/:id/ebinterface.xml  ebInterface 6.1; ?document=cancellation (CreditMemo)
 GET    /api/invoices/:id/zugferd.pdf   PDF/A-3 with factur-x.xml; ?document=cancellation
 GET    /api/einvoice-config            the seller as e-invoices see it + what is missing
+
+GET    /api/dunning                    overdue invoices, where each stands (derived), the levels
+POST   /api/invoices/:id/dunning-notices   issue the next notice if due (409 otherwise)
+POST   /api/dunning/run                every due notice at once (manage)
+GET    /api/dunning-notices/:id/pdf    the letter, as it went out
+GET    /api/dunning-settings · PUT (manage)   levels, days between notices, interest rate
 
 GET    /api/settings/seller            the seller: each field, its value and source
 PUT    /api/settings/seller            the admin's overrides — empty falls back
@@ -577,6 +586,42 @@ EN 16931 rules recompute, so the XML states the PDF's figures to the cent.
 
 What to set up, field by field, and what is deliberately not covered:
 [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
+
+## Dunning (Mahnwesen)
+
+Overdue invoices with an open amount, and which reminder each needs next
+(`server/dunning.ts`, the **Dunning** screen).
+
+- **Derived, never stored: where an invoice stands.** Days overdue, the next
+  level and from when it may go out are computed on every read from the due
+  date, the payments and the notices already sent. A payment takes the
+  invoice off the list with nothing to reset.
+- **Stored, append-only: a notice that went out.** Level, open amount, fee,
+  interest, the text and who issued it — the letter
+  (`GET /api/dunning-notices/:id/pdf`) is rendered from that record and comes
+  out the same on every download. One notice per level and invoice is a
+  database constraint, not only an application rule.
+- **Level by level.** Defaults: *Zahlungserinnerung* from 7 days after the
+  due date, *1. Mahnung* from 21, *2. Mahnung* from 35, and at least 10 days
+  between two notices — an invoice 60 days late gets the reminder today and
+  the next level later, never three letters at once. Up to four levels, each
+  with its own text and fee.
+- **Fees and interest are stated, not booked.** Mahnspesen and default
+  interest appear on the letter and in the notice record, but are not added
+  to the invoice: they are not part of the supply (and not subject to VAT).
+  The interest rate is a setting, not a constant — the statutory B2B rate
+  follows the base rate (§ 456 UGB: 9.2 points above it; § 288 BGB: 9
+  points) and changes twice a year. Interest is simple, per day, on the open
+  amount.
+- **Who may do what.** Reading is `view`; issuing one notice is `edit`; a run
+  over every due invoice and the levels themselves are `manage`.
+- **Delivery.** With PS-03 wired the notice is emailed to the customer's
+  address; with PS-07 it is recorded on the audit trail. Without either, the
+  letter is downloaded and sent by hand.
+
+Not covered: collection agencies and court reminders (Mahnklage /
+gerichtliches Mahnverfahren), booking fees or interest as receivables, and a
+scheduled automatic run — PS-02 can call `POST /api/dunning/run` on a schedule.
 
 ## Bookkeeping export: DATEV and BMD
 
@@ -891,8 +936,8 @@ these, that's commissioned work — exactly the kind 0815software does:
   and German (0/7/19 %) rates. A 0 % line names its VAT category (exempt,
   reverse charge, intra-EU supply, export, zero-rated, not subject); one
   category per invoice.
-- **Recurring invoices, quotes, dunning runs** — the clean REST API is
-  the hook for automation; reminders are a note field, not a workflow.
+- **Recurring invoices** — the clean REST API is the hook for automation.
+  Quotes are MOD-13 Offers; reminders are the Dunning screen.
 - **Formal credit notes** — corrections are cancellation + new invoice.
   A credit-note document type (negative invoice) is an extension.
 - **Bank reconciliation without PS-12** — standalone, payments are recorded

@@ -437,3 +437,59 @@ export interface ReceivableOutcome {
   status: 'recorded' | 'already_applied' | 'refused';
   message?: string;
 }
+
+// ── Dunning (server/dunning.ts) ─────────────────────────────────────────
+
+export interface DunningLevel {
+  /** What the letter is called, e.g. "Zahlungserinnerung", "1. Mahnung". */
+  name: string;
+  /** From how many days after the due date this level may go out. */
+  days_after_due: number;
+  /** Mahnspesen stated on the letter, in cents. Not booked onto the invoice. */
+  fee_cents: number;
+  /** The body of the letter, after the salutation. */
+  text: string;
+}
+
+export interface DunningSettings {
+  levels: DunningLevel[];
+  /** At least this many days between two notices for the same invoice. */
+  min_days_between: number;
+  /** Default interest per year, stated on the letter; null = none. */
+  interest_rate_percent: number | null;
+}
+
+/** A notice that went out — append-only; the letter is rendered from it. */
+export interface DunningNotice {
+  id: number;
+  invoice_id: number;
+  level: number;
+  level_name: string;
+  issued_on: string;
+  days_overdue: number;
+  open_cents: number;
+  fee_cents: number;
+  interest_rate_percent: number | null;
+  interest_cents: number;
+  text: string;
+  actor: string;
+  created_at: string;
+}
+
+/** Where an overdue invoice stands — derived on every read, never stored. */
+export interface DunningRow {
+  invoice_id: number;
+  number: string;
+  customer_id: number;
+  customer_name: string;
+  due_date: string;
+  days_overdue: number;
+  open_cents: number;
+  notices: DunningNotice[];
+  /** The level that comes next, or null after the last one. */
+  next_level: number | null;
+  next_level_name: string | null;
+  /** From when the next notice may go out. */
+  next_on: string | null;
+  due_now: boolean;
+}

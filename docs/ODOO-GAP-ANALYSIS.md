@@ -146,7 +146,8 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    (`docs/E-RECHNUNG.md`). Offen: UBL/PEPPOL-Versand, Eingangsrechnungen lesen.
 3. **MOD-04: Wiederkehrende Rechnungen** (= Odoo Subscriptions light),
    **Teilgutschriften** als eigener Belegtyp (die Storno-Gutschrift gibt es
-   seit PR #37), **Mahnstufen** über PS-02 + PS-03.
+   seit PR #37). ✅ **Mahnwesen** umgesetzt (Stufen abgeleitet, Mahnungen
+   unveränderlich gespeichert, Versand über PS-03).
 4. ✅ **MOD-04: Buchhaltungsexport** BMD (AT) und DATEV-Buchungsstapel (DE)
    (PR #37). Offen: Belegverknüpfung zu PS-06.
 5. **Neue Belegart „Auftrag/Lieferschein“** — entweder in MOD-13 (Angebot →

@@ -88,6 +88,16 @@ export interface InvoiceIssuedInfo {
   actor: string;
 }
 
+export interface DunningNoticeInfo {
+  invoiceNumber: string;
+  levelName: string;
+  customerEmail: string | null;
+  customerName: string;
+  claimedFormatted: string;
+  text: string;
+  actor: string;
+}
+
 export interface PayInvoiceInfo {
   number: string;
   amountMinor: number;
@@ -188,7 +198,13 @@ export interface PlatformHooks {
    * fields, never their values. Optional, so a hand-built set of hooks need
    * not implement it. Best-effort.
    */
-  settingsChanged?(info: { actor: string; section: 'seller' | 'accounting'; fields: string[] }): Promise<void>;
+  settingsChanged?(info: { actor: string; section: 'seller' | 'accounting' | 'dunning'; fields: string[] }): Promise<void>;
+  /**
+   * A dunning notice went out: email it to the customer through PS-03 and
+   * record it on PS-07, each only when configured. Optional and best-effort —
+   * the notice is issued and its letter downloadable either way.
+   */
+  dunningNoticeIssued?(info: DunningNoticeInfo): Promise<void>;
   /**
    * What arrived on the bank account, for matching against open invoices.
    *
@@ -431,7 +447,34 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
       }
     },
 
-    async settingsChanged(info: { actor: string; section: 'seller' | 'accounting'; fields: string[] }): Promise<void> {
+    async dunningNoticeIssued(info: DunningNoticeInfo): Promise<void> {
+      const tasks: Promise<unknown>[] = [];
+      if (notify && info.customerEmail) {
+        tasks.push(
+          notify.send({
+            channel,
+            to: info.customerEmail,
+            subject: `${info.levelName} – Rechnung ${info.invoiceNumber}`,
+            body: `Sehr geehrte Damen und Herren,\n\n${info.text}\n\nOffener Betrag: ${info.claimedFormatted}\nRechnung: ${info.invoiceNumber}`,
+          }),
+        );
+      }
+      if (audit) {
+        tasks.push(
+          audit.record({
+            actor: info.actor,
+            action: 'invoice.dunning_notice',
+            resource: `invoice:${info.invoiceNumber}`,
+            metadata: { level: info.levelName },
+          }),
+        );
+      }
+      for (const result of await Promise.allSettled(tasks)) {
+        if (result.status === 'rejected') console.warn('[mod-04] dunning notice delivery failed:', result.reason);
+      }
+    },
+
+    async settingsChanged(info: { actor: string; section: 'seller' | 'accounting' | 'dunning'; fields: string[] }): Promise<void> {
       if (!audit) return;
       try {
         await audit.record({

@@ -237,6 +237,8 @@ describe('the views exist and the migration is idempotent', () => {
       'bills',
       'creditors',
       'customers',
+      'dunning_notices',
+      'dunning_settings',
       'invoice_counters',
       'invoice_lines',
       'invoices',

@@ -56,6 +56,7 @@ import {
   DomainError,
   finalizeInvoice,
   getCustomer,
+  getInvoice,
   invoiceDetail,
   listInvoices,
   nowIso,
@@ -102,6 +103,18 @@ import { importTransfer, MODULE_ID } from './transfer-import.js';
 import type { DocumentTransfer } from '../shared/transfer.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import { likeTerm } from './invoices.js';
+import {
+  claimedCents,
+  dunningOverview,
+  dunningSettingsMeta,
+  getDunningNotice,
+  issueDunningNotice,
+  readDunningSettings,
+  renderDunningLetter,
+  validateDunningSettings,
+  writeDunningSettings,
+} from './dunning.js';
+import type { DunningNotice } from '../shared/types.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -952,6 +965,69 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     const { settings, changed } = writeSettings(db, body(req), actor);
     if (changed.length > 0) await platform.settingsChanged?.({ actor, section: 'accounting', fields: changed });
     res.json({ settings, ...settingsStamp(db) });
+  });
+
+  // ── Dunning (server/dunning.ts) ──────────────────────────────────────
+  // Where each overdue invoice stands is derived on every read; a notice that
+  // went out is stored, append-only. Issuing one is ordinary work (`edit`); a
+  // run over every due invoice and the settings are `manage` (server/access.ts).
+  const announce = async (notice: DunningNotice, actor: string): Promise<void> => {
+    const invoice = getInvoice(db, notice.invoice_id);
+    const customer = getCustomer(db, invoice.customer_id);
+    await platform.dunningNoticeIssued?.({
+      invoiceNumber: invoice.number ?? '',
+      levelName: notice.level_name,
+      customerEmail: customer.email,
+      customerName: customer.name,
+      claimedFormatted: fmtEur(claimedCents(notice)),
+      text: notice.text,
+      actor,
+    });
+  };
+
+  app.get('/api/dunning', (_req, res) => {
+    res.json({ rows: dunningOverview(db), settings: readDunningSettings(db) });
+  });
+
+  app.post('/api/invoices/:id/dunning-notices', async (req, res) => {
+    const actor = actorOf(res, auth);
+    const notice = issueDunningNotice(db, Number(req.params.id), actor);
+    await announce(notice, actor);
+    res.status(201).json(notice);
+  });
+
+  // Every invoice whose next notice is due, at once. One invoice that cannot
+  // be reminded (it was paid a second ago) does not stop the others.
+  app.post('/api/dunning/run', async (_req, res) => {
+    const actor = actorOf(res, auth);
+    const issued: DunningNotice[] = [];
+    for (const row of dunningOverview(db).filter((r) => r.due_now)) {
+      const notice = issueDunningNotice(db, row.invoice_id, actor);
+      issued.push(notice);
+      await announce(notice, actor);
+    }
+    res.json({ issued });
+  });
+
+  app.get('/api/dunning-notices/:id/pdf', (req, res) => {
+    const notice = getDunningNotice(db, Number(req.params.id));
+    const pdf = renderDunningLetter(db, notice, seller);
+    const invoice = getInvoice(db, notice.invoice_id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${invoice.number}_mahnung_${notice.level}.pdf"`);
+    res.send(pdf);
+  });
+
+  app.get('/api/dunning-settings', (_req, res) => {
+    res.json({ settings: readDunningSettings(db), ...dunningSettingsMeta(db) });
+  });
+
+  app.put('/api/dunning-settings', async (req, res) => {
+    const actor = actorOf(res, auth);
+    const settings = validateDunningSettings(body(req));
+    writeDunningSettings(db, settings, actor);
+    await platform.settingsChanged?.({ actor, section: 'dunning', fields: ['levels', 'min_days_between', 'interest_rate_percent'] });
+    res.json({ settings, ...dunningSettingsMeta(db) });
   });
 
   // ── Settings: the seller, as the admin maintains it ──────────────────
