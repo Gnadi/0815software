@@ -58,16 +58,18 @@ The server seeds an empty database automatically on first start, so
 
 ## Data model
 
-Seven tables, one invariant:
+Eight tables, one invariant:
 
 ```
 warehouses            code, name                       (seeded, a few locations)
-products              sku, name, unit, reorder_point   (CRUD via UI/API)
+products              sku, name, unit, reorder_point, barcode (GTIN, optional, unique)
 suppliers             name, email                      (seeded, simple lookup)
 movements             product, warehouse, type, signed qty, reference, note, timestamp
 purchase_orders       po_number, supplier, status, created_at
 purchase_order_lines  po, product, qty_ordered, qty_received
-goods_issues          source, reference, warehouse, actor  UNIQUE (source, reference)
+goods_issues          source, reference, order_reference, warehouse, actor  UNIQUE (source, reference)
+reservations          source, order reference, product, warehouse, quantity needed,
+                      actor, released_at                 UNIQUE (source, reference, product)
 ```
 
 **The ledger.** `movements` is append-only. Quantities are signed and
@@ -153,6 +155,7 @@ GET    /api/stock/export.csv             same filters, RFC-4180 CSV download
 
 GET    /api/products
 POST   /api/products                     {sku, name, unit, reorder_point}
+GET    /api/products/lookup?code=        a scanned GTIN or SKU → the product (404 if none)
 GET    /api/products/:id                 product + per-warehouse levels
 PUT    /api/products/:id
 DELETE /api/products/:id                 409 if the product has ledger history
@@ -174,6 +177,10 @@ DELETE /api/purchase-orders/:id          drafts only (otherwise 409)
 POST   /api/goods-issues                 machine token — {source, reference, warehouse_code,
                                          actor, lines: [{sku, quantity}]}; 201, or 200 on replay
 GET    /api/goods-issues/warehouses      machine token — codes to issue from
+PUT    /api/reservations                 machine token — {source, reference, warehouse_code, actor,
+                                         lines}: what an order needs; answers {reservations, short}
+POST   /api/reservations/release         machine token — {source, reference, actor}; idempotent
+GET    /api/reservations                 what is promised to orders, with what is still reserved
 ```
 
 Validation failures return `422` with `{error, details: [{field,
@@ -219,15 +226,57 @@ these, that's commissioned work — exactly the kind 0815software does:
   from PS-01 (see [Users and access levels](#users-and-access-levels)).
 - **Warehouse/supplier management UI** — both are simple seeded tables;
   edit them in SQLite or extend the seed.
-- **Sales-side stock reservation** — no allocations, backorders or
-  pick/pack flows; the ledger tracks physical stock only. Goods leave
-  through a delivery note in MOD-17, booked here as a goods issue (below).
+- **Pick/pack flows and backorder management** — reservations say what is
+  promised and what is short; picking lists and automatic backorders are
+  commissioned work. Goods leave through a delivery note in MOD-17, booked
+  here as a goods issue (below).
 - **Bin/shelf locations within a warehouse** — granularity is the
   warehouse, not the rack.
 - **Costing and valuation** — no purchase prices, FIFO/moving average or
   stock value reports.
-- **Barcode scanning, label printing, ERP/webshop integrations** — the
-  clean REST API is the integration point.
+- **Label printer drivers (ZPL/EPL), GS1-128 with application identifiers,
+  ERP/webshop integrations** — labels print through the browser; the clean
+  REST API is the integration point.
+
+## Barcodes: scanning and labels
+
+Products may carry their manufacturer's **GTIN** (EAN-13, EAN-8, UPC-A,
+GTIN-14); one with a wrong GS1 check digit is refused when it is entered,
+and a GTIN belongs to one product only.
+
+- **Scanning.** A handheld scanner types the code and Enter into the scan
+  field (works in every browser); where the browser has `BarcodeDetector`,
+  the device camera reads it too. `GET /api/products/lookup` resolves a GTIN
+  or a SKU. On the stock overview a scan opens the product; on a purchase
+  order being received it counts one unit in on that product's line.
+- **Labels.** Every product prints a label from its page: the GTIN as
+  EAN/UPC, or — without one — the SKU as Code 128.
+
+`test/barcode.test.ts` pins the check digits and every encoder (EAN-13,
+EAN-8, UPC-A, Code 128 with set C for digit runs) against vectors from
+python-barcode, an independent implementation, so the labels scan rather
+than merely look right.
+
+## Reservations
+
+Stock promised to an order in MOD-17 before it is delivered
+(`server/reservations.ts`, pinned by `test/reservations.test.ts`):
+
+- **Derived, never stored: what is still reserved.** A reservation records
+  what the order needs of a product in total; still reserved = that minus
+  what goods issues for the same order took. A delivery lowers it without
+  anyone writing anything.
+- **Available = on hand − still reserved**, shown on the stock overview. It
+  may go below zero — an order is a fact even when stock is short — and
+  that is the shortage made visible.
+- **Deliveries respect other orders.** A goods issue may take what is on
+  hand minus what is still reserved for *other* orders; its own order's
+  reservation is exactly what it is meant to use.
+- **Idempotent.** Setting an order's reservation again replaces it (products
+  dropped from the order are released); releasing a cancelled order twice
+  changes nothing. Each change names the person.
+- Adjustments and transfers still only refuse going below zero physically;
+  they are stock corrections, not sales.
 
 ## Goods issue for a delivery note (MOD-17)
 

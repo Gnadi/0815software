@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { FieldError, GoodsIssue } from '../shared/types.js';
 import { DomainError, nowIso, round3, stockLevel } from './ledger.js';
+import { reservedQuantity } from './reservations.js';
 
 /**
  * Goods issue for a delivery in another module — the stock side of a
@@ -24,6 +25,8 @@ export interface GoodsIssueInput {
   warehouseCode: string;
   actor: string;
   lines: { sku: string; quantity: number }[];
+  /** The order this delivery belongs to: its reservation is what the issue uses. */
+  orderReference?: string | null;
 }
 
 function issueById(db: Database.Database, id: number): GoodsIssue {
@@ -70,12 +73,19 @@ export function recordGoodsIssue(db: Database.Database, input: GoodsIssueInput):
       byProduct.set(product.id, { sku: line.sku, quantity: round3((seen?.quantity ?? 0) + line.quantity), index: seen?.index ?? i });
     });
     if (warehouse) {
+      // What other orders have reserved is not this delivery's to take.
+      const own = input.orderReference ? { source: input.source, reference: input.orderReference } : undefined;
       for (const [productId, line] of byProduct) {
         const level = stockLevel(db, productId, warehouse.id);
-        if (level < line.quantity) {
+        const heldForOthers = reservedQuantity(db, productId, warehouse.id, own);
+        const usable = round3(level - heldForOthers);
+        if (usable < line.quantity) {
           errors.push({
             field: `lines[${line.index}].quantity`,
-            message: `Only ${level} of ${line.sku} in ${input.warehouseCode}, not ${line.quantity}`,
+            message:
+              heldForOthers > 0
+                ? `Only ${Math.max(0, usable)} of ${line.sku} in ${input.warehouseCode} are free (${level} on hand, ${heldForOthers} reserved for other orders), not ${line.quantity}`
+                : `Only ${level} of ${line.sku} in ${input.warehouseCode}, not ${line.quantity}`,
           });
         }
       }
@@ -84,8 +94,8 @@ export function recordGoodsIssue(db: Database.Database, input: GoodsIssueInput):
 
     const at = nowIso();
     const info = db
-      .prepare('INSERT INTO goods_issues (source, reference, warehouse_id, actor, created_at) VALUES (?, ?, ?, ?, ?)')
-      .run(input.source, input.reference, warehouse!.id, input.actor, at);
+      .prepare('INSERT INTO goods_issues (source, reference, warehouse_id, actor, created_at, order_reference) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(input.source, input.reference, warehouse!.id, input.actor, at, input.orderReference ?? null);
     const insert = db.prepare(
       `INSERT INTO movements (product_id, warehouse_id, type, quantity, reference, note, created_at)
        VALUES (?, ?, 'goods_issue', ?, ?, ?, ?)`,

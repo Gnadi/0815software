@@ -83,6 +83,32 @@ export function openDb(path: string): Database.Database {
     );
   `);
 
+  // Reservations: stock promised to an order in another module (MOD-17), per
+  // order and product. `quantity` is what the order needs in total; how much
+  // is STILL reserved is derived — that quantity minus what goods issues for
+  // the same order took — so a delivery lowers it without anyone writing.
+  // Released when the order is cancelled.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS reservations (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      source       TEXT    NOT NULL,
+      reference    TEXT    NOT NULL,
+      product_id   INTEGER NOT NULL REFERENCES products(id),
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+      quantity     REAL    NOT NULL CHECK (quantity > 0),
+      actor        TEXT    NOT NULL,
+      created_at   TEXT    NOT NULL,
+      updated_at   TEXT    NOT NULL,
+      released_at  TEXT,
+      released_by  TEXT,
+      UNIQUE (source, reference, product_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reservations_product ON reservations (product_id, warehouse_id);
+  `);
+  // Which order a goods issue delivers, so it draws down that order's reservation.
+  const issueColumns = (db.prepare('PRAGMA table_info(goods_issues)').all() as { name: string }[]).map((c) => c.name);
+  if (!issueColumns.includes('order_reference')) db.exec('ALTER TABLE goods_issues ADD COLUMN order_reference TEXT');
+
   // The manufacturer's GTIN (EAN/UPC), optional: what a scanner reads off the
   // packaging. Unique when present; a product without one is scanned by the
   // Code 128 SKU label this module prints.

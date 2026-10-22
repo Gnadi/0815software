@@ -26,7 +26,8 @@ Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
   - **Projekte & Aufgaben** — die Klammer zwischen Angebot, Arbeit, Zeit und
     Rechnung.
   - **HR-Grundbedarf:** Abwesenheiten, Mitarbeiter-Self-Service.
-  - **Lagertiefe:** Barcode, Lagerplätze, Reservierung, Bewertung.
+  - **Lagertiefe:** Lagerplätze, Kommissionierung, Bewertung (Barcode und
+    Reservierung sind umgesetzt).
   - **Eingangsseite:** Belegerkennung (OCR), 3-Way-Match, PEPPOL.
 - **Sinnvollste neue Module** (Abschnitt 3): Projekte & Aufgaben,
   Abwesenheiten, Terminbuchung, Spesen, Formulare/Umfragen, Wissen.
@@ -61,7 +62,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
 | CRM | ✅ MOD-10 (Pipeline, Aktivitäten, Übergabe an MOD-13, mehrere Nutzer mit Stufen) | Web-Lead-Formular, CSV-Import fehlen; Philosophie „no AI“ ist ein Verkaufsargument, beibehalten |
-| Sales (Angebot → Auftrag) | ✅ MOD-13 Angebote → MOD-17 Auftrag/Lieferschein → MOD-04 Rechnung | Teillieferung, Warenausgang in MOD-03 und Rechnung je Lieferung umgesetzt; Reservierung offen |
+| Sales (Angebot → Auftrag) | ✅ MOD-13 Angebote → MOD-17 Auftrag/Lieferschein → MOD-04 Rechnung | Teillieferung, Reservierung bei Auftragsbestätigung, Warenausgang in MOD-03 und Rechnung je Lieferung umgesetzt |
 | Point of Sale | ❌ | ⛔ in AT RKSV-pflichtig (Signatureinheit, DEP, FinanzOnline) — Haftungsrisiko ohne Lizenzertrag |
 | Subscriptions (E) | 🟡 MOD-04 wiederkehrende Rechnungen (Vorlagen → Entwürfe je Periode) | ✅ als Erweiterung von MOD-04 umgesetzt; nutzungsbasierte Abrechnung und Proration bleiben offen |
 | Rental (E) | ❌ | ⛔ Nische; über Terminbuchung + MOD-03 abbildbar |
@@ -80,8 +81,8 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
-| Inventory | ✅ MOD-03 (Ledger, Lager, PO-Wareneingang, Inventur, Warenausgang je Lieferschein aus MOD-17) | Lagerplätze, Reservierungen/Kommissionierung, Bewertung (gleitender Ø), mehrere Ausgangslager je Auftrag fehlen |
-| Barcode (E) | ❌ | 🔜 in MOD-03: Kamera-Scan im Browser (BarcodeDetector), Etikettendruck — hoher Nutzen, kleiner Aufwand |
+| Inventory | ✅ MOD-03 (Ledger, Lager, PO-Wareneingang, Inventur, Warenausgang je Lieferschein, Reservierung je Auftrag aus MOD-17) | Lagerplätze, Kommissionierung, Bewertung (gleitender Ø), mehrere Ausgangslager je Auftrag fehlen |
+| Barcode (E) | ✅ MOD-03: GTIN mit Prüfziffer, Scan per Handscanner oder Kamera (BarcodeDetector), Etiketten EAN/UPC bzw. Code 128 — gegen python-barcode geprüft | Etikettendrucker-Sprachen (ZPL), GS1-128 mit AIs offen |
 | Purchase | ✅ MOD-06 (RFQ, PO, Freigabestufen, ERP-CSV) | 3-Way-Match mit MOD-03/MOD-04, Lieferanten-Mail via PS-03 |
 | Manufacturing/MRP, PLM, Quality (E) | ❌ | ⛔ eigener Markt; höchstens ein schlankes Stücklisten-/Fertigungsauftragsmodul auf Anfrage |
 | Maintenance | ❌ | 🟡 **neues kleines Modul „Anlagen & Wartung“** (Geräte, Intervalle, Prüfprotokolle) — passt zum Ethos (Fälligkeit abgeleitet, nie gespeichert) |
@@ -161,8 +162,9 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    Notes**: angenommenes Angebot → Auftragsbestätigung, Teillieferungen mit
    Lieferscheinen (nie über den Auftrag hinaus), jeder Lieferschein einzeln in
    MOD-04 verrechnet (Transfer-Art `delivery`), Warenausgang je Lieferschein
-   in MOD-03. Offen: Reservierung bei Auftragsbestätigung.
-6. **MOD-03: Barcode, Lagerplätze, Reservierungen, Bewertung.**
+   in MOD-03, Reservierung bei Auftragsbestätigung.
+6. 🟡 **MOD-03:** ✅ Barcode und Etiketten, ✅ Reservierungen. Offen:
+   Lagerplätze, Kommissionierung, Bewertung.
 7. **MOD-11: Timer + Mitarbeiter-Self-Service.**
 8. **MOD-12: Anhänge (PS-06), Textbausteine, Geschäftszeiten, CSAT,
    IMAP-Brücke über PS-05.**
@@ -176,8 +178,7 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 
 ### Empfohlene Reihenfolge ab hier
 
-1. **MOD-03 Barcode + Reservierung** — rundet die neue Auftragskette auf der
-   Lagerseite ab; Barcode im Browser ist kleiner Aufwand mit großem Nutzen.
+1. ✅ **MOD-03 Barcode + Reservierung** (umgesetzt).
 2. **MOD-19 Abwesenheiten** — fast jeder Kunde braucht es, 2–3 Wochen.
 3. **MOD-18 Projekte & Aufgaben** — das größte fehlende Stück.
 4. **PS-04 Dokumentextraktion** + **MOD-06 3-Way-Match** — die Eingangsseite.

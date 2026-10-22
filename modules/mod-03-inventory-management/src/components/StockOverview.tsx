@@ -106,6 +106,8 @@ export function StockOverview({ warehouses, onOpenProduct, onAuthLost }: Props) 
                 </th>
               ))}
               <th className="mono">TOTAL</th>
+              <th className="mono" title="Still reserved for orders (MOD-17), derived from what they need minus what was delivered">RESERVED</th>
+              <th className="mono" title="Total minus reserved; below zero when orders want more than is there">AVAILABLE</th>
               <th className="mono">REORDER PT</th>
             </tr>
           </thead>
@@ -130,12 +132,14 @@ export function StockOverview({ warehouses, onOpenProduct, onAuthLost }: Props) 
                 <td className="table__num mono">
                   <strong>{fmtQty(row.total)}</strong>
                 </td>
+                <td className="table__num mono table__id">{row.reserved > 0 ? fmtQty(row.reserved) : '—'}</td>
+                <td className={`table__num mono ${row.available < 0 ? 'qty-neg' : ''}`}>{fmtQty(row.available)}</td>
                 <td className="table__num mono table__id">{fmtQty(row.reorder_point)}</td>
               </tr>
             ))}
             {rows && rows.length === 0 && (
               <tr>
-                <td className="table__empty mono" colSpan={5 + warehouses.length}>
+                <td className="table__empty mono" colSpan={7 + warehouses.length}>
                   NO PRODUCTS MATCH
                 </td>
               </tr>

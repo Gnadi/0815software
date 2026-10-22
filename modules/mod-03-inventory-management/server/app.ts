@@ -18,6 +18,7 @@ import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { stockCsv } from './csv.js';
 import { recordGoodsIssue } from './goods-issues.js';
+import { listReservations, releaseReservations, setReservations } from './reservations.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import {
@@ -283,11 +284,55 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       return { sku, quantity: quantity(line.quantity, `lines[${i}].quantity`, errors) };
     });
     if (errors.length > 0) fail(errors);
-    const { issue, replayed } = recordGoodsIssue(db, { source, reference, warehouseCode, actor, lines });
+    const orderReference = typeof input.order_reference === 'string' && input.order_reference.trim() !== '' ? input.order_reference.trim().slice(0, 60) : null;
+    const { issue, replayed } = recordGoodsIssue(db, { source, reference, warehouseCode, actor, lines, orderReference });
     if (!replayed) {
       void platform.audit({ actor, action: 'stock.goods_issue', resource: `goods_issue:${source}:${reference}`, metadata: { warehouse: warehouseCode, lines: issue.lines } });
     }
     res.status(replayed ? 200 : 201).json({ ...issue, replayed });
+  });
+
+  // Reserve stock for an order (MOD-17): PUT the order's article lines, as a
+  // whole — idempotent, and what is no longer on it is released. Accepted
+  // even when stock is short; the shortage comes back per product.
+  app.put('/api/reservations', (req, res) => {
+    requireServiceToken(req);
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const text = (field: string, max: number): string => {
+      const v = input[field];
+      if (typeof v !== 'string' || v.trim() === '' || v.length > max) {
+        errors.push({ field, message: `${field} is required (max ${max} characters)` });
+        return '';
+      }
+      return v.trim();
+    };
+    const source = text('source', 60);
+    const reference = text('reference', 60);
+    const warehouseCode = text('warehouse_code', 30);
+    const actor = text('actor', 200);
+    const raw = Array.isArray(input.lines) ? (input.lines as Record<string, unknown>[]) : [];
+    const lines = raw.map((line, i) => {
+      const sku = typeof line.sku === 'string' ? line.sku.trim() : '';
+      if (sku === '') errors.push({ field: `lines[${i}].sku`, message: 'sku is required' });
+      return { sku, quantity: quantity(line.quantity, `lines[${i}].quantity`, errors) };
+    });
+    if (errors.length > 0) fail(errors);
+    const outcome = setReservations(db, { source, reference, warehouseCode, actor, lines });
+    void platform.audit({ actor, action: 'stock.reserved', resource: `reservation:${source}:${reference}`, metadata: { warehouse: warehouseCode, lines, short: outcome.short } });
+    res.json(outcome);
+  });
+
+  // Release everything an order reserved (it was cancelled). Idempotent.
+  app.post('/api/reservations/release', (req, res) => {
+    requireServiceToken(req);
+    const { source, reference, actor } = body(req);
+    if (typeof source !== 'string' || typeof reference !== 'string' || typeof actor !== 'string' || !source || !reference || !actor.trim()) {
+      fail([{ field: 'reference', message: 'source, reference and actor are required' }]);
+    }
+    const released = releaseReservations(db, source as string, reference as string, (actor as string).trim());
+    if (released > 0) void platform.audit({ actor: (actor as string).trim(), action: 'stock.released', resource: `reservation:${source}:${reference}` });
+    res.json({ released });
   });
 
   // The warehouses, for a caller's settings screen to choose the one it issues from.
@@ -377,6 +422,11 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', 'attachment; filename="stock-levels.csv"');
     res.send(stockCsv(warehouses, stockOverview(db, overviewOpts(req))));
+  });
+
+  // What is promised to orders, with what is still reserved (derived).
+  app.get('/api/reservations', (_req, res) => {
+    res.json({ reservations: listReservations(db) });
   });
 
   // ── Products ─────────────────────────────────────────────────────────

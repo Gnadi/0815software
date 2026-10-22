@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { MovementRow, StockRow, Warehouse } from '../shared/types.js';
+import { reservedByProduct } from './reservations.js';
 
 /** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
 function likeTerm(term: string): string {
@@ -89,7 +90,7 @@ export function stockOverview(
     )
     .all(...(search ? [likeTerm(search), likeTerm(search)] : [])) as Omit<
     StockRow,
-    'levels' | 'total' | 'low'
+    'levels' | 'total' | 'low' | 'reserved' | 'available'
   >[];
 
   const sums = db
@@ -105,10 +106,12 @@ export function stockOverview(
     byProduct.set(s.product_id, levels);
   }
 
+  const reserved = reservedByProduct(db);
   const rows = products.map((p): StockRow => {
     const levels = byProduct.get(p.id) ?? {};
     const total = round3(Object.values(levels).reduce((a, b) => a + b, 0));
-    return { ...p, levels, total, low: total <= p.reorder_point };
+    const held = reserved.get(p.id) ?? 0;
+    return { ...p, levels, total, reserved: held, available: round3(total - held), low: total <= p.reorder_point };
   });
   return opts.lowOnly ? rows.filter((r) => r.low) : rows;
 }
