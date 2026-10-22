@@ -102,6 +102,7 @@ runs every package's suite; nothing needs network or Docker.
 | Deploying a customer stack | `docs/PROVISIONING.md`, `deploy/` |
 | What personal data lives where | `docs/PII-MAP.md` |
 | Gaps vs. Odoo, module roadmap | `docs/ODOO-GAP-ANALYSIS.md` |
+| E-invoices (XRechnung, ZUGFeRD), review and gaps in the standards | `docs/E-RECHNUNG.md`, `docs/E-RECHNUNG-REVIEW.md` |
 
 ## Style
 

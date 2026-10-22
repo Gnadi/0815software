@@ -163,6 +163,14 @@ with its business term. Nothing can be downloaded in a state that would fail
 validation. Send one invoice to the customer and ask them to confirm their
 system accepted it.
 
+The review of October 2026 found exceptions to both sentences: the list
+appears only after the invoice is finalized, when the parties are already
+frozen, and some master data passes the checks although the file then fails
+validation (buyer VAT id without country prefix, a country code such as
+`UK`, an export or exempt invoice without the seller identifier its
+category needs). See [`E-RECHNUNG-REVIEW.md`](./E-RECHNUNG-REVIEW.md),
+findings H1 and H2.
+
 ## Validation
 
 Validation happens in three layers, and the first two run in every test run:
@@ -186,10 +194,17 @@ Validation happens in three layers, and the first two run in every test run:
 A change to `shared/einvoice.ts` breaks the golden test on purpose. Run the
 external check, then `npm run einvoice:fixtures`, then commit.
 
-**Version watch.** XRechnung 3.0.x is current. KoSIT is preparing
-XRechnung 4.0 alongside the revised EN 16931, which is not backwards
-compatible. When it is published, the specification identifier and the
-rules change, and this document and the golden files need a new pass.
+**Version watch** (as of 22 October 2026). XRechnung 3.0.2 is current and
+stays in force until at least 31 July 2027. KoSIT published a pre-release of
+XRechnung 4.0.0 on 15 September 2026, not for production use; the final
+release is expected in spring 2027 and implements EN 16931-1:2026, which CEN
+adopted in March 2026 and which is not backwards compatible. ZUGFeRD is at
+2.5 / Factur-X 1.09 (June 2026, based on CII D22B and backwards compatible
+with the D16B this module writes). The BMF added a third letter on
+e-invoices on 15 October 2026. When XRechnung 4.0 is final, the
+specification identifier and the rules change, and this document and the
+golden files need a new pass. The sources, and the gaps in the standards
+themselves, are in [`E-RECHNUNG-REVIEW.md`](./E-RECHNUNG-REVIEW.md).
 
 ## DATEV export
 

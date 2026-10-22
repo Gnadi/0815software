@@ -556,9 +556,13 @@ EN 16931 rules recompute, so the XML states the PDF's figures to the cent.
 - **Refused rather than wrong.** A file is only produced when it would
   validate. Otherwise `422` lists every missing field with its business term
   (`BT-49: XRechnung requires the buyer electronic address …`), and the
-  invoice screen shows the same list before anyone downloads.
+  invoice screen shows the same list before anyone downloads. Known
+  exceptions are listed in
+  [`docs/E-RECHNUNG-REVIEW.md`](../../docs/E-RECHNUNG-REVIEW.md) (H1, H2).
 - **Frozen at issue.** Finalizing copies seller and buyer into the invoice;
-  re-downloading next year gives the same file. Invoices issued before this
+  re-downloading next year gives the same file, as long as the renderer has
+  not changed in between (the issued bytes are not stored, see H3 in the
+  review). Invoices issued before this
   release have no copy and read today's master data (`parties_frozen: false`).
 - **0 % needs a reason.** A draft with 0 % lines names its VAT category —
   `E` exempt (with the legal ground), `AE` reverse charge, `K` intra-EU supply,
