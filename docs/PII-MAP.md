@@ -37,6 +37,14 @@ erases a person, it should also: call PS-01 erase if that person is a platform
 user, delete their PS-09 index documents, and rely on PS-03/PS-07 retention to
 age out message bodies and audit snapshots.
 
+An issued invoice is the exception to "clearing": MOD-04 keeps its parties
+frozen on the invoice (`seller_snapshot`, `buyer_snapshot`) and, from the first
+download on, each e-invoice file as it was delivered (`issued_documents`,
+refused any update or delete by trigger). That is the document § 14b UStG
+requires the issuer to keep for eight years, so erasing the customer clears
+the master record and leaves these; for them the lever is the end of the
+retention period (Art. 17(3)(b) GDPR), not deletion.
+
 ## Subject access & portability (Art. 15 / 20)
 
 "Send me everything you hold about me" arrives with a one-month deadline, and

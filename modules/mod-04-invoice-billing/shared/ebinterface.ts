@@ -25,11 +25,13 @@
  * recipient requires them is the recipient's rule, documented in
  * docs/E-RECHNUNG.md rather than guessed here.
  */
+import { isCountryCode } from './countries.js';
 import { computeTotals, lineNetCents, vatRatesFor } from './money.js';
 import {
   amount,
-  blank,
   EXEMPTION_DEFAULT_REASON,
+  isCalendarDate,
+  missing,
   paymentTermsText,
   quantity,
   Xml,
@@ -86,22 +88,26 @@ export function ebInterfaceProblems(model: EInvoiceModel): EInvoiceProblem[] {
   };
   const { seller, buyer } = model;
 
-  if (blank(seller.name)) add('BT-27', 'seller.name', 'Seller name is missing');
-  if (blank(seller.street)) add('BT-35', 'seller.street', 'Seller street is missing');
-  if (blank(seller.city)) add('BT-37', 'seller.city', 'Seller city is missing');
-  if (blank(seller.postcode)) add('BT-38', 'seller.postcode', 'Seller postcode is missing');
-  if (blank(seller.country)) add('BT-40', 'seller.country', 'Seller country (ISO code, e.g. AT) is missing');
+  if (missing(seller.name)) add('BT-27', 'seller.name', 'Seller name is missing');
+  if (missing(seller.street)) add('BT-35', 'seller.street', 'Seller street is missing');
+  if (missing(seller.city)) add('BT-37', 'seller.city', 'Seller city is missing');
+  if (missing(seller.postcode)) add('BT-38', 'seller.postcode', 'Seller postcode is missing');
+  if (missing(seller.country)) add('BT-40', 'seller.country', 'Seller country (ISO code, e.g. AT) is missing');
+  else if (!isCountryCode(seller.country)) add('BT-40', 'seller.country', `Seller country "${seller.country}" is not an ISO 3166 code`);
   if (/^ATU0{8}$/.test(seller.vat_id ?? '')) {
     add('BT-31', 'seller.vatId', 'The seller VAT id is still the shipped placeholder ATU00000000 — leave it empty if there is none');
   }
-  if (model.type_code === '380' && blank(seller.iban)) {
+  if (model.type_code === '380' && missing(seller.iban)) {
     add('BT-84', 'seller.iban', 'Seller IBAN is missing — the payment instructions need it');
   }
 
-  if (blank(buyer.name)) add('BT-44', 'customer.name', 'Buyer name is missing');
-  if (blank(buyer.city)) add('BT-52', 'customer.city', 'ebInterface requires the buyer town');
-  if (blank(buyer.postcode)) add('BT-53', 'customer.postcode', 'ebInterface requires the buyer postcode');
-  if (blank(buyer.country)) add('BT-55', 'customer.country_code', 'Buyer country (ISO code) is missing');
+  if (missing(buyer.name)) add('BT-44', 'customer.name', 'Buyer name is missing');
+  if (missing(buyer.city)) add('BT-52', 'customer.city', 'ebInterface requires the buyer town');
+  if (missing(buyer.postcode)) add('BT-53', 'customer.postcode', 'ebInterface requires the buyer postcode');
+  if (missing(buyer.country)) add('BT-55', 'customer.country_code', 'Buyer country (ISO code) is missing');
+  else if (!isCountryCode(buyer.country)) {
+    add('BT-55', 'customer.country_code', `Buyer country "${buyer.country}" is not an ISO 3166 code — the United Kingdom is GB`);
+  }
 
   const rates = new Set(model.lines.map((l) => l.vat_rate));
   if (rates.has(0)) {
@@ -110,13 +116,13 @@ export function ebInterfaceProblems(model: EInvoiceModel): EInvoiceProblem[] {
       add('BT-118', 'tax_exemption_category', 'The invoice has 0 % lines — say why (exempt, reverse charge, intra-EU supply, export …)');
     } else {
       const reason = exemption.reason ?? EXEMPTION_DEFAULT_REASON[exemption.category];
-      if (exemption.category === 'E' && blank(reason)) {
+      if (exemption.category === 'E' && missing(reason)) {
         add('BT-120', 'tax_exemption_reason', 'An exempt invoice must name the legal ground, e.g. "Kleinunternehmer gem. § 6 Abs. 1 Z 27 UStG"');
       }
-      if ((exemption.category === 'AE' || exemption.category === 'K') && blank(buyer.vat_id)) {
+      if ((exemption.category === 'AE' || exemption.category === 'K') && missing(buyer.vat_id)) {
         add('BT-48', 'customer.vat_id', `${exemption.category === 'AE' ? 'Reverse charge' : 'An intra-EU supply'} requires the buyer's VAT id`);
       }
-      if ((exemption.category === 'AE' || exemption.category === 'K') && blank(seller.vat_id)) {
+      if ((exemption.category === 'AE' || exemption.category === 'K') && missing(seller.vat_id)) {
         add('BT-31', 'seller.vatId', `${exemption.category === 'AE' ? 'Reverse charge' : 'An intra-EU supply'} requires the seller's VAT id`);
       }
     }
@@ -125,11 +131,23 @@ export function ebInterfaceProblems(model: EInvoiceModel): EInvoiceProblem[] {
     add('BT-25', 'preceding', 'A cancellation must name the invoice it cancels');
   }
   if (model.lines.length === 0) add('BG-25', 'lines', 'An invoice needs at least one line');
+  model.lines.forEach((line, i) => {
+    if (missing(line.description)) add('BT-153', `lines[${i}].description`, 'A line needs a description that is not only control characters');
+  });
+  // The schema's xs:date would refuse these; better here, by name.
+  for (const [term, field, value] of [
+    ['BT-2', 'issue_date', model.issue_date],
+    ['BT-9', 'due_date', model.due_date],
+    ['BT-72', 'delivery_date', model.delivery_date],
+    ['BT-26', 'preceding.issue_date', model.preceding?.issue_date ?? null],
+  ] as const) {
+    if (value !== null && !isCalendarDate(value)) add(term, field, `"${value}" is not a calendar date`);
+  }
   return problems;
 }
 
 function vatId(id: string | null): string {
-  return blank(id) ? NO_VAT_ID : id!.replace(/\s/g, '').toUpperCase();
+  return missing(id) ? NO_VAT_ID : id!.replace(/\s/g, '').toUpperCase();
 }
 
 function deDate(iso: string): string {
@@ -138,7 +156,7 @@ function deDate(iso: string): string {
 
 /** The register number as an ebInterface FurtherIdentification, by its prefix. */
 function registration(raw: string | null | undefined): { type: string; id: string } | null {
-  if (blank(raw)) return null;
+  if (missing(raw)) return null;
   const value = raw!.trim();
   const fn = /^FN\s*(.+)$/i.exec(value);
   // FN = Firmenbuchnummer (AT); anything else (HRB …) is a register number
@@ -198,9 +216,9 @@ export function renderEbInterface(model: EInvoiceModel): string {
   xml.leaf('VATIdentificationNumber', vatId(seller.vat_id));
   const register = registration(seller.registration);
   if (register) xml.leaf('FurtherIdentification', register.id, ` IdentificationType="${register.type}"`);
-  if (!blank(seller.tax_number)) xml.leaf('FurtherIdentification', seller.tax_number!.trim(), ' IdentificationType="FASTNR"');
+  if (!missing(seller.tax_number)) xml.leaf('FurtherIdentification', seller.tax_number!.trim(), ' IdentificationType="FASTNR"');
   address(xml, seller, { phone: seller.phone, email: seller.email });
-  if (!blank(seller.contact_name)) {
+  if (!missing(seller.contact_name)) {
     xml.open('Contact').leaf('Name', seller.contact_name!.trim());
     xml.opt('Phone', seller.phone);
     xml.opt('Email', seller.email);
@@ -213,7 +231,7 @@ export function renderEbInterface(model: EInvoiceModel): string {
   // ── Invoice recipient ──
   xml.open('InvoiceRecipient');
   xml.leaf('VATIdentificationNumber', vatId(buyer.vat_id));
-  if (!blank(model.buyer_reference)) {
+  if (!missing(model.buyer_reference)) {
     // The order reference — for the Republic the Auftragsreferenz.
     xml.open('OrderReference').leaf('OrderID', model.buyer_reference!.trim()).close('OrderReference');
   }
@@ -260,7 +278,7 @@ export function renderEbInterface(model: EInvoiceModel): string {
 
   // A credit note is settled against open amounts or refunded — there is
   // nothing for the recipient to transfer, so it carries no bank details.
-  if (!creditNote && !blank(seller.iban)) {
+  if (!creditNote && !missing(seller.iban)) {
     xml.open('PaymentMethod');
     xml.open('UniversalBankTransaction');
     xml.open('BeneficiaryAccount');

@@ -88,13 +88,15 @@ The server seeds an empty database automatically on first start, so
 
 ## Data model
 
-Fifteen tables, no stored derived state — money coming in, reminding
-and repeating it, and money going out:
+Eighteen tables, no stored derived state — money coming in, reminding
+and repeating it, the e-invoices that went out, and money going out:
 
 ```
 customers          name, email, vat_id, address              (CRUD via UI/API)
                    + street, postcode, city, country_code, buyer_reference,
-                   einvoice_address, debtor_account   (all optional)
+                   einvoice_address, debtor_account, supplier_number,
+                   einvoice_format (xrechnung | zugferd | ebinterface | none)
+                   (all optional)
 invoices           number (NULL for drafts), customer, status,
                    issue_date, due_date, payment_terms_days,
                    note, cancellation audit trail,
@@ -118,6 +120,11 @@ recurring_invoices   name, customer, interval, start/end date, active,
                      the draft it produces (JSON)
 recurring_runs       template, period start/end, the draft it produced
                      UNIQUE (template, period_start)   ← once per period
+issued_documents     invoice, document (invoice | cancellation |
+                     credit_note:<id>), format, number, the file's bytes,
+                     sha256, renderer, who fetched it first, when
+                     UNIQUE (invoice, document, format)
+                     ← append-only; triggers refuse UPDATE and DELETE
 
 creditors          name, iban (validated), bic, note         (who we pay)
 bills              creditor, reference, remittance, amount_cents (GROSS),
@@ -355,10 +362,14 @@ GET    /api/invoices/:id/credit-notes/:noteId/pdf   the credit note as a PDF
 POST   /api/invoices/:id/payments      {amount_cents, date?, note?}
                                        overpayment → 422
 GET    /api/invoices/:id/pdf           the invoice as a generated PDF
-GET    /api/invoices/:id/einvoice      what XRechnung / ZUGFeRD / ebInterface would still refuse
+GET    /api/invoices/:id/einvoice      what XRechnung / ZUGFeRD / ebInterface would still refuse —
+                                       for a draft as if sent now; the customer's format;
+                                       the files already delivered (issued: sha256, who, when)
 GET    /api/invoices/:id/xrechnung.xml ?document=cancellation · ?credit_note=<id>
 GET    /api/invoices/:id/ebinterface.xml  ebInterface 6.1; ?document=cancellation · ?credit_note=<id> (CreditMemo)
 GET    /api/invoices/:id/zugferd.pdf   PDF/A-3 with factur-x.xml; same parameters
+                                       (each: stored at the first download, then served
+                                       unchanged; ETag = the stored SHA-256)
 GET    /api/einvoice-config            the seller as e-invoices see it + what is missing
 
 GET    /api/dunning                    overdue invoices, where each stands (derived), the levels
@@ -603,14 +614,23 @@ EN 16931 rules recompute, so the XML states the PDF's figures to the cent.
 - **Refused rather than wrong.** A file is only produced when it would
   validate. Otherwise `422` lists every missing field with its business term
   (`BT-49: XRechnung requires the buyer electronic address …`), and the
-  invoice screen shows the same list before anyone downloads. Known
-  exceptions are listed in
-  [`docs/E-RECHNUNG-REVIEW.md`](../../docs/E-RECHNUNG-REVIEW.md) (H1, H2).
-- **Frozen at issue.** Finalizing copies seller and buyer into the invoice;
-  re-downloading next year gives the same file, as long as the renderer has
-  not changed in between (the issued bytes are not stored, see H3 in the
-  review). Invoices issued before this
-  release have no copy and read today's master data (`parties_frozen: false`).
+  invoice screen shows the same list before anyone downloads. The check is
+  held to the real artefacts: every case of a matrix (VAT category × seller
+  identification × buyer × credit note, `test/einvoice-matrix.ts`) that it
+  does not refuse is validated with Mustang in CI
+  (`.github/workflows/einvoice-validation.yml`); the probes from the review
+  that used to slip through are pinned in `test/einvoice-rules.test.ts`.
+- **Checked before sending.** A customer can be set to the e-invoice format it
+  receives. A draft for that customer is refused at finalize while it would
+  not render in that format — before a number is drawn — because once sent,
+  nothing in it can be completed. The draft screen lists what is missing for
+  every format (`test/einvoice-readiness.test.ts`).
+- **Frozen at issue.** Finalizing copies seller and buyer into the invoice.
+  The first download of a format then stores the file itself, with its
+  SHA-256 and the renderer version, and every later download serves exactly
+  those bytes — whatever changes in the renderer later
+  (`test/issued-documents.test.ts`). Invoices issued before freezing existed
+  read today's master data until their first download (`parties_frozen: false`).
 - **0 % needs a reason.** A draft with 0 % lines names its VAT category —
   `E` exempt (with the legal ground), `AE` reverse charge, `K` intra-EU supply,
   `G` export, `Z` zero-rated, `O` not subject — and the reason is printed on
@@ -621,8 +641,9 @@ EN 16931 rules recompute, so the XML states the PDF's figures to the cent.
 - **Validated outside this repository.** Every case in
   `test/einvoice-cases.ts` passed Mustang (EN 16931 + XRechnung 3.0
   schematron, veraPDF for PDF/A-3b) before its golden file was committed; the
-  suite pins those bytes and checks the Factur-X XSD on every run.
-  `npm run einvoice:validate` repeats the external check (needs Java).
+  suite pins those bytes and checks the Factur-X XSD on every run, for the
+  matrix too. `npm run einvoice:validate` repeats the external check for the
+  golden cases and the matrix (needs Java); CI runs it on every MOD-04 change.
 
 What to set up, field by field, and what is deliberately not covered:
 [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).

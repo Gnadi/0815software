@@ -62,6 +62,17 @@ master data since. GoBD and § 14 UStG expect exactly that.
 Invoices issued before this release have no frozen copy. They read today's
 master data, as they always did, and the API reports `parties_frozen: false`.
 
+The **file** is frozen too, at its first delivery. The first download of a
+format of a document (the invoice, its cancellation, a credit note) renders
+it and stores the bytes in `issued_documents`, with their SHA-256, the
+renderer version and who downloaded it; every later download serves exactly
+those bytes (`server/issued-documents.ts`). Rendering again would only be
+byte-identical as long as the renderer never changed, and § 14b UStG asks for
+the document that was issued, kept for eight years. Until the first
+download nothing has left the module, so a file first fetched after an
+upgrade is rendered by the code of that day. The table refuses updates and
+deletions in the schema itself. The invoice screen lists what went out.
+
 The ZUGFeRD PDF always shows the invoice **as issued**: no payments, not
 marked cancelled. Its two halves must say the same thing, and the XML is the
 invoice that was sent.
@@ -162,6 +173,7 @@ and the country falls back to the VAT id's prefix.
 | buyer reference | BT-10 | **XRechnung**. The **Leitweg-ID** for a public body, otherwise the reference the customer wants quoted (order number, contact). For ebInterface it is the order reference (`OrderID`) — the **Auftragsreferenz** the Austrian federal government requires. An invoice can carry its own |
 | our supplier number | — | **ebInterface** `InvoiceRecipientsBillerID` — the **Lieferantennummer** the Austrian federal government assigns and requires. Frozen at issue like every party field |
 | e-invoice address | BT-49 | **XRechnung**. Defaults to the email. A Leitweg-ID here is sent with scheme `0204`, an email with `EM` |
+| e-invoice format | — | The format this customer receives: XRechnung, ZUGFeRD, ebInterface, or none. Set, a draft for the customer is **refused at finalize** until it renders in it (see below). Empty means nobody decided, and nothing is checked |
 
 ### Per invoice (editor)
 
@@ -170,41 +182,55 @@ reference, and, for 0 % lines, the VAT category and exemption text.
 
 ### Before the first one goes out
 
-The invoice detail screen lists, per format, exactly what is still missing,
-with its business term. Nothing can be downloaded in a state that would fail
-validation. Send one invoice to the customer and ask them to confirm their
-system accepted it.
+Already on the **draft**, the invoice screen lists per format exactly what is
+still missing, with its business term, computed from the data sending would
+freeze. That matters, because after sending nothing in the invoice can be
+completed: a missing postcode or buyer reference could then only be supplied
+by cancelling the invoice and issuing a new one. A customer set to an
+e-invoice format therefore gets the draft **refused at finalize** (422,
+listing the fields) until it renders in that format — before a number is
+drawn, from PS-10 too, so a refusal leaves no gap.
 
-The review of October 2026 found exceptions to both sentences: the list
-appears only after the invoice is finalized, when the parties are already
-frozen, and some master data passes the checks although the file then fails
-validation (buyer VAT id without country prefix, a country code such as
-`UK`, an export or exempt invoice without the seller identifier its
-category needs). See [`E-RECHNUNG-REVIEW.md`](./E-RECHNUNG-REVIEW.md),
-findings H1 and H2.
+Nothing can be downloaded in a state that would fail validation. Send one
+invoice to the customer and ask them to confirm their system accepted it.
 
 ## Validation
 
 Validation happens in three layers, and the first two run in every test run:
 
-1. **Golden files.** `test/fixtures/einvoice/` holds the XML of the eleven
-   cases in `test/einvoice-cases.ts` (standard DE, `AE`, `K`, `G`, `E`, `Z`,
-   `O`, exempt mixed with taxed lines, seller with Steuernummer only,
-   cancellation, public buyer by Leitweg-ID), in both profiles. The renderer
-   must reproduce them byte for byte.
+1. **Golden files.** `test/fixtures/einvoice/` holds the XML of the cases
+   in `test/einvoice-cases.ts` (standard DE, `AE`, `K`, `G`, `E`, `Z`, `O`,
+   exempt mixed with taxed lines, seller with Steuernummer only,
+   cancellation, partial credit note, public buyer by Leitweg-ID), in both
+   profiles. The renderer must reproduce them byte for byte.
 2. **Schema.** Every case is checked against the Factur-X EN16931 XSD
-   (`test/schema/cii-en16931/`) with `xmllint`.
-3. **External rules, before a golden file is changed.**
-   `npm run einvoice:validate` (`scripts/validate-einvoice.sh`, needs Java and
-   `MUSTANG_JAR`) renders every case, plus a ZUGFeRD PDF of each, and runs
-   them through [Mustang](https://www.mustangproject.org/) 2.26.0. That covers
-   the EN 16931 schematron, the XRechnung 3.0 schematron (KoSIT rules BR-DE-*)
-   and veraPDF for PDF/A-3b. All 22 XML files and 11 PDFs passed when this
-   was written. So did the files the API itself serves: an invoice with
-   0.333 × €999.99, a reverse-charge invoice, and both of their cancellations.
+   (`test/schema/cii-en16931/`) with `xmllint` — and so is every case of the
+   **matrix** in `test/einvoice-matrix.ts` that the module does not refuse:
+   nine VAT situations × five ways the seller is identified × six buyers,
+   plus credit notes (279 models, about half of them accepted per profile).
+   The review's probes that used to be served although invalid are pinned in
+   `test/einvoice-rules.test.ts`.
+3. **External rules.** `npm run einvoice:validate`
+   (`scripts/validate-einvoice.sh`, needs Java and `MUSTANG_JAR`) renders the
+   golden cases with a ZUGFeRD PDF each, and every accepted matrix case in
+   both profiles, and runs them through
+   [Mustang](https://www.mustangproject.org/) 2.26.0: the EN 16931 schematron
+   1.3.16, the XRechnung schematron 2.4.0 (XRechnung 3.0.2, KoSIT rules
+   BR-DE-*) and veraPDF for PDF/A-3b. All files go through one JVM
+   (`scripts/MustangBatch.java`, Mustang's own validator class): about 20
+   seconds for the 327 files, where starting the CLI per file took minutes.
+   The rule is one-directional: what the module refuses is never served, so
+   only what it accepts must be valid. The workflow
+   `.github/workflows/einvoice-validation.yml` runs it on every MOD-04
+   change, with the Mustang jar pinned by SHA-256 — the only CI job that
+   downloads anything.
 
 A change to `shared/einvoice.ts` breaks the golden test on purpose. Run the
-external check, then `npm run einvoice:fixtures`, then commit.
+external check, then `npm run einvoice:fixtures`, then commit. Regenerated
+golden files also fail the renderer fingerprint in
+`test/issued-documents.test.ts` until `RENDERER_VERSION`
+(`server/issued-documents.ts`) is bumped: the stored files name the renderer
+that produced them.
 
 **Version watch** (as of 22 October 2026). XRechnung 3.0.2 is current and
 stays in force until at least 31 July 2027. KoSIT published a pre-release of
@@ -345,9 +371,11 @@ if a customer needs it.
   over the same `EInvoiceModel`, as ebInterface is.
 - **Allowances, charges, discounts, units.** Lines carry no allowances or
   charges and are always in unit `C62` (piece). Skonto terms are not encoded.
-- **Archiving.** The module stores the data, not the issued bytes. The files
-  are reproducible (byte-identical on every download) but not signed or
-  archived. PS-06 archives the plain PDF when wired. GoBD-compliant
-  long-term storage is still open (`docs/PLATFORM-READINESS.md`, D2).
+- **Archiving beyond the module.** Issued e-invoices are stored as
+  delivered, with their SHA-256, append-only (see *The invoice as issued*),
+  but not signed, not timestamped by a third party and not copied to an
+  archive outside the module's database; backups carry them. PS-06 archives
+  the plain PDF when wired. Revision-proof long-term storage is still open
+  (`docs/PLATFORM-READINESS.md`, D2).
 - **Debtor master data for DATEV / BMD.** Only bookings are exported. The
   adviser creates or imports the personal accounts.

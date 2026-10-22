@@ -53,7 +53,20 @@ export interface Customer {
   supplier_number?: string | null;
   /** The customer's personal account (Debitor) in DATEV / BMD. Empty → numbered from settings. */
   debtor_account?: number | null;
+  /**
+   * The e-invoice this customer has to receive. Set, an invoice is only sent
+   * once it renders in that format; `none` is the explicit answer for
+   * customers who get none (consumers, abroad), NULL that nobody decided.
+   */
+  einvoice_format?: EInvoiceFormatChoice | null;
 }
+
+/**
+ * The e-invoice formats a customer can be set to receive, plus `none`. The
+ * three formats are shared/ebinterface.ts's `EInvoiceFormat`.
+ */
+export const EINVOICE_FORMAT_CHOICES = ['xrechnung', 'zugferd', 'ebinterface', 'none'] as const;
+export type EInvoiceFormatChoice = (typeof EINVOICE_FORMAT_CHOICES)[number];
 
 /**
  * The VAT category of an invoice's 0 % lines (EN 16931 BT-118 / UNCL 5305).

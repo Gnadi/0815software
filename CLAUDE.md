@@ -89,7 +89,10 @@ npx tsc -p tsconfig.json --noEmit                          # in any package
 
 After changing `platform/clients`, rebuild it and **reinstall** the modules
 (`npm ci`) — they hold a copy, not a link. CI (`.github/workflows/test.yml`)
-runs every package's suite; nothing needs network or Docker.
+runs every package's suite; nothing there needs network or Docker. The one
+job that downloads is `.github/workflows/einvoice-validation.yml`: a Mustang
+jar pinned by SHA-256, to validate every e-invoice MOD-04 would serve against
+the EN 16931 and XRechnung schematrons (`npm run einvoice:validate`).
 
 ## Where things are
 

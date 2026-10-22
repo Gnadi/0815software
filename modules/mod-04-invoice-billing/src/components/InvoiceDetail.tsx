@@ -31,7 +31,8 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
     try {
       const detail = await api.invoiceDetail(id);
       setInvoice(detail);
-      setEinvoice(detail.status === 'draft' ? null : await api.einvoiceStatus(id).catch(() => null));
+      // Drafts too: what is missing has to be filled in before sending.
+      setEinvoice(await api.einvoiceStatus(id).catch(() => null));
       setError('');
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) onAuthLost();
@@ -257,9 +258,16 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
         </p>
       )}
 
+      {einvoice && !einvoice.available && (
+        <>
+          <div className="section-title mono">E-INVOICE · BEFORE SENDING</div>
+          <DraftEInvoicePanel status={einvoice} />
+        </>
+      )}
+
       {einvoice?.available && (
         <>
-          <div className="section-title mono">E-INVOICE · XRECHNUNG / ZUGFERD</div>
+          <div className="section-title mono">E-INVOICE · XRECHNUNG / ZUGFERD / EBINTERFACE</div>
           <EInvoicePanel id={invoice.id} status={einvoice} creditNotes={invoice.credit_notes} />
         </>
       )}
@@ -421,11 +429,67 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
   );
 }
 
+const FORMAT_LABELS = {
+  xrechnung: 'XRECHNUNG (XML)',
+  zugferd: 'ZUGFERD (PDF/A-3)',
+  ebinterface: 'EBINTERFACE 6.1 (XML)',
+} as const;
+
+function ProblemList({ problems }: { problems: { term: string; field: string; message: string }[] }) {
+  return (
+    <ul className="note-cell" style={{ margin: '6px 0 0', paddingLeft: 18, textTransform: 'none' }}>
+      {problems.map((p) => (
+        <li key={`${p.term}-${p.field}`}>
+          {p.term}: {p.message} <span className="table__id">({p.field})</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * What each e-invoice format would still refuse if this draft were sent now.
+ * Once it is sent, its parties and lines are frozen and a missing field can
+ * only be supplied by cancelling and issuing again — so this is the moment.
+ * The customer's own format is the one sending is refused for.
+ */
+function DraftEInvoicePanel({ status }: { status: Extract<EInvoiceStatus, { available: false }> }) {
+  const required = status.format && status.format !== 'none' ? status.format : null;
+  return (
+    <div className="totals">
+      <div className="totals__row mono">
+        <span className="table__id" style={{ textTransform: 'none' }}>
+          {required
+            ? `This customer receives ${FORMAT_LABELS[required]}: sending is refused until it is complete.`
+            : status.format === 'none'
+              ? 'This customer receives no e-invoice; nothing is checked when sending.'
+              : 'No e-invoice format is set for this customer, so nothing is checked when sending. Set one on the customer if they need an e-invoice.'}
+        </span>
+      </div>
+      {(Object.keys(FORMAT_LABELS) as (keyof typeof FORMAT_LABELS)[]).map((key) => {
+        const problems = status.problems[key];
+        return (
+          <div key={key} className="totals__row mono" style={{ alignItems: 'flex-start', gap: 16 }}>
+            <span>
+              {FORMAT_LABELS[key]}
+              {key === required && ' · REQUIRED'}
+              {problems.length > 0 && <ProblemList problems={problems} />}
+            </span>
+            <span className="table__id">{problems.length === 0 ? 'READY' : `${problems.length} MISSING`}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * The e-invoice downloads of an issued invoice. Each format is offered only
  * when it would validate; otherwise the missing fields are listed with their
  * business terms (EN 16931 numbering, also for ebInterface), which is what
- * the server would refuse with.
+ * the server would refuse with. A file is stored at its first download and
+ * served unchanged afterwards; the ones that went out are listed with their
+ * SHA-256.
  */
 function EInvoicePanel({
   id,
@@ -436,41 +500,34 @@ function EInvoicePanel({
   status: Extract<EInvoiceStatus, { available: true }>;
   creditNotes: CreditNote[];
 }) {
-  const formats = [
-    { key: 'xrechnung' as const, label: 'XRECHNUNG (XML)', url: xrechnungUrl },
-    { key: 'zugferd' as const, label: 'ZUGFERD (PDF/A-3)', url: zugferdUrl },
-    { key: 'ebinterface' as const, label: 'EBINTERFACE 6.1 (XML)', url: ebInterfaceUrl },
-  ];
+  const urls = { xrechnung: xrechnungUrl, zugferd: zugferdUrl, ebinterface: ebInterfaceUrl };
   return (
     <div className="totals">
-      {formats.map((f) => {
-        const problems = status.problems[f.key];
+      {(Object.keys(FORMAT_LABELS) as (keyof typeof FORMAT_LABELS)[]).map((key) => {
+        const problems = status.problems[key];
+        // A file that went out is served as stored, whatever today's check says
+        // (an invoice from before frozen parties reads today's master data).
+        const delivered = status.issued.some((d) => d.document === 'invoice' && d.format === key);
+        const url = urls[key];
         return (
-          <div key={f.key} className="totals__row mono" style={{ alignItems: 'flex-start', gap: 16 }}>
+          <div key={key} className="totals__row mono" style={{ alignItems: 'flex-start', gap: 16 }}>
             <span>
-              {f.label}
-              {problems.length > 0 && (
-                <ul className="note-cell" style={{ margin: '6px 0 0', paddingLeft: 18, textTransform: 'none' }}>
-                  {problems.map((p) => (
-                    <li key={`${p.term}-${p.field}`}>
-                      {p.term}: {p.message} <span className="table__id">({p.field})</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              {FORMAT_LABELS[key]}
+              {key === status.format && ' · CUSTOMER FORMAT'}
+              {problems.length > 0 && !delivered && <ProblemList problems={problems} />}
             </span>
-            {problems.length === 0 ? (
+            {problems.length === 0 || delivered ? (
               <span style={{ display: 'flex', gap: 8 }}>
-                <a className="btn btn--ghost" href={f.url(id)}>
+                <a className="btn btn--ghost" href={url(id)}>
                   INVOICE ↓
                 </a>
                 {status.cancellation && (
-                  <a className="btn btn--ghost" href={f.url(id, 'cancellation')}>
+                  <a className="btn btn--ghost" href={url(id, 'cancellation')}>
                     CANCELLATION ↓
                   </a>
                 )}
                 {creditNotes.map((n) => (
-                  <a key={n.id} className="btn btn--ghost" href={f.url(id, n.id)}>
+                  <a key={n.id} className="btn btn--ghost" href={url(id, n.id)}>
                     {n.number.split('-').at(-1)} ↓
                   </a>
                 ))}
@@ -481,10 +538,33 @@ function EInvoicePanel({
           </div>
         );
       })}
+      {status.parties_frozen &&
+        (Object.keys(FORMAT_LABELS) as (keyof typeof FORMAT_LABELS)[]).some((k) => status.problems[k].length > 0) && (
+          <div className="totals__row mono">
+            <span className="table__id" style={{ textTransform: 'none' }}>
+              Frozen at issue: the missing fields cannot be added to this invoice any more. If the customer needs that
+              format, cancel the invoice and send a new one once the master data is complete.
+            </span>
+          </div>
+        )}
       {!status.parties_frozen && (
         <div className="totals__row mono">
           <span className="table__id">
             Issued before e-invoicing existed: seller and customer are read from today’s master data.
+          </span>
+        </div>
+      )}
+      {status.issued.length > 0 && (
+        <div className="totals__row mono" style={{ alignItems: 'flex-start' }}>
+          <span className="table__id" style={{ textTransform: 'none' }}>
+            Sent as stored — each file is kept as first downloaded:
+            <ul className="note-cell" style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+              {status.issued.map((d) => (
+                <li key={`${d.document}-${d.format}`}>
+                  {d.filename} · {fmtDate(d.created_at)} · {d.created_by} · SHA-256 {d.sha256.slice(0, 16)}…
+                </li>
+              ))}
+            </ul>
           </span>
         </div>
       )}

@@ -8,7 +8,25 @@ keine Steuer- oder Rechtsberatung.*
 
 Pfade ohne Präfix sind relativ zu `modules/mod-04-invoice-billing/`. Die
 Prüffälle (A–Q) sind in [Anhang A](#anhang-a-prüffälle) mit Eingaben und
-Ergebnis aufgeführt.
+Ergebnis aufgeführt. Zeilenangaben beziehen sich auf den Stand des Reviews.
+
+## Stand der Umsetzung
+
+Nachgetragen am 22.10.2026, nachdem `main` (ebInterface 6.1, Teilgutschriften,
+wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war:
+
+| Befund | Stand | Belegt durch |
+| --- | --- | --- |
+| **H3** | **Behoben.** Die erste Auslieferung eines Formats (Rechnung, Storno, Teilgutschrift; XRechnung, ZUGFeRD, ebInterface) speichert die Datei mit SHA-256, Renderer-Version und Person in `issued_documents`; danach werden nur noch diese Bytes ausgeliefert. Trigger verweigern Ändern und Löschen. Die Renderer-Version ist an die Golden Files gekoppelt. | `test/issued-documents.test.ts` |
+| **H1** | **Behoben.** Kunden haben ein Zielformat (XRechnung, ZUGFeRD, ebInterface, keins). Ist eines gesetzt, lehnt das Festschreiben den Entwurf mit 422 ab, solange er darin nicht erzeugbar ist, bevor eine Nummer gezogen wird (auch bei PS-10). Der Entwurf zeigt die fehlenden Felder je Format, eingefrorene Rechnungen sagen, dass nur Storno und Neuausstellung helfen. | `test/einvoice-readiness.test.ts` (Fall A) |
+| **H2** | **Behoben.** Ergänzt: Ländercodes gegen die Liste des CEN-Schematrons (BR-CL-14), Länderpräfix der USt-IdNr. (BR-CO-09), Verkäufer-Kennung je Steuerkategorie (BR-S/Z/E/AE-02, BR-G-02, BR-IC-02, BR-DE-16), echte Kalenderdaten, Texte, die nach dem Bereinigen leer wären. Eine Matrix aus 279 Modellen wird bei jeder MOD-04-Änderung in CI mit Mustang validiert, soweit das Modul sie annimmt. Lokaler Lauf am 22.10.2026: 327 von 327 Dateien gültig (36 Golden-Dateien, 291 aus der Matrix). | `test/einvoice-rules.test.ts` (Fälle J, K, O, P, Q), `.github/workflows/einvoice-validation.yml` |
+| **M6** | **Behoben** mit H2: Die API nimmt nur noch echte Kalenderdaten an. | `test/einvoice-rules.test.ts` |
+| M1–M5, M7, M8, N1–N8 | Offen. | – |
+
+Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
+Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
+XRechnung (PEPPOL-EN16931-R008) und ZUGFeRD 2.5 (CII R74) ablehnen. Prüfung
+und Renderer behandeln solche Texte jetzt als fehlend.
 
 ## Kurzfassung
 
@@ -20,7 +38,8 @@ Ergebnis aufgeführt.
   KoSIT-Schematron 2.4.0 für XRechnung 3.0.2 und veraPDF. `npm test`: 24
   Dateien, 478 Tests, grün.
 - **Drei Befunde sollten vor dem ersten Einsatz für E-Rechnungspflichtige
-  (1.1.2027) behoben sein:**
+  (1.1.2027) behoben sein** (inzwischen behoben, siehe
+  [Stand der Umsetzung](#stand-der-umsetzung)):
   1. **Festschreiben prüft die E-Rechnung nicht, und das Einfrieren macht
      jeden Mangel endgültig** (H1). Eine Rechnung, deren Kunde beim
      Festschreiben keine PLZ, E-Mail oder Käuferreferenz hatte, wird nie
@@ -127,6 +146,8 @@ Relevanz und einen Vorschlag.
 
 ### H1 · Festschreiben prüft die E-Rechnung nicht, und das Einfrieren macht den Mangel endgültig
 
+*Status: behoben, siehe [Stand der Umsetzung](#stand-der-umsetzung).*
+
 **Wo:** `server/app.ts:696–736` (Finalize prüft Steuersätze, vergibt die
 Nummer und friert ein, ruft aber nie `eInvoiceProblems` auf);
 `server/einvoice-data.ts:93–105` (`freezeParties`, auch BT-10);
@@ -164,7 +185,10 @@ dieselben eingefrorenen Parteien und ist als XRechnung ebenso gesperrt. Ein
 
 ### H2 · „Nur ausliefern, wenn es validiert“ gilt nicht
 
-README (Z. 556–559) und `E-RECHNUNG.md` (Z. 162) versprechen, dass keine
+*Status: behoben, siehe [Stand der Umsetzung](#stand-der-umsetzung).*
+
+README („Refused rather than wrong“) und `E-RECHNUNG.md` („Before the first
+one goes out“) versprechen, dass keine
 Datei ausgeliefert wird, die die Validierung nicht besteht. Die Vorprüfung
 in `shared/einvoice.ts:181–269` bildet aber nur einen Teil der Regeln ab,
 und die Eingaben werden nicht so geprüft, dass die übrigen Regeln immer
@@ -210,6 +234,8 @@ betreffen (Rz. 35a, nach Pelekies/taxpunk). Die USt-IdNr. des Käufers bei
    `E-RECHNUNG.md` vermerkt hat.
 
 ### H3 · Ausgestellte E-Rechnungen werden nicht gespeichert, sondern neu erzeugt
+
+*Status: behoben, siehe [Stand der Umsetzung](#stand-der-umsetzung).*
 
 **Wo:** `server/einvoice-data.ts:236–283` (XML und PDF/A werden bei jedem
 Request aus Daten und Code erzeugt); offen auch in
@@ -373,6 +399,8 @@ Testdaten korrigieren.
 
 ### M6 · Unmögliche Kalenderdaten werden angenommen
 
+*Status: behoben mit H2.*
+
 **Wo:** `server/app.ts:134–141` (`optDate` prüft mit `Date.parse`, das
 2026-02-30 stillschweigend in den 2. März umrechnet).
 
@@ -478,8 +506,8 @@ Fall (EU-Dienstleistung) beide USt-IdNrn. braucht.
 
 ### N8 · Doku und Testdaten
 
-- README Z. 556–559 und `E-RECHNUNG.md` Z. 162: Die Zusage „nur, wenn es
-  validiert“ stimmt nicht (H2).
+- README und `E-RECHNUNG.md`: Die Zusage „nur, wenn es validiert“ stimmte
+  nicht (H2). Mit H2 behoben, die Texte beschreiben jetzt auch die Matrix.
 - `E-RECHNUNG.md` Z. 27: „ZUGFeRD from profile EN 16931 up“. Das BMF schließt
   nur MINIMUM und BASIC-WL aus (nach PwC). Ob BASIC genügt, wird in der
   Literatur unterschiedlich gesehen (S12).
@@ -817,3 +845,8 @@ mit Mustang-CLI 2.26.0 (`--action validate --no-notices`).
 | O | Leistungsdatum 2026-02-30, Rechnungsdatum 2026-02-31 | ausgeliefert, Fälligkeit 2026-03-17 | gültig | M6, S2 |
 | P | Ausfuhr (`G`), Verkäufer nur mit Steuernummer und HRB | `eInvoiceProblems`: keine | **ungültig**, BR-G-02 | H2, S5 |
 | Q | nur `E`-Positionen, Verkäufer nur mit HRB | `eInvoiceProblems`: keine | **ungültig**, BR-E-02, BR-DE-16 | H2 |
+
+Nach der Umsetzung von H1–H3: Fall A wird schon beim Festschreiben
+abgelehnt, wenn der Kunde XRechnung erhält; J, K, O, P und Q werden mit dem
+jeweiligen Business Term abgelehnt; die übrigen Ergebnisse gelten
+unverändert, weil die zugehörigen Befunde offen sind.

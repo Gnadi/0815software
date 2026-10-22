@@ -259,6 +259,7 @@ describe('the views exist and the migration is idempotent', () => {
       'invoice_counters',
       'invoice_lines',
       'invoices',
+      'issued_documents',
       'payment_run_items',
       'payment_runs',
       'payments',

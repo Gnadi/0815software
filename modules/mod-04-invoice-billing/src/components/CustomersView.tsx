@@ -23,12 +23,26 @@ interface FormState {
   einvoice_address: string;
   debtor_account: string;
   supplier_number: string;
+  einvoice_format: string;
 }
 
 const EMPTY: FormState = {
   id: null, name: '', email: '', vat_id: '', address: '', street: '', postcode: '', city: '',
   country_code: '', buyer_reference: '', einvoice_address: '', debtor_account: '', supplier_number: '',
+  einvoice_format: '',
 };
+
+/**
+ * What this customer has to receive. Set to a format, a draft is only sent
+ * once it renders in it — after sending, nothing in it can be completed.
+ */
+const EINVOICE_FORMATS: { value: string; label: string }[] = [
+  { value: '', label: 'Not decided — show readiness, do not check' },
+  { value: 'xrechnung', label: 'XRechnung (German public sector, B2B)' },
+  { value: 'zugferd', label: 'ZUGFeRD (PDF/A-3 with EN 16931 XML, B2B)' },
+  { value: 'ebinterface', label: 'ebInterface 6.1 (Austria)' },
+  { value: 'none', label: 'None (consumers, abroad, small amounts)' },
+];
 
 /** The e-invoice fields, optional: empty ones are read from the address block. */
 const EINVOICE_FIELDS: { key: keyof FormState; label: string; placeholder?: string }[] = [
@@ -87,6 +101,7 @@ export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
         einvoice_address: form.einvoice_address.trim() || null,
         debtor_account: form.debtor_account.trim() || null,
         supplier_number: form.supplier_number.trim() || null,
+        einvoice_format: form.einvoice_format || null,
       };
       if (form.id === null) await api.createCustomer(values);
       else await api.updateCustomer(form.id, values);
@@ -195,6 +210,7 @@ export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
                             einvoice_address: c.einvoice_address ?? '',
                             debtor_account: c.debtor_account === null || c.debtor_account === undefined ? '' : String(c.debtor_account),
                             supplier_number: c.supplier_number ?? '',
+                            einvoice_format: c.einvoice_format ?? '',
                           })
                         }
                       >
@@ -276,8 +292,22 @@ export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
                 />
               </label>
               <div className="field__label mono" style={{ gridColumn: '1 / -1', marginTop: 8 }}>
-                E-INVOICE (XRECHNUNG / ZUGFERD) · OPTIONAL
+                E-INVOICE (XRECHNUNG / ZUGFERD / EBINTERFACE) · OPTIONAL
               </div>
+              <label className="field" style={{ gridColumn: '1 / -1' }}>
+                <span className="field__label mono">E-INVOICE FORMAT</span>
+                <select
+                  className="field__input"
+                  value={form.einvoice_format}
+                  onChange={(e) => setForm({ ...form, einvoice_format: e.target.value })}
+                >
+                  {EINVOICE_FORMATS.map((f) => (
+                    <option key={f.value} value={f.value}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               {EINVOICE_FIELDS.map((f) => (
                 <label key={f.key} className="field">
                   <span className="field__label mono">{f.label}</span>

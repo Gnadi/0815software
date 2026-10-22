@@ -1,28 +1,33 @@
 /**
  * Regenerate the e-invoice golden files from test/einvoice-cases.ts.
  *
- *   npm run einvoice:fixtures              → test/fixtures/einvoice/*.xml
- *   npm run einvoice:fixtures -- <dir> pdf → <dir>, plus a ZUGFeRD PDF per case
+ *   npm run einvoice:fixtures                 → test/fixtures/einvoice/*.xml
+ *   npm run einvoice:fixtures -- <dir> pdf    → <dir>, plus a ZUGFeRD PDF per case
+ *   npm run einvoice:fixtures -- <dir> matrix → <dir>, as `pdf`, plus every case of
+ *     test/einvoice-matrix.ts the module does not refuse, in both profiles, and a
+ *     ZUGFeRD PDF for each matrix credit note — what scripts/validate-einvoice.sh
+ *     hands to the reference validator
  *
  * Only after `scripts/validate-einvoice.sh` has passed on the output may the
  * regenerated files be committed — see docs/E-RECHNUNG.md.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { EINVOICE_PROFILES, renderCii } from '../shared/einvoice.js';
+import { EINVOICE_PROFILES, eInvoiceProblems, renderCii, type EInvoiceModel } from '../shared/einvoice.js';
 import { computeTotals, lineNetCents } from '../shared/money.js';
 import type { InvoiceDetail } from '../shared/types.js';
 import { layoutInvoice } from '../server/pdf.js';
 import { buildPdfA } from '../server/pdfa.js';
 import { CASES } from '../test/einvoice-cases.js';
+import { MATRIX } from '../test/einvoice-matrix.js';
 
 const out = process.argv[2] ?? join(import.meta.dirname, '..', 'test', 'fixtures', 'einvoice');
-const withPdf = process.argv[3] === 'pdf';
+const mode = process.argv[3];
+const withPdf = mode === 'pdf' || mode === 'matrix';
 mkdirSync(out, { recursive: true });
 
-for (const [name, model] of Object.entries(CASES)) {
-  for (const profile of EINVOICE_PROFILES) writeFileSync(join(out, `${name}-${profile}.xml`), renderCii(model, profile));
-  if (!withPdf) continue;
+/** The ZUGFeRD PDF/A of a model, laid out the way the API lays out an issued invoice. */
+function zugferdPdf(model: EInvoiceModel): Buffer {
   const totals = computeTotals(model.lines);
   // A cancellation is laid out from the cancelled invoice; a partial credit
   // note (-GS) from a live one carrying the credit note's lines.
@@ -50,9 +55,27 @@ for (const [name, model] of Object.entries(CASES)) {
       ? { number: model.number, date: model.issue_date, ...(model.number.includes('-GS') ? { reason: model.note ?? '' } : {}) }
       : undefined,
   );
-  writeFileSync(
-    join(out, `${name}-zugferd.pdf`),
-    buildPdfA(pages, { xml: renderCii(model, 'zugferd'), title: `Rechnung ${model.number}`, author: model.seller.name, date: model.issue_date }),
-  );
+  return buildPdfA(pages, { xml: renderCii(model, 'zugferd'), title: `Rechnung ${model.number}`, author: model.seller.name, date: model.issue_date });
 }
-console.log(`wrote ${Object.keys(CASES).length} cases to ${out}`);
+
+for (const [name, model] of Object.entries(CASES)) {
+  for (const profile of EINVOICE_PROFILES) writeFileSync(join(out, `${name}-${profile}.xml`), renderCii(model, profile));
+  if (withPdf) writeFileSync(join(out, `${name}-zugferd.pdf`), zugferdPdf(model));
+}
+
+let matrixFiles = 0;
+if (mode === 'matrix') {
+  for (const [name, model] of Object.entries(MATRIX)) {
+    for (const profile of EINVOICE_PROFILES) {
+      // A refused model is never served, so there is nothing to validate.
+      if (eInvoiceProblems(model, profile).length > 0) continue;
+      writeFileSync(join(out, `matrix-${name}-${profile}.xml`), renderCii(model, profile));
+      matrixFiles++;
+      if (profile === 'zugferd' && model.type_code === '381') {
+        writeFileSync(join(out, `matrix-${name}-zugferd.pdf`), zugferdPdf(model));
+        matrixFiles++;
+      }
+    }
+  }
+}
+console.log(`wrote ${Object.keys(CASES).length} cases${mode === 'matrix' ? ` and ${matrixFiles} matrix files` : ''} to ${out}`);

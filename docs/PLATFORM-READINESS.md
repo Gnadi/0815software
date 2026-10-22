@@ -427,10 +427,12 @@ performed deliberately.
 PS-10 delivers gapless numbering (a real DACH requirement — good).
 **Shipped:** e-invoicing formats — MOD-04 issues XRechnung 3.0 and ZUGFeRD
 (PDF/A-3, EN 16931) from parties frozen at issue, plus DATEV / BMD booking
-exports ([`E-RECHNUNG.md`](./E-RECHNUNG.md)). **Still open:** immutable
-long-term invoice archival and tamper-evidence for the documents themselves
-(PS-07 covers events, not the documents; PS-06 archives the PDF only), and
-reading incoming e-invoices on the bills side.
+exports ([`E-RECHNUNG.md`](./E-RECHNUNG.md)). MOD-04 also keeps every
+e-invoice it delivered as the bytes that went out, with their SHA-256,
+append-only (`issued_documents`). **Still open:** revision-proof long-term
+archival beyond the module's database (signatures or trusted timestamps, an
+archive of its own; PS-07 covers events, not documents; PS-06 archives the
+plain PDF only), and reading incoming e-invoices on the bills side.
 
 ---
 

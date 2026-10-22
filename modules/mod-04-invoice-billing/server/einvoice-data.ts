@@ -12,9 +12,19 @@ import {
   type SellerParty,
 } from '../shared/einvoice.js';
 import { ebInterfaceProblems, renderEbInterface, type EInvoiceFormat } from '../shared/ebinterface.js';
-import type { Customer } from '../shared/types.js';
+import type { Customer, TaxExemptionCategory } from '../shared/types.js';
 import type { SellerConfig } from './config.js';
-import { DomainError, getCreditNote, getCustomer, getInvoice, invoiceDetail, invoiceLines } from './invoices.js';
+import {
+  addDays,
+  DomainError,
+  getCreditNote,
+  getCustomer,
+  getInvoice,
+  invoiceDetail,
+  invoiceLines,
+  todayIso,
+} from './invoices.js';
+import { issuedDocument, type IssuedDocument, type RenderedFile } from './issued-documents.js';
 import { creditNoteView, layoutInvoice } from './pdf.js';
 import { buildPdfA } from './pdfa.js';
 
@@ -143,6 +153,28 @@ export function pdfParties(parties: { seller: SellerParty; buyer: BuyerParty }):
 /** Which document of an invoice: itself, its cancellation, or one of its partial credit notes. */
 export type EInvoiceDocument = 'invoice' | 'cancellation' | { creditNoteId: number };
 
+/** Stored lines as the model's — the same for an invoice, a draft and a credit note. */
+function modelLines(
+  lines: { position: number; description: string; quantity: number; unit_price_cents: number; vat_rate: number }[],
+): EInvoiceModel['lines'] {
+  return lines.map((l) => ({
+    position: l.position,
+    description: l.description,
+    quantity: l.quantity,
+    unit_price_cents: l.unit_price_cents,
+    vat_rate: l.vat_rate,
+  }));
+}
+
+function exemptionOf(invoice: {
+  tax_exemption_category: TaxExemptionCategory | null;
+  tax_exemption_reason: string | null;
+}): EInvoiceModel['exemption'] {
+  return invoice.tax_exemption_category
+    ? { category: invoice.tax_exemption_category, reason: invoice.tax_exemption_reason }
+    : null;
+}
+
 /**
  * The e-invoice model of an issued invoice — or of its cancellation or a
  * partial credit note, each a credit note (type 381) referring back to it.
@@ -172,16 +204,8 @@ export function eInvoiceModel(
     parties.buyer.supplier_number === undefined
       ? { ...parties.buyer, supplier_number: customer.supplier_number ?? null }
       : parties.buyer;
-  const lines = invoiceLines(db, invoiceId).map((l) => ({
-    position: l.position,
-    description: l.description,
-    quantity: l.quantity,
-    unit_price_cents: l.unit_price_cents,
-    vat_rate: l.vat_rate,
-  }));
-  const exemption = invoice.tax_exemption_category
-    ? { category: invoice.tax_exemption_category, reason: invoice.tax_exemption_reason }
-    : null;
+  const lines = modelLines(invoiceLines(db, invoiceId));
+  const exemption = exemptionOf(invoice);
   const base = {
     delivery_date: invoice.delivery_date ?? invoice.issue_date,
     payment_terms_days: invoice.payment_terms_days,
@@ -199,13 +223,7 @@ export function eInvoiceModel(
     if (note.invoice_id !== invoiceId) throw new DomainError(404, 'Credit note not found');
     return {
       ...base,
-      lines: note.lines.map((l) => ({
-        position: l.position,
-        description: l.description,
-        quantity: l.quantity,
-        unit_price_cents: l.unit_price_cents,
-        vat_rate: l.vat_rate,
-      })),
+      lines: modelLines(note.lines),
       type_code: '381',
       number: note.number,
       issue_date: note.issue_date,
@@ -239,64 +257,160 @@ export function eInvoiceModel(
   };
 }
 
-/** What each profile would refuse, for the screen to show before anyone downloads. */
+/**
+ * The e-invoice a DRAFT would become if it were sent now: the parties exactly
+ * as `freezeParties` is about to freeze them, the issue date given (else
+ * today) and the due date that follows. It has no number yet — it exists to be
+ * checked, because once the draft is sent nothing in it can change any more.
+ */
+export function pendingEInvoiceModel(
+  db: Database.Database,
+  invoiceId: number,
+  liveSeller: SellerConfig,
+  issueDate?: string,
+): EInvoiceModel {
+  const invoice = getInvoice(db, invoiceId);
+  const customer = getCustomer(db, invoice.customer_id);
+  const issue = issueDate ?? todayIso();
+  return {
+    type_code: '380',
+    number: invoice.number ?? `DRAFT-${invoice.id}`,
+    issue_date: issue,
+    due_date: addDays(issue, invoice.payment_terms_days),
+    delivery_date: invoice.delivery_date ?? issue,
+    payment_terms_days: invoice.payment_terms_days,
+    buyer_reference: invoice.buyer_reference ?? customer.buyer_reference ?? null,
+    note: invoice.note,
+    preceding: null,
+    exemption: exemptionOf(invoice),
+    seller: sellerParty(liveSeller),
+    buyer: buyerParty(customer),
+    lines: modelLines(invoiceLines(db, invoiceId)),
+  };
+}
+
+export const FORMAT_LABEL: Record<EInvoiceFormat, string> = {
+  xrechnung: 'XRechnung',
+  zugferd: 'ZUGFeRD',
+  ebinterface: 'ebInterface',
+};
+
+/** What `format` would refuse in `model` — the check behind every 422 below. */
+export function problemsOf(model: EInvoiceModel, format: EInvoiceFormat): EInvoiceProblem[] {
+  return format === 'ebinterface' ? ebInterfaceProblems(model) : eInvoiceProblems(model, format);
+}
+
+function readinessOf(model: EInvoiceModel): Record<EInvoiceFormat, EInvoiceProblem[]> {
+  const en16931 = Object.fromEntries(EINVOICE_PROFILES.map((p) => [p, problemsOf(model, p)])) as Record<
+    EInvoiceProfile,
+    EInvoiceProblem[]
+  >;
+  return { ...en16931, ebinterface: problemsOf(model, 'ebinterface') };
+}
+
+/**
+ * What each format would refuse, for the screen to show before anyone
+ * downloads — and for a draft, before anyone sends it, from the data it would
+ * freeze.
+ */
 export function eInvoiceReadiness(
   db: Database.Database,
   invoiceId: number,
   liveSeller: SellerConfig,
 ): Record<EInvoiceFormat, EInvoiceProblem[]> {
-  const model = eInvoiceModel(db, invoiceId, liveSeller);
-  const en16931 = Object.fromEntries(EINVOICE_PROFILES.map((p) => [p, eInvoiceProblems(model, p)])) as Record<
-    EInvoiceProfile,
-    EInvoiceProblem[]
-  >;
-  return { ...en16931, ebinterface: ebInterfaceProblems(model) };
+  const invoice = getInvoice(db, invoiceId);
+  const model =
+    invoice.status === 'draft' ? pendingEInvoiceModel(db, invoiceId, liveSeller) : eInvoiceModel(db, invoiceId, liveSeller);
+  return readinessOf(model);
 }
 
-/** Refuse with every missing field at once, as a 422 the screen can list. */
-export function assertRenderable(model: EInvoiceModel, profile: EInvoiceProfile): void {
-  const problems = eInvoiceProblems(model, profile);
+const details = (problems: EInvoiceProblem[]) => problems.map((p) => ({ field: p.field, message: `${p.term}: ${p.message}` }));
+const fields = (n: number): string => `${n} field${n === 1 ? '' : 's'}`;
+
+/**
+ * Refuse with every missing field at once, as a 422 the screen can list. A
+ * frozen invoice says why that is final: the fields cannot be added to it any
+ * more. One issued before freezing existed still reads today's master data,
+ * so there the fix is the master data.
+ */
+export function assertRenderable(model: EInvoiceModel, format: EInvoiceFormat, frozen: boolean): void {
+  const problems = problemsOf(model, format);
   if (problems.length > 0) {
     throw new DomainError(
       422,
-      `This invoice cannot be issued as ${profile === 'xrechnung' ? 'XRechnung' : 'ZUGFeRD'} yet — ${problems.length} field${problems.length === 1 ? '' : 's'} missing`,
-      problems.map((p) => ({ field: p.field, message: `${p.term}: ${p.message}` })),
+      `This invoice cannot be issued as ${FORMAT_LABEL[format]} — ${fields(problems.length)} missing. ` +
+        (frozen
+          ? 'It was sent without them and keeps its data as issued: cancel it and send a new one once the master data is complete.'
+          : 'Complete the master data: this invoice predates frozen parties and reads them as they are today.'),
+      details(problems),
+    );
+  }
+}
+
+/** Whether an issued invoice carries its parties frozen (see `freezeParties`). */
+function frozenParties(db: Database.Database, invoiceId: number): boolean {
+  const invoice = getInvoice(db, invoiceId);
+  return invoice.seller_snapshot !== null && invoice.buyer_snapshot !== null;
+}
+
+/**
+ * The check before a draft is sent. A customer set to receive an e-invoice
+ * format gets the draft refused while it would not render in that format —
+ * BEFORE a number is drawn (from PS-10 too, which would otherwise leave a gap),
+ * because after sending, the parties and lines are frozen and the missing
+ * fields could only be supplied by cancelling and issuing again.
+ *
+ * A customer without a format (NULL) or set to `none` is not checked: a
+ * consumer or a foreign customer gets no e-invoice, and the screen shows the
+ * readiness either way.
+ */
+export function assertIssuable(
+  db: Database.Database,
+  invoiceId: number,
+  liveSeller: SellerConfig,
+  issueDate?: string,
+): void {
+  const invoice = getInvoice(db, invoiceId);
+  if (invoice.status !== 'draft') return; // finalizeInvoice answers that with its own 409
+  const customer = getCustomer(db, invoice.customer_id);
+  const format = customer.einvoice_format;
+  if (!format || format === 'none') return;
+  const problems = problemsOf(pendingEInvoiceModel(db, invoiceId, liveSeller, issueDate), format);
+  if (problems.length > 0) {
+    throw new DomainError(
+      422,
+      `${customer.name} receives ${FORMAT_LABEL[format]} e-invoices, and this draft would not be one — ${fields(problems.length)} missing. ` +
+        'Complete them before sending: once sent, the invoice keeps its data as issued.',
+      details(problems),
     );
   }
 }
 
 /** The XRechnung of an issued invoice (or of its cancellation): the bare XML. */
-export function xrechnungFile(
+function xrechnungFile(
   db: Database.Database,
   invoiceId: number,
   liveSeller: SellerConfig,
-  document: EInvoiceDocument = 'invoice',
-): { filename: string; xml: string } {
+  document: EInvoiceDocument,
+): { number: string; filename: string; xml: string } {
   const model = eInvoiceModel(db, invoiceId, liveSeller, document);
-  assertRenderable(model, 'xrechnung');
-  return { filename: `${model.number}_xrechnung.xml`, xml: renderCii(model, 'xrechnung') };
+  assertRenderable(model, 'xrechnung', frozenParties(db, invoiceId));
+  return { number: model.number, filename: `${model.number}_xrechnung.xml`, xml: renderCii(model, 'xrechnung') };
 }
 
 /**
  * The ebInterface 6.1 XML of an issued invoice (or of its cancellation, a
  * CreditMemo naming the cancelled invoice) — the Austrian e-invoice.
  */
-export function ebInterfaceFile(
+function ebInterfaceFile(
   db: Database.Database,
   invoiceId: number,
   liveSeller: SellerConfig,
-  document: EInvoiceDocument = 'invoice',
-): { filename: string; xml: string } {
+  document: EInvoiceDocument,
+): { number: string; filename: string; xml: string } {
   const model = eInvoiceModel(db, invoiceId, liveSeller, document);
-  const problems = ebInterfaceProblems(model);
-  if (problems.length > 0) {
-    throw new DomainError(
-      422,
-      `This invoice cannot be issued as ebInterface yet — ${problems.length} field${problems.length === 1 ? '' : 's'} missing`,
-      problems.map((p) => ({ field: p.field, message: `${p.term}: ${p.message}` })),
-    );
-  }
-  return { filename: `${model.number}_ebinterface.xml`, xml: renderEbInterface(model) };
+  assertRenderable(model, 'ebinterface', frozenParties(db, invoiceId));
+  return { number: model.number, filename: `${model.number}_ebinterface.xml`, xml: renderEbInterface(model) };
 }
 
 /**
@@ -308,14 +422,14 @@ export function ebInterfaceFile(
  * payment or cancellation. A cancellation is its own document (a credit note)
  * with its own PDF and XML.
  */
-export function zugferdFile(
+function zugferdFile(
   db: Database.Database,
   invoiceId: number,
   liveSeller: SellerConfig,
-  document: EInvoiceDocument = 'invoice',
-): { filename: string; pdf: Buffer } {
+  document: EInvoiceDocument,
+): { number: string; filename: string; pdf: Buffer } {
   const model = eInvoiceModel(db, invoiceId, liveSeller, document);
-  assertRenderable(model, 'zugferd');
+  assertRenderable(model, 'zugferd', frozenParties(db, invoiceId));
   const xml = renderCii(model, 'zugferd');
   const parties = pdfParties(invoiceParties(db, invoiceId, liveSeller));
   const detail = invoiceDetail(db, invoiceId);
@@ -340,5 +454,45 @@ export function zugferdFile(
     author: model.seller.name,
     date: model.issue_date,
   });
-  return { filename: `${model.number}_zugferd.pdf`, pdf };
+  return { number: model.number, filename: `${model.number}_zugferd.pdf`, pdf };
+}
+
+/** Render one format of one document — what `eInvoiceFile` stores on first delivery. */
+function renderFile(
+  db: Database.Database,
+  invoiceId: number,
+  liveSeller: SellerConfig,
+  format: EInvoiceFormat,
+  document: EInvoiceDocument,
+): RenderedFile {
+  if (format === 'zugferd') {
+    const file = zugferdFile(db, invoiceId, liveSeller, document);
+    return { number: file.number, filename: file.filename, contentType: 'application/pdf', content: file.pdf };
+  }
+  const file =
+    format === 'xrechnung'
+      ? xrechnungFile(db, invoiceId, liveSeller, document)
+      : ebInterfaceFile(db, invoiceId, liveSeller, document);
+  return {
+    number: file.number,
+    filename: file.filename,
+    contentType: 'application/xml; charset=utf-8',
+    content: Buffer.from(file.xml, 'utf8'),
+  };
+}
+
+/**
+ * An e-invoice file as delivered: the stored bytes when this format of this
+ * document went out before, otherwise rendered now (with every refusal the
+ * renderers make) and stored on the way out — see server/issued-documents.ts.
+ */
+export function eInvoiceFile(
+  db: Database.Database,
+  invoiceId: number,
+  liveSeller: SellerConfig,
+  format: EInvoiceFormat,
+  document: EInvoiceDocument,
+  actor: string,
+): IssuedDocument {
+  return issuedDocument(db, invoiceId, document, format, actor, () => renderFile(db, invoiceId, liveSeller, format, document));
 }

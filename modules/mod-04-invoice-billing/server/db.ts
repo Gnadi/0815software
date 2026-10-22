@@ -424,6 +424,43 @@ export function openDb(path: string): Database.Database {
     db.exec('ALTER TABLE accounting_settings ADD COLUMN updated_by TEXT');
   }
 
+  // The e-invoice format a customer has to receive (XRechnung, ZUGFeRD,
+  // ebInterface, or explicitly none). Set, it is checked before a number is
+  // drawn: a frozen invoice that cannot be rendered in it can never be fixed
+  // (server/einvoice-data.ts, `assertIssuable`). NULL means nobody decided.
+  if (!columns('customers').includes('einvoice_format')) {
+    db.exec('ALTER TABLE customers ADD COLUMN einvoice_format TEXT');
+  }
+
+  // The e-invoice files as they left this module (server/issued-documents.ts).
+  // Rendering on every download kept them identical only while the renderer
+  // stayed the same; § 14b UStG wants the issued document itself kept for eight
+  // years, so the first delivery of a format freezes its bytes here and later
+  // downloads serve that row. The triggers make the archive refuse an edit or
+  // a deletion instead of relying on no code path trying one.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS issued_documents (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_id   INTEGER NOT NULL REFERENCES invoices(id),
+      document     TEXT    NOT NULL
+                     CHECK (document IN ('invoice', 'cancellation') OR document GLOB 'credit_note:[1-9]*'),
+      format       TEXT    NOT NULL CHECK (format IN ('xrechnung', 'zugferd', 'ebinterface')),
+      number       TEXT    NOT NULL,
+      filename     TEXT    NOT NULL,
+      content_type TEXT    NOT NULL,
+      content      BLOB    NOT NULL,
+      sha256       TEXT    NOT NULL,
+      renderer     TEXT    NOT NULL,
+      created_at   TEXT    NOT NULL,
+      created_by   TEXT    NOT NULL,
+      UNIQUE (invoice_id, document, format)
+    );
+    CREATE TRIGGER IF NOT EXISTS issued_documents_no_update BEFORE UPDATE ON issued_documents
+    BEGIN SELECT RAISE(ABORT, 'issued documents are immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS issued_documents_no_delete BEFORE DELETE ON issued_documents
+    BEGIN SELECT RAISE(ABORT, 'issued documents are immutable'); END;
+  `);
+
   ensureReportViews(db);
 
   return db;

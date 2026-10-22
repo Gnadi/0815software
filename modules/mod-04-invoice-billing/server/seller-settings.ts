@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { COUNTRY_RE } from '../shared/address.js';
+import { isCountryCode } from '../shared/countries.js';
 import { ibanProblem, isValidBic, normalizeBic, normalizeIban } from '../shared/sepa.js';
 import type { SellerConfig } from './config.js';
 import { DomainError, nowIso } from './invoices.js';
@@ -255,7 +255,7 @@ export function writeSellerSettings(
     }
     if (key === 'country') {
       value = value.toUpperCase();
-      if (!COUNTRY_RE.test(value)) problems.push({ field: key, message: 'ISO 3166 code such as DE or AT' });
+      if (!isCountryCode(value)) problems.push({ field: key, message: 'ISO 3166 code such as DE or AT' });
     }
     if (key === 'vatId') {
       value = value.replace(/\s/g, '').toUpperCase();

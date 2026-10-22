@@ -17,7 +17,7 @@ import type {
 import type { EInvoiceProblem, SellerParty } from '../shared/einvoice';
 import type { EInvoiceFormat } from '../shared/ebinterface';
 import type { DunningNotice, DunningRow, DunningSettings } from '../shared/types';
-import type { CreditNote, RecurringInterval, RecurringTemplate, TaxExemptionCategory } from '../shared/types';
+import type { CreditNote, EInvoiceFormatChoice, RecurringInterval, RecurringTemplate, TaxExemptionCategory } from '../shared/types';
 
 /** What the recurring-template form sends: the schedule plus a draft's fields. */
 export interface RecurringPayload {
@@ -258,13 +258,38 @@ export const api = {
   discardRun: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}/discard`, post()),
 };
 
+/** A file that went out: stored at its first download and served unchanged since. */
+export interface IssuedDocumentInfo {
+  document: string;
+  format: EInvoiceFormat;
+  number: string;
+  filename: string;
+  sha256: string;
+  renderer: string;
+  created_at: string;
+  created_by: string;
+}
+
+/**
+ * For a draft, what each format would refuse if it were sent now; for an
+ * issued invoice, what it refuses and which files already went out. `format`
+ * is the customer's — set, a draft is refused until it renders in it.
+ */
 export type EInvoiceStatus =
-  | { available: false; reason: string; parties_frozen: false }
+  | {
+      available: false;
+      reason: string;
+      parties_frozen: false;
+      format: EInvoiceFormatChoice | null;
+      problems: Record<EInvoiceFormat, EInvoiceProblem[]>;
+    }
   | {
       available: true;
+      format: EInvoiceFormatChoice | null;
       parties_frozen: boolean;
       cancellation: boolean;
       problems: Record<EInvoiceFormat, EInvoiceProblem[]>;
+      issued: IssuedDocumentInfo[];
     };
 
 export interface RevenueAccount {
