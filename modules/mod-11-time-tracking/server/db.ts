@@ -113,5 +113,100 @@ export function openDb(path: string): Database.Database {
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_origin ON projects (origin_reference)');
   }
 
+  // ── Working time (server/schedules.ts, server/flextime.ts) ───────────
+  db.exec(`
+    -- A person's working-time model from a date on: which weekdays (ISO,
+    -- Monday = 1) and how many minutes a week. A contract change is a new row
+    -- from its date, never an edit — otherwise last year's leave and flexitime
+    -- would silently re-price. No weekly target (NULL) means no flexitime
+    -- account; the work days still decide what a day of leave costs.
+    CREATE TABLE IF NOT EXISTS work_schedules (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id    INTEGER NOT NULL REFERENCES employees(id),
+      valid_from     TEXT    NOT NULL,
+      weekly_minutes INTEGER CHECK (weekly_minutes IS NULL OR (weekly_minutes > 0 AND weekly_minutes <= 4200)),
+      work_days      TEXT    NOT NULL,
+      note           TEXT,
+      actor          TEXT    NOT NULL,
+      created_at     TEXT    NOT NULL,
+      UNIQUE (employee_id, valid_from)
+    );
+
+    -- What moves a flexitime balance besides the days themselves, append-only:
+    -- the balance brought in when the account starts, corrections, and
+    -- overtime paid out (stored negative — it leaves the account). The balance
+    -- itself is derived: these rows plus, per day, worked minus due.
+    CREATE TABLE IF NOT EXISTS flex_entries (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id    INTEGER NOT NULL REFERENCES employees(id),
+      kind           TEXT    NOT NULL CHECK (kind IN ('opening', 'adjustment', 'payout')),
+      minutes        INTEGER NOT NULL CHECK (minutes <> 0),
+      effective_date TEXT    NOT NULL,
+      note           TEXT,
+      actor          TEXT    NOT NULL,
+      created_at     TEXT    NOT NULL,
+      CHECK (kind <> 'payout' OR minutes < 0)
+    );
+    CREATE INDEX IF NOT EXISTS idx_flex_entries_employee ON flex_entries (employee_id, effective_date);
+  `);
+
+  // ── Absences (server/leave.ts) ───────────────────────────────────────
+
+  db.exec(`
+    -- The leave each person is entitled to, as an append-only ledger per year:
+    -- the yearly allowance, what was carried over, corrections. Remaining
+    -- leave is derived from it and the approved requests, never stored.
+    CREATE TABLE IF NOT EXISTS leave_entitlements (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL REFERENCES employees(id),
+      year        INTEGER NOT NULL,
+      kind        TEXT    NOT NULL CHECK (kind IN ('allowance', 'carryover', 'adjustment')),
+      days        REAL    NOT NULL CHECK (days <> 0),
+      note        TEXT,
+      actor       TEXT    NOT NULL,
+      created_at  TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_leave_entitlements_employee ON leave_entitlements (employee_id, year);
+
+    -- A request and where it stands. What it costs in days is derived from
+    -- the dates, the person's work days and the holidays — never stored.
+    CREATE TABLE IF NOT EXISTS leave_requests (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id   INTEGER NOT NULL REFERENCES employees(id),
+      type          TEXT    NOT NULL CHECK (type IN ('vacation', 'sick', 'special', 'unpaid', 'comp_time')),
+      start_date    TEXT    NOT NULL,
+      end_date      TEXT    NOT NULL,
+      half_day      INTEGER NOT NULL DEFAULT 0 CHECK (half_day IN (0, 1)),
+      note          TEXT,
+      status        TEXT    NOT NULL CHECK (status IN ('requested', 'approved', 'rejected', 'withdrawn')),
+      created_by    TEXT    NOT NULL,
+      created_at    TEXT    NOT NULL,
+      decided_by    TEXT,
+      decided_at    TEXT,
+      decision_note TEXT,
+      CHECK (start_date <= end_date),
+      CHECK (half_day = 0 OR start_date = end_date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_leave_requests_employee ON leave_requests (employee_id, start_date);
+
+    -- Every step of every request, append-only, with the person.
+    CREATE TABLE IF NOT EXISTS leave_events (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      request_id INTEGER NOT NULL REFERENCES leave_requests(id),
+      type       TEXT    NOT NULL,
+      actor      TEXT    NOT NULL,
+      note       TEXT,
+      at         TEXT    NOT NULL
+    );
+
+    -- The holiday calendar: the country, and regional or company days off.
+    CREATE TABLE IF NOT EXISTS leave_settings (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      settings   TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL
+    );
+  `);
+
   return db;
 }

@@ -9,6 +9,9 @@ import {
   submitTimesheet,
   todayIso,
 } from './tracking.js';
+import { addEntitlement, createRequest, decideRequest } from './leave.js';
+import { addSchedule } from './schedules.js';
+import { addFlexEntry, flexAccount } from './flextime.js';
 
 /**
  * Example dataset: 4 projects (mixed billable flags and hourly rates,
@@ -143,9 +146,50 @@ export function seed(db: Database.Database): void {
     submitTimesheet(db, anna, lastWeek, 'admin');
     submitTimesheet(db, bob, lastWeek, 'admin');
     submitTimesheet(db, clara, lastWeek, 'admin');
+
+    // ── Working time ───────────────────────────────────────────────────
+    // Flexitime accounts from the first seeded week: full-time, part-time on
+    // three days, and Eva without one. The seeded entries are a sample, not
+    // full weeks, so each account brings the balance it had in the "old
+    // system" — chosen so the board shows one person in plus, one with
+    // overtime above the 40 h cap, and one below the floor (David, none).
+    const admin = { actor: 'admin', access: 'manage' as const };
+    const schedule = (employeeId: number, weeklyMinutes: number, workDays: string) =>
+      addSchedule(db, employeeId, { validFrom: priorWeek, weeklyMinutes, workDays, note: null }, 'admin');
+    schedule(anna, 2310, '12345'); // 38.5 h
+    schedule(bob, 2400, '12345');
+    schedule(clara, 1200, '123'); // 20 h, Monday to Wednesday
+    schedule(david, 2400, '12345');
+    const today = todayIso();
+    for (const [person, wanted] of [
+      [anna, 390], // +6:30 today
+      [bob, 2760], // +46:00 — six hours of overtime
+      [clara, 120],
+    ] as const) {
+      const opening = wanted - flexAccount(db, person, today, admin).balance;
+      if (opening !== 0) addFlexEntry(db, person, { kind: 'opening', minutes: opening, effectiveDate: priorWeek, note: 'Carried over from the old system' }, 'admin', admin);
+    }
+
+    // ── Absences ───────────────────────────────────────────────────────
+    // Allowances for this year and next (a request near New Year may land
+    // in either), one approved and one pending vacation, one sick day.
+    const year = Number(thisWeek.slice(0, 4));
+    for (const person of [anna, bob, clara, david]) {
+      for (const y of [year, year + 1]) addEntitlement(db, person, { year: y, kind: 'allowance', days: 25, note: null }, 'admin');
+    }
+    // Monday to Friday of a week ahead, kept inside one year as the rules require.
+    const weekOff = (weeks: number): { startDate: string; endDate: string } => {
+      const startDate = addDays(thisWeek, 7 * weeks);
+      const friday = addDays(startDate, 4);
+      return { startDate, endDate: friday.slice(0, 4) === startDate.slice(0, 4) ? friday : `${startDate.slice(0, 4)}-12-31` };
+    };
+    const annaOff = createRequest(db, { employeeId: anna, type: 'vacation', ...weekOff(2), halfDay: false, note: 'Family visit' }, admin);
+    decideRequest(db, annaOff.id, 'approved', null, admin);
+    createRequest(db, { employeeId: bob, type: 'vacation', ...weekOff(3), halfDay: false, note: null }, admin);
+    createRequest(db, { employeeId: david, type: 'sick', startDate: addDays(lastWeek, 4), endDate: addDays(lastWeek, 4), halfDay: false, note: null }, admin);
   })();
 
-  console.log('[seed] example data created (4 projects, 5 employees, 3 weeks of entries)');
+  console.log('[seed] example data created (4 projects, 5 employees, 3 weeks of entries, absences)');
 }
 
 // Allow `npm run seed` to run this file directly.

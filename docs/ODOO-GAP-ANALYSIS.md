@@ -25,11 +25,13 @@ Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
 - **Größte verbleibende Lücken:**
   - **Projekte & Aufgaben** — die Klammer zwischen Angebot, Arbeit, Zeit und
     Rechnung.
-  - **HR-Grundbedarf:** Abwesenheiten, Mitarbeiter-Self-Service.
-  - **Lagertiefe:** Barcode, Lagerplätze, Reservierung, Bewertung.
+  - **HR-Grundbedarf:** Mitarbeiter-Self-Service über die Abwesenheiten hinaus
+    (Abwesenheiten sind in MOD-11 umgesetzt).
+  - **Lagertiefe:** Lagerplätze, Kommissionierung, Bewertung (Barcode und
+    Reservierung sind umgesetzt).
   - **Eingangsseite:** Belegerkennung (OCR), 3-Way-Match, PEPPOL.
 - **Sinnvollste neue Module** (Abschnitt 3): Projekte & Aufgaben,
-  Abwesenheiten, Terminbuchung, Spesen, Formulare/Umfragen, Wissen.
+  Terminbuchung, Spesen, Formulare/Umfragen, Wissen.
   **Nicht bauen:** Finanzbuchhaltung, Lohnverrechnung, Kasse (RKSV), MRP,
   Website-Builder, VoIP, IoT, Social Marketing.
 - **„Open Source + AI“ trägt — für dieses Repo sogar besser als für Odoo**,
@@ -61,7 +63,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
 | CRM | ✅ MOD-10 (Pipeline, Aktivitäten, Übergabe an MOD-13, mehrere Nutzer mit Stufen) | Web-Lead-Formular, CSV-Import fehlen; Philosophie „no AI“ ist ein Verkaufsargument, beibehalten |
-| Sales (Angebot → Auftrag) | ✅ MOD-13 Angebote → MOD-17 Auftrag/Lieferschein → MOD-04 Rechnung | Teillieferung, Warenausgang in MOD-03 und Rechnung je Lieferung umgesetzt; Reservierung offen |
+| Sales (Angebot → Auftrag) | ✅ MOD-13 Angebote → MOD-17 Auftrag/Lieferschein → MOD-04 Rechnung | Teillieferung, Reservierung bei Auftragsbestätigung, Warenausgang in MOD-03 und Rechnung je Lieferung umgesetzt |
 | Point of Sale | ❌ | ⛔ in AT RKSV-pflichtig (Signatureinheit, DEP, FinanzOnline) — Haftungsrisiko ohne Lizenzertrag |
 | Subscriptions (E) | 🟡 MOD-04 wiederkehrende Rechnungen (Vorlagen → Entwürfe je Periode) | ✅ als Erweiterung von MOD-04 umgesetzt; nutzungsbasierte Abrechnung und Proration bleiben offen |
 | Rental (E) | ❌ | ⛔ Nische; über Terminbuchung + MOD-03 abbildbar |
@@ -80,8 +82,8 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
-| Inventory | ✅ MOD-03 (Ledger, Lager, PO-Wareneingang, Inventur, Warenausgang je Lieferschein aus MOD-17) | Lagerplätze, Reservierungen/Kommissionierung, Bewertung (gleitender Ø), mehrere Ausgangslager je Auftrag fehlen |
-| Barcode (E) | ❌ | 🔜 in MOD-03: Kamera-Scan im Browser (BarcodeDetector), Etikettendruck — hoher Nutzen, kleiner Aufwand |
+| Inventory | ✅ MOD-03 (Ledger, Lager, PO-Wareneingang, Inventur, Warenausgang je Lieferschein, Reservierung je Auftrag aus MOD-17) | Lagerplätze, Kommissionierung, Bewertung (gleitender Ø), mehrere Ausgangslager je Auftrag fehlen |
+| Barcode (E) | ✅ MOD-03: GTIN mit Prüfziffer, Scan per Handscanner oder Kamera (BarcodeDetector), Etiketten EAN/UPC bzw. Code 128 — gegen python-barcode geprüft | Etikettendrucker-Sprachen (ZPL), GS1-128 mit AIs offen |
 | Purchase | ✅ MOD-06 (RFQ, PO, Freigabestufen, ERP-CSV) | 3-Way-Match mit MOD-03/MOD-04, Lieferanten-Mail via PS-03 |
 | Manufacturing/MRP, PLM, Quality (E) | ❌ | ⛔ eigener Markt; höchstens ein schlankes Stücklisten-/Fertigungsauftragsmodul auf Anfrage |
 | Maintenance | ❌ | 🟡 **neues kleines Modul „Anlagen & Wartung“** (Geräte, Intervalle, Prüfprotokolle) — passt zum Ethos (Fälligkeit abgeleitet, nie gespeichert) |
@@ -91,7 +93,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
 | Employees | ✅ MOD-05 (Verzeichnis, Org-Baum, Onboarding-Liste) | Mitarbeiter-Self-Service fehlt |
-| Time Off | ❌ | 🔜 **neues Modul** — höchste HR-Priorität |
+| Time Off | ✅ MOD-11 (Urlaub, Krankenstand, Sonderurlaub; Freigabe, Resturlaub abgeleitet, Feiertage AT/DE, Teamkalender) | Kein eigenes Modul: Abwesenheiten gehören zur Zeiterfassung. Zeitausgleich wird vom Gleitzeitkonto abgezogen. Offen: Verfall von Resturlaub |
 | Recruitment | ❌ | 🟡 neues Modul, mittlere Priorität (DSGVO-Löschfristen für Bewerbungen sind der Kern) |
 | Appraisals, Referrals (E) | ❌ | ⛔ |
 | Fleet | ❌ | 🟡 im Modul „Anlagen & Wartung“ mit abdecken (Fahrzeug = Anlage) |
@@ -113,7 +115,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
 | Project | ❌ (MOD-11 hat Projekte nur als Buchungsziel) | 🔜 **neues Modul „Projekte & Aufgaben“** — die fehlende Klammer zwischen MOD-13, MOD-11 und MOD-04 |
-| Timesheet (Timer, Erinnerung, Freigabe) | 🟡 MOD-11 (Tageserfassung, Wochenfreigabe) | Timer, Mitarbeiter-Login „meine Zeiten“ ergänzen |
+| Timesheet (Timer, Erinnerung, Freigabe) | 🟡 MOD-11 (Tageserfassung, Wochenfreigabe, „nur eigene Zeiten“, Gleitzeitkonto mit Soll aus datierten Arbeitszeitmodellen, Überstunden über der Obergrenze, Auszahlung, Monats-CSV für die Lohnverrechnung) | Timer, Erinnerungen ergänzen |
 | Helpdesk (E) | ✅ MOD-12 | Anhänge (PS-06), Textbausteine, Geschäftszeiten-SLA, CSAT, IMAP-Brücke |
 | Planning (E) | ❌ | 🟡 in „Projekte & Aufgaben“ als Ressourcenansicht, nicht separat |
 | Appointments (E) | ❌ | 🔜 **neues Modul „Terminbuchung“** — für KMU (Arzt, Handwerk, Beratung) einer der greifbarsten Nutzen |
@@ -161,8 +163,9 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    Notes**: angenommenes Angebot → Auftragsbestätigung, Teillieferungen mit
    Lieferscheinen (nie über den Auftrag hinaus), jeder Lieferschein einzeln in
    MOD-04 verrechnet (Transfer-Art `delivery`), Warenausgang je Lieferschein
-   in MOD-03. Offen: Reservierung bei Auftragsbestätigung.
-6. **MOD-03: Barcode, Lagerplätze, Reservierungen, Bewertung.**
+   in MOD-03, Reservierung bei Auftragsbestätigung.
+6. 🟡 **MOD-03:** ✅ Barcode und Etiketten, ✅ Reservierungen. Offen:
+   Lagerplätze, Kommissionierung, Bewertung.
 7. **MOD-11: Timer + Mitarbeiter-Self-Service.**
 8. **MOD-12: Anhänge (PS-06), Textbausteine, Geschäftszeiten, CSAT,
    IMAP-Brücke über PS-05.**
@@ -176,9 +179,9 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 
 ### Empfohlene Reihenfolge ab hier
 
-1. **MOD-03 Barcode + Reservierung** — rundet die neue Auftragskette auf der
-   Lagerseite ab; Barcode im Browser ist kleiner Aufwand mit großem Nutzen.
-2. **MOD-19 Abwesenheiten** — fast jeder Kunde braucht es, 2–3 Wochen.
+1. ✅ **MOD-03 Barcode + Reservierung** (umgesetzt).
+2. ✅ **Abwesenheiten in MOD-11** (umgesetzt — kein eigenes Modul, sie gehören
+   zur Zeiterfassung).
 3. **MOD-18 Projekte & Aufgaben** — das größte fehlende Stück.
 4. **PS-04 Dokumentextraktion** + **MOD-06 3-Way-Match** — die Eingangsseite.
 5. **MOD-11 Timer/Self-Service**, **MOD-12 Anhänge/CSAT** — Komfort in
@@ -189,7 +192,6 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 | # | Modul | Odoo-Pendant | Warum | Grobe Größe | Platform Services |
 | --- | --- | --- | --- | --- | --- |
 | MOD-18 | **Projekte & Aufgaben** | Project, To-Do, Planning | Klammer Angebot → Arbeit → Zeit → Rechnung; Kanban + Meilensteine + Ressourcenblick | 4–5 Wo | 01, 02, 03, 07 |
-| MOD-19 | **Abwesenheiten** | Time Off | Jedes KMU braucht es; Resturlaub abgeleitet aus Anspruch − Buchungen (Ledger-Idiom wie MOD-03); Feiertage AT/DE | 2–3 Wo | 01, 02, 03 |
 | MOD-20 | **Terminbuchung** | Appointments | Öffentliche Buchungsseite, Ressourcen, iCal; kein Doppelbuchen als bewiesene Invariante | 3–4 Wo | 03, 08 (Anzahlung) |
 | MOD-21 | **Spesen & Reisekosten** | Expenses | Belegfoto → PS-04-Extraktion → Freigabe → Export/Auszahlung via MOD-04 SEPA; AT-Taggeld/Kilometergeld als Konfig | 3–4 Wo | 04, 06, 07, 12 |
 | MOD-22 | **Formulare & Umfragen** | Surveys, Web-Lead-Formulare | Ein Baustein, viele Konsumenten (MOD-10, MOD-12, MOD-14) | 2–3 Wo | 03, 02 |

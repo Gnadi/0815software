@@ -68,6 +68,9 @@ interface OrderStored {
   cancel_reason: string | null;
   created_at: string;
   created_by: string;
+  reservation_status: 'reserved' | 'short' | 'failed' | 'released' | null;
+  reservation_note: string | null;
+  reservation_at: string | null;
 }
 
 interface LineStored {
@@ -206,6 +209,10 @@ export function orderDetail(db: Database.Database, id: number): OrderDetail {
     cancel_reason: order.cancel_reason,
     created_by: order.created_by,
     events,
+    reservation:
+      order.reservation_status === null
+        ? null
+        : { status: order.reservation_status, note: order.reservation_note, at: order.reservation_at! },
   };
 }
 
@@ -435,4 +442,18 @@ export function recordStock(
     );
   })();
   return getDeliveryNote(db, noteId);
+}
+
+/** What MOD-03 answered about an order's reservation — with the person, on the history. */
+export function recordReservation(
+  db: Database.Database,
+  orderId: number,
+  status: 'reserved' | 'short' | 'failed' | 'released',
+  note: string | null,
+  actor: string,
+): void {
+  db.transaction(() => {
+    db.prepare('UPDATE orders SET reservation_status = ?, reservation_note = ?, reservation_at = ? WHERE id = ?').run(status, note, nowIso(), orderId);
+    record(db, orderId, `stock_${status}`, note, actor);
+  })();
 }

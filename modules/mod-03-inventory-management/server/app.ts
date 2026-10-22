@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
 import { UNITS, type FieldError, type Unit } from '../shared/types.js';
+import { isValidGtin } from '../shared/barcode.js';
 import {
   accessOf,
   actorOf,
@@ -17,6 +18,7 @@ import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { stockCsv } from './csv.js';
 import { recordGoodsIssue } from './goods-issues.js';
+import { listReservations, releaseReservations, setReservations } from './reservations.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import {
@@ -81,6 +83,7 @@ interface ProductInput {
   name: string;
   unit: Unit;
   reorder_point: number;
+  barcode: string | null;
 }
 
 function validateProduct(input: Record<string, unknown>): ProductInput {
@@ -100,8 +103,24 @@ function validateProduct(input: Record<string, unknown>): ProductInput {
   if (Number.isNaN(reorder) || reorder < 0) {
     errors.push({ field: 'reorder_point', message: 'Reorder point must be a number ≥ 0' });
   }
+  // Spaces as printed under the bars are dropped; the check digit is what a
+  // scanner verifies, so a typo is refused here rather than at the till.
+  let barcode: string | null = null;
+  if (input.barcode !== undefined && input.barcode !== null && input.barcode !== '') {
+    const raw = typeof input.barcode === 'string' ? input.barcode.replace(/\s+/g, '') : '';
+    if (!isValidGtin(raw)) {
+      errors.push({ field: 'barcode', message: 'Barcode must be an EAN-13, EAN-8, UPC-A or GTIN-14 with a valid check digit' });
+    } else barcode = raw;
+  }
   if (errors.length > 0) fail(errors);
-  return { sku, name, unit, reorder_point: reorder };
+  return { sku, name, unit, reorder_point: reorder, barcode };
+}
+
+/** One barcode, one product — named as such rather than as a SKU clash. */
+function assertBarcodeFree(db: Database.Database, barcode: string | null, ownId: number | null): void {
+  if (barcode === null) return;
+  const other = db.prepare('SELECT sku FROM products WHERE barcode = ? AND id IS NOT ?').get(barcode, ownId) as { sku: string } | undefined;
+  if (other) fail([{ field: 'barcode', message: `Barcode ${barcode} already belongs to ${other.sku}` }]);
 }
 
 export interface AppOptions {
@@ -265,11 +284,55 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       return { sku, quantity: quantity(line.quantity, `lines[${i}].quantity`, errors) };
     });
     if (errors.length > 0) fail(errors);
-    const { issue, replayed } = recordGoodsIssue(db, { source, reference, warehouseCode, actor, lines });
+    const orderReference = typeof input.order_reference === 'string' && input.order_reference.trim() !== '' ? input.order_reference.trim().slice(0, 60) : null;
+    const { issue, replayed } = recordGoodsIssue(db, { source, reference, warehouseCode, actor, lines, orderReference });
     if (!replayed) {
       void platform.audit({ actor, action: 'stock.goods_issue', resource: `goods_issue:${source}:${reference}`, metadata: { warehouse: warehouseCode, lines: issue.lines } });
     }
     res.status(replayed ? 200 : 201).json({ ...issue, replayed });
+  });
+
+  // Reserve stock for an order (MOD-17): PUT the order's article lines, as a
+  // whole — idempotent, and what is no longer on it is released. Accepted
+  // even when stock is short; the shortage comes back per product.
+  app.put('/api/reservations', (req, res) => {
+    requireServiceToken(req);
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const text = (field: string, max: number): string => {
+      const v = input[field];
+      if (typeof v !== 'string' || v.trim() === '' || v.length > max) {
+        errors.push({ field, message: `${field} is required (max ${max} characters)` });
+        return '';
+      }
+      return v.trim();
+    };
+    const source = text('source', 60);
+    const reference = text('reference', 60);
+    const warehouseCode = text('warehouse_code', 30);
+    const actor = text('actor', 200);
+    const raw = Array.isArray(input.lines) ? (input.lines as Record<string, unknown>[]) : [];
+    const lines = raw.map((line, i) => {
+      const sku = typeof line.sku === 'string' ? line.sku.trim() : '';
+      if (sku === '') errors.push({ field: `lines[${i}].sku`, message: 'sku is required' });
+      return { sku, quantity: quantity(line.quantity, `lines[${i}].quantity`, errors) };
+    });
+    if (errors.length > 0) fail(errors);
+    const outcome = setReservations(db, { source, reference, warehouseCode, actor, lines });
+    void platform.audit({ actor, action: 'stock.reserved', resource: `reservation:${source}:${reference}`, metadata: { warehouse: warehouseCode, lines, short: outcome.short } });
+    res.json(outcome);
+  });
+
+  // Release everything an order reserved (it was cancelled). Idempotent.
+  app.post('/api/reservations/release', (req, res) => {
+    requireServiceToken(req);
+    const { source, reference, actor } = body(req);
+    if (typeof source !== 'string' || typeof reference !== 'string' || typeof actor !== 'string' || !source || !reference || !actor.trim()) {
+      fail([{ field: 'reference', message: 'source, reference and actor are required' }]);
+    }
+    const released = releaseReservations(db, source as string, reference as string, (actor as string).trim());
+    if (released > 0) void platform.audit({ actor: (actor as string).trim(), action: 'stock.released', resource: `reservation:${source}:${reference}` });
+    res.json({ released });
   });
 
   // The warehouses, for a caller's settings screen to choose the one it issues from.
@@ -361,6 +424,11 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     res.send(stockCsv(warehouses, stockOverview(db, overviewOpts(req))));
   });
 
+  // What is promised to orders, with what is still reserved (derived).
+  app.get('/api/reservations', (_req, res) => {
+    res.json({ reservations: listReservations(db) });
+  });
+
   // ── Products ─────────────────────────────────────────────────────────
   app.get('/api/products', (_req, res) => {
     res.json({ products: db.prepare('SELECT * FROM products ORDER BY sku').all() });
@@ -368,11 +436,24 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
 
   app.post('/api/products', (req, res) => {
     const values = validateProduct(body(req));
+    assertBarcodeFree(db, values.barcode, null);
     const info = db
-      .prepare('INSERT INTO products (sku, name, unit, reorder_point) VALUES (?, ?, ?, ?)')
-      .run(values.sku, values.name, values.unit, values.reorder_point);
+      .prepare('INSERT INTO products (sku, name, unit, reorder_point, barcode) VALUES (?, ?, ?, ?, ?)')
+      .run(values.sku, values.name, values.unit, values.reorder_point, values.barcode);
     void platform.audit({ actor: actorOf(res, auth), action: 'product.created', resource: `product:${info.lastInsertRowid}`, after: values });
     res.status(201).json(db.prepare('SELECT * FROM products WHERE id = ?').get(info.lastInsertRowid));
+  });
+
+  // What a scan resolves to: the product whose GTIN or SKU it is. Scanners
+  // type the code and Enter, so the screens send whatever was read.
+  app.get('/api/products/lookup', (req, res) => {
+    const code = typeof req.query.code === 'string' ? req.query.code.trim() : '';
+    if (code === '') fail([{ field: 'code', message: 'code is required' }]);
+    const product =
+      db.prepare('SELECT * FROM products WHERE barcode = ?').get(code.replace(/\s+/g, '')) ??
+      db.prepare('SELECT * FROM products WHERE sku = ?').get(code.toUpperCase());
+    if (!product) throw new DomainError(404, `No product with barcode or SKU ${code}`);
+    res.json({ product });
   });
 
   app.get('/api/products/:id', (req, res) => {
@@ -385,11 +466,13 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const existing = db.prepare('SELECT id FROM products WHERE id = ?').get(req.params.id);
     if (!existing) throw new DomainError(404, 'Product not found');
     const values = validateProduct(body(req));
-    db.prepare('UPDATE products SET sku = ?, name = ?, unit = ?, reorder_point = ? WHERE id = ?').run(
+    assertBarcodeFree(db, values.barcode, Number(req.params.id));
+    db.prepare('UPDATE products SET sku = ?, name = ?, unit = ?, reorder_point = ?, barcode = ? WHERE id = ?').run(
       values.sku,
       values.name,
       values.unit,
       values.reorder_point,
+      values.barcode,
       req.params.id,
     );
     res.json(db.prepare('SELECT * FROM products WHERE id = ?').get(req.params.id));

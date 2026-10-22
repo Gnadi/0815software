@@ -116,6 +116,22 @@ export function OrderDetail({ id, onBack, onAuthLost }: Props) {
         </div>
       )}
 
+      {order.reservation && (
+        <div className={`mono ${order.reservation.status === 'reserved' || order.reservation.status === 'released' ? 'totals__row' : 'resource__error'}`}>
+          STOCK {order.reservation.status.toUpperCase()}
+          {order.reservation.note && <> — {order.reservation.note}</>}
+          <span className="table__id"> · {order.reservation.at.slice(0, 16).replace('T', ' ')}</span>
+          {(order.reservation.status === 'short' || order.reservation.status === 'failed') && deliverable && (
+            <Can>
+              {' '}
+              <button type="button" className="rowbtn mono" disabled={busy} onClick={() => void run(() => api.reserveStock(order.id))}>
+                RESERVE AGAIN
+              </button>
+            </Can>
+          )}
+        </div>
+      )}
+
       <div className="stat-row">
         <div className="stat">
           <div className="stat__label mono">NET</div>

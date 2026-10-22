@@ -74,6 +74,11 @@ export interface OrderDetail extends OrderRow {
   cancel_reason: string | null;
   created_by: string;
   events: OrderEvent[];
+  /**
+   * The stock reservation in MOD-03, as it last answered: null while none
+   * was asked for; `short` names what the warehouse cannot cover yet.
+   */
+  reservation: { status: 'reserved' | 'short' | 'failed' | 'released'; note: string | null; at: string } | null;
 }
 
 export interface DeliveryNoteLine {
@@ -123,6 +128,8 @@ export interface Settings {
   stock_booking: boolean;
   /** The MOD-03 warehouse code goods are issued from. */
   stock_warehouse: string | null;
+  /** Reserve the article lines in MOD-03 as soon as an order is confirmed. */
+  stock_reservation: boolean;
 }
 
 export interface SettingsResponse {

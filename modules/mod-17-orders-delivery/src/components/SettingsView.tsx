@@ -15,6 +15,7 @@ export function SettingsView({ onAuthLost }: { onAuthLost: () => void }) {
   const [address, setAddress] = useState('');
   const [vatId, setVatId] = useState('');
   const [booking, setBooking] = useState(false);
+  const [reserving, setReserving] = useState(false);
   const [warehouse, setWarehouse] = useState('');
   const [error, setError] = useState('');
   const [details, setDetails] = useState<FieldError[]>([]);
@@ -27,6 +28,7 @@ export function SettingsView({ onAuthLost }: { onAuthLost: () => void }) {
     setAddress((res.settings.seller_address ?? []).join('\n'));
     setVatId(res.settings.seller_vat_id ?? '');
     setBooking(res.settings.stock_booking);
+    setReserving(res.settings.stock_reservation);
     setWarehouse(res.settings.stock_warehouse ?? '');
   };
 
@@ -56,6 +58,7 @@ export function SettingsView({ onAuthLost }: { onAuthLost: () => void }) {
         seller_address: address.split('\n').map((l) => l.trim()).filter((l) => l !== ''),
         seller_vat_id: vatId || null,
         stock_booking: booking,
+        stock_reservation: reserving,
         stock_warehouse: warehouse || null,
       });
       fill(res);
@@ -119,6 +122,10 @@ export function SettingsView({ onAuthLost }: { onAuthLost: () => void }) {
             <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" disabled={!editable} checked={booking} onChange={(e) => setBooking(e.target.checked)} />
               <span className="mono">BOOK A GOODS ISSUE FOR EVERY DELIVERY NOTE WITH ARTICLE NUMBERS</span>
+            </label>
+            <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" disabled={!editable} checked={reserving} onChange={(e) => setReserving(e.target.checked)} />
+              <span className="mono">RESERVE THE ARTICLES AS SOON AS AN ORDER IS CONFIRMED</span>
             </label>
             <label className="field">
               <span className="field__label mono">ISSUE FROM WAREHOUSE</span>

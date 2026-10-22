@@ -65,6 +65,8 @@ export const api = {
     request<DeliveryNote>(`/api/orders/${id}/delivery-notes`, send('POST', values)),
   setSku: (orderId: number, lineId: number, sku: string) =>
     request<OrderDetail>(`/api/orders/${orderId}/lines/${lineId}/sku`, send('PUT', { sku })),
+  /** Reserve (again) an order's articles in MOD-03. */
+  reserveStock: (orderId: number) => request<OrderDetail>(`/api/orders/${orderId}/reserve-stock`, send('POST')),
   /** Book (again) the goods issue of a delivery note in MOD-03. */
   bookStock: (noteId: number) => request<DeliveryNote>(`/api/delivery-notes/${noteId}/book-stock`, send('POST')),
   settings: () => request<SettingsResponse>('/api/settings'),

@@ -81,6 +81,13 @@ Local dev login: `admin` / `admin`.
   does not refuse the delivery — it happened — but marks the note *failed*
   with MOD-03's reason; *Book stock* retries, and MOD-03 books each note once.
   An article number set on a line later reaches the deliveries from then on.
+- **Stock is reserved when an order is confirmed** (with reserving on in
+  Settings and MOD-03 wired; `test/settings-stock.test.ts`). The ordered
+  quantity per article goes to MOD-03, which derives what is still reserved
+  as deliveries go out — each delivery note names its order. Changing an
+  article number reserves again; cancelling releases. A shortage never
+  refuses the order: it is recorded as *short* with what is missing, a
+  failure as *failed*, and *Reserve again* retries.
 - **The letterhead: Settings > PS-11 > environment, field by field**
   (`test/seller.test.ts`). What the admin sets wins; otherwise the stack's
   `self` party in PS-11 Customers (as in MOD-04); otherwise `SELLER_*`. A
@@ -140,6 +147,7 @@ do. The contract is [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 | `POST /api/orders/import-offer` | edit | `{offer_number}` — confirm an accepted MOD-13 offer (501 without `OFFERS_URL`) |
 | `POST /api/orders/:id/delivery-notes` | edit | `{lines:[{order_line_id, quantity}], delivered_on?, note?}` |
 | `GET /api/delivery-notes/:id/pdf` | view | the delivery note, without prices |
+| `POST /api/orders/:id/reserve-stock` | edit | reserve (again) the order's articles in MOD-03 (501 without `INVENTORY_URL`) |
 | `POST /api/delivery-notes/:id/book-stock` | edit | book (again) its goods issue in MOD-03 (501 without `INVENTORY_URL`) |
 | `PUT /api/orders/:id/lines/:lineId/sku` | edit | `{sku}` — map a line to a MOD-03 article (empty = service) |
 | `GET /api/settings` | view | letterhead (with each field's source), stock booking, MOD-03's warehouses |
@@ -155,9 +163,9 @@ do. The contract is [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## Out of scope
 
-- **Reservations.** Stock is issued when goods leave, not reserved when the
-  order is confirmed; MOD-03 tracks physical stock only. One warehouse per
-  installation issues the goods.
+- **Several warehouses per order.** One warehouse per installation reserves
+  and issues the goods; picking lists and backorder automation are
+  commissioned work.
 - **Returns and corrections of a delivery.** A delivery note is a fact; goods
   coming back are a credit note in MOD-04 (and, later, a return document).
 - **Changing an order.** Lines are fixed once confirmed. A different order is
@@ -182,7 +190,7 @@ What each one missing means — the module itself never needs any of them:
 | Not wired | What happens |
 | --- | --- |
 | MOD-13 (`OFFERS_URL`) | orders are entered by hand; *Confirm offer* answers 501 |
-| MOD-03 (`INVENTORY_URL`) | delivery notes are written, no stock is booked; *Book stock* answers 501 |
+| MOD-03 (`INVENTORY_URL`) | orders and delivery notes are written, no stock is reserved or booked; *Reserve again* / *Book stock* answer 501 |
 | MOD-04 (no `ORDERS_URL` there) | delivery notes are printed and billed by hand; they show *not yet invoiced* |
 | PS-11 (`CUSTOMERS_URL`) | the letterhead is Settings, then `SELLER_*` |
 | PS-01 / PS-07 | the local admin signs in; no audit trail |

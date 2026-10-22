@@ -40,6 +40,8 @@ export interface Product {
   name: string;
   unit: Unit;
   reorder_point: number;
+  /** GTIN (EAN-13/8, UPC-A, GTIN-14) with a valid check digit, or null. */
+  barcode: string | null;
 }
 
 export interface Supplier {
@@ -72,9 +74,14 @@ export interface StockRow {
   name: string;
   unit: Unit;
   reorder_point: number;
+  barcode: string | null;
   /** Level per warehouse id (only warehouses with movements appear). */
   levels: Record<number, number>;
   total: number;
+  /** Still reserved for orders, over all warehouses — derived. */
+  reserved: number;
+  /** total − reserved; below zero when orders want more than is there. */
+  available: number;
   low: boolean;
 }
 
@@ -116,4 +123,27 @@ export interface GoodsIssue {
   actor: string;
   created_at: string;
   lines: { sku: string; product_id: number; quantity: number }[];
+}
+
+/** Stock promised to another module's order. `open` is derived: still reserved. */
+export interface Reservation {
+  id: number;
+  source: string;
+  /** The order it is for, e.g. "AB-2026-0001". */
+  reference: string;
+  sku: string;
+  product_name: string;
+  warehouse_code: string;
+  /** What the order needs in total. */
+  quantity: number;
+  /** quantity − what goods issues for the order took; 0 once released. */
+  open: number;
+  actor: string;
+  updated_at: string;
+}
+
+export interface ReservationOutcome {
+  reservations: Reservation[];
+  /** Products the warehouse cannot cover for this order right now. */
+  short: { sku: string; open: number; available: number; missing: number }[];
 }

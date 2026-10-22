@@ -81,6 +81,8 @@ export const api = {
   createProduct: (values: Record<string, unknown>) => request<Product>('/api/products', post(values)),
   updateProduct: (id: number, values: Record<string, unknown>) =>
     request<Product>(`/api/products/${id}`, { method: 'PUT', body: JSON.stringify(values) }),
+  /** The product a scanned code (GTIN or SKU) belongs to — 404 when none. */
+  lookupProduct: (code: string) => request<{ product: Product }>(`/api/products/lookup?code=${encodeURIComponent(code)}`),
   deleteProduct: (id: number) => request<{ ok: true }>(`/api/products/${id}`, { method: 'DELETE' }),
 
   createMovement: (values: Record<string, unknown>) =>

@@ -764,3 +764,79 @@ select.field__input {
     padding: 24px 20px 48px;
   }
 }
+
+/* ── Team calendar (absences) ───────────────────────────────────────── */
+.leavecal th,
+.leavecal td {
+  padding: 6px 4px;
+}
+
+.leavecal__day,
+.leavecal__cell {
+  min-width: 22px;
+  text-align: center;
+  font-size: 10px;
+}
+
+.leavecal .is-off {
+  background: rgba(232, 228, 220, 0.05);
+  color: var(--fg-mute);
+}
+
+.leavecal__cell.is-approved {
+  color: #0a0a0a;
+  background: var(--accent);
+}
+
+.leavecal__cell.is-requested {
+  color: var(--fg);
+  outline: 1px solid var(--accent);
+  outline-offset: -3px;
+}
+
+/* ── Flexitime ──────────────────────────────────────────────────────── */
+.resource__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.table__num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.qty-neg {
+  color: var(--danger);
+}
+
+.qty-pos {
+  color: var(--accent);
+}
+
+.stat--total {
+  border-color: var(--line-strong);
+}
+
+.linklike {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.table tr.is-selected td {
+  background: rgba(232, 228, 220, 0.06);
+}
+
+.table tr.is-off td {
+  color: var(--fg-mute);
+}
+
+.receive-bar__hint {
+  font-size: 11px;
+}
