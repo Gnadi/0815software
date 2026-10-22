@@ -143,7 +143,7 @@ const contactMeta = [
 
 .contact__grid {
   display: grid;
-  grid-template-columns: 120px 1fr 1fr;
+  grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr);
   gap: 64px;
   align-items: start;
 }
@@ -213,7 +213,7 @@ const contactMeta = [
 
 .contact-form__row-2 {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -242,6 +242,7 @@ const contactMeta = [
 
 .contact-form__input,
 .contact-form__textarea {
+  min-width: 0;
   background: transparent;
   border: none;
   border-bottom: 1px solid var(--line-strong);
@@ -316,7 +317,7 @@ const contactMeta = [
 
 /* ─── Responsive ──────────────────────────────────────────────────── */
 @media (max-width: 1199px) {
-  .contact__grid { grid-template-columns: 120px 1fr 1fr; gap: 40px; }
+  .contact__grid { grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr); gap: 40px; }
   .contact__h2 { font-size: 56px; letter-spacing: -1.8px; }
 }
 
