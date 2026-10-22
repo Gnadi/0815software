@@ -1,8 +1,8 @@
 import type Database from 'better-sqlite3';
-import { computeTotals } from '../shared/money.js';
+import { computeTotals, type LineAmounts } from '../shared/money.js';
 import { BUCHUNGSSTAPEL_COLUMNS } from '../shared/datev-columns.js';
 import type { TaxExemptionCategory } from '../shared/types.js';
-import { DomainError, invoiceLines, nowIso } from './invoices.js';
+import { DomainError, nowIso } from './invoices.js';
 
 /**
  * Bookkeeping exports: the issued invoices of a period as a booking batch the
@@ -181,6 +181,21 @@ function changedPaths(before: unknown, after: unknown, prefix = ''): string[] {
 }
 
 /**
+ * A fiscal-year start that exists in every year: the regex alone let 02-30 or
+ * 04-31 through, which DATEV rejects in the header and `new Date` silently
+ * rolls into the next month — moving the one-fiscal-year boundary with it.
+ * 02-29 is refused too: it does not exist three years in four.
+ */
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+export function validFiscalStart(value: string): boolean {
+  const match = /^(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  return month >= 1 && month <= 12 && day >= 1 && day <= DAYS_IN_MONTH[month - 1]!;
+}
+
+/**
  * Validate and store the settings as the Settings screen sends them. Returns
  * the stored settings and which of them changed, for the audit trail.
  */
@@ -195,8 +210,8 @@ export function writeSettings(
   const problems: Problem[] = [];
   const chart = d.chart === 'SKR04' ? 'SKR04' : 'SKR03';
   const fiscal = typeof d.fiscal_year_start === 'string' ? d.fiscal_year_start : '01-01';
-  if (!/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(fiscal)) {
-    problems.push({ field: 'datev.fiscal_year_start', message: 'must be MM-DD, e.g. 01-01' });
+  if (!validFiscalStart(fiscal)) {
+    problems.push({ field: 'datev.fiscal_year_start', message: 'must be a real MM-DD date, e.g. 01-01 (not 02-29 or later in February)' });
   }
   const settings: AccountingSettings = {
     datev: {
@@ -291,6 +306,22 @@ export function bookingsFor(
     )
     .all(range) as InvoiceRow[];
 
+  // Every line of the period in ONE query, not one per invoice: a full-year
+  // export reads thousands of invoices. json_each keeps the id list a single
+  // bound parameter, so no SQLite variable limit applies.
+  const linesByInvoice = new Map<number, LineAmounts[]>();
+  const lines = db
+    .prepare(
+      `SELECT invoice_id, quantity, unit_price_cents, vat_rate FROM invoice_lines
+       WHERE invoice_id IN (SELECT value FROM json_each(?)) ORDER BY invoice_id, position, id`,
+    )
+    .all(JSON.stringify(invoices.map((i) => i.id))) as (LineAmounts & { invoice_id: number })[];
+  for (const line of lines) {
+    const list = linesByInvoice.get(line.invoice_id) ?? [];
+    list.push(line);
+    linesByInvoice.set(line.invoice_id, list);
+  }
+
   const out: Booking[] = [];
   for (const invoice of invoices) {
     // The name as it was invoiced, where the invoice froze it.
@@ -304,7 +335,7 @@ export function bookingsFor(
       delivery_date: invoice.delivery_date,
       payment_terms_days: invoice.payment_terms_days,
     };
-    const totals = computeTotals(invoiceLines(db, invoice.id));
+    const totals = computeTotals(linesByInvoice.get(invoice.id) ?? []);
     const rows = totals.by_rate.map((r) => ({
       revenue_key: revenueKeyOf(r.rate, invoice.tax_exemption_category),
       rate: r.rate,
@@ -399,12 +430,24 @@ function ymd(iso: string): string {
   return iso.replace(/-/g, '');
 }
 
-type ExportProblem = { field: string; message: string };
+/**
+ * `once` collapses a problem that every booking of a group would raise — one
+ * missing revenue account — into a single line naming the first invoice that
+ * needs it. Everything else is reported once per distinct message.
+ */
+type ExportProblem = { field: string; message: string; once?: boolean };
 
 function refuse(problems: ExportProblem[]): never {
-  // Deduplicate: one missing account is one problem, however many bookings need it.
+  // Deduplicate: one missing account is one problem, however many bookings
+  // need it — but two customers with a bad debtor account are two problems,
+  // so the key is the whole problem, not only its field.
   const seen = new Set<string>();
-  const unique = problems.filter((p) => (seen.has(p.field) ? false : (seen.add(p.field), true)));
+  const unique = problems
+    .filter((p) => {
+      const key = p.once ? p.field : `${p.field}\u0000${p.message}`;
+      return seen.has(key) ? false : (seen.add(key), true);
+    })
+    .map(({ field, message }) => ({ field, message }));
   throw new DomainError(422, 'The export settings are incomplete for this period', unique);
 }
 
@@ -485,8 +528,9 @@ export function datevExport(
         problems.push({
           field: `datev.revenue.${b.revenue_key ?? 'missing_category'}`,
           message: b.revenue_key
-            ? `No revenue account configured for ${what} (needed by ${b.invoice_number})`
+            ? `No revenue account configured for ${what} (first needed by ${b.invoice_number})`
             : `${b.invoice_number} has 0 % lines without a VAT category — set it on the invoice`,
+          once: b.revenue_key !== null,
         });
         continue;
       }
@@ -577,8 +621,9 @@ export function bmdExport(
       problems.push({
         field: `bmd.revenue.${b.revenue_key ?? 'missing_category'}`,
         message: b.revenue_key
-          ? `No revenue account and tax code configured for ${REVENUE_LABELS[b.revenue_key]} (needed by ${b.invoice_number})`
+          ? `No revenue account and tax code configured for ${REVENUE_LABELS[b.revenue_key]} (first needed by ${b.invoice_number})`
           : `${b.invoice_number} has 0 % lines without a VAT category — set it on the invoice`,
+        once: b.revenue_key !== null,
       });
       continue;
     }

@@ -19,10 +19,6 @@ assertProductionConfig([
 ]);
 const db = openDb(config.databasePath);
 
-// First start on an empty database: load the example data so the app is
-// usable immediately. A database with existing data is never touched.
-seed(db);
-
 // When running the compiled server (dist/server/server/index.js), the built
 // client lives at dist/client. In dev (tsx) it usually doesn't exist yet —
 // then only the API is served and the UI comes from `npm run dev:web`.
@@ -59,6 +55,12 @@ const app = createApp({
   shellOrigins: config.shellOrigins,
   austrianRemittance: config.austrianRemittance,
 });
+
+// First start on an empty database: load the example data so the app is
+// usable immediately. A database with existing data is never touched. After
+// the seller is resolved (Settings, PS-11, env), because the seeded invoices
+// freeze it like any issued invoice does.
+seed(db, config.seller);
 
 app.listen(config.port, () => {
   console.log(`[mod-04] invoice & billing API on http://localhost:${config.port}`);

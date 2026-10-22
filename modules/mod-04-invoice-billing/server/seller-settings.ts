@@ -117,13 +117,19 @@ export class SellerSource {
 
   /** PS-11's `self` party, or null when there is none (the env then stands). */
   setPlatform(self: SelfParty | null): void {
+    // Trimmed like everything typed on the Settings screen: a padded name would
+    // otherwise reach the letterhead, the frozen snapshot and the XRechnung.
+    const text = (value: string | null | undefined): string | undefined => {
+      const trimmed = value?.trim();
+      return trimmed ? trimmed : undefined;
+    };
     this.platform = self
       ? {
-          name: self.name,
-          addressLines: self.address_lines,
-          vatId: self.vat_id ?? undefined,
-          iban: self.iban ?? undefined,
-          bic: self.bic ?? undefined,
+          name: text(self.name),
+          addressLines: (self.address_lines ?? []).map((l) => l.trim()).filter((l) => l !== ''),
+          vatId: text(self.vat_id),
+          iban: text(self.iban),
+          bic: text(self.bic),
         }
       : {};
     this.recompute();

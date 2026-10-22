@@ -159,7 +159,7 @@ export function eInvoiceModel(
   if (document === 'cancellation' && invoice.status !== 'cancelled') {
     throw new DomainError(409, `${invoice.number} is not cancelled, so it has no cancellation document`);
   }
-  const { seller, buyer } = invoiceParties(db, invoiceId, liveSeller);
+  const { seller, buyer, frozen } = invoiceParties(db, invoiceId, liveSeller);
   const customer = getCustomer(db, invoice.customer_id);
   const lines = invoiceLines(db, invoiceId).map((l) => ({
     position: l.position,
@@ -174,8 +174,10 @@ export function eInvoiceModel(
   const base = {
     delivery_date: invoice.delivery_date ?? invoice.issue_date,
     payment_terms_days: invoice.payment_terms_days,
-    // Frozen at finalize for new invoices; the customer's default for old ones.
-    buyer_reference: invoice.buyer_reference ?? customer.buyer_reference ?? null,
+    // Frozen at finalize — NULL included: a Leitweg-ID added to the customer
+    // later must not appear in an invoice that was issued without one. Only an
+    // invoice issued before freezing existed falls back to the customer.
+    buyer_reference: frozen ? invoice.buyer_reference : (invoice.buyer_reference ?? customer.buyer_reference ?? null),
     exemption,
     seller,
     buyer,

@@ -165,11 +165,30 @@ describe('DATEV Buchungsstapel', () => {
     expect(datevExport(db, { from: '2025-07-01', to: '2026-06-30' }).bookings).toBeGreaterThan(0);
   });
 
-  it('checks personal account length against the account length', () => {
+  it('checks personal account length against the account length, naming every customer', () => {
     configureDatev({ account_length: 5 });
     expect(() => datevExport(db, MARCH)).toThrow();
+    try {
+      datevExport(db, MARCH);
+    } catch (err) {
+      // Two customers with a bad account are two problems, not one.
+      const messages = (err as { details: { field: string; message: string }[] }).details.map((d) => d.message);
+      expect(messages).toEqual([
+        'Debtor account 10001 (Müller & Söhne "KG") must have 6 digits for account length 5',
+        'Debtor account 10002 (=Wien GmbH) must have 6 digits for account length 5',
+      ]);
+    }
     db.prepare('UPDATE customers SET debtor_account = 100000 + id').run();
     expect(datevExport(db, MARCH).bookings).toBe(4);
+  });
+
+  it('refuses a fiscal-year start that does not exist every year', () => {
+    for (const bad of ['02-29', '02-30', '04-31', '06-31', '13-01', '00-10', '1-1']) {
+      expect(() => writeSettings(db, { datev: { fiscal_year_start: bad } }), bad).toThrow();
+    }
+    for (const good of ['01-01', '02-28', '03-31', '07-01', '12-31']) {
+      expect(writeSettings(db, { datev: { fiscal_year_start: good } }).settings.datev.fiscal_year_start).toBe(good);
+    }
   });
 
   it('computes the fiscal year from its start', () => {

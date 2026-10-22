@@ -174,8 +174,11 @@ export interface PlatformHooks {
   offerBilled(info: OfferBilledInfo): Promise<void>;
   /**
    * The stack owner's own party from PS-11 — the seller letterhead. Null when
-   * PS-11 is unset, has no `self` party yet, or is unreachable; the module then
-   * keeps its SELLER_* environment values. See server/seller.ts.
+   * PS-11 is unset or has no `self` party yet: the module then uses Settings /
+   * the SELLER_* environment. THROWS when PS-11 is configured but unreachable,
+   * so the caller can keep the last known party instead — an outage that read
+   * as "no party" would print the env placeholders on every invoice issued
+   * meanwhile, and freeze them there. See server/seller.ts.
    */
   fetchSelf(): Promise<SelfParty | null>;
   /** Record a payment-run event on PS-07, when configured. Best-effort. */
@@ -405,8 +408,8 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
         const { party } = await customers.self();
         return party;
       } catch (err) {
-        console.warn('[mod-04] seller lookup failed:', err);
-        return null;
+        console.warn('[mod-04] seller lookup failed, keeping the last known seller:', err);
+        throw err;
       }
     },
 

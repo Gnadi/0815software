@@ -9,6 +9,8 @@ import Database from 'better-sqlite3';
 import type { Express } from 'express';
 import { createApp } from '../server/app.js';
 import { openDb } from '../server/db.js';
+import { createDraft } from '../server/invoices.js';
+import { seed } from '../server/seed.js';
 import type { AuthConfig } from '../server/auth.js';
 import type { SellerConfig } from '../server/config.js';
 import { TrueTypeFont } from '../server/ttf.js';
@@ -464,5 +466,60 @@ describe('upgrading a database created before e-invoicing', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('review findings: what stays frozen, and which rates an installation issues', () => {
+  beforeEach(boot);
+
+  it('a Leitweg-ID added to the customer later does not enter an invoice issued without one', async () => {
+    const customerId = await customer({ buyer_reference: null });
+    const id = await issued(customerId);
+    const before = await request(app).get(`/api/invoices/${id}/zugferd.pdf`).set('Cookie', cookie).buffer(true);
+    expect((await request(app).get(`/api/invoices/${id}/xrechnung.xml`).set('Cookie', cookie)).status).toBe(422);
+
+    await request(app)
+      .put(`/api/customers/${customerId}`)
+      .set('Cookie', cookie)
+      .send({ name: 'Kunde AG', email: 'ap@kunde.de', address: 'Kundenweg 5\n10115 Berlin', buyer_reference: '991-12345-06' });
+
+    // Still refused, and the ZUGFeRD file is byte for byte what it was.
+    expect((await request(app).get(`/api/invoices/${id}/xrechnung.xml`).set('Cookie', cookie)).status).toBe(422);
+    const after = await request(app).get(`/api/invoices/${id}/zugferd.pdf`).set('Cookie', cookie).buffer(true);
+    expect(Buffer.compare(before.body as Buffer, after.body as Buffer)).toBe(0);
+    expect(embeddedXml(after.body as Buffer)).not.toContain('BuyerReference');
+  });
+
+  it("refuses rates the seller's country does not charge — on the draft and again at issue", async () => {
+    seller.addressLines = ['Ring 1', '1010 Wien', 'Austria'];
+    seller.vatId = 'ATU12345678';
+    const id = await customer();
+    const refused = await request(app)
+      .post('/api/invoices')
+      .set('Cookie', cookie)
+      .send({ customer_id: id, lines: [{ description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: 19 }] });
+    expect(refused.status).toBe(422);
+    expect(refused.body.details).toEqual([
+      { field: 'lines[0].vat_rate', message: '19 % is not a VAT rate in AT — use one of: 0, 10, 13, 20' },
+    ]);
+
+    // A draft that reached the database by another path (an imported offer) is caught at issue.
+    const draft = createDraft(db, {
+      customerId: id,
+      paymentTermsDays: 14,
+      note: null,
+      lines: [{ description: 'x', quantity: 1, unitPriceCents: 100, vatRate: 7 }],
+    });
+    const finalize = await request(app).post(`/api/invoices/${draft}/finalize`).set('Cookie', cookie).send({});
+    expect(finalize.status).toBe(422);
+    expect((await request(app).get(`/api/invoices/${draft}`).set('Cookie', cookie)).body.number).toBeNull();
+  });
+
+  it('seeded invoices are frozen like any other, when the seed knows the seller', async () => {
+    const seeded = openDb(':memory:');
+    seed(seeded, germanSeller());
+    const rows = seeded.prepare("SELECT seller_snapshot IS NOT NULL AS frozen FROM invoices WHERE status <> 'draft'").all() as { frozen: number }[];
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.frozen === 1)).toBe(true);
   });
 });

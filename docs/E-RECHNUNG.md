@@ -93,8 +93,10 @@ Lines above 0 % are category `S`. Lines at 0 % carry the invoice's
 `tax_exemption_reason` overrides the default text. The text is printed on the
 PDF as well, because the law requires it on the document.
 
-Rates: Germany 0 / 7 / 19 %, Austria 0 / 10 / 13 / 20 %. The editor offers
-the rates of the seller's country only.
+Rates: Germany 0 / 7 / 19 %, Austria 0 / 10 / 13 / 20 %. Only the rates of
+the seller's country are accepted: the editor offers no others, and the API
+refuses any other rate on a draft (422) and once more at issue, so an
+imported offer or a script cannot put German VAT on an Austrian invoice.
 
 ## Setting it up
 

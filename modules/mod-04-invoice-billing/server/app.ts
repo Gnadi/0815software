@@ -1,7 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
-import { VAT_RATES } from '../shared/money.js';
+import { VAT_RATES, vatRatesFor } from '../shared/money.js';
 import {
   STATUSES,
   TAX_EXEMPTION_CATEGORIES,
@@ -591,8 +591,27 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     });
   });
 
+  // The rates the SELLER's country charges. validateDraft accepts every rate
+  // the schema stores; this narrows it per installation, so a script, an
+  // offer import or an old client cannot put 19 % on an Austrian invoice — an
+  // e-invoice would then state German VAT, and the BMD export would refuse the
+  // period. Unknown country (nothing configured yet): every stored rate.
+  const assertSellerRates = (rates: number[], fieldOf: (index: number) => string): void => {
+    const country = sellerParty(seller).country;
+    if (!country) return;
+    const allowed = vatRatesFor(country);
+    const errors = rates.flatMap((rate, i) =>
+      allowed.includes(rate)
+        ? []
+        : [{ field: fieldOf(i), message: `${rate} % is not a VAT rate in ${country} — use one of: ${allowed.join(', ')}` }],
+    );
+    if (errors.length > 0) fail(errors);
+  };
+
   app.post('/api/invoices', (req, res) => {
-    const invoiceId = createDraft(db, validateDraft(body(req)));
+    const draft = validateDraft(body(req));
+    assertSellerRates(draft.lines.map((l) => l.vatRate), (i) => `lines[${i}].vat_rate`);
+    const invoiceId = createDraft(db, draft);
     res.status(201).json(invoiceDetail(db, invoiceId));
   });
 
@@ -663,7 +682,9 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
   });
 
   app.put('/api/invoices/:id', (req, res) => {
-    updateDraft(db, Number(req.params.id), validateDraft(body(req)));
+    const draft = validateDraft(body(req));
+    assertSellerRates(draft.lines.map((l) => l.vatRate), (i) => `lines[${i}].vat_rate`);
+    updateDraft(db, Number(req.params.id), draft);
     res.json(invoiceDetail(db, Number(req.params.id)));
   });
 
@@ -676,6 +697,12 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     const errors: FieldError[] = [];
     const issueDate = optDate(body(req).issue_date, 'issue_date', errors);
     if (errors.length > 0) fail(errors);
+    // Every path to an issued invoice passes here — a draft from an imported
+    // offer included — so the seller's rates are checked once more at issue.
+    const pending = invoiceDetail(db, Number(req.params.id));
+    if (pending.status === 'draft') {
+      assertSellerRates(pending.lines.map((l) => l.vat_rate), (i) => `lines[${i}].vat_rate`);
+    }
     // When PS-10 Number is configured, source the invoice number from it
     // (authoritative, gapless); otherwise the local per-year counter assigns it.
     const numberOverride = await platform.nextInvoiceNumber();
@@ -861,8 +888,7 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
   // What the seller side is missing for e-invoicing, independent of any
   // invoice — the settings banner reads this.
   app.get('/api/einvoice-config', (_req, res) => {
-    const { seller: party, problems } = sellerSettingsResponse();
-    res.json({ seller: party, problems });
+    res.json(sellerReadiness());
   });
 
   app.get('/api/invoices/:id/einvoice', (req, res) => {
@@ -919,8 +945,9 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
   // server/seller-settings.ts holds the precedence (Settings > PS-11 > env)
   // and the validation. Issued invoices are unaffected by a change here:
   // they carry the seller frozen at issue.
-  const sellerSettingsResponse = () => {
-    const stored = readSellerSettings(db);
+  // What e-invoicing still needs from the seller: a probe invoice with one
+  // taxed line, so whatever is left is about the seller only.
+  const sellerReadiness = () => {
     const party = sellerParty(seller);
     const probe: EInvoiceModel = {
       type_code: '380', number: 'PROBE', issue_date: todayIso(), due_date: todayIso(), delivery_date: todayIso(),
@@ -929,12 +956,19 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
       lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: party.country === 'AT' ? 20 : 19 }],
     };
     return {
+      seller: party,
+      problems: { xrechnung: eInvoiceProblems(probe, 'xrechnung'), zugferd: eInvoiceProblems(probe, 'zugferd') },
+    };
+  };
+
+  const sellerSettingsResponse = () => {
+    const stored = readSellerSettings(db);
+    return {
       fields: sellerSources.describe(),
       platform_managed: sellerSources.platformManaged,
       updated_at: stored.updated_at,
       updated_by: stored.updated_by,
-      seller: party,
-      problems: { xrechnung: eInvoiceProblems(probe, 'xrechnung'), zugferd: eInvoiceProblems(probe, 'zugferd') },
+      ...sellerReadiness(),
     };
   };
 
