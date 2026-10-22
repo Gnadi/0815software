@@ -97,8 +97,10 @@ export const prerender = true;
 
 .platform-grid {
   display: grid;
-  grid-template-columns: 120px repeat(2, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 0;
+  /* Same 120px rail + 48px gap as the heading row above, so the cards line up under the intro. */
+  margin-left: 168px;
 }
 .platform-grid > :first-child { grid-column: 1 / -1; }
 
@@ -108,7 +110,9 @@ export const prerender = true;
   border-top: 1px solid var(--line);
   border-right: 1px solid var(--line);
 }
-.svc-card:nth-child(2n) { border-right: none; }
+/* The first card spans both columns, so the rest pair up as (even, odd). */
+.svc-card:nth-child(odd) { border-right: none; padding: 28px 0 28px 28px; }
+.svc-card:first-child { padding: 28px 0; }
 
 .svc-card__link { display: block; }
 .svc-card__link:hover .svc-card__title { opacity: 0.7; }
@@ -193,12 +197,14 @@ export const prerender = true;
 /* ─── Responsive ──────────────────────────────────────────────────── */
 @media (max-width: 999px) {
   .modules-grid__head { grid-template-columns: 1fr; gap: 32px; }
-  .platform-grid { grid-template-columns: repeat(2, 1fr); }
+  .platform-grid { margin-left: 0; }
   .modules-cta__inner { grid-template-columns: 1fr; }
 }
 @media (max-width: 767px) {
   .platform-grid { grid-template-columns: 1fr; }
-  .svc-card { border-right: none !important; padding: 24px 0; }
+  .platform-grid > :first-child { grid-column: auto; }
+  .svc-card,
+  .svc-card:nth-child(odd) { border-right: none; padding: 24px 0; }
   .modules-cta__h2 { font-size: 24px; }
 }
 </style>
