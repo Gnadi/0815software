@@ -10,7 +10,7 @@ import { openDb } from '../server/db.js';
 import { noopPlatform, type PlatformHooks } from '../server/platform.js';
 import { refreshSellerSource, type SelfParty } from '../server/seller.js';
 import { SellerSource } from '../server/seller-settings.js';
-import type { AuthConfig } from '../server/auth.js';
+import { COOKIE_NAME, createToken, type AuthConfig } from '../server/auth.js';
 import type { SellerConfig } from '../server/config.js';
 
 /**
@@ -220,5 +220,32 @@ describe('upgrading from the first e-invoicing build', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('who may change the settings', () => {
+  it('reads at view, refuses edit, and lets manage save — the actor is the person', async () => {
+    await boot();
+    const as = (access: 'view' | 'edit' | 'manage') => `${COOKIE_NAME}=${createToken(auth, 'ada@example', Date.now(), access)}`;
+
+    expect((await request(app).get('/api/settings/seller').set('Cookie', as('view'))).status).toBe(200);
+    expect((await request(app).get('/api/accounting-settings').set('Cookie', as('view'))).status).toBe(200);
+
+    for (const level of ['view', 'edit'] as const) {
+      const refused = await request(app).put('/api/settings/seller').set('Cookie', as(level)).send({ phone: '+49 1' });
+      expect(refused.status).toBe(403);
+      expect(refused.body).toEqual({ error: 'Insufficient access', required: 'manage', access: level });
+      const accounting = await request(app).put('/api/accounting-settings').set('Cookie', as(level)).send({});
+      expect(accounting.status).toBe(403);
+    }
+    expect(seller.phone).toBeUndefined();
+
+    const saved = await request(app).put('/api/settings/seller').set('Cookie', as('manage')).send({ phone: '+49 1' });
+    expect(saved.status).toBe(200);
+    expect(saved.body.updated_by).toBe('ada@example');
+    expect(audited).toEqual([{ actor: 'ada@example', section: 'seller', fields: ['phone'] }]);
+
+    // Exporting is reading: a viewer gets the export (here refused only for its missing DATEV numbers).
+    expect((await request(app).get('/api/exports/datev.csv?from=2026-01-01&to=2026-01-31').set('Cookie', as('view'))).status).toBe(422);
   });
 });

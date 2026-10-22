@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { BillRow, BillStatus, CreditorRow, FieldError, PaymentConfig } from '../../shared/types';
 import { api, ApiError, type PayablesTotals } from '../api';
 import { centsToInput, fmtEur, parseEurToCents } from '../format';
+import { Can } from '../access';
 
 /**
  * BILLS — what we owe, and the bank file that pays it.
@@ -202,14 +203,16 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
           </p>
         </div>
         <div className="resource__actions">
-          <button
-            className="btn btn--primary"
-            disabled={creditors.length === 0}
-            title={creditors.length === 0 ? 'Add a creditor first' : undefined}
-            onClick={() => setForm({ ...EMPTY_BILL, creditor_id: String(creditors[0]?.id ?? '') })}
-          >
-            + NEW BILL
-          </button>
+          <Can>
+            <button
+              className="btn btn--primary"
+              disabled={creditors.length === 0}
+              title={creditors.length === 0 ? 'Add a creditor first' : undefined}
+              onClick={() => setForm({ ...EMPTY_BILL, creditor_id: String(creditors[0]?.id ?? '') })}
+            >
+              + NEW BILL
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -325,42 +328,48 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                     )}
                     {b.status === 'open' && (
                       <>
-                        <button
-                          className="rowbtn mono"
-                          onClick={() =>
-                            setForm({
-                              id: b.id,
-                              creditor_id: String(b.creditor_id),
-                              reference: b.reference,
-                              remittance: b.remittance ?? '',
-                              amount: centsToInput(b.amount_cents),
-                              issue_date: b.issue_date ?? '',
-                              due_date: b.due_date,
-                              note: b.note ?? '',
-                            })
-                          }
-                        >
-                          EDIT
-                        </button>
-                        <button
-                          className="rowbtn mono"
-                          disabled={busy}
-                          title="Settled outside this app — cash, card, standing order"
-                          onClick={() => void act(() => api.markBillPaid(b.id), 'Could not settle the bill')}
-                        >
-                          MARK PAID
-                        </button>
-                        <button
-                          className="rowbtn rowbtn--danger mono"
-                          disabled={busy}
-                          onClick={() => {
-                            if (window.confirm(`Cancel ${b.reference}? It stays on file, unpaid.`)) {
-                              void act(() => api.cancelBill(b.id), 'Could not cancel the bill');
+                        <Can>
+                          <button
+                            className="rowbtn mono"
+                            onClick={() =>
+                              setForm({
+                                id: b.id,
+                                creditor_id: String(b.creditor_id),
+                                reference: b.reference,
+                                remittance: b.remittance ?? '',
+                                amount: centsToInput(b.amount_cents),
+                                issue_date: b.issue_date ?? '',
+                                due_date: b.due_date,
+                                note: b.note ?? '',
+                              })
                             }
-                          }}
-                        >
-                          CANCEL
-                        </button>
+                          >
+                            EDIT
+                          </button>
+                        </Can>
+                        <Can>
+                          <button
+                            className="rowbtn mono"
+                            disabled={busy}
+                            title="Settled outside this app — cash, card, standing order"
+                            onClick={() => void act(() => api.markBillPaid(b.id), 'Could not settle the bill')}
+                          >
+                            MARK PAID
+                          </button>
+                        </Can>
+                        <Can>
+                          <button
+                            className="rowbtn rowbtn--danger mono"
+                            disabled={busy}
+                            onClick={() => {
+                              if (window.confirm(`Cancel ${b.reference}? It stays on file, unpaid.`)) {
+                                void act(() => api.cancelBill(b.id), 'Could not cancel the bill');
+                              }
+                            }}
+                          >
+                            CANCEL
+                          </button>
+                        </Can>
                       </>
                     )}
                   </div>
@@ -394,14 +403,16 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
             onChange={(e) => setExecutionDate(e.target.value)}
           />
         </label>
-        <button
-          className="btn btn--primary"
-          disabled={busy || selected.size === 0 || !(config?.ready ?? false)}
-          title={config?.ready ? undefined : config?.problem ?? undefined}
-          onClick={() => void pay()}
-        >
-          {busy ? 'WORKING…' : 'CREATE PAYMENT FILE →'}
-        </button>
+        <Can level="manage">
+          <button
+            className="btn btn--primary"
+            disabled={busy || selected.size === 0 || !(config?.ready ?? false)}
+            title={config?.ready ? undefined : config?.problem ?? undefined}
+            onClick={() => void pay()}
+          >
+            {busy ? 'WORKING…' : 'CREATE PAYMENT FILE →'}
+          </button>
+        </Can>
       </div>
 
       {form && (

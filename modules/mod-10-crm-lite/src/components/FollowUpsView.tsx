@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { FollowUp } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { ActivityBadge } from './ui';
+import { Can } from '../access';
 
 export function FollowUpsView({
   onOpenDeal,
@@ -81,9 +82,11 @@ export function FollowUpsView({
                 )}
               </div>
             </div>
-            <button className="rowbtn" onClick={() => void markDone(f.id)}>
-              MARK DONE
-            </button>
+            <Can>
+              <button className="rowbtn" onClick={() => void markDone(f.id)}>
+                MARK DONE
+              </button>
+            </Can>
           </div>
         ))}
       </div>

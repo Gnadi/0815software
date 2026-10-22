@@ -324,7 +324,13 @@ describe('boards belong to one person', () => {
       auth,
       peers: createPeerClient({ peers: PEERS, serviceToken: TOKEN, timeoutMs: 200, fetch: stub() }),
       // Whoever signs in is whoever PS-01 said they are.
-      verifyLogin: async (username) => ({ ok: true as const, actor: String(username) }),
+      verifyLogin: async (username) => ({
+        ok: true as const,
+        actor: String(username),
+        access: 'manage' as const,
+        identityToken: 'ps01-token',
+        permissions: ['platform:admin'],
+      }),
     });
 
     const ada = (await request(app).post('/api/login').send({ username: 'ada@example', password: 'x' }).expect(200))
@@ -347,5 +353,61 @@ describe('boards belong to one person', () => {
       .set('Cookie', bob)
       .send({ module_id: 'mod-13-offers' })
       .expect(404);
+  });
+});
+
+describe('a pane opens at the level PS-01 grants on that module', () => {
+  function asPerson(permissions: string[], bodies: unknown[]): Express {
+    return createApp({
+      db,
+      auth,
+      loginMode: { sso: true, org: 'acme' },
+      peers: createPeerClient({
+        peers: PEERS,
+        serviceToken: TOKEN,
+        timeoutMs: 200,
+        fetch: async (_input, init) => {
+          bodies.push(JSON.parse(String(init?.body)));
+          return new Response(JSON.stringify({ redeem_path: '/session/handoff?ticket=abc' }), { status: 200 });
+        },
+      }),
+      verifyLogin: async () => ({
+        ok: true as const,
+        actor: 'ada@example',
+        access: 'view' as const,
+        identityToken: 'ps01-token',
+        permissions,
+      }),
+    });
+  }
+
+  async function login(app: Express): Promise<string> {
+    const res = await request(app).post('/api/login').send({ username: 'ada@example', password: 'x' }).expect(200);
+    return res.headers['set-cookie']![0]!.split(';')[0]!;
+  }
+
+  it('hands the module the level granted there, not the shell’s own', async () => {
+    const bodies: unknown[] = [];
+    const app = asPerson(['module:mosaic:view', 'module:offers:edit'], bodies);
+    await request(app).get('/api/embed/mod-13-offers').set('Cookie', await login(app)).expect(200);
+    expect(bodies).toEqual([{ actor: 'ada@example', path: '/', access: 'edit' }]);
+  });
+
+  it('refuses a module PS-01 grants nothing on', async () => {
+    const bodies: unknown[] = [];
+    const app = asPerson(['module:mosaic:view'], bodies);
+    const res = await request(app).get('/api/embed/mod-13-offers').set('Cookie', await login(app)).expect(409);
+    expect(res.body.error).toMatch(/no access to this module/);
+    expect(bodies).toEqual([]);
+  });
+
+  it('forgets on logout, so a pane opened afterwards asks for a new sign-in', async () => {
+    const bodies: unknown[] = [];
+    const app = asPerson(['module:mosaic:view', 'module:offers:edit'], bodies);
+    const cookie = await login(app);
+    await request(app).post('/api/logout').set('Cookie', cookie).expect(200);
+    // The cookie is still a valid session for the gate; the grants are gone.
+    const res = await request(app).get('/api/embed/mod-13-offers').set('Cookie', cookie).expect(409);
+    expect(res.body.error).toMatch(/sign in again/);
   });
 });

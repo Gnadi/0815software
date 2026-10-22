@@ -155,7 +155,7 @@ describe('GET /session/handoff', () => {
     const token = parseCookies(res.headers['set-cookie']![0]!.replace(/;/g, ';'))[COOKIE_NAME];
     // The session is a NORMAL session of this module, carrying the identity
     // the shell asserted — which is what makes the audit trail name a person.
-    expect(readToken(auth, decodeURIComponent(token!))).toEqual({ actor: 'ada@example' });
+    expect(readToken(auth, decodeURIComponent(token!))).toEqual({ actor: 'ada@example', access: 'manage' });
   });
 
   it('is single use — a replayed ticket buys nothing', async () => {
@@ -198,7 +198,7 @@ describe('POST /api/session/issue', () => {
       .expect(200);
 
     expect(res.body.cookie_name).toBe(COOKIE_NAME);
-    expect(readToken(auth, res.body.token)).toEqual({ actor: 'ada@example' });
+    expect(readToken(auth, res.body.token)).toEqual({ actor: 'ada@example', access: 'manage' });
 
     // The point of the endpoint: the shell replays it as a Cookie header and
     // this module's ordinary session-guarded API answers.

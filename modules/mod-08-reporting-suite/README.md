@@ -441,9 +441,11 @@ these, that's commissioned work — exactly the kind 0815software does:
 - **Postgres / MySQL / other engines.** SQLite-first by design. Mirror
   the slice you want to report on into a SQLite file and point
   `SOURCE_DB_PATH` at it.
-- **User management, roles, per-report permissions.** One staff admin, as
-  in every 0815 module. Embed URLs are the only unauthenticated surface,
-  and each is scoped to a single chart.
+- **Per-report permissions.** People get `view` / `edit` / `manage` from
+  PS-01 (see [Users and access levels](#users-and-access-levels)) — writing
+  SQL needs `manage`, running saved reports needs `view` — but a level
+  covers every report. Embed URLs are the only unauthenticated surface, and
+  each is scoped to a single chart.
 - **External cron / distributed scheduling.** The scheduler is in-process
   with no catch-up backfill (documented above). Cron-grade guarantees are
   an extension.
@@ -468,6 +470,24 @@ When `AUDIT_URL` (+ `PLATFORM_SERVICE_TOKEN`) is set, report runs are recorded
 on [PS-07 Audit Log](../../platform/ps-07-audit-log) via the shared
 [`@0815software/platform-clients`](../../platform/clients) package. Best-effort
 and opt-in — unset, the module runs standalone. See `server/platform.ts`.
+
+## Users and access levels
+
+Standalone, this module has one login — the local admin — and it manages
+everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), every
+person signs in as themselves and gets the level PS-01 grants them here:
+
+| PS-01 permission | Level | May |
+| --- | --- | --- |
+| `module:reporting-suite:view` | `view` | read everything, change nothing |
+| `module:reporting-suite:edit` | `edit` | the day-to-day work: create, update, delete |
+| `module:reporting-suite:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
+
+`module:*:<level>` grants a level in every module. Reads need `view`, any other
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/reports` → `manage`; `PUT /api/reports/:id` → `manage`; `DELETE /api/reports/:id` → `manage`; `POST /api/preview` → `manage`; `POST /api/reports/:id/run` → `view`; `POST /api/reports/:id/pivot` → `view`; `POST /api/reports/:id/chart-preview` → `view`. A refused request answers **403**
+`{ error, required, access }`; `GET /api/me` reports the caller's `access`.
+Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
+manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## The shell contract — appearing on a dashboard
 

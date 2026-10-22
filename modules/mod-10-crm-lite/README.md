@@ -244,8 +244,9 @@ CRM Lite is deliberately small. It does **not** include, and will not
 grow:
 
 - AI/LLM anything — no lead scoring, no "smart" suggestions, no chat;
-- multi-user accounts, roles, permissions or per-seat billing (it is a
-  single admin login);
+- a local user table, per-record permissions or per-seat billing (people
+  with their own levels come from PS-01 — see
+  [Users and access levels](#users-and-access-levels) — and are never counted);
 - email/calendar sync, IMAP/SMTP, or any outbound integration;
 - telemetry, analytics, tracking pixels or crash reporting;
 - automation/workflows, web forms, marketing campaigns;
@@ -273,6 +274,24 @@ data — and the master `party_id` is stored on the local row. That is what make
 company in this pipeline the *same* customer the Offers and Invoicing modules
 quote and bill, instead of a fourth copy of the name. Unset, the local
 `companies` table is the only record and nothing leaves the module.
+
+## Users and access levels
+
+Standalone, this module has one login — the local admin — and it manages
+everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), every
+person signs in as themselves and gets the level PS-01 grants them here:
+
+| PS-01 permission | Level | May |
+| --- | --- | --- |
+| `module:crm-lite:view` | `view` | read everything, change nothing |
+| `module:crm-lite:edit` | `edit` | the day-to-day work: create, update, delete |
+| `module:crm-lite:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
+
+`module:*:<level>` grants a level in every module. Reads need `view`, any other
+method needs `edit`. This module needs no rule beyond the method default and sign-out; the policy is still one file, [`server/access.ts`](./server/access.ts). A refused request answers **403**
+`{ error, required, access }`; `GET /api/me` reports the caller's `access`.
+Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
+manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## The shell contract — appearing on a dashboard
 

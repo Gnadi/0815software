@@ -1,11 +1,13 @@
-import { IdentityClient, ServiceError } from '@0815software/platform-clients';
+import { accessLevelFor, IdentityClient, ServiceError, type AccessLevel } from '@0815software/platform-clients';
+import { MODULE_SLUG } from './access.js';
 
 /**
  * SSO login-exchange (copy-in, standalone). When IDENTITY_URL + IDENTITY_ORG
- * are set, PS-01 Identity validates the admin login and must grant the
- * required permission (default `platform:admin`); the module then issues its
- * OWN local session exactly as before — only credential validation is
- * delegated. When unset, mod-12 falls back to its local admin credentials.
+ * are set, PS-01 Identity validates the login and must grant access to
+ * this module (`module:<slug>:<level>`, or `platform:admin`); the
+ * module then issues its OWN local session, carrying that level, exactly as
+ * before — only credential validation is delegated. When unset, mod-12 falls
+ * back to its local admin credentials.
  */
 
 /**
@@ -14,7 +16,7 @@ import { IdentityClient, ServiceError } from '@0815software/platform-clients';
  * stamps that on everything the resulting session goes on to do.
  */
 export type LoginOutcome =
-  | { ok: true; actor: string }
+  | { ok: true; actor: string; access: AccessLevel }
   | { ok: false; reason: 'rejected' | 'unavailable' }
   | null;
 export type LoginVerifier = (username: unknown, password: unknown) => Promise<LoginOutcome>;
@@ -24,7 +26,11 @@ export interface SsoConfig {
   identityUrl?: string;
   /** PS-01 org slug users authenticate against. */
   identityOrg?: string;
-  /** Permission the PS-01 user must hold (default `platform:admin`). */
+  /**
+   * Legacy override: a single PS-01 permission that admits a user as a
+   * manager of this module. Unset — the default — derives the level from the
+   * user's `module:<slug>:<level>` permissions (`platform:admin` = manage).
+   */
   identityPermission?: string;
 }
 
@@ -57,7 +63,7 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
   const target = ssoTarget(cfg);
   if (!target) return nullVerifier;
   const org = target.org;
-  const permission = cfg.identityPermission ?? 'platform:admin';
+  const permission = cfg.identityPermission;
   const client = new IdentityClient({ baseUrl: target.url });
   return async (username, password): Promise<LoginOutcome> => {
     if (typeof username !== 'string' || typeof password !== 'string') return { ok: false, reason: 'rejected' };
@@ -67,10 +73,17 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
       if (!verdict.valid) return { ok: false, reason: 'rejected' };
       // PS-01 returns the principal's permissions on verify (Phase 1).
       const perms = (verdict as { permissions?: string[] }).permissions ?? [];
-      if (permission && !perms.includes(permission)) return { ok: false, reason: 'rejected' };
+      // No grant on this module is a rejected login, exactly as a missing
+      // `platform:admin` was before levels existed.
+      const access: AccessLevel | null = permission
+        ? perms.includes(permission)
+          ? 'manage'
+          : null
+        : accessLevelFor(perms, MODULE_SLUG);
+      if (access === null) return { ok: false, reason: 'rejected' };
       // The PS-01 email is the identity worth recording: stable, unique within
       // the organization, and readable by whoever reads the trail later.
-      return { ok: true, actor: user.email };
+      return { ok: true, actor: user.email, access };
     } catch (err) {
       // Both fail closed — SSO, once configured, is never silently bypassed by
       // the local fallback. They are not the same answer to the caller though.

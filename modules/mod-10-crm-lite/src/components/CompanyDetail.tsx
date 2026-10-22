@@ -3,6 +3,7 @@ import { api, ApiError, type CompanyDetail } from '../api';
 import { fmtDateTime, fmtEur } from '../format';
 import { StageBadge } from './ui';
 import { CompanyEditor } from './CompaniesView';
+import { Can } from '../access';
 
 export function CompanyDetailView({
   id,
@@ -64,12 +65,16 @@ export function CompanyDetailView({
           <p className="resource__desc">{company.domain ?? 'No domain on file'}</p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--ghost" onClick={() => setEditing(true)}>
-            EDIT
-          </button>
-          <button className="btn btn--danger" onClick={() => void remove()}>
-            DELETE
-          </button>
+          <Can>
+            <button className="btn btn--ghost" onClick={() => setEditing(true)}>
+              EDIT
+            </button>
+          </Can>
+          <Can>
+            <button className="btn btn--danger" onClick={() => void remove()}>
+              DELETE
+            </button>
+          </Can>
         </div>
       </div>
 

@@ -398,7 +398,7 @@ const presentation: Record<string, ModulePresentation> = {
   'mod-13-offers': {
     body: 'Write, send, and track sales offers. Line-item quotes with discounts, validity dates, PDF export, and a customer acceptance link.',
     overview:
-      'A single-admin tool for composing line-item offers (quotes / Angebote) with per-line discounts and VAT, sending them to customers via a signed acceptance link, and tracking the outcome — accepted, rejected, expired, withdrawn or superseded by a revision. Self-contained: one package.json, no external services, MIT.',
+      'A back-office tool for composing line-item offers (quotes / Angebote) with per-line discounts and VAT, sending them to customers via a signed acceptance link, and tracking the outcome — accepted, rejected, expired, withdrawn or superseded by a revision. Self-contained: one package.json, no external services, MIT.',
     features: [
       'Line-item offers with per-line discounts and VAT',
       'Validity dates and PDF export',

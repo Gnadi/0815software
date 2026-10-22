@@ -166,8 +166,10 @@ This is an *internal* tool — put it behind your VPN or reverse proxy.
   (`openssl rand -hex 32`) and `COOKIE_SECURE=true`, and terminate TLS in
   front (Caddy/nginx).
 - Not a fit for serverless platforms: SQLite wants a persistent filesystem.
-- Scope note: this ships a single admin account by design. If you need
-  roles, audit logs or SSO, that's commissioned work — exactly the kind
+- Scope note: standalone this ships a single admin account. People with
+  their own logins and `view` / `edit` / `manage` levels come from PS-01
+  (see [Users and access levels](#users-and-access-levels)); per-resource or
+  per-record permissions are commissioned work — exactly the kind
   0815software does.
 
 ## License
@@ -181,6 +183,24 @@ state changes on [PS-07 Audit Log](../../platform/ps-07-audit-log) via the
 shared [`@0815software/platform-clients`](../../platform/clients) package.
 Calls are best-effort and opt-in — unset, the module runs standalone with no
 outbound calls. See `server/platform.ts`.
+
+## Users and access levels
+
+Standalone, this module has one login — the local admin — and it manages
+everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), every
+person signs in as themselves and gets the level PS-01 grants them here:
+
+| PS-01 permission | Level | May |
+| --- | --- | --- |
+| `module:admin-dashboard:view` | `view` | read everything, change nothing |
+| `module:admin-dashboard:edit` | `edit` | the day-to-day work: create, update, delete |
+| `module:admin-dashboard:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
+
+`module:*:<level>` grants a level in every module. Reads need `view`, any other
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/:resource/bulk-delete` → `manage`. A refused request answers **403**
+`{ error, required, access }`; `GET /api/me` reports the caller's `access`.
+Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
+manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## The shell contract — appearing on a dashboard
 

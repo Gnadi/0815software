@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AccessProvider, type AccessLevel } from './access';
 import type { AppConfig } from '../shared/types';
 import { api, ApiError } from './api';
 import { ExportView } from './components/ExportView';
@@ -31,6 +32,7 @@ const NAV: { view: View; label: string }[] = [
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [loggedOut, setLoggedOut] = useState(false);
+  const [access, setAccess] = useState<AccessLevel>('view');
   const [view, setView] = useState<View>({ name: 'rfqs' });
 
   const load = useCallback(async () => {
@@ -38,6 +40,7 @@ export function App() {
       // /api/config doubles as the session probe — and is the ONE
       // source of approval rules and export profiles for the whole UI.
       setConfig(await api.config());
+      setAccess((await api.me()).access);
       setLoggedOut(false);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) setLoggedOut(true);
@@ -70,87 +73,89 @@ export function App() {
         : view.name;
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="sidebar__brand mono">
-          <span className="sidebar__num">MOD-06</span>
-          <span>PROCUREMENT TRACKER</span>
-        </div>
-        <nav className="sidebar__nav">
-          {NAV.map(({ view: target, label }) => (
+    <AccessProvider level={access}>
+      <div className="shell">
+        <aside className="sidebar">
+          <div className="sidebar__brand mono">
+            <span className="sidebar__num">MOD-06</span>
+            <span>PROCUREMENT TRACKER</span>
+          </div>
+          <nav className="sidebar__nav">
+            {NAV.map(({ view: target, label }) => (
+              <button
+                key={target.name}
+                className={`sidebar__item mono ${target.name === activeNav ? 'is-active' : ''}`}
+                onClick={() => setView(target)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar__foot mono">
+            <span>0815SOFTWARE · MIT</span>
             <button
-              key={target.name}
-              className={`sidebar__item mono ${target.name === activeNav ? 'is-active' : ''}`}
-              onClick={() => setView(target)}
+              className="sidebar__logout mono"
+              onClick={() => {
+                void api.logout().then(onAuthLost);
+              }}
             >
-              {label}
+              LOG OUT ↗
             </button>
-          ))}
-        </nav>
-        <div className="sidebar__foot mono">
-          <span>0815SOFTWARE · MIT</span>
-          <button
-            className="sidebar__logout mono"
-            onClick={() => {
-              void api.logout().then(onAuthLost);
-            }}
-          >
-            LOG OUT ↗
-          </button>
-        </div>
-      </aside>
-      <main className="main">
-        {view.name === 'rfqs' && (
-          <RfqsView
-            onOpen={(id) => setView({ name: 'rfq', id })}
-            onNew={() => setView({ name: 'rfq-editor', id: null })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'rfq' && (
-          <RfqDetailView
-            id={view.id}
-            onBack={() => setView({ name: 'rfqs' })}
-            onEdit={(id) => setView({ name: 'rfq-editor', id })}
-            onOpenPo={(id) => setView({ name: 'po', id })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'rfq-editor' && (
-          <RfqEditor
-            id={view.id}
-            onDone={(id) => setView(id === null ? { name: 'rfqs' } : { name: 'rfq', id })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'pos' && (
-          <PosView
-            onOpen={(id) => setView({ name: 'po', id })}
-            onNew={() => setView({ name: 'po-editor', id: null })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'po' && (
-          <PoDetailView
-            id={view.id}
-            config={config}
-            onBack={() => setView({ name: 'pos' })}
-            onEdit={(id) => setView({ name: 'po-editor', id })}
-            onOpenRfq={(id) => setView({ name: 'rfq', id })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'po-editor' && (
-          <PoEditor
-            id={view.id}
-            config={config}
-            onDone={(id) => setView(id === null ? { name: 'pos' } : { name: 'po', id })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'suppliers' && <SuppliersView onAuthLost={onAuthLost} />}
-        {view.name === 'export' && <ExportView config={config} onAuthLost={onAuthLost} />}
-      </main>
-    </div>
+          </div>
+        </aside>
+        <main className="main">
+          {view.name === 'rfqs' && (
+            <RfqsView
+              onOpen={(id) => setView({ name: 'rfq', id })}
+              onNew={() => setView({ name: 'rfq-editor', id: null })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'rfq' && (
+            <RfqDetailView
+              id={view.id}
+              onBack={() => setView({ name: 'rfqs' })}
+              onEdit={(id) => setView({ name: 'rfq-editor', id })}
+              onOpenPo={(id) => setView({ name: 'po', id })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'rfq-editor' && (
+            <RfqEditor
+              id={view.id}
+              onDone={(id) => setView(id === null ? { name: 'rfqs' } : { name: 'rfq', id })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'pos' && (
+            <PosView
+              onOpen={(id) => setView({ name: 'po', id })}
+              onNew={() => setView({ name: 'po-editor', id: null })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'po' && (
+            <PoDetailView
+              id={view.id}
+              config={config}
+              onBack={() => setView({ name: 'pos' })}
+              onEdit={(id) => setView({ name: 'po-editor', id })}
+              onOpenRfq={(id) => setView({ name: 'rfq', id })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'po-editor' && (
+            <PoEditor
+              id={view.id}
+              config={config}
+              onDone={(id) => setView(id === null ? { name: 'pos' } : { name: 'po', id })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'suppliers' && <SuppliersView onAuthLost={onAuthLost} />}
+          {view.name === 'export' && <ExportView config={config} onAuthLost={onAuthLost} />}
+        </main>
+      </div>
+    </AccessProvider>
   );
 }

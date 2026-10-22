@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { FieldError, SupplierRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDate } from '../format';
+import { Can } from '../access';
 
 interface Props {
   onAuthLost: () => void;
@@ -95,9 +96,11 @@ export function SuppliersView({ onAuthLost }: Props) {
           <p className="resource__desc">Who you invite to RFQs and order from — name, contact, email, notes.</p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={() => setForm({ ...EMPTY })}>
-            + NEW SUPPLIER
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setForm({ ...EMPTY })}>
+              + NEW SUPPLIER
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -137,32 +140,36 @@ export function SuppliersView({ onAuthLost }: Props) {
                 <td className="mono table__id">{fmtDate(s.created_at)}</td>
                 <td>
                   <div className="table__rowactions">
-                    <button
-                      className="rowbtn mono"
-                      onClick={() =>
-                        setForm({
-                          id: s.id,
-                          name: s.name,
-                          contact: s.contact ?? '',
-                          email: s.email ?? '',
-                          notes: s.notes ?? '',
-                        })
-                      }
-                    >
-                      EDIT
-                    </button>
-                    <button
-                      className="rowbtn rowbtn--danger mono"
-                      disabled={s.rfq_count > 0 || s.po_count > 0}
-                      title={
-                        s.rfq_count > 0 || s.po_count > 0
-                          ? 'Suppliers referenced by RFQs or POs cannot be deleted'
-                          : undefined
-                      }
-                      onClick={() => void remove(s)}
-                    >
-                      DELETE
-                    </button>
+                    <Can>
+                      <button
+                        className="rowbtn mono"
+                        onClick={() =>
+                          setForm({
+                            id: s.id,
+                            name: s.name,
+                            contact: s.contact ?? '',
+                            email: s.email ?? '',
+                            notes: s.notes ?? '',
+                          })
+                        }
+                      >
+                        EDIT
+                      </button>
+                    </Can>
+                    <Can>
+                      <button
+                        className="rowbtn rowbtn--danger mono"
+                        disabled={s.rfq_count > 0 || s.po_count > 0}
+                        title={
+                          s.rfq_count > 0 || s.po_count > 0
+                            ? 'Suppliers referenced by RFQs or POs cannot be deleted'
+                            : undefined
+                        }
+                        onClick={() => void remove(s)}
+                      >
+                        DELETE
+                      </button>
+                    </Can>
                   </div>
                 </td>
               </tr>

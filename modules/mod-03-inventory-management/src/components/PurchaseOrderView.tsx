@@ -3,6 +3,7 @@ import type { PurchaseOrderDetail, Warehouse } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDateTime, fmtQty } from '../format';
 import { StatusBadge } from './StatusBadge';
+import { Can, useCan } from '../access';
 
 interface Props {
   id: number;
@@ -17,6 +18,8 @@ export function PurchaseOrderView({ id, warehouses, onBack, onAuthLost }: Props)
   const [receiveQty, setReceiveQty] = useState<Record<number, string>>({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  // Receiving is a write: someone who can only view sees the PO, not the form.
+  const canEdit = useCan();
 
   const load = useCallback(async () => {
     try {
@@ -78,7 +81,7 @@ export function PurchaseOrderView({ id, warehouses, onBack, onAuthLost }: Props)
     );
   }
 
-  const receivable = po.status === 'ordered' || po.status === 'partially_received';
+  const receivable = canEdit && (po.status === 'ordered' || po.status === 'partially_received');
 
   return (
     <div>
@@ -97,23 +100,27 @@ export function PurchaseOrderView({ id, warehouses, onBack, onAuthLost }: Props)
         </div>
         {po.status === 'draft' && (
           <div className="resource__actions">
-            <button
-              className="btn btn--ghost"
-              disabled={busy}
-              onClick={() => {
-                if (window.confirm(`Delete draft ${po.po_number}?`)) {
-                  void run(async () => {
-                    await api.deletePurchaseOrder(id);
-                    onBack();
-                  });
-                }
-              }}
-            >
-              DELETE DRAFT
-            </button>
-            <button className="btn btn--primary" disabled={busy} onClick={() => void run(() => api.markOrdered(id))}>
-              MARK ORDERED →
-            </button>
+            <Can>
+              <button
+                className="btn btn--ghost"
+                disabled={busy}
+                onClick={() => {
+                  if (window.confirm(`Delete draft ${po.po_number}?`)) {
+                    void run(async () => {
+                      await api.deletePurchaseOrder(id);
+                      onBack();
+                    });
+                  }
+                }}
+              >
+                DELETE DRAFT
+              </button>
+            </Can>
+            <Can>
+              <button className="btn btn--primary" disabled={busy} onClick={() => void run(() => api.markOrdered(id))}>
+                MARK ORDERED →
+              </button>
+            </Can>
           </div>
         )}
       </div>

@@ -1,3 +1,4 @@
+import type { AccessLevel } from './access';
 import type {
   DaySheet,
   Employee,
@@ -70,7 +71,7 @@ export const api = {
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
   /** Which credentials this deployment accepts — readable before signing in. */
   authMode: () => request<AuthMode>('/api/auth-mode'),
-  me: () => request<{ username: string }>('/api/me'),
+  me: () => request<{ username: string; access: AccessLevel; employee_id: number | null }>('/api/me'),
 
   projects: (activeOnly = false) =>
     request<{ projects: Project[] }>(`/api/projects${activeOnly ? '?active=1' : ''}`),

@@ -6,7 +6,8 @@ import { DomainError, nowIso } from './invoices.js';
 import type { SelfParty } from './seller.js';
 
 /**
- * The seller — this installation's own company — as the ADMIN maintains it.
+ * The seller — this installation's own company — as the people holding the
+ * `manage` level maintain it (the PUT is reserved in server/access.ts).
  *
  * Name, address, VAT id and bank account used to come from `SELLER_*`
  * environment variables only, which made every correction a redeploy and put
@@ -99,7 +100,7 @@ const asText = (value: unknown): string | null =>
 /**
  * Holds the three sources and writes their combination into the live config.
  * Every change to a source recomputes the whole seller, so the order in which
- * the platform refresh and an admin save happen cannot matter.
+ * the platform refresh and a save on the Settings screen happen cannot matter.
  */
 export class SellerSource {
   private readonly env: SellerConfig;

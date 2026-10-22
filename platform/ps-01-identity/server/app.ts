@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import type Database from 'better-sqlite3';
-import { PERMISSIONS, type Permission } from '../shared/types.js';
+import { holdsPermission, MODULE_ACCESS_LEVELS } from '../shared/module-access.js';
+import { isPermission, PERMISSIONS, type Permission } from '../shared/types.js';
 import {
   clearedCookie,
   COOKIE_NAME,
@@ -184,7 +185,7 @@ export function createApp({
    */
   const requireGrantable = (res: Response, granted: readonly Permission[]): void => {
     const held = principalOf(res).permissions;
-    const excess = [...new Set(granted)].filter((p) => !held.has(p)).sort();
+    const excess = [...new Set(granted)].filter((p) => !holdsPermission(held, p)).sort();
     if (excess.length > 0) {
       fail(403, `Cannot grant a permission you do not hold: ${excess.join(', ')}`);
     }
@@ -220,7 +221,7 @@ export function createApp({
   const requireNotAbove = (res: Response, target: UserRow): void => {
     const held = principalOf(res).permissions;
     const excess = userPermissions(db, target.id)
-      .filter((perm) => !held.has(perm))
+      .filter((perm) => !holdsPermission(held, perm))
       .sort();
     if (excess.length > 0) {
       fail(403, `Cannot act on an account that holds a permission you do not: ${excess.join(', ')}`);
@@ -540,7 +541,12 @@ export function createApp({
   });
 
   app.get('/api/permissions', (_req, res) => {
-    res.json({ permissions: PERMISSIONS });
+    // Module permissions are a grammar, not a list — PS-01 knows no module by
+    // name — so the catalogue describes their shape instead of enumerating them.
+    res.json({
+      permissions: PERMISSIONS,
+      module_permissions: { pattern: 'module:<slug|*>:<level>', levels: MODULE_ACCESS_LEVELS },
+    });
   });
 
   // ── Organizations (tenant-scoped) ──────────────────────────────────
@@ -821,7 +827,7 @@ export function createApp({
     const perms = Array.isArray(b.permissions) ? (b.permissions as unknown[]) : [];
     const clean: Permission[] = [];
     for (const perm of perms) {
-      if (typeof perm !== 'string' || !(PERMISSIONS as readonly string[]).includes(perm)) {
+      if (typeof perm !== 'string' || !isPermission(perm)) {
         fail(422, 'Validation failed', [{ field: 'permissions', message: `unknown permission "${String(perm)}"` }]);
       }
       clean.push(perm as Permission);
@@ -892,7 +898,7 @@ export function createApp({
     if (Array.isArray(b.scopes)) {
       scopes = [];
       for (const s of b.scopes) {
-        if (typeof s !== 'string' || !(PERMISSIONS as readonly string[]).includes(s)) {
+        if (typeof s !== 'string' || !isPermission(s)) {
           fail(422, 'Validation failed', [{ field: 'scopes', message: `unknown permission "${String(s)}"` }]);
         }
         scopes.push(s as Permission);

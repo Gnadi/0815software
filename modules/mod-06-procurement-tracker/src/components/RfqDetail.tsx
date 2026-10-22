@@ -3,6 +3,7 @@ import type { RfqDetail, SupplierRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { centsToInput, fmtDate, fmtEur, fmtQty, parseEurToCents } from '../format';
 import { RfqBadge } from './StatusBadge';
+import { Can } from '../access';
 
 interface Props {
   id: number;
@@ -127,35 +128,41 @@ export function RfqDetailView({ id, onBack, onEdit, onOpenPo, onAuthLost }: Prop
         </div>
         <div className="resource__actions">
           {canEditLines && (
-            <button className="btn btn--ghost" onClick={() => onEdit(rfq.id)}>
-              EDIT
-            </button>
+            <Can>
+              <button className="btn btn--ghost" onClick={() => onEdit(rfq.id)}>
+                EDIT
+              </button>
+            </Can>
           )}
           {canEditLines && (
-            <button
-              className="btn btn--ghost"
-              disabled={busy}
-              onClick={() => {
-                if (window.confirm('Delete this RFQ?')) {
-                  void run(() => api.deleteRfq(rfq.id), onBack);
-                }
-              }}
-            >
-              DELETE
-            </button>
+            <Can>
+              <button
+                className="btn btn--ghost"
+                disabled={busy}
+                onClick={() => {
+                  if (window.confirm('Delete this RFQ?')) {
+                    void run(() => api.deleteRfq(rfq.id), onBack);
+                  }
+                }}
+              >
+                DELETE
+              </button>
+            </Can>
           )}
           {isOpen && (
-            <button
-              className="btn btn--ghost"
-              disabled={busy}
-              onClick={() => {
-                if (window.confirm('Close without award? This is final — no more quotes, no winner.')) {
-                  void run(() => api.closeRfq(rfq.id));
-                }
-              }}
-            >
-              CLOSE W/O AWARD
-            </button>
+            <Can>
+              <button
+                className="btn btn--ghost"
+                disabled={busy}
+                onClick={() => {
+                  if (window.confirm('Close without award? This is final — no more quotes, no winner.')) {
+                    void run(() => api.closeRfq(rfq.id));
+                  }
+                }}
+              >
+                CLOSE W/O AWARD
+              </button>
+            </Can>
           )}
         </div>
       </div>
@@ -193,9 +200,11 @@ export function RfqDetailView({ id, onBack, onEdit, onOpenPo, onAuthLost }: Prop
                 <td className="mono table__id">{inv.has_quote ? 'RECEIVED' : 'PENDING'}</td>
                 <td>
                   {isOpen && (
-                    <button className="rowbtn mono" onClick={() => openQuoteForm(inv.supplier_id, inv.supplier_name)}>
-                      {inv.has_quote ? 'EDIT QUOTE' : 'ENTER QUOTE'}
-                    </button>
+                    <Can>
+                      <button className="rowbtn mono" onClick={() => openQuoteForm(inv.supplier_id, inv.supplier_name)}>
+                        {inv.has_quote ? 'EDIT QUOTE' : 'ENTER QUOTE'}
+                      </button>
+                    </Can>
                   )}
                 </td>
               </tr>
@@ -212,28 +221,30 @@ export function RfqDetailView({ id, onBack, onEdit, onOpenPo, onAuthLost }: Prop
       </div>
 
       {isOpen && uninvited.length > 0 && (
-        <form
-          className="receive-bar"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (inviteId) void run(() => api.invite(rfq.id, Number(inviteId)), () => setInviteId(''));
-          }}
-        >
-          <label className="field">
-            <span className="field__label mono">INVITE SUPPLIER</span>
-            <select className="field__input" value={inviteId} onChange={(e) => setInviteId(e.target.value)}>
-              <option value="">— choose —</option>
-              {uninvited.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="btn btn--primary" type="submit" disabled={busy || !inviteId}>
-            INVITE →
-          </button>
-        </form>
+        <Can>
+          <form
+            className="receive-bar"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (inviteId) void run(() => api.invite(rfq.id, Number(inviteId)), () => setInviteId(''));
+            }}
+          >
+            <label className="field">
+              <span className="field__label mono">INVITE SUPPLIER</span>
+              <select className="field__input" value={inviteId} onChange={(e) => setInviteId(e.target.value)}>
+                <option value="">— choose —</option>
+                {uninvited.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="btn btn--primary" type="submit" disabled={busy || !inviteId}>
+              INVITE →
+            </button>
+          </form>
+        </Can>
       )}
 
       <div className="section-title mono">QUOTE COMPARISON</div>
@@ -303,24 +314,26 @@ export function RfqDetailView({ id, onBack, onEdit, onOpenPo, onAuthLost }: Prop
                     {fmtEur(q.total_cents)}
                     {isOpen && (
                       <div style={{ marginTop: 8 }}>
-                        <button
-                          className="rowbtn mono"
-                          disabled={busy}
-                          onClick={() => {
-                            if (
-                              window.confirm(
-                                `Award to ${q.supplier_name} for ${fmtEur(q.total_cents)}? This creates a draft PO and is final.`,
-                              )
-                            ) {
-                              void run(async () => {
-                                const { po } = await api.award(rfq.id, q.supplier_id);
-                                onOpenPo(po.id);
-                              });
-                            }
-                          }}
-                        >
-                          AWARD →
-                        </button>
+                        <Can>
+                          <button
+                            className="rowbtn mono"
+                            disabled={busy}
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  `Award to ${q.supplier_name} for ${fmtEur(q.total_cents)}? This creates a draft PO and is final.`,
+                                )
+                              ) {
+                                void run(async () => {
+                                  const { po } = await api.award(rfq.id, q.supplier_id);
+                                  onOpenPo(po.id);
+                                });
+                              }
+                            }}
+                          >
+                            AWARD →
+                          </button>
+                        </Can>
                       </div>
                     )}
                   </td>

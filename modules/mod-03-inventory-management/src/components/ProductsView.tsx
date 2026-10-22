@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { UNITS, type FieldError, type StockRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtQty } from '../format';
+import { Can } from '../access';
 
 interface Props {
   onOpen: (id: number) => void;
@@ -101,9 +102,11 @@ export function ProductsView({ onOpen, onAuthLost }: Props) {
           <p className="resource__desc">SKUs, units and reorder points. Levels come from the ledger.</p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={() => setForm(EMPTY)}>
-            + ADD PRODUCT
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setForm(EMPTY)}>
+              + ADD PRODUCT
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -151,23 +154,27 @@ export function ProductsView({ onOpen, onAuthLost }: Props) {
                     <button className="rowbtn mono" onClick={() => onOpen(row.id)}>
                       HISTORY
                     </button>
-                    <button
-                      className="rowbtn mono"
-                      onClick={() =>
-                        setForm({
-                          id: row.id,
-                          sku: row.sku,
-                          name: row.name,
-                          unit: row.unit,
-                          reorder_point: String(row.reorder_point),
-                        })
-                      }
-                    >
-                      EDIT
-                    </button>
-                    <button className="rowbtn rowbtn--danger mono" onClick={() => void remove(row)}>
-                      DELETE
-                    </button>
+                    <Can>
+                      <button
+                        className="rowbtn mono"
+                        onClick={() =>
+                          setForm({
+                            id: row.id,
+                            sku: row.sku,
+                            name: row.name,
+                            unit: row.unit,
+                            reorder_point: String(row.reorder_point),
+                          })
+                        }
+                      >
+                        EDIT
+                      </button>
+                    </Can>
+                    <Can>
+                      <button className="rowbtn rowbtn--danger mono" onClick={() => void remove(row)}>
+                        DELETE
+                      </button>
+                    </Can>
                   </div>
                 </td>
               </tr>

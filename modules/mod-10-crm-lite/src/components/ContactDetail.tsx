@@ -5,6 +5,7 @@ import { fmtDateTime, fmtEur } from '../format';
 import { ActivityBadge, StageBadge } from './ui';
 import { ActivityForm } from './ActivityForm';
 import { ContactEditor } from './ContactsView';
+import { Can } from '../access';
 
 export function ContactDetailView({
   id,
@@ -65,9 +66,11 @@ export function ContactDetailView({
           </p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--ghost" onClick={() => setEditing(true)}>
-            EDIT
-          </button>
+          <Can>
+            <button className="btn btn--ghost" onClick={() => setEditing(true)}>
+              EDIT
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -113,7 +116,9 @@ export function ContactDetailView({
           </div>
 
           <div className="section-title mono">ACTIVITY TIMELINE</div>
-          <ActivityForm config={config} contactId={contact.id} onLogged={() => void load()} onAuthLost={onAuthLost} />
+          <Can>
+            <ActivityForm config={config} contactId={contact.id} onLogged={() => void load()} onAuthLost={onAuthLost} />
+          </Can>
           <div className="timeline" style={{ marginTop: 14 }}>
             {contact.activities.length === 0 && <div className="board__empty mono">NO ACTIVITY YET</div>}
             {contact.activities.map((a) => (

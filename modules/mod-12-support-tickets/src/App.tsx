@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AccessProvider, type AccessLevel } from './access';
 import type { Agent, AppConfig } from '../shared/types';
 import { api, ApiError } from './api';
 import { AgentsView } from './components/AgentsView';
@@ -29,6 +30,7 @@ function AgentConsole() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loggedOut, setLoggedOut] = useState(false);
+  const [access, setAccess] = useState<AccessLevel>('view');
   const [view, setView] = useState<AgentView>({ name: 'queue' });
 
   const load = useCallback(async () => {
@@ -38,6 +40,7 @@ function AgentConsole() {
       const [cfg, ag] = await Promise.all([api.config(), api.agents()]);
       setConfig(cfg);
       setAgents(ag.agents);
+      setAccess((await api.me()).access);
       setLoggedOut(false);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) setLoggedOut(true);
@@ -65,54 +68,56 @@ function AgentConsole() {
   const activeNav = view.name === 'ticket' ? 'queue' : view.name;
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="sidebar__brand mono">
-          <span className="sidebar__num">MOD-12</span>
-          <span>SUPPORT TICKETS</span>
-        </div>
-        <nav className="sidebar__nav">
-          {NAV.map(({ view: target, label }) => (
+    <AccessProvider level={access}>
+      <div className="shell">
+        <aside className="sidebar">
+          <div className="sidebar__brand mono">
+            <span className="sidebar__num">MOD-12</span>
+            <span>SUPPORT TICKETS</span>
+          </div>
+          <nav className="sidebar__nav">
+            {NAV.map(({ view: target, label }) => (
+              <button
+                key={target.name}
+                className={`sidebar__item mono ${target.name === activeNav ? 'is-active' : ''}`}
+                onClick={() => setView(target)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar__foot mono">
+            <span>SIGNED IN · {config.agent.toUpperCase()}</span>
+            <span>0815SOFTWARE · MIT</span>
             <button
-              key={target.name}
-              className={`sidebar__item mono ${target.name === activeNav ? 'is-active' : ''}`}
-              onClick={() => setView(target)}
+              className="sidebar__logout mono"
+              onClick={() => {
+                void api.logout().then(onAuthLost);
+              }}
             >
-              {label}
+              LOG OUT ↗
             </button>
-          ))}
-        </nav>
-        <div className="sidebar__foot mono">
-          <span>SIGNED IN · {config.agent.toUpperCase()}</span>
-          <span>0815SOFTWARE · MIT</span>
-          <button
-            className="sidebar__logout mono"
-            onClick={() => {
-              void api.logout().then(onAuthLost);
-            }}
-          >
-            LOG OUT ↗
-          </button>
-        </div>
-      </aside>
-      <main className="main">
-        {view.name === 'queue' && (
-          <Queue agents={agents} onOpen={(ref) => setView({ name: 'ticket', ref })} onAuthLost={onAuthLost} />
-        )}
-        {view.name === 'ticket' && (
-          <TicketDetail
-            ticketRef={view.ref}
-            config={config}
-            agents={agents}
-            onBack={() => setView({ name: 'queue' })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'dashboard' && <Dashboard config={config} onAuthLost={onAuthLost} />}
-        {view.name === 'agents' && <AgentsView agents={agents} />}
-        {view.name === 'policy' && <SlaPolicyView config={config} />}
-      </main>
-    </div>
+          </div>
+        </aside>
+        <main className="main">
+          {view.name === 'queue' && (
+            <Queue agents={agents} onOpen={(ref) => setView({ name: 'ticket', ref })} onAuthLost={onAuthLost} />
+          )}
+          {view.name === 'ticket' && (
+            <TicketDetail
+              ticketRef={view.ref}
+              config={config}
+              agents={agents}
+              onBack={() => setView({ name: 'queue' })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'dashboard' && <Dashboard config={config} onAuthLost={onAuthLost} />}
+          {view.name === 'agents' && <AgentsView agents={agents} />}
+          {view.name === 'policy' && <SlaPolicyView config={config} />}
+        </main>
+      </div>
+    </AccessProvider>
   );
 }
 

@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3';
 import { weekStartOf } from '../shared/time.js';
 import type { FieldError } from '../shared/types.js';
 import {
+  accessOf,
   actorOf,
   checkCredentials,
   clearedCookie,
@@ -12,7 +13,7 @@ import {
   sessionCookie,
   type AuthConfig,
 } from './auth.js';
-import { createHandoff, isRedeemPath, safeServiceTokenEqual } from './handoff.js';
+import { createHandoff, isRedeemPath, requestedAccess, safeServiceTokenEqual } from './handoff.js';
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { exportRange } from './csv.js';
@@ -20,6 +21,7 @@ import { importTransfer } from './transfer-import.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import { EXPORT_PROFILES, getProfile } from './export-profiles.js';
+import { assertMayRecordFor, employeeOf } from './ownership.js';
 import {
   approveTimesheet,
   createEmployee,
@@ -259,8 +261,11 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
-    res.json({ ok: true, username: actor });
+    // The level rides in the token next to the actor: the local admin manages,
+    // a PS-01 identity gets what its module permissions grant.
+    const access = viaSso !== null && viaSso.ok ? viaSso.access : 'manage';
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
+    res.json({ ok: true, username: actor, access });
   });
 
   // ── Machine-to-machine ───────────────────────────────────────────────
@@ -299,18 +304,22 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   if (handoff) {
     app.post('/api/session/handoff', (req, res) => {
       requireServiceToken(req);
-      const { actor, path } = body(req);
+      const { actor, path, access } = body(req);
+      const level = requestedAccess(access);
       if (typeof actor !== 'string' || actor.trim() === '') throw new DomainError(422, 'actor is required');
       const target = path === undefined ? '/' : path;
       if (!isRedeemPath(target)) throw new DomainError(422, 'path must be module-relative');
-      res.json(handoff.issue(actor.trim(), target));
+      if (level === null) throw new DomainError(422, 'access must be view, edit or manage');
+      res.json(handoff.issue(actor.trim(), target, Date.now(), level));
     });
 
     app.post('/api/session/issue', (req, res) => {
       requireServiceToken(req);
-      const { actor } = body(req);
+      const { actor, access } = body(req);
+      const level = requestedAccess(access);
       if (typeof actor !== 'string' || actor.trim() === '') throw new DomainError(422, 'actor is required');
-      res.json(handoff.issueSession(actor.trim()));
+      if (level === null) throw new DomainError(422, 'access must be view, edit or manage');
+      res.json(handoff.issueSession(actor.trim(), Date.now(), level));
     });
 
     // The browser lands here from an iframe `src`. Deliberately NOT under
@@ -339,7 +348,10 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: actorOf(res, auth) });
+    const actor = actorOf(res, auth);
+    // Which employee this identity is, so the screens open on the person's own
+    // sheet — and, below `manage`, offer no other (server/ownership.ts).
+    res.json({ username: actor, access: accessOf(res), employee_id: employeeOf(db, actor) });
   });
 
   // ── Projects & tasks ─────────────────────────────────────────────────
@@ -470,7 +482,9 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.post('/api/entries', (req, res) => {
-    const id = createEntry(db, validateEntry(body(req)));
+    const input = validateEntry(body(req));
+    assertMayRecordFor(db, actorOf(res, auth), accessOf(res), input.employeeId);
+    const id = createEntry(db, input);
     res.status(201).json(getEntry(db, id));
   });
 
@@ -479,11 +493,16 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.put('/api/entries/:id', (req, res) => {
-    updateEntry(db, Number(req.params.id), validateEntry(body(req)));
+    const input = validateEntry(body(req));
+    // Both the person the entry is for now and the one it would move to.
+    assertMayRecordFor(db, actorOf(res, auth), accessOf(res), getEntry(db, Number(req.params.id)).employee_id);
+    assertMayRecordFor(db, actorOf(res, auth), accessOf(res), input.employeeId);
+    updateEntry(db, Number(req.params.id), input);
     res.json(getEntry(db, Number(req.params.id)));
   });
 
   app.delete('/api/entries/:id', (req, res) => {
+    assertMayRecordFor(db, actorOf(res, auth), accessOf(res), getEntry(db, Number(req.params.id)).employee_id);
     deleteEntry(db, Number(req.params.id));
     res.json({ ok: true });
   });
@@ -530,6 +549,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const employeeId = reqId(body(req).employee_id, 'employee_id', errors);
     const weekStart = reqDate(body(req).week_start, 'week_start', errors);
     if (errors.length > 0) fail(errors);
+    assertMayRecordFor(db, actorOf(res, auth), accessOf(res), employeeId);
     const submitted = submitTimesheet(db, employeeId, weekStartOf(weekStart), actorOf(res, auth));
     void platform.audit({ actor: actorOf(res, auth), action: 'timesheet.submitted', resource: `employee:${employeeId}`, metadata: { week_start: weekStartOf(weekStart) } });
     res.json(submitted);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { FieldError } from '../../shared/types';
 import { api, ApiError, type CustomerRow } from '../api';
 import { fmtDate } from '../format';
+import { Can } from '../access';
 
 interface Props {
   onOpenLedger: (id: number) => void;
@@ -124,9 +125,11 @@ export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
           <p className="resource__desc">Name, address, email, VAT id — and a full statement per customer.</p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={() => setForm({ ...EMPTY })}>
-            + NEW CUSTOMER
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setForm({ ...EMPTY })}>
+              + NEW CUSTOMER
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -171,35 +174,39 @@ export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
                     <button className="rowbtn mono" onClick={() => onOpenLedger(c.id)}>
                       LEDGER
                     </button>
-                    <button
-                      className="rowbtn mono"
-                      onClick={() =>
-                        setForm({
-                          id: c.id,
-                          name: c.name,
-                          email: c.email ?? '',
-                          vat_id: c.vat_id ?? '',
-                          address: c.address ?? '',
-                          street: c.street ?? '',
-                          postcode: c.postcode ?? '',
-                          city: c.city ?? '',
-                          country_code: c.country_code ?? '',
-                          buyer_reference: c.buyer_reference ?? '',
-                          einvoice_address: c.einvoice_address ?? '',
-                          debtor_account: c.debtor_account === null || c.debtor_account === undefined ? '' : String(c.debtor_account),
-                        })
-                      }
-                    >
-                      EDIT
-                    </button>
-                    <button
-                      className="rowbtn rowbtn--danger mono"
-                      disabled={c.invoice_count > 0}
-                      title={c.invoice_count > 0 ? 'Customers with invoices cannot be deleted' : undefined}
-                      onClick={() => void remove(c)}
-                    >
-                      DELETE
-                    </button>
+                    <Can>
+                      <button
+                        className="rowbtn mono"
+                        onClick={() =>
+                          setForm({
+                            id: c.id,
+                            name: c.name,
+                            email: c.email ?? '',
+                            vat_id: c.vat_id ?? '',
+                            address: c.address ?? '',
+                            street: c.street ?? '',
+                            postcode: c.postcode ?? '',
+                            city: c.city ?? '',
+                            country_code: c.country_code ?? '',
+                            buyer_reference: c.buyer_reference ?? '',
+                            einvoice_address: c.einvoice_address ?? '',
+                            debtor_account: c.debtor_account === null || c.debtor_account === undefined ? '' : String(c.debtor_account),
+                          })
+                        }
+                      >
+                        EDIT
+                      </button>
+                    </Can>
+                    <Can>
+                      <button
+                        className="rowbtn rowbtn--danger mono"
+                        disabled={c.invoice_count > 0}
+                        title={c.invoice_count > 0 ? 'Customers with invoices cannot be deleted' : undefined}
+                        onClick={() => void remove(c)}
+                      >
+                        DELETE
+                      </button>
+                    </Can>
                   </div>
                 </td>
               </tr>

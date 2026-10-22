@@ -373,6 +373,13 @@ export interface BankEntry {
   instruction_id: string | null;
   counterparty_name: string | null;
   counterparty_iban: string | null;
+  /**
+   * How many transactions the bank booked as this one entry (`Btch/NbOfTxs`),
+   * or null when it is a single transaction. A batched entry carries no
+   * per-transaction counterparty or reference, so it cannot be matched to one
+   * invoice by itself.
+   */
+  batch_count: number | null;
   /** Every unstructured remittance line, joined with newlines. */
   remittance: string | null;
   /** The structured creditor reference — where an invoice number belongs. */

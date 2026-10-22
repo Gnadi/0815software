@@ -3,6 +3,7 @@ import type { AppConfig, ProgramRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { eurosToCents, fmtDate, fmtEur } from '../format';
 import { ProgramStatusBadge } from './Badges';
+import { Can } from '../access';
 
 interface Props {
   config: AppConfig;
@@ -89,9 +90,11 @@ export function ProgramsView({ config, onOpen, onAuthLost }: Props) {
           </p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={() => setShowForm((s) => !s)}>
-            {showForm ? 'CLOSE' : 'NEW PROGRAM +'}
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setShowForm((s) => !s)}>
+              {showForm ? 'CLOSE' : 'NEW PROGRAM +'}
+            </button>
+          </Can>
         </div>
       </div>
 

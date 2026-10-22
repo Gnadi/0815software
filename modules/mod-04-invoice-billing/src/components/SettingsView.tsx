@@ -8,10 +8,11 @@ import {
   type SellerFieldState,
   type SellerSettingsResponse,
 } from '../api';
+import { Can, useCan } from '../access';
 import { fmtDate } from '../format';
 
 /**
- * SETTINGS — what the admin maintains: this company as seller (letterhead,
+ * SETTINGS — what someone with `manage` maintains: this company as seller (letterhead,
  * bank account, and the fields an e-invoice needs), and the DATEV / BMD
  * export settings the tax adviser provides.
  *
@@ -19,6 +20,10 @@ import { fmtDate } from '../format';
  * overrides the SELLER_* environment (and PS-11 for the fields it does not
  * manage); clearing it falls back again. Issued invoices never change — they
  * carry the seller frozen at issue.
+ *
+ * Everyone with a level here may READ the settings; changing them needs
+ * `manage` (server/access.ts). Below that the screen shows the same fields,
+ * disabled, so a person can still see which numbers the export uses.
  */
 
 interface Props {
@@ -66,6 +71,7 @@ export function SettingsView({ onAuthLost }: Props) {
   const [details, setDetails] = useState<FieldError[]>([]);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const canManage = useCan('manage');
 
   const handle = useCallback(
     (err: unknown) => {
@@ -166,7 +172,13 @@ export function SettingsView({ onAuthLost }: Props) {
         </div>
       )}
       {notice && <div className="resource__desc mono">{notice}</div>}
+      {!canManage && (
+        <div className="resource__desc mono">
+          READ-ONLY — changing the seller or the export settings needs the MANAGE level in this module.
+        </div>
+      )}
 
+      <fieldset disabled={!canManage} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       {/* ── Seller ── */}
       <div className="section-title mono">SELLER · LETTERHEAD AND E-INVOICE</div>
       <p className="resource__desc mono">
@@ -222,11 +234,13 @@ export function SettingsView({ onAuthLost }: Props) {
           </div>
         ))}
       </div>
-      <div className="editor__actions">
-        <button className="btn btn--primary" disabled={busy} onClick={() => void save('seller')}>
-          SAVE SELLER →
-        </button>
-      </div>
+      <Can level="manage">
+        <div className="editor__actions">
+          <button className="btn btn--primary" disabled={busy} onClick={() => void save('seller')}>
+            SAVE SELLER →
+          </button>
+        </div>
+      </Can>
 
       {/* ── DATEV ── */}
       <div className="section-title mono">DATEV</div>
@@ -306,11 +320,14 @@ export function SettingsView({ onAuthLost }: Props) {
         extra={{ field: 'tax_code', label: 'STEUERCODE' }}
         onChange={(revenue) => setBmd({ revenue })}
       />
-      <div className="editor__actions">
-        <button className="btn btn--primary" disabled={busy} onClick={() => void save('accounting')}>
-          SAVE EXPORT SETTINGS →
-        </button>
-      </div>
+      <Can level="manage">
+        <div className="editor__actions">
+          <button className="btn btn--primary" disabled={busy} onClick={() => void save('accounting')}>
+            SAVE EXPORT SETTINGS →
+          </button>
+        </div>
+      </Can>
+      </fieldset>
     </div>
   );
 }

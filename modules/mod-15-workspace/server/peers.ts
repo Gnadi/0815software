@@ -1,5 +1,6 @@
 import { CATALOGUE, catalogueEntry } from '../shared/catalogue.js';
 import { validateSummary, type ModuleSummary, type SummaryContext } from '../shared/summary.js';
+import type { AccessLevel } from '@0815software/platform-clients';
 import type { PeerConfig, PeerMap } from './config.js';
 import type { PeerStatus, PeerSummary } from '../shared/types.js';
 
@@ -123,10 +124,13 @@ export interface PeerClient {
   summary(moduleId: string, context: SummaryContext): Promise<PeerSummary>;
   /** Every configured peer's summary, concurrently. Never throws. */
   summaries(context: SummaryContext): Promise<PeerSummary[]>;
-  /** Ask a peer for a single-use handoff ticket for `actor`. Never throws. */
-  handoff(moduleId: string, actor: string, path: string): Promise<{ ok: true; url: string } | { ok: false; problem: string }>;
-  /** Ask a peer for a replayable session for `actor`. Never throws. */
-  issueSession(moduleId: string, actor: string): Promise<{ ok: true; cookie: string } | { ok: false; problem: string }>;
+  /**
+   * Ask a peer for a single-use handoff ticket for `actor`, at `access` — the
+   * level PS-01 grants them on that module (`grants.ts`). Never throws.
+   */
+  handoff(moduleId: string, actor: string, path: string, access: AccessLevel): Promise<{ ok: true; url: string } | { ok: false; problem: string }>;
+  /** Ask a peer for a replayable session for `actor` at `access`. Never throws. */
+  issueSession(moduleId: string, actor: string, access: AccessLevel): Promise<{ ok: true; cookie: string } | { ok: false; problem: string }>;
   /** Call a peer route as `actor`, replaying a session cookie. Never throws. */
   callAs(
     moduleId: string,
@@ -304,7 +308,7 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
       return run.finally(() => inFlight.delete(key));
     },
 
-    async handoff(moduleId: string, actor: string, path: string) {
+    async handoff(moduleId: string, actor: string, path: string, access: AccessLevel) {
       const entry = catalogueEntry(moduleId);
       const publicUrl = peerOf(peers, moduleId)?.publicUrl ?? null;
       if (!entry?.embeddable) return { ok: false as const, problem: 'this module cannot be embedded' };
@@ -314,7 +318,7 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
       const res = await call(moduleId, '/api/session/handoff', {
         method: 'POST',
         headers: machineHeaders(),
-        body: JSON.stringify({ actor, path }),
+        body: JSON.stringify({ actor, path, access }),
       });
       if (!res.ok) return { ok: false as const, problem: res.problem };
       if (res.status !== 200) {
@@ -328,12 +332,12 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
       return { ok: true as const, url: `${publicUrl}${redeem}` };
     },
 
-    async issueSession(moduleId: string, actor: string) {
+    async issueSession(moduleId: string, actor: string, access: AccessLevel) {
       if (!serviceToken) return { ok: false as const, problem: 'no PLATFORM_SERVICE_TOKEN is configured for this stack' };
       const res = await call(moduleId, '/api/session/issue', {
         method: 'POST',
         headers: machineHeaders(),
-        body: JSON.stringify({ actor }),
+        body: JSON.stringify({ actor, access }),
       });
       if (!res.ok) return { ok: false as const, problem: res.problem };
       if (res.status !== 200) {

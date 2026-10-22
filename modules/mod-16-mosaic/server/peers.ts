@@ -1,4 +1,5 @@
 import { CATALOGUE, catalogueEntry } from '../shared/catalogue.js';
+import type { AccessLevel } from '@0815software/platform-clients';
 import type { PeerConfig, PeerMap } from './config.js';
 import type { PeerStatus } from '../shared/types.js';
 
@@ -114,8 +115,11 @@ export interface PeerClient {
   has(moduleId: string): boolean;
   /** The public origin a browser should use for this module, if any. */
   publicUrl(moduleId: string): string | null;
-  /** Ask a peer for a single-use handoff ticket for `actor`. Never throws. */
-  handoff(moduleId: string, actor: string, path: string): Promise<{ ok: true; url: string } | { ok: false; problem: string }>;
+  /**
+   * Ask a peer for a single-use handoff ticket for `actor`, at `access` — the
+   * level PS-01 grants them on that module (`grants.ts`). Never throws.
+   */
+  handoff(moduleId: string, actor: string, path: string, access: AccessLevel): Promise<{ ok: true; url: string } | { ok: false; problem: string }>;
 }
 
 export function createPeerClient(options: PeerClientOptions): PeerClient {
@@ -213,7 +217,7 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
       return peerOf(peers, moduleId)?.publicUrl ?? null;
     },
 
-    async handoff(moduleId: string, actor: string, path: string) {
+    async handoff(moduleId: string, actor: string, path: string, access: AccessLevel) {
       const entry = catalogueEntry(moduleId);
       const publicUrl = peerOf(peers, moduleId)?.publicUrl ?? null;
       if (!entry?.embeddable) return { ok: false as const, problem: 'this module cannot be embedded' };
@@ -223,7 +227,7 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
       const res = await call(moduleId, '/api/session/handoff', {
         method: 'POST',
         headers: machineHeaders(),
-        body: JSON.stringify({ actor, path }),
+        body: JSON.stringify({ actor, path, access }),
       });
       if (!res.ok) return { ok: false as const, problem: res.problem };
       if (res.status !== 200) {

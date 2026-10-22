@@ -3,6 +3,7 @@ import type { InvoiceRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDate, fmtEur } from '../format';
 import { PaymentBadge, StatusBadge } from './StatusBadge';
+import { Can } from '../access';
 
 interface Props {
   /** Status filter to open with, from a deep link (`/invoices?status=overdue`). */
@@ -84,12 +85,16 @@ export function InvoicesView({ initialStatus, onOpen, onNew, onAuthLost }: Props
           <p className="resource__desc">draft → sent → paid; cancellations keep their number.</p>
         </div>
         <div className="resource__actions">
-          <button className="btn" onClick={() => void importOffer()} disabled={importing}>
-            {importing ? 'IMPORTING…' : 'IMPORT OFFER'}
-          </button>
-          <button className="btn btn--primary" onClick={onNew}>
-            + NEW DRAFT
-          </button>
+          <Can>
+            <button className="btn" onClick={() => void importOffer()} disabled={importing}>
+              {importing ? 'IMPORTING…' : 'IMPORT OFFER'}
+            </button>
+          </Can>
+          <Can>
+            <button className="btn btn--primary" onClick={onNew}>
+              + NEW DRAFT
+            </button>
+          </Can>
         </div>
       </div>
 

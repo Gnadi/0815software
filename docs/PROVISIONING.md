@@ -57,7 +57,12 @@ Two properties make it trustworthy rather than decorative:
   suite fails naming the mismatch.
 
 Adding a module: build the package, add a registry entry, add a copy block to
-`src/data/modules.ts`. Adding a service: build the package, add a registry entry.
+`src/data/modules.ts`. `node scripts/new-module.mjs … --register` does all three
+— the package from the shared copy-ins and an example domain, with per-person
+access levels (`docs/ACCESS-LEVELS.md`) and green tests from the start — and
+prints what is left by hand (translations, the pinned module counts in the
+deploy suite, the shells' catalogues). Adding a service: build the package, add
+a registry entry.
 
 ## 2. Generate the stack
 

@@ -1,3 +1,4 @@
+import type { AccessLevel } from './access';
 import type {
   Customer,
   DashboardStats,
@@ -59,7 +60,7 @@ export const api = {
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
   /** Which credentials this deployment accepts — readable before signing in. */
   authMode: () => request<AuthMode>('/api/auth-mode'),
-  me: () => request<{ username: string }>('/api/me'),
+  me: () => request<{ username: string; access: AccessLevel }>('/api/me'),
 
   stats: (period?: number) =>
     request<DashboardStats>(`/api/stats${period ? `?period=${period}` : ''}`),

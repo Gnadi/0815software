@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { ChartRow } from '../../shared/types';
 import { api, ApiError } from '../api';
+import { Can } from '../access';
 
 interface Props {
   onAuthLost: () => void;
@@ -75,9 +76,11 @@ export function ChartsView({ onAuthLost }: Props) {
                   </div>
                 </div>
                 <div className="reportcard__actions">
-                  <button className="rowbtn rowbtn--danger" onClick={() => void remove(c.id)}>
-                    DELETE
-                  </button>
+                  <Can>
+                    <button className="rowbtn rowbtn--danger" onClick={() => void remove(c.id)}>
+                      DELETE
+                    </button>
+                  </Can>
                 </div>
               </div>
               <div className="chart-panel">

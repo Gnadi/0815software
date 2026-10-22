@@ -47,3 +47,15 @@ export type {
   SubmitOrderInput,
   TickResult,
 } from './banking.js';
+
+export {
+  ACCESS_LEVELS,
+  PLATFORM_ADMIN,
+  accessLevelFor,
+  compileAccessPolicy,
+  isAccessLevel,
+  modulePermission,
+  parseModulePermission,
+  permits,
+} from './access.js';
+export type { AccessLevel, AccessRule } from './access.js';

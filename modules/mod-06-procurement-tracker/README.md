@@ -357,10 +357,11 @@ This is an *internal* tool — put it behind your VPN or reverse proxy.
 Kept out deliberately to stay a 4–6 week module. If you need any of
 these, that's commissioned work — exactly the kind 0815software does:
 
-- **User management, roles, per-tier permissions** — one staff admin by
-  design (same auth pattern as MOD-02 … MOD-05). Approver names are
-  free-text signature lines, not enforced identities; nothing stops the
-  admin recording any name at any tier.
+- **Per-tier permissions** — signing off a tier needs `manage` (see
+  [Users and access levels](#users-and-access-levels)), but which manager
+  may sign which tier is not enforced: approver names are still free-text
+  signature lines, and nothing stops a manager recording any name at any
+  tier.
 - **Emailing RFQs or POs to suppliers** — inviting records intent,
   quotes are entered by your staff. No SMTP, no supplier portal; this
   module has zero external services.
@@ -397,6 +398,24 @@ the master `party_id` is stored on the local row. Suppliers and customers never
 match each other there, so a company you both buy from and sell to stays two
 relationships with two sets of terms — a procurement import can never rewrite a
 customer's billing address. Unset, the local `suppliers` table is the only record.
+
+## Users and access levels
+
+Standalone, this module has one login — the local admin — and it manages
+everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), every
+person signs in as themselves and gets the level PS-01 grants them here:
+
+| PS-01 permission | Level | May |
+| --- | --- | --- |
+| `module:procurement-tracker:view` | `view` | read everything, change nothing |
+| `module:procurement-tracker:edit` | `edit` | the day-to-day work: create, update, delete |
+| `module:procurement-tracker:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
+
+`module:*:<level>` grants a level in every module. Reads need `view`, any other
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/pos/:id/approvals` → `manage`; `POST /api/pos/:id/reject` → `manage`. A refused request answers **403**
+`{ error, required, access }`; `GET /api/me` reports the caller's `access`.
+Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
+manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## The shell contract — appearing on a dashboard
 

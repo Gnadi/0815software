@@ -3,6 +3,7 @@ import type { DepartmentRow, EmployeeRow } from '../../shared/types';
 import { api, ApiError, exportCsvUrl } from '../api';
 import { fmtDate } from '../format';
 import { EmployeeModal } from './EmployeeModal';
+import { Can } from '../access';
 
 interface Props {
   onOpen: (id: number) => void;
@@ -75,9 +76,11 @@ export function DirectoryView({ onOpen, onAuthLost }: Props) {
           <a className="btn btn--ghost" href={exportCsvUrl(params)}>
             EXPORT CSV ↓
           </a>
-          <button className="btn btn--primary" onClick={() => setCreating(true)}>
-            + ADD EMPLOYEE
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setCreating(true)}>
+              + ADD EMPLOYEE
+            </button>
+          </Can>
         </div>
       </div>
 

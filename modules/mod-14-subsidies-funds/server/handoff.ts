@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { isAccessLevel, type AccessLevel } from '@0815software/platform-clients';
 import { createToken, sessionCookie, COOKIE_NAME } from './auth.js';
 import type { AuthConfig } from './auth.js';
 
@@ -44,6 +45,12 @@ import type { AuthConfig } from './auth.js';
  * 4. **Bound to this module.** The signing key is this module's own
  *    `SESSION_SECRET`, so a ticket minted by one module in the stack is not
  *    redeemable at another even though both trust the same shell.
+ *
+ * The shell may also say how much the person may do (`access`, see
+ * `access.ts`); it is signed into the ticket like the destination. A shell
+ * that says nothing gets `manage`, which is what every shell session was
+ * before access levels existed — so a shell must say less, never more, than
+ * it knows: it passes the level its own session carries.
  */
 
 /** How long a ticket may be redeemed for. Deliberately short — it is a baton. */
@@ -137,9 +144,9 @@ export type RedeemResult =
 
 export interface Handoff {
   /** Mint a single-use ticket for `actor`, landing on `path` once redeemed. */
-  issue(actor: string, path: string, now?: number): IssuedTicket;
+  issue(actor: string, path: string, now?: number, access?: AccessLevel): IssuedTicket;
   /** Mint a session token for `actor` for a machine caller to replay. */
-  issueSession(actor: string, now?: number): IssuedSession;
+  issueSession(actor: string, now?: number, access?: AccessLevel): IssuedSession;
   /** Redeem a ticket. Never throws — a bad ticket is a verdict, not an error. */
   redeem(ticket: unknown, now?: number): RedeemResult;
   /** Live ticket count. Exposed for tests and for the prune assertions. */
@@ -158,7 +165,7 @@ export function createHandoff(auth: AuthConfig): Handoff {
   };
 
   return {
-    issue(actor: string, path: string, now = Date.now()): IssuedTicket {
+    issue(actor: string, path: string, now = Date.now(), access: AccessLevel = 'manage'): IssuedTicket {
       if (actor === '') throw new Error('handoff actor must not be empty');
       if (!isRedeemPath(path)) throw new Error(`handoff path must be module-relative — got ${JSON.stringify(path)}`);
 
@@ -177,6 +184,7 @@ export function createHandoff(auth: AuthConfig): Handoff {
         String(expiry),
         Buffer.from(actor, 'utf8').toString('base64url'),
         Buffer.from(path, 'utf8').toString('base64url'),
+        access,
         nonce,
       ].join('.');
       issued.set(nonce, expiry);
@@ -187,11 +195,11 @@ export function createHandoff(auth: AuthConfig): Handoff {
       };
     },
 
-    issueSession(actor: string, now = Date.now()): IssuedSession {
+    issueSession(actor: string, now = Date.now(), access: AccessLevel = 'manage'): IssuedSession {
       if (actor === '') throw new Error('handoff actor must not be empty');
       return {
         cookie_name: COOKIE_NAME,
-        token: createToken(auth, actor, now),
+        token: createToken(auth, actor, now, access),
         expires_at: new Date(now + auth.ttlHours * 3600_000).toISOString(),
       };
     },
@@ -199,11 +207,11 @@ export function createHandoff(auth: AuthConfig): Handoff {
     redeem(ticket: unknown, now = Date.now()): RedeemResult {
       if (typeof ticket !== 'string') return { ok: false, reason: 'malformed' };
       const parts = ticket.split('.');
-      if (parts.length !== 5) return { ok: false, reason: 'malformed' };
-      const [expiry, actorPart, pathPart, nonce, mac] = parts as [string, string, string, string, string];
+      if (parts.length !== 6) return { ok: false, reason: 'malformed' };
+      const [expiry, actorPart, pathPart, access, nonce, mac] = parts as [string, string, string, string, string, string];
       if (!/^\d+$/.test(expiry)) return { ok: false, reason: 'malformed' };
 
-      const payload = `${expiry}.${actorPart}.${pathPart}.${nonce}`;
+      const payload = `${expiry}.${actorPart}.${pathPart}.${access}.${nonce}`;
       // Signature first: an unsigned ticket must not be able to probe which
       // nonces this process has issued through a difference in the answer.
       if (!safeCompare(mac, sign(payload, auth.secret))) return { ok: false, reason: 'malformed' };
@@ -216,14 +224,25 @@ export function createHandoff(auth: AuthConfig): Handoff {
 
       const actor = Buffer.from(actorPart, 'base64url').toString('utf8');
       const path = Buffer.from(pathPart, 'base64url').toString('utf8');
-      if (actor === '' || !isRedeemPath(path)) return { ok: false, reason: 'malformed' };
+      if (actor === '' || !isRedeemPath(path) || !isAccessLevel(access)) return { ok: false, reason: 'malformed' };
 
       prune(now);
-      return { ok: true, cookie: sessionCookie(auth, createToken(auth, actor, now)), location: path };
+      return { ok: true, cookie: sessionCookie(auth, createToken(auth, actor, now, access)), location: path };
     },
 
     liveTickets(): number {
       return issued.size;
     },
   };
+}
+
+/**
+ * The level a shell asked for: `manage` when it named none (every shell before
+ * access levels existed), the level itself when valid, null — a 422 — for
+ * anything else. Refusing an unknown value rather than defaulting it matters:
+ * a typo must not quietly hand over the highest level.
+ */
+export function requestedAccess(value: unknown): AccessLevel | null {
+  if (value === undefined) return 'manage';
+  return isAccessLevel(value) ? value : null;
 }

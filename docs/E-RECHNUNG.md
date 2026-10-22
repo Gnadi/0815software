@@ -98,9 +98,13 @@ the rates of the seller's country only.
 
 ## Setting it up
 
-### The seller (Settings screen, admin)
+### The seller (Settings screen, `manage` level)
 
-The admin maintains the company on **Settings → Seller**. Each field shows
+The company is maintained on **Settings → Seller**. Everyone with a level in
+the module may read it; saving needs **`manage`**
+(`module:invoice-billing:manage` or `platform:admin` in PS-01, or the local
+admin login; see [`ACCESS-LEVELS.md`](./ACCESS-LEVELS.md)). Below `manage`
+the screen shows the same fields read-only, and the API answers 403. Each field shows
 where its current value comes from: **SET HERE**, **FROM PS-11** or **FROM
 ENV**. The precedence, field by field (`server/seller-settings.ts`):
 
@@ -111,7 +115,7 @@ ENV**. The precedence, field by field (`server/seller-settings.ts`):
 Clearing a field on the screen falls back to the next source. While PS-11 is
 wired, it stays the single authority for what it carries (name, address, VAT
 id, IBAN, BIC): those fields are read-only on the screen, and the API refuses
-them with 422. Every save records who made it and when. With `AUDIT_URL` set,
+them with 422. Every save records the person who made it (their PS-01 identity) and when. With `AUDIT_URL` set,
 the save is also logged on PS-07 as `settings.seller_changed`, with the field
 names but not their values. Invoices issued earlier never change, because
 they carry the seller frozen at issue.
@@ -187,7 +191,8 @@ rules change, and this document and the golden files need a new pass.
 
 ## DATEV export
 
-The admin enters the DATEV settings on **Settings → DATEV**: Beraternummer,
+Someone with the `manage` level enters the DATEV settings on **Settings →
+DATEV**: Beraternummer,
 Mandantennummer, chart of accounts, account length, fiscal-year start, debtor
 numbering, bank account and revenue accounts. Each save records who made it
 and when, and is logged on PS-07 as `settings.accounting_changed` when wired.
@@ -247,7 +252,7 @@ JJJJMMTT), the booking symbol (default `AR`) and the first debtor account
 (default 200000) are settings.
 
 The **Steuercode** comes from the client's NTCS tax code table and differs
-between installations. The admin enters it per revenue group on **Settings →
+between installations. Someone with the `manage` level enters it per revenue group on **Settings →
 BMD NTCS**, next to the revenue account. Only the Austrian standard rates ship with a
 suggestion (accounts 4000 / 4010 / 4013, code 1). Every other group refuses
 until it is configured. Map the columns once in the NTCS import template, and

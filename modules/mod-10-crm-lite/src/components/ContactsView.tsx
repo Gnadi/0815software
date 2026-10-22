@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { CompanyRow, ContactRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { Field, Modal } from './ui';
+import { Can } from '../access';
 
 export function ContactsView({
   onOpen,
@@ -39,9 +40,11 @@ export function ContactsView({
           <h1 className="resource__title">People</h1>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={() => setCreating(true)}>
-            + NEW CONTACT
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setCreating(true)}>
+              + NEW CONTACT
+            </button>
+          </Can>
         </div>
       </div>
 

@@ -4,6 +4,7 @@ import { api, ApiError } from '../api';
 import { fmtDate, fmtDateTime, fmtEur, fmtQty } from '../format';
 import { ApprovalRules } from './ApprovalRules';
 import { PoBadge, TierProgress } from './StatusBadge';
+import { Can } from '../access';
 
 interface Props {
   id: number;
@@ -106,62 +107,76 @@ export function PoDetailView({ id, config, onBack, onEdit, onOpenRfq, onAuthLost
         <div className="resource__actions">
           {isDraft && (
             <>
-              <button className="btn btn--ghost" onClick={() => onEdit(po.id)}>
-                EDIT
-              </button>
-              {po.submission_no === 0 && (
-                <button
-                  className="btn btn--ghost"
-                  disabled={busy}
-                  onClick={() => {
-                    if (window.confirm('Delete this draft PO?')) {
-                      void run(() => api.deletePo(po.id), onBack);
-                    }
-                  }}
-                >
-                  DELETE
+              <Can>
+                <button className="btn btn--ghost" onClick={() => onEdit(po.id)}>
+                  EDIT
                 </button>
+              </Can>
+              {po.submission_no === 0 && (
+                <Can>
+                  <button
+                    className="btn btn--ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      if (window.confirm('Delete this draft PO?')) {
+                        void run(() => api.deletePo(po.id), onBack);
+                      }
+                    }}
+                  >
+                    DELETE
+                  </button>
+                </Can>
               )}
-              <button className="btn btn--primary" disabled={busy} onClick={() => void run(() => api.submitPo(po.id))}>
-                SUBMIT FOR APPROVAL →
-              </button>
+              <Can>
+                <button className="btn btn--primary" disabled={busy} onClick={() => void run(() => api.submitPo(po.id))}>
+                  SUBMIT FOR APPROVAL →
+                </button>
+              </Can>
             </>
           )}
           {isSubmitted && (
-            <button
-              className="btn btn--ghost"
-              disabled={busy}
-              onClick={() => {
-                if (window.confirm('Return to draft? All approvals of this submission become void (history is kept).')) {
-                  void run(() => api.returnToDraft(po.id));
-                }
-              }}
-            >
-              RETURN TO DRAFT
-            </button>
-          )}
-          {isApproved && (
-            <>
+            <Can>
               <button
                 className="btn btn--ghost"
                 disabled={busy}
                 onClick={() => {
-                  if (window.confirm('Return to draft? All approvals become void (history is kept).')) {
+                  if (window.confirm('Return to draft? All approvals of this submission become void (history is kept).')) {
                     void run(() => api.returnToDraft(po.id));
                   }
                 }}
               >
                 RETURN TO DRAFT
               </button>
-              <button className="btn btn--primary" disabled={busy} onClick={() => void run(() => api.markOrdered(po.id))}>
-                MARK ORDERED →
-              </button>
+            </Can>
+          )}
+          {isApproved && (
+            <>
+              <Can>
+                <button
+                  className="btn btn--ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    if (window.confirm('Return to draft? All approvals become void (history is kept).')) {
+                      void run(() => api.returnToDraft(po.id));
+                    }
+                  }}
+                >
+                  RETURN TO DRAFT
+                </button>
+              </Can>
+              <Can>
+                <button className="btn btn--primary" disabled={busy} onClick={() => void run(() => api.markOrdered(po.id))}>
+                  MARK ORDERED →
+                </button>
+              </Can>
             </>
           )}
           {po.status === 'ordered' && (
-            <button className="btn btn--primary" disabled={busy} onClick={() => void run(() => api.closePo(po.id))}>
-              CLOSE PO →
-            </button>
+            <Can>
+              <button className="btn btn--primary" disabled={busy} onClick={() => void run(() => api.closePo(po.id))}>
+                CLOSE PO →
+              </button>
+            </Can>
           )}
         </div>
       </div>
@@ -253,37 +268,39 @@ export function PoDetailView({ id, config, onBack, onEdit, onOpenRfq, onAuthLost
       )}
 
       {isSubmitted && po.next_tier !== null && (
-        <form className="receive-bar" onSubmit={(e) => decide('approve', e)}>
-          <span className="receive-bar__hint mono">
-            NEXT: TIER {po.next_tier} · {tierLabel(po.next_tier).toUpperCase()}
-          </span>
-          <label className="field">
-            <span className="field__label mono">
-              APPROVER NAME <span className="field__req">*</span>
+        <Can level="manage">
+          <form className="receive-bar" onSubmit={(e) => decide('approve', e)}>
+            <span className="receive-bar__hint mono">
+              NEXT: TIER {po.next_tier} · {tierLabel(po.next_tier).toUpperCase()}
             </span>
-            <input
-              className="field__input receive-input"
-              value={approver}
-              onChange={(e) => setApprover(e.target.value)}
-            />
-          </label>
-          <label className="field" style={{ minWidth: 220 }}>
-            <span className="field__label mono">NOTE</span>
-            <input className="field__input" value={decisionNote} onChange={(e) => setDecisionNote(e.target.value)} />
-          </label>
-          <button className="btn btn--primary" type="submit" disabled={busy || !approver.trim()}>
-            APPROVE TIER {po.next_tier} →
-          </button>
-          <button
-            className="btn btn--danger"
-            type="button"
-            disabled={busy || !approver.trim()}
-            onClick={(e) => decide('reject', e)}
-          >
-            REJECT
-          </button>
-          <span className="receive-bar__hint mono">REJECTION RETURNS THE PO TO DRAFT AND VOIDS ALL APPROVALS</span>
-        </form>
+            <label className="field">
+              <span className="field__label mono">
+                APPROVER NAME <span className="field__req">*</span>
+              </span>
+              <input
+                className="field__input receive-input"
+                value={approver}
+                onChange={(e) => setApprover(e.target.value)}
+              />
+            </label>
+            <label className="field" style={{ minWidth: 220 }}>
+              <span className="field__label mono">NOTE</span>
+              <input className="field__input" value={decisionNote} onChange={(e) => setDecisionNote(e.target.value)} />
+            </label>
+            <button className="btn btn--primary" type="submit" disabled={busy || !approver.trim()}>
+              APPROVE TIER {po.next_tier} →
+            </button>
+            <button
+              className="btn btn--danger"
+              type="button"
+              disabled={busy || !approver.trim()}
+              onClick={(e) => decide('reject', e)}
+            >
+              REJECT
+            </button>
+            <span className="receive-bar__hint mono">REJECTION RETURNS THE PO TO DRAFT AND VOIDS ALL APPROVALS</span>
+          </form>
+        </Can>
       )}
 
       <div className="section-title mono">APPROVAL TIMELINE · APPEND-ONLY</div>
