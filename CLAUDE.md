@@ -26,8 +26,10 @@ into its code or database.
    People get a level per module from PS-01 (`module:<slug>:view|edit|manage`).
    The session carries it; `server/auth.ts` enforces it on every `/api`
    request against **one** policy file, `server/access.ts` (reads → `view`,
-   writes → `edit`, listed exceptions). Routes do not check levels themselves.
-   The standalone local admin always manages. Contract:
+   writes → `edit`, listed exceptions). Routes do not check levels themselves;
+   a rule that depends on the row is one named function beside the policy
+   (MOD-11 `server/ownership.ts`). Screens hide what the level forbids
+   (`src/access.tsx`). The standalone local admin always manages. Contract:
    [`docs/ACCESS-LEVELS.md`](./docs/ACCESS-LEVELS.md).
 3. **Derived, never stored.** Totals, balances, stock levels, SLA timers,
    deadlines are computed from the rows they come from. Money is integer

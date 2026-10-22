@@ -21,6 +21,7 @@ import { importTransfer } from './transfer-import.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import { EXPORT_PROFILES, getProfile } from './export-profiles.js';
+import { assertMayRecordFor, employeeOf } from './ownership.js';
 import {
   approveTimesheet,
   createEmployee,
@@ -347,7 +348,10 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: actorOf(res, auth), access: accessOf(res) });
+    const actor = actorOf(res, auth);
+    // Which employee this identity is, so the screens open on the person's own
+    // sheet — and, below `manage`, offer no other (server/ownership.ts).
+    res.json({ username: actor, access: accessOf(res), employee_id: employeeOf(db, actor) });
   });
 
   // ── Projects & tasks ─────────────────────────────────────────────────
@@ -478,7 +482,9 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.post('/api/entries', (req, res) => {
-    const id = createEntry(db, validateEntry(body(req)));
+    const input = validateEntry(body(req));
+    assertMayRecordFor(db, actorOf(res, auth), accessOf(res), input.employeeId);
+    const id = createEntry(db, input);
     res.status(201).json(getEntry(db, id));
   });
 
@@ -487,11 +493,16 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.put('/api/entries/:id', (req, res) => {
-    updateEntry(db, Number(req.params.id), validateEntry(body(req)));
+    const input = validateEntry(body(req));
+    // Both the person the entry is for now and the one it would move to.
+    assertMayRecordFor(db, actorOf(res, auth), accessOf(res), getEntry(db, Number(req.params.id)).employee_id);
+    assertMayRecordFor(db, actorOf(res, auth), accessOf(res), input.employeeId);
+    updateEntry(db, Number(req.params.id), input);
     res.json(getEntry(db, Number(req.params.id)));
   });
 
   app.delete('/api/entries/:id', (req, res) => {
+    assertMayRecordFor(db, actorOf(res, auth), accessOf(res), getEntry(db, Number(req.params.id)).employee_id);
     deleteEntry(db, Number(req.params.id));
     res.json({ ok: true });
   });
@@ -538,6 +549,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const employeeId = reqId(body(req).employee_id, 'employee_id', errors);
     const weekStart = reqDate(body(req).week_start, 'week_start', errors);
     if (errors.length > 0) fail(errors);
+    assertMayRecordFor(db, actorOf(res, auth), accessOf(res), employeeId);
     const submitted = submitTimesheet(db, employeeId, weekStartOf(weekStart), actorOf(res, auth));
     void platform.audit({ actor: actorOf(res, auth), action: 'timesheet.submitted', resource: `employee:${employeeId}`, metadata: { week_start: weekStartOf(weekStart) } });
     res.json(submitted);

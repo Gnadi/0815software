@@ -24,11 +24,14 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [loggedOut, setLoggedOut] = useState(false);
   const [access, setAccess] = useState<AccessLevel>('view');
+  const [ownEmployeeId, setOwnEmployeeId] = useState<number | null>(null);
   const [view, setView] = useState<View>('daily');
 
   const load = useCallback(async () => {
     try {
-      setAccess((await api.me()).access);
+      const me = await api.me();
+      setAccess(me.access);
+      setOwnEmployeeId(me.employee_id);
       setReady(true);
       setLoggedOut(false);
     } catch (err) {
@@ -86,8 +89,8 @@ export function App() {
           </div>
         </aside>
         <main className="main">
-          {view === 'daily' && <DailyEntryView onAuthLost={onAuthLost} />}
-          {view === 'timesheets' && <TimesheetsView onAuthLost={onAuthLost} />}
+          {view === 'daily' && <DailyEntryView ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}
+          {view === 'timesheets' && <TimesheetsView ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}
           {view === 'summary' && <SummaryView onAuthLost={onAuthLost} />}
           {view === 'export' && <ExportView onAuthLost={onAuthLost} />}
           {view === 'projects' && <ProjectsView onAuthLost={onAuthLost} />}

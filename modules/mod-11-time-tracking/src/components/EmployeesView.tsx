@@ -69,7 +69,7 @@ export function EmployeesView({ onAuthLost }: Props) {
 
       {error && <div className="resource__error mono">{error}</div>}
 
-      <Can>
+      <Can level="manage">
         <div className="editbar">
           <input
             className="field__input"
@@ -119,7 +119,7 @@ export function EmployeesView({ onAuthLost }: Props) {
                 <td className="mono">{emp.entry_count}</td>
                 <td>
                   <div className="table__rowactions">
-                    <Can>
+                    <Can level="manage">
                       <button
                         className="rowbtn"
                         onClick={() => {
@@ -131,7 +131,7 @@ export function EmployeesView({ onAuthLost }: Props) {
                         EDIT
                       </button>
                     </Can>
-                    <Can>
+                    <Can level="manage">
                       <button
                         className="rowbtn rowbtn--danger"
                         onClick={() => void remove(emp)}

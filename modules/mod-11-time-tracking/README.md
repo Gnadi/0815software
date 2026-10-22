@@ -311,10 +311,9 @@ This is an *internal* tool — put it behind your VPN or reverse proxy.
 Kept out deliberately to stay a 2–3 week module. If you need any of
 these, that's commissioned work — exactly the kind 0815software does:
 
-- **Self-service entry ("my timesheet")** — staff get their own logins and
-  levels from PS-01, and approving needs `manage` (see
-  [Users and access levels](#users-and-access-levels)), but `edit` still
-  enters time for anyone: entries are not yet tied to the signed-in person.
+- **Delegates and team leads** — below `manage` a person records only their
+  own time (see [Own time only](#own-time-only)); "may record for my team" is
+  not a level, and would be an extension of `server/ownership.ts`.
 - **A running timer / punch clock** — you enter durations, you don't
   start/stop a stopwatch.
 - **Full offline PWA / background sync** — the app is local-first and
@@ -354,10 +353,24 @@ person signs in as themselves and gets the level PS-01 grants them here:
 | `module:time-tracking:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
 
 `module:*:<level>` grants a level in every module. Reads need `view`, any other
-method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/timesheets/approve` → `manage`; `POST /api/timesheets/reject` → `manage`. A refused request answers **403**
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) reserves approving and rejecting weeks, and maintaining employees, projects and tasks (including importing an offer as a project), for `manage`. A refused request answers **403**
 `{ error, required, access }`; `GET /api/me` reports the caller's `access`.
 Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
 manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
+
+
+### Own time only
+
+Below `manage`, a person writes only their OWN time: the employee whose
+`email` is the identity they signed in with (compared case-insensitively).
+Creating, changing, moving or deleting an entry and submitting a week are all
+held to that in [`server/ownership.ts`](./server/ownership.ts) — the one rule
+here that depends on the row rather than the route, so it is one function the
+entry routes call, not checks spread through them. Someone whose email no
+employee carries is told so (**403**) rather than shown a colleague's sheet.
+`GET /api/me` reports `employee_id`, and the daily and weekly screens open on
+it and stay there for an editor. A manager records and corrects anyone's time.
+`test/ownership.test.ts` pins every case.
 
 ## The shell contract — appearing on a dashboard
 

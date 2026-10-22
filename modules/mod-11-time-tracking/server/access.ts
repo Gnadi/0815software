@@ -27,6 +27,19 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'POST', path: '/api/timesheets/approve', access: 'manage' },
   // The other half of approving.
   { method: 'POST', path: '/api/timesheets/reject', access: 'manage' },
+  // Who works here, what they work on and at what rate is the office's to
+  // maintain; `edit` records time against it. Which ROWS of time an editor may
+  // write — only their own — is server/ownership.ts, because it depends on the row.
+  { method: 'POST', path: '/api/employees', access: 'manage' },
+  { method: 'PUT', path: '/api/employees/:id', access: 'manage' },
+  { method: 'DELETE', path: '/api/employees/:id', access: 'manage' },
+  { method: 'POST', path: '/api/projects', access: 'manage' },
+  { method: 'POST', path: '/api/projects/import-offer', access: 'manage' },
+  { method: 'PUT', path: '/api/projects/:id', access: 'manage' },
+  { method: 'DELETE', path: '/api/projects/:id', access: 'manage' },
+  { method: 'POST', path: '/api/projects/:id/tasks', access: 'manage' },
+  { method: 'PUT', path: '/api/tasks/:id', access: 'manage' },
+  { method: 'DELETE', path: '/api/tasks/:id', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

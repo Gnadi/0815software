@@ -95,9 +95,17 @@ module really has, and that `MODULE_SLUG` is the module's registry slug.
 next to the level and ends up on every audit entry and history row, as before.
 
 **What the frontend sees.** `GET /api/me` (MOD-02: `GET /api/config`) and the
-login response report `access`, so a UI can hide what the person cannot do. The
-UIs do not do that yet; a refused request answers **403**
+login response report `access`. Each app provides it once at the top
+(`src/access.tsx`, a copy-in: `AccessProvider`, `<Can level>`, `useCan`), and
+the screens hide what the person cannot do — or, where the control is also the
+only display of a state (a ticket's status, a done flag), show it disabled.
+Hiding is courtesy, not protection: the server still answers **403**
 `{ error: 'Insufficient access', required, access }`.
+
+**Rules that depend on the row.** A level covers routes; "may write THIS row"
+cannot be said in `access.ts`. Where a module needs it, the rule is one named
+function beside the policy, called by the routes it governs — MOD-11's
+`server/ownership.ts` (below `manage`, only your own time) is the pattern.
 
 ## Compatibility
 
@@ -111,7 +119,7 @@ UIs do not do that yet; a refused request answers **403**
 
 ## Not yet
 
-- **Per-record rules** ("only my own timesheet", "only this warehouse") —
-  a level covers the whole module.
+- **More per-record rules.** MOD-11 has "own time only"; others ("only this
+  warehouse", "only my tickets") would follow the same pattern when needed.
 - **MOD-01, MOD-07, MOD-09** have their own user models (customers, the public
   shop, matter members) and are not part of this contract.

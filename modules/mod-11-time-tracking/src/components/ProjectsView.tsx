@@ -129,7 +129,7 @@ export function ProjectsView({ onAuthLost }: Props) {
 
       {error && <div className="resource__error mono">{error}</div>}
 
-      <Can>
+      <Can level="manage">
         <div className="editbar editbar--wrap">
           <input
             className="field__input"
@@ -188,7 +188,7 @@ export function ProjectsView({ onAuthLost }: Props) {
                 </div>
               </div>
               <div className="table__rowactions">
-                <Can>
+                <Can level="manage">
                   <button
                     className="rowbtn"
                     onClick={() => {
@@ -205,12 +205,12 @@ export function ProjectsView({ onAuthLost }: Props) {
                     EDIT
                   </button>
                 </Can>
-                <Can>
+                <Can level="manage">
                   <button className="rowbtn" onClick={() => void toggleArchive(p)}>
                     {p.active ? 'ARCHIVE' : 'RESTORE'}
                   </button>
                 </Can>
-                <Can>
+                <Can level="manage">
                   <button
                     className="rowbtn rowbtn--danger"
                     onClick={() => void remove(p)}
@@ -226,7 +226,7 @@ export function ProjectsView({ onAuthLost }: Props) {
               {p.tasks.map((t) => (
                 <span key={t.id} className="taskchip mono">
                   {t.name}
-                  <Can>
+                  <Can level="manage">
                     <button
                       className="taskchip__x"
                       onClick={() => void removeTask(t.id)}
@@ -238,7 +238,7 @@ export function ProjectsView({ onAuthLost }: Props) {
                   </Can>
                 </span>
               ))}
-              <Can>
+              <Can level="manage">
                 <span className="taskchip taskchip--add">
                   <input
                     className="taskchip__input mono"

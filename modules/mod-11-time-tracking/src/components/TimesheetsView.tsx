@@ -2,9 +2,15 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Employee, TimesheetDetail, TimesheetRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDate, fmtEur, fmtHm } from '../format';
-import { Can } from '../access';
+import { Can, useCan } from '../access';
 
 interface Props {
+  /**
+   * The employee the signed-in identity is (`GET /api/me`), or null. Below
+   * `manage` the server lets a person write only their own time
+   * (server/ownership.ts), so the sheet is locked to it.
+   */
+  ownEmployeeId: number | null;
   onAuthLost: () => void;
 }
 
@@ -14,7 +20,10 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`badge ${cls}`}>{status.toUpperCase()}</span>;
 }
 
-export function TimesheetsView({ onAuthLost }: Props) {
+export function TimesheetsView({ ownEmployeeId, onAuthLost }: Props) {
+  const canEdit = useCan('edit');
+  const canManage = useCan('manage');
+  const lockedToSelf = canEdit && !canManage;
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeId, setEmployeeId] = useState<number | null>(null);
   const [weeks, setWeeks] = useState<TimesheetRow[]>([]);
@@ -26,13 +35,14 @@ export function TimesheetsView({ onAuthLost }: Props) {
       try {
         const { employees: emps } = await api.employees();
         setEmployees(emps);
-        if (emps.length > 0) setEmployeeId(emps[0]!.id);
+        if (lockedToSelf) setEmployeeId(ownEmployeeId);
+        else if (emps.length > 0) setEmployeeId(ownEmployeeId ?? emps[0]!.id);
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) onAuthLost();
         else setError(err instanceof Error ? err.message : 'Failed to load');
       }
     })();
-  }, [onAuthLost]);
+  }, [onAuthLost, lockedToSelf, ownEmployeeId]);
 
   const loadWeeks = useCallback(async () => {
     if (employeeId === null) return;
@@ -93,11 +103,15 @@ export function TimesheetsView({ onAuthLost }: Props) {
       </div>
 
       {error && <div className="resource__error mono">{error}</div>}
+      {lockedToSelf && ownEmployeeId === null && (
+        <div className="resource__error mono">NO EMPLOYEE RECORD CARRIES YOUR EMAIL — ASK A MANAGER TO ADD IT</div>
+      )}
 
       <div className="toolbar">
         <select
           className="field__input toolbar__filter"
           value={employeeId ?? ''}
+          disabled={lockedToSelf}
           onChange={(e) => setEmployeeId(Number(e.target.value))}
         >
           {employees.map((emp) => (

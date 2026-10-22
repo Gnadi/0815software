@@ -2,9 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DaySheet, Employee, Project } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { addDays, fmtEur, fmtHm } from '../format';
-import { Can } from '../access';
+import { Can, useCan } from '../access';
 
 interface Props {
+  /**
+   * The employee the signed-in identity is (`GET /api/me`), or null. Below
+   * `manage` the server lets a person write only their own time
+   * (server/ownership.ts), so the sheet is locked to it.
+   */
+  ownEmployeeId: number | null;
   onAuthLost: () => void;
 }
 
@@ -53,7 +59,10 @@ function parseMinutes(raw: string): number | null {
 
 const DRAFT_KEY = 'mod11.dailyDraft';
 
-export function DailyEntryView({ onAuthLost }: Props) {
+export function DailyEntryView({ ownEmployeeId, onAuthLost }: Props) {
+  const canEdit = useCan('edit');
+  const canManage = useCan('manage');
+  const lockedToSelf = canEdit && !canManage;
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [employeeId, setEmployeeId] = useState<number | null>(null);
@@ -73,13 +82,14 @@ export function DailyEntryView({ onAuthLost }: Props) {
         ]);
         setEmployees(emps);
         setProjects(projs);
-        if (emps.length > 0) setEmployeeId((cur) => cur ?? emps[0]!.id);
+        if (lockedToSelf) setEmployeeId(ownEmployeeId);
+        else if (emps.length > 0) setEmployeeId((cur) => cur ?? ownEmployeeId ?? emps[0]!.id);
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) onAuthLost();
         else setError(err instanceof Error ? err.message : 'Failed to load');
       }
     })();
-  }, [onAuthLost]);
+  }, [onAuthLost, lockedToSelf, ownEmployeeId]);
 
   // OFFLINE TOUCH: restore an in-progress row draft from localStorage so
   // an accidental reload never loses what you were typing.
@@ -89,7 +99,7 @@ export function DailyEntryView({ onAuthLost }: Props) {
       if (saved) {
         const parsed = JSON.parse(saved) as { employeeId?: number; date?: string; row?: RowDraft };
         if (parsed.row) setRow(parsed.row);
-        if (parsed.employeeId) setEmployeeId(parsed.employeeId);
+        if (parsed.employeeId && !lockedToSelf) setEmployeeId(parsed.employeeId);
         if (parsed.date) setDate(parsed.date);
       }
     } catch {
@@ -178,11 +188,15 @@ export function DailyEntryView({ onAuthLost }: Props) {
       </div>
 
       {error && <div className="resource__error mono">{error}</div>}
+      {lockedToSelf && ownEmployeeId === null && (
+        <div className="resource__error mono">NO EMPLOYEE RECORD CARRIES YOUR EMAIL — ASK A MANAGER TO ADD IT</div>
+      )}
 
       <div className="toolbar">
         <select
           className="field__input toolbar__filter"
           value={employeeId ?? ''}
+          disabled={lockedToSelf}
           onChange={(e) => setEmployeeId(Number(e.target.value))}
         >
           {employees.map((emp) => (
