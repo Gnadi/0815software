@@ -1,30 +1,37 @@
 # Odoo-Vergleich: Lücken, Erweiterungen, neue Module
 
 *Abgleich der Odoo-Editions-Matrix (https://www.odoo.com/page/editions,
-Community vs. Enterprise) mit den 16 Modulen und 12 Platform Services dieses
-Repos. Stand: Oktober 2026.*
+Community vs. Enterprise) mit den 17 Modulen und 12 Platform Services dieses
+Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
+#37 (E-Rechnung, BMD/DATEV) und #39 (Mitte der Wertschöpfungskette).*
 
 ## Kurzfassung
 
 - **0815software ist kein ERP, sondern ein Baukasten aus Fachanwendungen.**
-  Odoo hat ~45 Apps auf *einer* Datenbank und *einem* ORM. 0815 hat 16 Module
+  Odoo hat ~45 Apps auf *einer* Datenbank und *einem* ORM. 0815 hat 17 Module
   mit je eigener SQLite-Datei, die über Platform Services und
-  Peer-Verträge (`OFFERS_URL`, `report_*`-Views, Shell-Contract) verbunden
-  sind. Das ist ein bewusster Unterschied, kein Mangel, prägt aber jede
-  Lückenbewertung: Was in Odoo „ein Feld mehr“ ist, ist hier oft ein
-  Vertrag zwischen zwei Paketen.
-- **Die größte Lücke ist kein Feature, sondern Mehrbenutzerfähigkeit.**
-  Fast jedes Modul hat „one staff admin by design“. PS-01 Identity existiert,
-  wird aber nur als SSO-Einstieg genutzt, nicht für Rollen pro Modul. Jedes
-  Odoo-Feature, das man übernimmt, setzt mehrere Nutzer voraus.
-- **Fachlich fehlt vor allem die Mitte der Wertschöpfungskette:**
-  Auftrag/Lieferschein zwischen Angebot (MOD-13) und Rechnung (MOD-04),
-  wiederkehrende Rechnungen, Mahnwesen, E-Rechnung und ein Buchhaltungsexport
-  (BMD/DATEV).
-- **Sinnvollste neue Module:** Projekte & Aufgaben, Abwesenheiten,
-  Terminbuchung, Spesen, Formulare/Umfragen, Wissensdatenbank. Nicht bauen:
-  Finanzbuchhaltung, Lohnverrechnung, Kasse (RKSV), MRP, Website-Builder,
-  VoIP, IoT, Social Marketing.
+  Peer-Verträge (Dokument-Transfer, `report_*`-Views, Shell-Contract)
+  verbunden sind — und jedes Modul läuft auch allein. Das ist ein bewusster
+  Unterschied, kein Mangel, prägt aber jede Lückenbewertung: Was in Odoo
+  „ein Feld mehr“ ist, ist hier oft ein Vertrag zwischen zwei Paketen.
+- **Erledigt seit der Erstfassung:**
+  - **Mehrbenutzer:** Stufe pro Person und Modul (`view`/`edit`/`manage`)
+    aus PS-01, in allen Modulen und Shells (`docs/ACCESS-LEVELS.md`).
+  - **Die Mitte der Wertschöpfungskette:** Angebot (MOD-13) → Auftrag mit
+    Teillieferungen und Lieferscheinen (neu: MOD-17) → Warenausgang (MOD-03)
+    → Rechnung je Lieferung (MOD-04).
+  - **MOD-04:** E-Rechnung (XRechnung, ZUGFeRD, ebInterface 6.1), Mahnwesen,
+    wiederkehrende Rechnungen, Teilgutschriften, BMD-/DATEV-Export.
+- **Größte verbleibende Lücken:**
+  - **Projekte & Aufgaben** — die Klammer zwischen Angebot, Arbeit, Zeit und
+    Rechnung.
+  - **HR-Grundbedarf:** Abwesenheiten, Mitarbeiter-Self-Service.
+  - **Lagertiefe:** Barcode, Lagerplätze, Reservierung, Bewertung.
+  - **Eingangsseite:** Belegerkennung (OCR), 3-Way-Match, PEPPOL.
+- **Sinnvollste neue Module** (Abschnitt 3): Projekte & Aufgaben,
+  Abwesenheiten, Terminbuchung, Spesen, Formulare/Umfragen, Wissen.
+  **Nicht bauen:** Finanzbuchhaltung, Lohnverrechnung, Kasse (RKSV), MRP,
+  Website-Builder, VoIP, IoT, Social Marketing.
 - **„Open Source + AI“ trägt — für dieses Repo sogar besser als für Odoo**,
   aber aus einem anderen Grund als Odoo behauptet (siehe letzter Abschnitt).
 
@@ -37,7 +44,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
-| Invoicing | ✅ MOD-04 (Positionen, USt je Zeile, PDF, Debitorenkonto) | Kern solide, Lücken unten |
+| Invoicing | ✅ MOD-04 (Positionen, USt je Zeile, PDF, Debitorenkonto, E-Rechnung XRechnung/ZUGFeRD/ebInterface, Mahnwesen, Teilgutschriften, BMD/DATEV-Export) | Offen: PEPPOL-Versand, korrigierte Rechnung (Typ 384), Auszahlung von Kundenguthaben |
 | Payments | ✅ PS-08 (Mock + Stripe), MOD-07 Checkout | ok |
 | Bankabgleich (E) | ✅ PS-12 EBICS, camt.053 → Zuordnung zu offenen Rechnungen | **stärker als Odoo Community**, real-bank-ungetestet |
 | SEPA-Zahlungen | ✅ MOD-04 pain.001, Finanzamtszahlung, EACT | DACH-Vorsprung |
@@ -53,7 +60,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
-| CRM | ✅ MOD-10 (Pipeline, Aktivitäten, Übergabe an MOD-13) | Mehrbenutzer, Web-Lead-Formular, CSV-Import fehlen; Philosophie „no AI“ ist ein Verkaufsargument, beibehalten |
+| CRM | ✅ MOD-10 (Pipeline, Aktivitäten, Übergabe an MOD-13, mehrere Nutzer mit Stufen) | Web-Lead-Formular, CSV-Import fehlen; Philosophie „no AI“ ist ein Verkaufsargument, beibehalten |
 | Sales (Angebot → Auftrag) | ✅ MOD-13 Angebote → MOD-17 Auftrag/Lieferschein → MOD-04 Rechnung | Teillieferung, Warenausgang in MOD-03 und Rechnung je Lieferung umgesetzt; Reservierung offen |
 | Point of Sale | ❌ | ⛔ in AT RKSV-pflichtig (Signatureinheit, DEP, FinanzOnline) — Haftungsrisiko ohne Lizenzertrag |
 | Subscriptions (E) | 🟡 MOD-04 wiederkehrende Rechnungen (Vorlagen → Entwürfe je Periode) | ✅ als Erweiterung von MOD-04 umgesetzt; nutzungsbasierte Abrechnung und Proration bleiben offen |
@@ -73,7 +80,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
-| Inventory | ✅ MOD-03 (Ledger, Lager, PO-Wareneingang, Inventur) | Lagerplätze, Reservierungen/Kommissionierung, Bewertung (gleitender Ø) fehlen |
+| Inventory | ✅ MOD-03 (Ledger, Lager, PO-Wareneingang, Inventur, Warenausgang je Lieferschein aus MOD-17) | Lagerplätze, Reservierungen/Kommissionierung, Bewertung (gleitender Ø), mehrere Ausgangslager je Auftrag fehlen |
 | Barcode (E) | ❌ | 🔜 in MOD-03: Kamera-Scan im Browser (BarcodeDetector), Etikettendruck — hoher Nutzen, kleiner Aufwand |
 | Purchase | ✅ MOD-06 (RFQ, PO, Freigabestufen, ERP-CSV) | 3-Way-Match mit MOD-03/MOD-04, Lieferanten-Mail via PS-03 |
 | Manufacturing/MRP, PLM, Quality (E) | ❌ | ⛔ eigener Markt; höchstens ein schlankes Stücklisten-/Fertigungsauftragsmodul auf Anfrage |
@@ -136,11 +143,10 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 
 Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 
-1. **Mehrbenutzer & Rollen über PS-01 in allen Fachmodulen.** Voraussetzung
-   für fast alles darunter. Vorschlag: einheitliches Rollenmodell
-   (`viewer/editor/admin` pro Modul) als Claim aus PS-01, lokaler
-   Single-Admin bleibt der Standalone-Modus. Ein gemeinsames Paket statt
-   16 Einzelumsetzungen.
+1. ✅ **Mehrbenutzer & Rollen über PS-01 in allen Fachmodulen** (PR #36):
+   `module:<slug>:view|edit|manage` aus PS-01, eine Richtlinie je Modul
+   (`server/access.ts`), Oberflächen blenden nach Stufe aus, Shells reichen
+   die Stufe weiter; der lokale Admin bleibt der Standalone-Modus.
 2. ✅ **MOD-04: E-Rechnung.** XRechnung/ZUGFeRD (DE, PR #37) und
    ebInterface 6.1 (AT, Bund), jeweils gegen das offizielle Schema geprüft
    (`docs/E-RECHNUNG.md`). Offen: UBL/PEPPOL-Versand, Eingangsrechnungen lesen.
@@ -167,6 +173,16 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
     Spesen, MOD-09.
 11. **MOD-08: XLSX-Export, Parameter, weitere Charttypen.**
 12. **MOD-09: Vorschau, Volltext via PS-09, Freigabelinks, Löschfristen.**
+
+### Empfohlene Reihenfolge ab hier
+
+1. **MOD-03 Barcode + Reservierung** — rundet die neue Auftragskette auf der
+   Lagerseite ab; Barcode im Browser ist kleiner Aufwand mit großem Nutzen.
+2. **MOD-19 Abwesenheiten** — fast jeder Kunde braucht es, 2–3 Wochen.
+3. **MOD-18 Projekte & Aufgaben** — das größte fehlende Stück.
+4. **PS-04 Dokumentextraktion** + **MOD-06 3-Way-Match** — die Eingangsseite.
+5. **MOD-11 Timer/Self-Service**, **MOD-12 Anhänge/CSAT** — Komfort in
+   bestehenden Modulen.
 
 ## 3. Neue Module (Vorschlag)
 
