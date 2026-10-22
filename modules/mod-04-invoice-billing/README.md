@@ -347,6 +347,7 @@ POST   /api/invoices                   {customer_id, payment_terms_days?, note?,
 GET    /api/invoices/:id               lines, VAT breakdown, payments, derived state
 PUT    /api/invoices/:id               drafts only — sent invoices → 409
 DELETE /api/invoices/:id               drafts only — sent invoices → 409
+POST   /api/invoices/import-delivery-note  {delivery_note_number} — bill one MOD-17 delivery (501 without ORDERS_URL)
 POST   /api/invoices/:id/finalize      {issue_date?} draft → sent, assigns number
 POST   /api/invoices/:id/cancel        {reason} — keeps the number (409 once credited)
 POST   /api/invoices/:id/credit-notes  {reason, lines, issue_date?} — partial credit note
@@ -769,6 +770,21 @@ The transport is isolated in `server/platform.ts` (`fetchOffer`) and the shape i
 `shared/transfer.ts`, so re-pointing it at another source is a contained change.
 See [`docs/CUSTOMER-MASTER-DATA.md`](../../docs/CUSTOMER-MASTER-DATA.md) for why
 this exists and what it deliberately does not solve.
+
+### Billing a delivery note (MOD-17)
+
+When an order is delivered in parts, each delivery is billed on its own:
+**Bill delivery note** in the invoice list, or
+`POST /api/invoices/import-delivery-note` with
+`{ "delivery_note_number": "LS-2026-0001" }`. It is the same hand-over as an
+offer — the same transfer shape (kind `delivery`), the same self-checking
+money, a DRAFT — for exactly the quantities on that delivery note, at the
+order's prices. Idempotent on the delivery note number (recorded as
+`mod-17-orders-delivery:LS-…`, so it can never meet an offer number); MOD-17
+is then told the delivery was billed (best-effort — the idempotency here is
+what prevents a second invoice). Each route bills only its own kind: an offer
+sent to the delivery route, or a delivery to the offer route, is refused.
+With `ORDERS_URL` unset the endpoint answers `501`.
 
 ## Bills and the SEPA payment file
 

@@ -2,8 +2,8 @@
  * THE DOCUMENT TRANSFER SHAPE — the wire contract for handing a completed sales
  * document to whatever bills it.
  *
- * This file is the whole coupling surface between MOD-13 Offers and MOD-04
- * Invoice & Billing, and it is deliberately *neutral*: no MOD-13 ids, no MOD-13
+ * This file is the whole coupling surface between the modules that hand sales
+ * documents on — MOD-10 → MOD-13 → MOD-17 → MOD-04 — and it is deliberately *neutral*: no MOD-13 ids, no MOD-13
  * statuses, no revision chain, nothing about how offers are stored. An exporter
  * fills it in; an importer consumes it. Both sides keep a copy of this file (the
  * repo's copy-in convention) and the round-trip is covered by tests on both
@@ -68,6 +68,10 @@ export interface TransferLine {
  * - `offer` — a document the customer has agreed to. Its lines and totals are
  *   exact and self-checking, and an importer must refuse the transfer rather
  *   than re-round them (`validateTransfer`).
+ * - `delivery` — a delivery note: what was actually delivered of an order the
+ *   customer placed, at the order's prices. Exact and self-checking like an
+ *   offer; its reference is the delivery note number, so each delivery is
+ *   billed once, and an order delivered in three parts in three invoices.
  * - `deal` — a pipeline opportunity. It carries the source's single value
  *   estimate as one line at `vat_rate: 0`, because a CRM has no VAT concept
  *   and inventing one there would put a tax rate in the module least qualified
@@ -76,10 +80,11 @@ export interface TransferLine {
  *
  * The distinction is load-bearing, not decorative: a deal is a guess about
  * money and an offer is a promise about it, so **an importer names the kinds it
- * accepts and refuses the rest**. MOD-04 bills offers and refuses deals; MOD-13
- * quotes deals and refuses offers; MOD-11 plans work from offers only.
+ * accepts and refuses the rest**. MOD-04 bills offers and deliveries and
+ * refuses deals; MOD-13 quotes deals and refuses the rest; MOD-11 plans work
+ * from offers only; MOD-17 turns offers into orders and exports deliveries.
  */
-export type TransferKind = 'offer' | 'deal';
+export type TransferKind = 'offer' | 'delivery' | 'deal';
 
 /** Where the document came from — the idempotency key of an import. */
 export interface TransferOrigin {
@@ -87,7 +92,7 @@ export interface TransferOrigin {
   /** The exporting module's registry id, e.g. "mod-13-offers". */
   module: string;
   /**
-   * Stable, human-visible reference — an offer number, or `DEAL-<id>` for a
+   * Stable, human-visible reference — an offer or delivery note number, or `DEAL-<id>` for a
    * pipeline deal, which has no number of its own. It is the idempotency key of
    * every import, so it must identify the source thing for as long as that
    * thing exists, and never be reused for a different one.
@@ -95,7 +100,7 @@ export interface TransferOrigin {
   reference: string;
   /** When the source document was issued, if it has such a date. */
   issued_at: string | null;
-  /** When the customer accepted it. Always null for a deal — that is the point. */
+  /** When the customer accepted it (for a delivery: placed the order). Always null for a deal — that is the point. */
   accepted_at: string | null;
 }
 
@@ -175,8 +180,8 @@ export function validateTransfer(value: unknown): TransferProblem[] {
   else {
     // The contract validates that the kind is one it knows. WHICH kinds are
     // acceptable is the importer's call, not the shape's — see TransferKind.
-    if (origin.kind !== 'offer' && origin.kind !== 'deal') {
-      push('origin.kind', 'must be "offer" or "deal"');
+    if (origin.kind !== 'offer' && origin.kind !== 'delivery' && origin.kind !== 'deal') {
+      push('origin.kind', 'must be "offer", "delivery" or "deal"');
     }
     if (typeof origin.module !== 'string' || origin.module === '') push('origin.module', 'is required');
     if (typeof origin.reference !== 'string' || origin.reference.trim() === '') {

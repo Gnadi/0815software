@@ -140,6 +140,12 @@ export const api = {
       '/api/invoices/import-offer',
       post({ offer_number: offerNumber }),
     ),
+  /** Bill one delivery note from MOD-17 — idempotent on its number, like an offer. */
+  importDeliveryNote: (number: string) =>
+    request<InvoiceDetail & { imported: boolean }>(
+      '/api/invoices/import-delivery-note',
+      post({ delivery_note_number: number }),
+    ),
   updateDraft: (id: number, values: Record<string, unknown>) =>
     request<InvoiceDetail>(`/api/invoices/${id}`, { method: 'PUT', body: JSON.stringify(values) }),
   deleteDraft: (id: number) => request<{ ok: true }>(`/api/invoices/${id}`, { method: 'DELETE' }),

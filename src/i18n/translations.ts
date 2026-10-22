@@ -180,6 +180,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.subsidies-funds.task':      `Keep track of grants, applications and deadlines`,
     'mod.workspace.task':            `One overview across all your modules`,
     'mod.mosaic.task':               `Several modules side by side on one screen`,
+    'mod.orders-delivery.task':      `Confirm orders, deliver them in parts, hand each delivery to invoicing`,
     // ─── Catalogue rows (§ 05.01 services, § 05.02 modules) ─────────────
     // Keyed by slug, not by index, so reordering a catalogue cannot silently
     // reassign copy. The English strings must be listed here as well as in
@@ -226,6 +227,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.subsidies-funds.title':       'Subsidies & Funds',
     'mod.workspace.title':             'Workspace',
     'mod.mosaic.title':   'Mosaic',
+    'mod.orders-delivery.title':   'Orders & Delivery Notes',
 
     // ─── /platform and /modules pages (headers, card chrome, prose) ─────
     'page.rail.platform':      'Platform',
@@ -510,6 +512,13 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.mosaic.feat.3':   'Named boards for the arrangements you keep coming back to',
     'mod.workspace.scope':                           '4–5 WKS',
     'mod.mosaic.scope':   '3–4 WKS',
+    'mod.orders-delivery.body':   'The step between the accepted offer and the invoice: order confirmations, partial deliveries with delivery notes, and every delivery billed on its own.',
+    'mod.orders-delivery.overview':   'An accepted offer from Offers becomes a numbered order confirmation, cent for cent; or an order is entered by hand. It is delivered in as many delivery notes as it takes — never more than was ordered, with what is still open derived from the notes, never stored. Each delivery note is a fixed, numbered document with its own PDF, and Invoicing bills it by its number: one invoice per delivery, idempotent, and the order knows which deliveries are billed. Self-contained: one package.json, works without any other module, MIT.',
+    'mod.orders-delivery.feat.0':   'Order confirmation from an accepted offer, or by hand',
+    'mod.orders-delivery.feat.1':   'Partial deliveries — never past the order, open quantity derived',
+    'mod.orders-delivery.feat.2':   'Numbered, fixed delivery notes with their own PDF',
+    'mod.orders-delivery.feat.3':   'Each delivery billed on its own in Invoicing, exactly once',
+    'mod.orders-delivery.scope':   '2–3 WKS',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      `How a project works.`,
@@ -784,6 +793,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.subsidies-funds.task':      `Förderungen, Anträge und Fristen im Blick`,
     'mod.workspace.task':            `Eine Übersicht über alle Ihre Module`,
     'mod.mosaic.task':               `Mehrere Module nebeneinander auf einem Bildschirm`,
+    'mod.orders-delivery.task':      `Aufträge bestätigen, in Teilen liefern, jede Lieferung zur Rechnung geben`,
     // ─── Catalogue rows (§ 05.01 services, § 05.02 modules) ─────────────
     'svc.identity.title':            'Identität',
     'svc.identity.purpose':          'Gemeinsame Authentifizierung und Autorisierung — ein Login, ein Satz Benutzer und Rollen, strikte Mandantentrennung.',
@@ -826,6 +836,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.subsidies-funds.title':       'Förderungen & Fonds',
     'mod.workspace.title':             'Workspace',
     'mod.mosaic.title':   'Mosaic',
+    'mod.orders-delivery.title':   'Aufträge & Lieferscheine',
 
     // ─── /platform and /modules pages (headers, card chrome, prose) ─────
     'page.rail.platform':      'Plattform',
@@ -1110,6 +1121,13 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.mosaic.feat.3':   'Benannte Boards für die Anordnungen, zu denen Sie immer zurückkehren',
     'mod.workspace.scope':                           '4–5 WKS',
     'mod.mosaic.scope':   '3–4 WKS',
+    'mod.orders-delivery.body':   'Der Schritt zwischen angenommenem Angebot und Rechnung: Auftragsbestätigungen, Teillieferungen mit Lieferscheinen und jede Lieferung einzeln verrechnet.',
+    'mod.orders-delivery.overview':   'Ein angenommenes Angebot aus Angebote wird zur nummerierten Auftragsbestätigung, auf den Cent genau; oder ein Auftrag wird direkt erfasst. Geliefert wird in so vielen Lieferscheinen wie nötig — nie mehr als bestellt, und was noch offen ist, wird aus den Lieferscheinen abgeleitet, nie gespeichert. Jeder Lieferschein ist ein fester, nummerierter Beleg mit eigenem PDF, und Rechnungen verrechnet ihn über seine Nummer: eine Rechnung je Lieferung, idempotent, und der Auftrag weiß, welche Lieferungen verrechnet sind. Eigenständig: ein package.json, läuft ohne jedes andere Modul, MIT.',
+    'mod.orders-delivery.feat.0':   'Auftragsbestätigung aus angenommenem Angebot oder direkt erfasst',
+    'mod.orders-delivery.feat.1':   'Teillieferungen — nie über den Auftrag hinaus, Offenes abgeleitet',
+    'mod.orders-delivery.feat.2':   'Nummerierte, unveränderliche Lieferscheine mit eigenem PDF',
+    'mod.orders-delivery.feat.3':   'Jede Lieferung einzeln in Rechnungen verrechnet, genau einmal',
+    'mod.orders-delivery.scope':   '2–3 WKS',
 
     // ─── Procedure ──────────────────────────────────────────────────────
     'procedure.h2':      `So läuft ein Projekt ab.`,

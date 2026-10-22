@@ -14,8 +14,8 @@ available**: MOD-01 Customer Portal, MOD-02 Admin Dashboard, MOD-03 Inventory
 Management, MOD-04 Invoice & Billing, MOD-05 Employee Directory, MOD-06
 Procurement Tracker, MOD-07 Storefront, MOD-08 Reporting Suite, MOD-09
 Document Management, MOD-10 CRM Lite, MOD-11 Time Tracking, MOD-12 Support
-Ticket System, MOD-13 Offers, MOD-14 Subsidies & Funds, MOD-15 Workspace and
-MOD-16 Mosaic. See the
+Ticket System, MOD-13 Offers, MOD-14 Subsidies & Funds, MOD-15 Workspace,
+MOD-16 Mosaic and MOD-17 Orders & Delivery Notes. See the
 [catalogue page](https://0815software.com/modules) for scopes and
 descriptions.
 
@@ -37,6 +37,7 @@ descriptions.
 | MOD-14 | Subsidies & Funds     | **Available** | [mod-14-subsidies-funds](./mod-14-subsidies-funds) |
 | MOD-15 | Workspace             | **Available** | [mod-15-workspace](./mod-15-workspace) |
 | MOD-16 | Mosaic                | **Available** | [mod-16-mosaic](./mod-16-mosaic) |
+| MOD-17 | Orders & Delivery Notes | **Available** | [mod-17-orders-delivery](./mod-17-orders-delivery) |
 
 Each module is a self-contained application with its own `package.json`,
 `LICENSE` and README — install and run it independently of this repository.

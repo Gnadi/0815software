@@ -744,6 +744,46 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     res.status(result.replayed ? 200 : 201).json({ ...detail, imported: !result.replayed });
   });
 
+  // ── Bill a delivery note (MOD-17) ────────────────────────────────────
+  // The same hand-over as an offer, for an order delivered in parts: each
+  // delivery note becomes its own DRAFT for exactly what was delivered.
+  // Idempotent on the delivery note number; MOD-17 is told it was billed
+  // (best-effort — the idempotency here is what prevents a second invoice).
+  app.post('/api/invoices/import-delivery-note', async (req, res) => {
+    const raw = body(req).delivery_note_number;
+    if (typeof raw !== 'string' || raw.trim() === '') {
+      fail([{ field: 'delivery_note_number', message: 'delivery_note_number is required' }]);
+    }
+    const number = (raw as string).trim();
+    let transfer: unknown;
+    try {
+      transfer = (await platform.fetchDeliveryNote?.(number)) ?? null;
+    } catch (err) {
+      if (err instanceof OfferFetchError) throw new DomainError(err.status === 404 ? 404 : 502, err.message);
+      throw err;
+    }
+    if (transfer === null) {
+      throw new DomainError(501, 'No order source is configured — set ORDERS_URL to bill delivery notes from MOD-17');
+    }
+    const party = (transfer as DocumentTransfer).customer;
+    const partyId =
+      party && typeof party === 'object'
+        ? await platform.resolveParty({
+            name: party.name,
+            email: party.email,
+            vatId: party.vat_id,
+            addressLines: party.address_lines ?? [],
+            source: party.source ?? MODULE_ID,
+            externalId: party.external_id ?? number,
+          })
+        : null;
+    const result = importTransfer(db, transfer, { partyId, kind: 'delivery' });
+    if (partyId !== null) await platform.linkParty(partyId, result.customerId);
+    const actor = actorOf(res, auth);
+    if (!result.replayed) await platform.deliveryNoteBilled?.({ number, invoiceId: result.invoiceId, actor });
+    res.status(result.replayed ? 200 : 201).json({ ...invoiceDetail(db, result.invoiceId), imported: !result.replayed });
+  });
+
   app.get('/api/invoices/:id', (req, res) => {
     res.json(invoiceDetail(db, Number(req.params.id)));
   });

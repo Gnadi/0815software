@@ -63,6 +63,7 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
   // whole board. This module is absent on purpose — framing itself is a
   // recursion with no bottom.
   { id: 'mod-15-workspace', n: 'MOD-15', label: 'Workspace', urlEnv: 'WORKSPACE_URL', publicUrlEnv: 'WORKSPACE_PUBLIC_URL', embeddable: true },
+  { id: 'mod-17-orders-delivery', n: 'MOD-17', label: 'Orders', urlEnv: 'ORDERS_URL', publicUrlEnv: 'ORDERS_PUBLIC_URL', embeddable: true },
 ];
 
 export function catalogueEntry(id: string): CatalogueEntry | undefined {

@@ -4,7 +4,7 @@
  * catalogue — so whoever (or whatever) writes the domain next starts from the
  * right pattern instead of copying the nearest module's quirks.
  *
- *   node scripts/new-module.mjs --n 17 --slug project-tasks \
+ *   node scripts/new-module.mjs --n 18 --slug project-tasks \
  *     --title "Projects & Tasks" --label Projects \
  *     --description "Projects, tasks and milestones between the offer and the invoice."
  *
@@ -245,11 +245,13 @@ Next:
       ? ''
       : '\n  5. Register it: re-run with --register, or add the registry entry and the\n     copy block in src/data/modules.ts by hand (docs/PROVISIONING.md).'
   }
-  Before CI is green, also: translate the catalogue copy (src/i18n), list it in
-  modules/README.md, raise the module counts the deploy suite pins on purpose
-  (deploy/test/registry.test.ts, backup.test.ts), and add it to the shells'
-  catalogues (MOD-15, MOD-16) if it should appear on a board.
-  \`cd deploy && npx vitest run\` says what is still missing.`);
+  Before CI is green, also: translate the catalogue copy (src/i18n) and give it
+  a one-line task in src/components/Platform.astro (the site build refuses
+  without one), list it in modules/README.md, raise the module counts the
+  deploy suite pins on purpose (deploy/test/registry.test.ts, backup.test.ts),
+  and add it to the shells' catalogues (MOD-15, MOD-16) if it should appear on
+  a board. \`cd deploy && npx vitest run\` says what is still missing; \`npm run
+  build\` at the root checks the site.`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

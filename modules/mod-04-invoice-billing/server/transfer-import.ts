@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { createDraft, DomainError, getCustomer, nowIso } from './invoices.js';
-import { validateTransfer, type DocumentTransfer, type TransferLine } from '../shared/transfer.js';
+import { validateTransfer, type DocumentTransfer, type TransferKind, type TransferLine } from '../shared/transfer.js';
 import { fmtEur } from '../shared/money.js';
 
 export const MODULE_ID = 'mod-04-invoice-billing';
@@ -10,6 +10,12 @@ export interface ImportContext {
   partyId?: number | null;
   paymentTermsDays?: number;
   createdAt?: string;
+  /**
+   * What this import bills: an accepted offer (MOD-13, the default) or a
+   * delivery note (MOD-17). Each route names the one its source sends, so a
+   * transfer of the other kind from the wrong source is refused, not billed.
+   */
+  kind?: Exclude<TransferKind, 'deal'>;
 }
 
 export interface ImportResult {
@@ -139,19 +145,27 @@ export function importTransfer(
   // The refusal is explicit rather than implied by a validation failure,
   // because the shape validates perfectly well: only the meaning is wrong, and
   // the operator deserves to be told which.
-  if (transfer.origin.kind !== 'offer') {
+  const kind = ctx.kind ?? 'offer';
+  if (transfer.origin.kind === 'deal') {
     throw new DomainError(
       422,
-      `Only an accepted offer can be billed — ${transfer.origin.reference} is a ${transfer.origin.kind}.` +
+      `Only an accepted offer can be billed — ${transfer.origin.reference} is a deal.` +
         ' Quote it in MOD-13 first, and bill the offer the customer accepts.',
     );
+  }
+  if (transfer.origin.kind !== kind) {
+    throw new DomainError(422, `Expected ${kind === 'offer' ? 'an accepted offer' : 'a delivery note'} — ${transfer.origin.reference} is a ${transfer.origin.kind}`);
   }
 
   if (transfer.currency !== 'EUR') {
     throw new DomainError(422, `Only EUR can be invoiced today, got ${transfer.currency}`);
   }
 
-  const reference = transfer.origin.reference.trim();
+  // The idempotency key. An offer keeps its bare number (what every invoice
+  // imported so far carries); a delivery note is qualified by its module, so
+  // the two numbering schemes can never meet in the one column.
+  const reference =
+    kind === 'offer' ? transfer.origin.reference.trim() : `${transfer.origin.module}:${transfer.origin.reference.trim()}`;
   const existing = db
     .prepare('SELECT id, customer_id FROM invoices WHERE origin_offer_number = ?')
     .get(reference) as { id: number; customer_id: number } | undefined;

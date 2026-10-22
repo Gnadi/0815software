@@ -113,6 +113,7 @@ function peerEnv(env: NodeJS.ProcessEnv): Record<string, { url?: string; publicU
     'mod-13-offers': { url: env.OFFERS_URL, publicUrl: env.OFFERS_PUBLIC_URL },
     'mod-14-subsidies-funds': { url: env.SUBSIDIES_URL, publicUrl: env.SUBSIDIES_PUBLIC_URL },
     'mod-15-workspace': { url: env.WORKSPACE_URL, publicUrl: env.WORKSPACE_PUBLIC_URL },
+    'mod-17-orders-delivery': { url: env.ORDERS_URL, publicUrl: env.ORDERS_PUBLIC_URL },
   };
 }
 

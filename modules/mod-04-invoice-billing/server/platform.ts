@@ -72,6 +72,8 @@ export interface PlatformConfig {
   bankConnection?: string;
   /** Base URL of MOD-13 Offers, for billing an accepted offer. */
   offersUrl?: string;
+  /** Base URL of MOD-17 Orders & Delivery Notes, for billing a delivery. */
+  ordersUrl?: string;
   serviceToken?: string;
   /** PS-03 channel name to send invoice emails through. */
   invoiceChannel?: string;
@@ -191,6 +193,19 @@ export interface PlatformHooks {
   /** Record the quote-to-invoice hand-off on PS-07, when configured. */
   offerBilled(info: OfferBilledInfo): Promise<void>;
   /**
+   * Fetch a delivery note from MOD-17 as a document transfer (kind
+   * `delivery`). Null when ORDERS_URL is unset; like `fetchOffer`, a
+   * configured source that fails surfaces rather than being papered over.
+   */
+  fetchDeliveryNote?(number: string): Promise<unknown | null>;
+  /**
+   * Tell MOD-17 its delivery note became a draft here, so its screen stops
+   * listing it as not invoiced. Best-effort: the import is idempotent on the
+   * delivery note number, so a lost call costs a stale label, never a
+   * second invoice.
+   */
+  deliveryNoteBilled?(info: { number: string; invoiceId: number; actor: string }): Promise<void>;
+  /**
    * The stack owner's own party from PS-11 — the seller letterhead. Null when
    * PS-11 is unset or has no `self` party yet: the module then uses Settings /
    * the SELLER_* environment. THROWS when PS-11 is configured but unreachable,
@@ -287,6 +302,47 @@ export const noopPlatform: PlatformHooks = {
   },
 };
 
+/**
+ * GET a document transfer from a peer module (MOD-13 offers, MOD-17
+ * delivery notes). Every failure becomes an `OfferFetchError` carrying a
+ * status the route can pass on.
+ */
+async function fetchTransfer(url: string, what: string, source: string, serviceToken?: string): Promise<unknown> {
+  // Bounded like every platform-client call: a peer that accepts the
+  // connection and then stalls must not hold the operator's import request
+  // open indefinitely.
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: serviceToken ? { 'X-Service-Token': serviceToken } : {},
+      signal: AbortSignal.timeout(OFFER_FETCH_TIMEOUT_MS),
+    });
+  } catch (err) {
+    // A refused connection, a DNS failure or the timeout above all throw
+    // from `fetch` itself rather than answering, so without this they left
+    // as a bare TypeError/TimeoutError, missed the route's `instanceof`
+    // check, and surfaced as an opaque 500 — pointing the operator at this
+    // module when the problem is the one it was calling. 502 with the
+    // reason is the same answer a non-OK response already produced.
+    throw new OfferFetchError(502, `The ${source} is unreachable: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const text = await res.text();
+  let parsed: unknown;
+  try {
+    parsed = text ? JSON.parse(text) : undefined;
+  } catch {
+    parsed = text;
+  }
+  if (!res.ok) {
+    const message =
+      parsed && typeof parsed === 'object' && 'error' in parsed
+        ? String((parsed as { error: unknown }).error)
+        : `${what} could not be fetched (${res.status})`;
+    throw new OfferFetchError(res.status, message);
+  }
+  return parsed;
+}
+
 export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const notify = cfg.notificationUrl
     ? new NotificationClient({ baseUrl: cfg.notificationUrl, serviceToken: cfg.serviceToken })
@@ -301,7 +357,8 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const banking = cfg.bankingUrl ? new BankingClient({ baseUrl: cfg.bankingUrl, serviceToken: cfg.serviceToken }) : null;
   const bankConnection = cfg.bankConnection ?? 'main';
   const offersUrl = cfg.offersUrl ? cfg.offersUrl.replace(/\/+$/, '') : null;
-  if (!notify && !files && !audit && !payments && !numbers && !customers && !banking && !offersUrl) {
+  const ordersUrl = cfg.ordersUrl ? cfg.ordersUrl.replace(/\/+$/, '') : null;
+  if (!notify && !files && !audit && !payments && !numbers && !customers && !banking && !offersUrl && !ordersUrl) {
     return noopPlatform;
   }
 
@@ -393,39 +450,27 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
 
     async fetchOffer(offerNumber: string): Promise<unknown | null> {
       if (!offersUrl) return null;
-      // Bounded like every platform-client call: an offers instance that
-      // accepts the connection and then stalls must not hold the operator's
-      // import request open indefinitely.
-      let res: Response;
+      return fetchTransfer(`${offersUrl}/api/offers/${encodeURIComponent(offerNumber)}/transfer`, `offer ${offerNumber}`, 'offer source', cfg.serviceToken);
+    },
+
+    async fetchDeliveryNote(number: string): Promise<unknown | null> {
+      if (!ordersUrl) return null;
+      return fetchTransfer(`${ordersUrl}/api/delivery-notes/${encodeURIComponent(number)}/transfer`, `delivery note ${number}`, 'order source', cfg.serviceToken);
+    },
+
+    async deliveryNoteBilled(info: { number: string; invoiceId: number; actor: string }): Promise<void> {
+      if (!ordersUrl) return;
       try {
-        res = await fetch(`${offersUrl}/api/offers/${encodeURIComponent(offerNumber)}/transfer`, {
-          headers: cfg.serviceToken ? { 'X-Service-Token': cfg.serviceToken } : {},
+        const res = await fetch(`${ordersUrl}/api/delivery-notes/${encodeURIComponent(info.number)}/invoiced`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(cfg.serviceToken ? { 'X-Service-Token': cfg.serviceToken } : {}) },
+          body: JSON.stringify({ reference: `mod-04-invoice-billing:draft ${info.invoiceId}`, actor: info.actor }),
           signal: AbortSignal.timeout(OFFER_FETCH_TIMEOUT_MS),
         });
+        if (!res.ok) console.warn(`[mod-04] telling MOD-17 that ${info.number} was billed failed (${res.status})`);
       } catch (err) {
-        // A refused connection, a DNS failure or the timeout above all throw
-        // from `fetch` itself rather than answering, so without this they left
-        // as a bare TypeError/TimeoutError, missed the route's `instanceof`
-        // check, and surfaced as an opaque 500 — pointing the operator at this
-        // module when the problem is the one it was calling. 502 with the
-        // reason is the same answer a non-OK response already produced.
-        throw new OfferFetchError(502, `The offer source is unreachable: ${err instanceof Error ? err.message : String(err)}`);
+        console.warn('[mod-04] telling MOD-17 that a delivery note was billed failed:', err);
       }
-      const text = await res.text();
-      let parsed: unknown;
-      try {
-        parsed = text ? JSON.parse(text) : undefined;
-      } catch {
-        parsed = text;
-      }
-      if (!res.ok) {
-        const message =
-          parsed && typeof parsed === 'object' && 'error' in parsed
-            ? String((parsed as { error: unknown }).error)
-            : `offer ${offerNumber} could not be fetched (${res.status})`;
-        throw new OfferFetchError(res.status, message);
-      }
-      return parsed;
     },
 
     async fetchSelf(): Promise<SelfParty | null> {

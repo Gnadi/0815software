@@ -54,7 +54,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
 | CRM | ✅ MOD-10 (Pipeline, Aktivitäten, Übergabe an MOD-13) | Mehrbenutzer, Web-Lead-Formular, CSV-Import fehlen; Philosophie „no AI“ ist ein Verkaufsargument, beibehalten |
-| Sales (Angebot → Auftrag) | 🟡 MOD-13 Angebote → MOD-04 Rechnung | ❌ **Auftrag/Lieferschein fehlt** — größte fachliche Lücke im Kernprozess |
+| Sales (Angebot → Auftrag) | ✅ MOD-13 Angebote → MOD-17 Auftrag/Lieferschein → MOD-04 Rechnung | Teillieferung und Rechnung je Lieferung umgesetzt; Lagerbuchung (MOD-03) offen |
 | Point of Sale | ❌ | ⛔ in AT RKSV-pflichtig (Signatureinheit, DEP, FinanzOnline) — Haftungsrisiko ohne Lizenzertrag |
 | Subscriptions (E) | 🟡 MOD-04 wiederkehrende Rechnungen (Vorlagen → Entwürfe je Periode) | ✅ als Erweiterung von MOD-04 umgesetzt; nutzungsbasierte Abrechnung und Proration bleiben offen |
 | Rental (E) | ❌ | ⛔ Nische; über Terminbuchung + MOD-03 abbildbar |
@@ -151,9 +151,11 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    unveränderlich gespeichert, Versand über PS-03).
 4. ✅ **MOD-04: Buchhaltungsexport** BMD (AT) und DATEV-Buchungsstapel (DE)
    (PR #37). Offen: Belegverknüpfung zu PS-06.
-5. **Neue Belegart „Auftrag/Lieferschein“** — entweder in MOD-13 (Angebot →
-   Auftragsbestätigung) oder als kleines eigenes Modul zwischen MOD-13,
-   MOD-03 (Reservierung, Warenausgang) und MOD-04 (Teil-/Schlussrechnung).
+5. ✅ **Auftrag/Lieferschein** als eigenes Modul **MOD-17 Orders & Delivery
+   Notes**: angenommenes Angebot → Auftragsbestätigung, Teillieferungen mit
+   Lieferscheinen (nie über den Auftrag hinaus), jeder Lieferschein einzeln in
+   MOD-04 verrechnet (Transfer-Art `delivery`). Offen: Reservierung und
+   Warenausgang in MOD-03.
 6. **MOD-03: Barcode, Lagerplätze, Reservierungen, Bewertung.**
 7. **MOD-11: Timer + Mitarbeiter-Self-Service.**
 8. **MOD-12: Anhänge (PS-06), Textbausteine, Geschäftszeiten, CSAT,
@@ -170,17 +172,17 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 
 | # | Modul | Odoo-Pendant | Warum | Grobe Größe | Platform Services |
 | --- | --- | --- | --- | --- | --- |
-| MOD-17 | **Projekte & Aufgaben** | Project, To-Do, Planning | Klammer Angebot → Arbeit → Zeit → Rechnung; Kanban + Meilensteine + Ressourcenblick | 4–5 Wo | 01, 02, 03, 07 |
-| MOD-18 | **Abwesenheiten** | Time Off | Jedes KMU braucht es; Resturlaub abgeleitet aus Anspruch − Buchungen (Ledger-Idiom wie MOD-03); Feiertage AT/DE | 2–3 Wo | 01, 02, 03 |
-| MOD-19 | **Terminbuchung** | Appointments | Öffentliche Buchungsseite, Ressourcen, iCal; kein Doppelbuchen als bewiesene Invariante | 3–4 Wo | 03, 08 (Anzahlung) |
-| MOD-20 | **Spesen & Reisekosten** | Expenses | Belegfoto → PS-04-Extraktion → Freigabe → Export/Auszahlung via MOD-04 SEPA; AT-Taggeld/Kilometergeld als Konfig | 3–4 Wo | 04, 06, 07, 12 |
-| MOD-21 | **Formulare & Umfragen** | Surveys, Web-Lead-Formulare | Ein Baustein, viele Konsumenten (MOD-10, MOD-12, MOD-14) | 2–3 Wo | 03, 02 |
-| MOD-22 | **Wissen** | Knowledge | Wiki + KB für MOD-12, RAG über PS-04 — und ein ehrlicher, abschaltbarer KI-Einsatz | 2–3 Wo | 04, 06, 09 |
+| MOD-18 | **Projekte & Aufgaben** | Project, To-Do, Planning | Klammer Angebot → Arbeit → Zeit → Rechnung; Kanban + Meilensteine + Ressourcenblick | 4–5 Wo | 01, 02, 03, 07 |
+| MOD-19 | **Abwesenheiten** | Time Off | Jedes KMU braucht es; Resturlaub abgeleitet aus Anspruch − Buchungen (Ledger-Idiom wie MOD-03); Feiertage AT/DE | 2–3 Wo | 01, 02, 03 |
+| MOD-20 | **Terminbuchung** | Appointments | Öffentliche Buchungsseite, Ressourcen, iCal; kein Doppelbuchen als bewiesene Invariante | 3–4 Wo | 03, 08 (Anzahlung) |
+| MOD-21 | **Spesen & Reisekosten** | Expenses | Belegfoto → PS-04-Extraktion → Freigabe → Export/Auszahlung via MOD-04 SEPA; AT-Taggeld/Kilometergeld als Konfig | 3–4 Wo | 04, 06, 07, 12 |
+| MOD-22 | **Formulare & Umfragen** | Surveys, Web-Lead-Formulare | Ein Baustein, viele Konsumenten (MOD-10, MOD-12, MOD-14) | 2–3 Wo | 03, 02 |
+| MOD-23 | **Wissen** | Knowledge | Wiki + KB für MOD-12, RAG über PS-04 — und ein ehrlicher, abschaltbarer KI-Einsatz | 2–3 Wo | 04, 06, 09 |
 | später | Anlagen & Wartung (inkl. Fuhrpark) | Maintenance, Fleet | Prüffristen abgeleitet, Prüfprotokolle | 2–3 Wo | 02, 03, 06 |
 | später | Newsletter | Email/SMS Marketing | Double-Opt-in-Nachweis als Kern | 2–3 Wo | 03 |
 | später | Recruiting | Recruitment | Löschfristen als Kern | 3 Wo | 06, 03 |
 
-Neuer Platform Service, falls MOD-13/MOD-20/HR ihn brauchen: **Signatur**
+Neuer Platform Service, falls MOD-13/MOD-21/HR ihn brauchen: **Signatur**
 (einfache elektronische Signatur mit Hash-Kette über PS-07; qualifizierte
 Signatur per ID Austria/Handy-Signatur als Adapter).
 

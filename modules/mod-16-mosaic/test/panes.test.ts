@@ -98,7 +98,7 @@ describe('the catalogue', () => {
     // Fifteen: the fourteen business modules plus the Workspace, which this
     // shell can frame like any other. This module is absent — framing itself
     // is a recursion with no bottom.
-    expect(res.body.modules).toHaveLength(15);
+    expect(res.body.modules).toHaveLength(16);
     expect(byId.get('mod-16-mosaic')).toBeUndefined();
 
     expect(byId.get('mod-13-offers')).toMatchObject({ configured: true, embeddable: true });
