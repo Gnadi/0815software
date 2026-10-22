@@ -88,6 +88,12 @@ export interface BuyerParty {
   email: string | null;
   /** BT-49 — an email address, or a Leitweg-ID for a German public body. */
   einvoice_address: string | null;
+  /**
+   * The number this buyer assigned US as a supplier (ebInterface
+   * Biller/InvoiceRecipientsBillerID) — the Republic of Austria's
+   * Lieferantennummer. Absent in snapshots frozen before it existed.
+   */
+  supplier_number?: string | null;
 }
 
 export interface EInvoiceLine {
@@ -166,7 +172,7 @@ function addressScheme(address: string): string {
   return LEITWEG_RE.test(address) ? '0204' : 'EM';
 }
 
-function blank(value: string | null | undefined): boolean {
+export function blank(value: string | null | undefined): boolean {
   return value === null || value === undefined || value.trim() === '';
 }
 
@@ -313,7 +319,7 @@ export function paymentTermsText(model: EInvoiceModel): string {
   return `Zahlbar innerhalb von ${model.payment_terms_days} Tagen ohne Abzug bis ${deDate(model.due_date)}.`;
 }
 
-class Xml {
+export class Xml {
   private out: string[] = [];
   private depth = 0;
 

@@ -141,14 +141,14 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    (`viewer/editor/admin` pro Modul) als Claim aus PS-01, lokaler
    Single-Admin bleibt der Standalone-Modus. Ein gemeinsames Paket statt
    16 Einzelumsetzungen.
-2. **MOD-04: E-Rechnung.** ebInterface (AT, Pflicht ggü. Bund) und
-   XRechnung/ZUGFeRD (DE, B2B-Empfangspflicht seit 2025, Versandpflicht ab
-   2027/28). Passt exakt zum Repo-Stil: Schema-Validierung bei jedem
-   Testlauf, wie schon bei pain.001.
+2. ✅ **MOD-04: E-Rechnung.** XRechnung/ZUGFeRD (DE, PR #37) und
+   ebInterface 6.1 (AT, Bund), jeweils gegen das offizielle Schema geprüft
+   (`docs/E-RECHNUNG.md`). Offen: UBL/PEPPOL-Versand, Eingangsrechnungen lesen.
 3. **MOD-04: Wiederkehrende Rechnungen** (= Odoo Subscriptions light),
-   **Gutschriften** als eigener Belegtyp, **Mahnstufen** über PS-02 + PS-03.
-4. **MOD-04: Buchhaltungsexport** BMD (AT) und DATEV-Buchungsstapel (DE),
-   inkl. Belegverknüpfung zu PS-06. Ersetzt den Wunsch nach einer FiBu.
+   **Teilgutschriften** als eigener Belegtyp (die Storno-Gutschrift gibt es
+   seit PR #37), **Mahnstufen** über PS-02 + PS-03.
+4. ✅ **MOD-04: Buchhaltungsexport** BMD (AT) und DATEV-Buchungsstapel (DE)
+   (PR #37). Offen: Belegverknüpfung zu PS-06.
 5. **Neue Belegart „Auftrag/Lieferschein“** — entweder in MOD-13 (Angebot →
    Auftragsbestätigung) oder als kleines eigenes Modul zwischen MOD-13,
    MOD-03 (Reservierung, Warenausgang) und MOD-04 (Teil-/Schlussrechnung).

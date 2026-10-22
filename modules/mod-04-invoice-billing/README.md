@@ -253,8 +253,8 @@ draft ──finalize──▶ sent ──payments cover gross──▶ paid   (d
   id, control sum, the transfers inside it, a download button, and the
   two ends: mark executed (settles its bills) or discard (releases
   them).
-- **E-invoices** — XRechnung 3.0 (XML) and ZUGFeRD (PDF/A-3, EN 16931) for
-  every issued invoice, and for a cancellation as a credit note; the detail
+- **E-invoices** — XRechnung 3.0 (XML), ZUGFeRD (PDF/A-3, EN 16931) and the
+  Austrian ebInterface 6.1 (XML, for e-Rechnung.gv.at) for every issued invoice, and for a cancellation as a credit note; the detail
   view lists exactly what is still missing, by EN 16931 business term.
 - **Exports** — the issued invoices of a period as a DATEV Buchungsstapel or a
   BMD NTCS booking import.
@@ -334,8 +334,9 @@ POST   /api/invoices/:id/cancel        {reason} — keeps the number
 POST   /api/invoices/:id/payments      {amount_cents, date?, note?}
                                        overpayment → 422
 GET    /api/invoices/:id/pdf           the invoice as a generated PDF
-GET    /api/invoices/:id/einvoice      what XRechnung / ZUGFeRD would still refuse
+GET    /api/invoices/:id/einvoice      what XRechnung / ZUGFeRD / ebInterface would still refuse
 GET    /api/invoices/:id/xrechnung.xml ?document=cancellation for the credit note
+GET    /api/invoices/:id/ebinterface.xml  ebInterface 6.1; ?document=cancellation (CreditMemo)
 GET    /api/invoices/:id/zugferd.pdf   PDF/A-3 with factur-x.xml; ?document=cancellation
 GET    /api/einvoice-config            the seller as e-invoices see it + what is missing
 
@@ -547,6 +548,7 @@ practice:
 | ------ | ---------- | -------- |
 | **XRechnung 3.0** | EN 16931 with the German CIUS (KoSIT), CII syntax — required by German public bodies | `GET /api/invoices/:id/xrechnung.xml` |
 | **ZUGFeRD 2.x / Factur-X, profile EN 16931** | a PDF/A-3 a person reads, with the same XML embedded as `factur-x.xml` | `GET /api/invoices/:id/zugferd.pdf` |
+| **ebInterface 6.1** | the Austrian format (AUSTRIAPRO) — for e-Rechnung.gv.at and Austrian recipients; carries the federal supplier number and order reference | `GET /api/invoices/:id/ebinterface.xml` |
 
 Both come from **one model and one renderer** (`shared/einvoice.ts`), fed by
 the invoice as issued (`server/einvoice-data.ts`). The money is this module's
@@ -893,16 +895,16 @@ these, that's commissioned work — exactly the kind 0815software does:
   the hook for automation; reminders are a note field, not a workflow.
 - **Formal credit notes** — corrections are cancellation + new invoice.
   A credit-note document type (negative invoice) is an extension.
-- **Bank reconciliation / payment import** — payments are recorded
-  manually or via the API; no CAMT/MT940 parsing, no PSP integration.
-  The payment file goes out; nothing comes back in automatically, which
-  is why marking a run executed is a human action.
-- **ebInterface, UBL and PEPPOL transport** — XRechnung and ZUGFeRD are
-  produced in CII syntax and downloaded; nothing is sent over PEPPOL, and the
-  Austrian ebInterface format is not written. Incoming e-invoices are not
-  read on the bills side. See [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
-- **EBICS (or any other) bank transport** — the module produces the file
-  and stops there; see
+- **Bank reconciliation without PS-12** — standalone, payments are recorded
+  manually or via the API and a payment run is marked executed by a human.
+  With PS-12 Banking wired, statements come back in and are matched (see
+  [Incoming payments](#incoming-payments--the-other-direction-and-equally-optional)).
+  MT940 and PSP settlement files are not read.
+- **UBL and PEPPOL transport** — the e-invoices are downloaded; nothing is
+  sent over PEPPOL, and the UBL syntax is not written. Incoming e-invoices are
+  not read on the bills side. See [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
+- **Bank transport other than EBICS** — standalone the module produces the
+  file and stops there; PS-12 Banking sends it over EBICS. See
   [Bills and the SEPA payment file](#bills-and-the-sepa-payment-file).
 - **Other payment message versions and schemes** — `pain.001.001.03`
   only. `pain.001.001.09` is a small addition to one renderer

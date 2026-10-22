@@ -11,6 +11,7 @@ import {
   type EInvoiceProfile,
   type SellerParty,
 } from '../shared/einvoice.js';
+import { ebInterfaceProblems, renderEbInterface, type EInvoiceFormat } from '../shared/ebinterface.js';
 import type { Customer } from '../shared/types.js';
 import type { SellerConfig } from './config.js';
 import { DomainError, getCustomer, getInvoice, invoiceDetail, invoiceLines } from './invoices.js';
@@ -82,6 +83,7 @@ export function buyerParty(customer: Customer): BuyerParty {
     vat_id: customer.vat_id,
     email: customer.email,
     einvoice_address: customer.einvoice_address ?? null,
+    supplier_number: customer.supplier_number ?? null,
   };
 }
 
@@ -159,8 +161,15 @@ export function eInvoiceModel(
   if (document === 'cancellation' && invoice.status !== 'cancelled') {
     throw new DomainError(409, `${invoice.number} is not cancelled, so it has no cancellation document`);
   }
-  const { seller, buyer, frozen } = invoiceParties(db, invoiceId, liveSeller);
+  const parties = invoiceParties(db, invoiceId, liveSeller);
+  const { seller, frozen } = parties;
   const customer = getCustomer(db, invoice.customer_id);
+  // A snapshot frozen before the supplier number existed has no such key at
+  // all (undefined, not null): only then is today's value the best there is.
+  const buyer =
+    parties.buyer.supplier_number === undefined
+      ? { ...parties.buyer, supplier_number: customer.supplier_number ?? null }
+      : parties.buyer;
   const lines = invoiceLines(db, invoiceId).map((l) => ({
     position: l.position,
     description: l.description,
@@ -213,12 +222,13 @@ export function eInvoiceReadiness(
   db: Database.Database,
   invoiceId: number,
   liveSeller: SellerConfig,
-): Record<EInvoiceProfile, EInvoiceProblem[]> {
+): Record<EInvoiceFormat, EInvoiceProblem[]> {
   const model = eInvoiceModel(db, invoiceId, liveSeller);
-  return Object.fromEntries(EINVOICE_PROFILES.map((p) => [p, eInvoiceProblems(model, p)])) as Record<
+  const en16931 = Object.fromEntries(EINVOICE_PROFILES.map((p) => [p, eInvoiceProblems(model, p)])) as Record<
     EInvoiceProfile,
     EInvoiceProblem[]
   >;
+  return { ...en16931, ebinterface: ebInterfaceProblems(model) };
 }
 
 /** Refuse with every missing field at once, as a 422 the screen can list. */
@@ -243,6 +253,28 @@ export function xrechnungFile(
   const model = eInvoiceModel(db, invoiceId, liveSeller, document);
   assertRenderable(model, 'xrechnung');
   return { filename: `${model.number}_xrechnung.xml`, xml: renderCii(model, 'xrechnung') };
+}
+
+/**
+ * The ebInterface 6.1 XML of an issued invoice (or of its cancellation, a
+ * CreditMemo naming the cancelled invoice) — the Austrian e-invoice.
+ */
+export function ebInterfaceFile(
+  db: Database.Database,
+  invoiceId: number,
+  liveSeller: SellerConfig,
+  document: EInvoiceDocument = 'invoice',
+): { filename: string; xml: string } {
+  const model = eInvoiceModel(db, invoiceId, liveSeller, document);
+  const problems = ebInterfaceProblems(model);
+  if (problems.length > 0) {
+    throw new DomainError(
+      422,
+      `This invoice cannot be issued as ebInterface yet — ${problems.length} field${problems.length === 1 ? '' : 's'} missing`,
+      problems.map((p) => ({ field: p.field, message: `${p.term}: ${p.message}` })),
+    );
+  }
+  return { filename: `${model.number}_ebinterface.xml`, xml: renderEbInterface(model) };
 }
 
 /**

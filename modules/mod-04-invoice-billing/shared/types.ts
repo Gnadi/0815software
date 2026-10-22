@@ -46,6 +46,11 @@ export interface Customer {
   buyer_reference?: string | null;
   /** BT-49 where the buyer receives e-invoices. Empty → `email`. */
   einvoice_address?: string | null;
+  /**
+   * Our supplier number at this customer (ebInterface InvoiceRecipientsBillerID).
+   * The Republic of Austria assigns one and requires it on every invoice.
+   */
+  supplier_number?: string | null;
   /** The customer's personal account (Debitor) in DATEV / BMD. Empty → numbered from settings. */
   debtor_account?: number | null;
 }

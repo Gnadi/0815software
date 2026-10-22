@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { InvoiceDetail as Detail } from '../../shared/types';
-import { api, ApiError, invoicePdfUrl, xrechnungUrl, zugferdUrl, type EInvoiceStatus } from '../api';
+import { api, ApiError, ebInterfaceUrl, invoicePdfUrl, xrechnungUrl, zugferdUrl, type EInvoiceStatus } from '../api';
 import { fmtDate, fmtEur, fmtQty } from '../format';
 import { PaymentBadge, StatusBadge } from './StatusBadge';
 import { Can } from '../access';
@@ -361,12 +361,14 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
 /**
  * The e-invoice downloads of an issued invoice. Each format is offered only
  * when it would validate; otherwise the missing fields are listed with their
- * EN 16931 business terms, which is what the server would refuse with.
+ * business terms (EN 16931 numbering, also for ebInterface), which is what
+ * the server would refuse with.
  */
 function EInvoicePanel({ id, status }: { id: number; status: Extract<EInvoiceStatus, { available: true }> }) {
   const formats = [
     { key: 'xrechnung' as const, label: 'XRECHNUNG (XML)', url: xrechnungUrl },
     { key: 'zugferd' as const, label: 'ZUGFERD (PDF/A-3)', url: zugferdUrl },
+    { key: 'ebinterface' as const, label: 'EBINTERFACE 6.1 (XML)', url: ebInterfaceUrl },
   ];
   return (
     <div className="totals">

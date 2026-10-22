@@ -16,7 +16,8 @@
     "preview": "npm run build && npm start",
     "acceptance": "tsx scripts/acceptance.mts",
     "einvoice:fixtures": "tsx scripts/einvoice-fixtures.mts",
-    "einvoice:validate": "sh scripts/validate-einvoice.sh"
+    "einvoice:validate": "sh scripts/validate-einvoice.sh",
+    "ebinterface:fixtures": "tsx scripts/ebinterface-fixtures.mts"
   },
   "dependencies": {
     "@0815software/platform-clients": "file:../../platform/clients",

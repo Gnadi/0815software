@@ -14,7 +14,8 @@ import type {
   ReceivableOutcome,
   ReceivableSuggestions,
 } from '../shared/types';
-import type { EInvoiceProblem, EInvoiceProfile, SellerParty } from '../shared/einvoice';
+import type { EInvoiceProblem, SellerParty } from '../shared/einvoice';
+import type { EInvoiceFormat } from '../shared/ebinterface';
 
 export class ApiError extends Error {
   status: number;
@@ -126,7 +127,7 @@ export const api = {
   // ── E-invoices and bookkeeping exports ───────────────────────────────
   /** The seller as e-invoices see it, and what each profile still misses. */
   einvoiceConfig: () =>
-    request<{ seller: SellerParty; problems: Record<EInvoiceProfile, EInvoiceProblem[]> }>('/api/einvoice-config'),
+    request<{ seller: SellerParty; problems: Record<EInvoiceFormat, EInvoiceProblem[]> }>('/api/einvoice-config'),
   /** Whether an issued invoice can be downloaded as XRechnung / ZUGFeRD, and what is missing. */
   einvoiceStatus: (id: number) => request<EInvoiceStatus>(`/api/invoices/${id}/einvoice`),
   /** The seller as the admin maintains it — each field with its source. */
@@ -205,7 +206,7 @@ export type EInvoiceStatus =
       available: true;
       parties_frozen: boolean;
       cancellation: boolean;
-      problems: Record<EInvoiceProfile, EInvoiceProblem[]>;
+      problems: Record<EInvoiceFormat, EInvoiceProblem[]>;
     };
 
 export interface RevenueAccount {
@@ -249,7 +250,7 @@ export interface SellerSettingsResponse {
   updated_at: string | null;
   updated_by: string | null;
   seller: SellerParty;
-  problems: Record<EInvoiceProfile, EInvoiceProblem[]>;
+  problems: Record<EInvoiceFormat, EInvoiceProblem[]>;
 }
 
 export interface AccountingSettingsResponse {
@@ -264,6 +265,11 @@ export interface AccountingSettingsResponse {
 /** Download links for the e-invoice files of an issued invoice. */
 export function xrechnungUrl(id: number, cancellation = false): string {
   return `/api/invoices/${id}/xrechnung.xml${cancellation ? '?document=cancellation' : ''}`;
+}
+
+/** ebInterface 6.1 — the Austrian e-invoice (e-rechnung.gv.at). */
+export function ebInterfaceUrl(id: number, cancellation = false): string {
+  return `/api/invoices/${id}/ebinterface.xml${cancellation ? '?document=cancellation' : ''}`;
 }
 
 export function zugferdUrl(id: number, cancellation = false): string {

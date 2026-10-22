@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="http://www.ebinterface.at/schema/6p1/" GeneratingSystem="0815software MOD-04 Invoice &amp; Billing" DocumentType="Invoice" InvoiceCurrency="EUR" Language="de">
+  <InvoiceNumber>RE-2026-0042</InvoiceNumber>
+  <InvoiceDate>2026-10-21</InvoiceDate>
+  <Delivery>
+    <Date>2026-10-15</Date>
+  </Delivery>
+  <Biller>
+    <VATIdentificationNumber>ATU12345678</VATIdentificationNumber>
+    <FurtherIdentification IdentificationType="FN">123456a</FurtherIdentification>
+    <Address>
+      <Name>Muster &amp; Söhne GmbH</Name>
+      <Street>Lassallestraße 5</Street>
+      <Town>Wien</Town>
+      <ZIP>1020</ZIP>
+      <Country CountryCode="AT">Österreich</Country>
+      <Phone>+43 1 234567</Phone>
+      <Email>rechnung@muster.at</Email>
+    </Address>
+    <Contact>
+      <Name>Erika Mustermann</Name>
+      <Phone>+43 1 234567</Phone>
+      <Email>rechnung@muster.at</Email>
+    </Contact>
+    <InvoiceRecipientsBillerID>312345</InvoiceRecipientsBillerID>
+  </Biller>
+  <InvoiceRecipient>
+    <VATIdentificationNumber>ATU00000000</VATIdentificationNumber>
+    <OrderReference>
+      <OrderID>4711000123</OrderID>
+    </OrderReference>
+    <Address>
+      <Name>Bundesministerium für Beispiele</Name>
+      <Street>Hauptplatz 1</Street>
+      <Town>Graz</Town>
+      <ZIP>8010</ZIP>
+      <Country CountryCode="AT">Österreich</Country>
+      <Email>ap@kunde.at</Email>
+    </Address>
+  </InvoiceRecipient>
+  <Details>
+    <ItemList>
+      <ListLineItem>
+        <PositionNumber>1</PositionNumber>
+        <Description>Beratung</Description>
+        <Quantity Unit="C62">3</Quantity>
+        <UnitPrice>0.33</UnitPrice>
+        <TaxItem>
+          <TaxableAmount>0.99</TaxableAmount>
+          <TaxPercent TaxCategoryCode="S">20</TaxPercent>
+        </TaxItem>
+        <LineItemAmount>0.99</LineItemAmount>
+      </ListLineItem>
+      <ListLineItem>
+        <PositionNumber>2</PositionNumber>
+        <Description>Fachbuch</Description>
+        <Quantity Unit="C62">2.5</Quantity>
+        <UnitPrice>19.99</UnitPrice>
+        <TaxItem>
+          <TaxableAmount>49.98</TaxableAmount>
+          <TaxPercent TaxCategoryCode="AA">10</TaxPercent>
+        </TaxItem>
+        <LineItemAmount>49.98</LineItemAmount>
+      </ListLineItem>
+      <ListLineItem>
+        <PositionNumber>3</PositionNumber>
+        <Description>Pflanzen</Description>
+        <Quantity Unit="C62">1</Quantity>
+        <UnitPrice>12.50</UnitPrice>
+        <TaxItem>
+          <TaxableAmount>12.50</TaxableAmount>
+          <TaxPercent TaxCategoryCode="AA">13</TaxPercent>
+        </TaxItem>
+        <LineItemAmount>12.50</LineItemAmount>
+      </ListLineItem>
+      <ListLineItem>
+        <PositionNumber>4</PositionNumber>
+        <Description>Lizenz</Description>
+        <Quantity Unit="C62">1</Quantity>
+        <UnitPrice>1200.00</UnitPrice>
+        <TaxItem>
+          <TaxableAmount>1200.00</TaxableAmount>
+          <TaxPercent TaxCategoryCode="S">20</TaxPercent>
+        </TaxItem>
+        <LineItemAmount>1200.00</LineItemAmount>
+      </ListLineItem>
+    </ItemList>
+  </Details>
+  <Tax>
+    <TaxItem>
+      <TaxableAmount>49.98</TaxableAmount>
+      <TaxPercent TaxCategoryCode="AA">10</TaxPercent>
+      <TaxAmount>5.00</TaxAmount>
+    </TaxItem>
+    <TaxItem>
+      <TaxableAmount>12.50</TaxableAmount>
+      <TaxPercent TaxCategoryCode="AA">13</TaxPercent>
+      <TaxAmount>1.63</TaxAmount>
+    </TaxItem>
+    <TaxItem>
+      <TaxableAmount>1200.99</TaxableAmount>
+      <TaxPercent TaxCategoryCode="S">20</TaxPercent>
+      <TaxAmount>240.20</TaxAmount>
+    </TaxItem>
+  </Tax>
+  <TotalGrossAmount>1510.30</TotalGrossAmount>
+  <PayableAmount>1510.30</PayableAmount>
+  <PaymentMethod>
+    <UniversalBankTransaction>
+      <BeneficiaryAccount>
+        <BIC>BKAUATWW</BIC>
+        <IBAN>AT611904300234573201</IBAN>
+        <BankAccountOwner>Muster &amp; Söhne GmbH</BankAccountOwner>
+      </BeneficiaryAccount>
+      <PaymentReference>RE-2026-0042</PaymentReference>
+    </UniversalBankTransaction>
+  </PaymentMethod>
+  <PaymentConditions>
+    <DueDate>2026-11-04</DueDate>
+    <Comment>Zahlbar innerhalb von 14 Tagen ohne Abzug bis 04.11.2026.</Comment>
+  </PaymentConditions>
+</Invoice>

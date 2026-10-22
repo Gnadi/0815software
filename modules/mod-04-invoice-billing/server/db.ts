@@ -285,6 +285,12 @@ export function openDb(path: string): Database.Database {
     db.exec('ALTER TABLE customers ADD COLUMN debtor_account INTEGER');
   }
 
+  // The supplier number a customer assigned us — ebInterface's
+  // InvoiceRecipientsBillerID, which the Republic of Austria requires.
+  if (!columns('customers').includes('supplier_number')) {
+    db.exec('ALTER TABLE customers ADD COLUMN supplier_number TEXT');
+  }
+
   // What an issued invoice must keep saying, whatever the master data does
   // later. `seller_snapshot` / `buyer_snapshot` are JSON frozen in the same
   // transaction that assigns the number (server/einvoice-data.ts) — the

@@ -16,11 +16,13 @@ import {
   invoiceParties,
   pdfParties,
   sellerParty,
+  ebInterfaceFile,
   xrechnungFile,
   zugferdFile,
   type EInvoiceDocument,
 } from './einvoice-data.js';
 import { eInvoiceProblems, type EInvoiceModel } from '../shared/einvoice.js';
+import { ebInterfaceProblems } from '../shared/ebinterface.js';
 import {
   bmdExport,
   datevExport,
@@ -152,11 +154,12 @@ interface CustomerInput {
   buyer_reference: string | null;
   einvoice_address: string | null;
   debtor_account: number | null;
+  supplier_number: string | null;
 }
 
 const CUSTOMER_COLUMNS = [
   'name', 'email', 'vat_id', 'address', 'street', 'postcode', 'city',
-  'country_code', 'buyer_reference', 'einvoice_address', 'debtor_account',
+  'country_code', 'buyer_reference', 'einvoice_address', 'debtor_account', 'supplier_number',
 ] as const;
 
 function validateCustomer(input: Record<string, unknown>): CustomerInput {
@@ -181,6 +184,7 @@ function validateCustomer(input: Record<string, unknown>): CustomerInput {
   }
   const buyer_reference = optText(input.buyer_reference, 'buyer_reference', errors, 200);
   const einvoice_address = optText(input.einvoice_address, 'einvoice_address', errors, 200);
+  const supplier_number = optText(input.supplier_number, 'supplier_number', errors, 100);
   let debtor_account: number | null = null;
   if (input.debtor_account !== undefined && input.debtor_account !== null && input.debtor_account !== '') {
     debtor_account = Number(input.debtor_account);
@@ -191,7 +195,7 @@ function validateCustomer(input: Record<string, unknown>): CustomerInput {
   if (errors.length > 0) fail(errors);
   return {
     name, email, vat_id, address, street, postcode, city, country_code,
-    buyer_reference, einvoice_address, debtor_account,
+    buyer_reference, einvoice_address, debtor_account, supplier_number,
   };
 }
 
@@ -913,6 +917,15 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     res.send(file.xml);
   });
 
+  // ebInterface 6.1 — the Austrian format, for e-rechnung.gv.at and Austrian
+  // recipients (shared/ebinterface.ts). Same model, same 422-before-wrong rule.
+  app.get('/api/invoices/:id/ebinterface.xml', (req, res) => {
+    const file = ebInterfaceFile(db, Number(req.params.id), seller, documentOf(req.query.document));
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.send(file.xml);
+  });
+
   app.get('/api/invoices/:id/zugferd.pdf', (req, res) => {
     const file = zugferdFile(db, Number(req.params.id), seller, documentOf(req.query.document));
     res.setHeader('Content-Type', 'application/pdf');
@@ -957,7 +970,11 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     };
     return {
       seller: party,
-      problems: { xrechnung: eInvoiceProblems(probe, 'xrechnung'), zugferd: eInvoiceProblems(probe, 'zugferd') },
+      problems: {
+        xrechnung: eInvoiceProblems(probe, 'xrechnung'),
+        zugferd: eInvoiceProblems(probe, 'zugferd'),
+        ebinterface: ebInterfaceProblems(probe),
+      },
     };
   };
 
