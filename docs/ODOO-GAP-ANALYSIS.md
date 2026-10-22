@@ -259,8 +259,9 @@ Mensch, der haftet — das ist ohnehin das Geschäftsmodell.
    Datenmodell — die README-Struktur gibt es schon), als Prompt-Vorlage.
 4. ✅ **Mehrbenutzer-Fundament zuerst** (Abschnitt 2, Punkt 1; umgesetzt,
    `docs/ACCESS-LEVELS.md`) — sonst vervielfältigt KI das Single-Admin-Muster
-   in jedes neue Modul. Offen: die Shells (MOD-15/16) und die UIs der
-   Bestandsmodule, die Schaltflächen noch nicht nach Stufe ausblenden.
+   in jedes neue Modul. Inzwischen auch umgesetzt: Stufen pro Zielmodul in den
+   Shells (MOD-15/16), Oberflächen blenden nach Stufe aus, „nur eigene Zeiten“
+   in MOD-11, Typcheck in der CI.
 5. **Positionierung:** nicht „Odoo-Klon“, sondern „die DACH-Pflichtteile, die
    Odoo Community fehlen (EBICS, SEPA, E-Rechnung, Finanzamtszahlung),
    MIT-lizenziert, ohne Upgrade-Zwang, mit beweisbaren Invarianten“.

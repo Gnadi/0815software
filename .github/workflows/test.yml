@@ -131,6 +131,11 @@ jobs:
           cache-dependency-path: platform/${{ matrix.service }}/package-lock.json
       - working-directory: platform/${{ matrix.service }}
         run: npm ci
+      # Tests run TypeScript through a transpiler that does not type-check, so a
+      # wrong type passes every suite; tsc is what catches it.
+      - name: Type-check
+        working-directory: platform/${{ matrix.service }}
+        run: npx tsc -p tsconfig.json --noEmit
       - working-directory: platform/${{ matrix.service }}
         run: npm test
 
@@ -185,6 +190,14 @@ jobs:
       - name: Verify the clients copy carries its build output
         working-directory: modules/${{ matrix.module }}
         run: test -f node_modules/@0815software/platform-clients/dist/index.js
+      # The client and the server have a config each; the tests type-check
+      # neither (see the services job). A client type that drifted from what a
+      # platform service returns failed here silently before this step.
+      - name: Type-check
+        working-directory: modules/${{ matrix.module }}
+        run: |
+          npx tsc -p tsconfig.json --noEmit
+          npx tsc -p tsconfig.server.json --noEmit
       - name: Test
         working-directory: modules/${{ matrix.module }}
         run: npm test
