@@ -113,5 +113,66 @@ export function openDb(path: string): Database.Database {
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_origin ON projects (origin_reference)');
   }
 
+  // ── Absences (server/leave.ts) ───────────────────────────────────────
+  // Which weekdays a person works (ISO, Monday = 1): part-time staff take a
+  // day of leave only on a day they would have worked.
+  if (!columns('employees').includes('work_days')) db.exec("ALTER TABLE employees ADD COLUMN work_days TEXT NOT NULL DEFAULT '12345'");
+
+  db.exec(`
+    -- The leave each person is entitled to, as an append-only ledger per year:
+    -- the yearly allowance, what was carried over, corrections. Remaining
+    -- leave is derived from it and the approved requests, never stored.
+    CREATE TABLE IF NOT EXISTS leave_entitlements (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL REFERENCES employees(id),
+      year        INTEGER NOT NULL,
+      kind        TEXT    NOT NULL CHECK (kind IN ('allowance', 'carryover', 'adjustment')),
+      days        REAL    NOT NULL CHECK (days <> 0),
+      note        TEXT,
+      actor       TEXT    NOT NULL,
+      created_at  TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_leave_entitlements_employee ON leave_entitlements (employee_id, year);
+
+    -- A request and where it stands. What it costs in days is derived from
+    -- the dates, the person's work days and the holidays — never stored.
+    CREATE TABLE IF NOT EXISTS leave_requests (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id   INTEGER NOT NULL REFERENCES employees(id),
+      type          TEXT    NOT NULL CHECK (type IN ('vacation', 'sick', 'special', 'unpaid', 'comp_time')),
+      start_date    TEXT    NOT NULL,
+      end_date      TEXT    NOT NULL,
+      half_day      INTEGER NOT NULL DEFAULT 0 CHECK (half_day IN (0, 1)),
+      note          TEXT,
+      status        TEXT    NOT NULL CHECK (status IN ('requested', 'approved', 'rejected', 'withdrawn')),
+      created_by    TEXT    NOT NULL,
+      created_at    TEXT    NOT NULL,
+      decided_by    TEXT,
+      decided_at    TEXT,
+      decision_note TEXT,
+      CHECK (start_date <= end_date),
+      CHECK (half_day = 0 OR start_date = end_date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_leave_requests_employee ON leave_requests (employee_id, start_date);
+
+    -- Every step of every request, append-only, with the person.
+    CREATE TABLE IF NOT EXISTS leave_events (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      request_id INTEGER NOT NULL REFERENCES leave_requests(id),
+      type       TEXT    NOT NULL,
+      actor      TEXT    NOT NULL,
+      note       TEXT,
+      at         TEXT    NOT NULL
+    );
+
+    -- The holiday calendar: the country, and regional or company days off.
+    CREATE TABLE IF NOT EXISTS leave_settings (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      settings   TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL
+    );
+  `);
+
   return db;
 }

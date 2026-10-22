@@ -1,9 +1,15 @@
 import type { AccessLevel } from './access';
 import type {
+  CalendarDay,
+  CalendarRow,
   DaySheet,
   Employee,
   ExportProfileInfo,
   FieldError,
+  LeaveBalance,
+  LeaveEntitlement,
+  LeaveRequest,
+  LeaveSettings,
   Project,
   TimeEntry,
   TimesheetDetail,
@@ -108,6 +114,31 @@ export const api = {
   summary: (from: string, to: string) =>
     request<SummaryResponse>(`/api/summary?from=${from}&to=${to}`),
   exportProfiles: () => request<{ profiles: ExportProfileInfo[] }>('/api/export/profiles'),
+
+  leaveRequests: (query: { year?: number; employee_id?: number; to_decide?: boolean }) => {
+    const params = new URLSearchParams();
+    if (query.year) params.set('year', String(query.year));
+    if (query.employee_id) params.set('employee_id', String(query.employee_id));
+    if (query.to_decide) params.set('to_decide', '1');
+    return request<{ requests: LeaveRequest[] }>(`/api/leave/requests?${params.toString()}`);
+  },
+  requestLeave: (v: Record<string, unknown>) => request<LeaveRequest>('/api/leave/requests', post(v)),
+  approveLeave: (id: number, note: string | null) => request<LeaveRequest>(`/api/leave/requests/${id}/approve`, post({ note })),
+  rejectLeave: (id: number, note: string) => request<LeaveRequest>(`/api/leave/requests/${id}/reject`, post({ note })),
+  withdrawLeave: (id: number) => request<LeaveRequest>(`/api/leave/requests/${id}/withdraw`, post()),
+  leaveBalance: (employeeId: number, year: number) =>
+    request<LeaveBalance>(`/api/leave/balance?employee_id=${employeeId}&year=${year}`),
+  entitlements: (employeeId: number, year: number) =>
+    request<{ entitlements: LeaveEntitlement[] }>(`/api/employees/${employeeId}/entitlements?year=${year}`),
+  addEntitlement: (employeeId: number, v: Record<string, unknown>) =>
+    request<LeaveEntitlement>(`/api/employees/${employeeId}/entitlements`, post(v)),
+  leaveCalendar: (month: string) =>
+    request<{ month: string; days: CalendarDay[]; rows: CalendarRow[] }>(`/api/leave/calendar?month=${month}`),
+  holidays: (year: number) => request<{ year: number; holidays: { date: string; name: string }[] }>(`/api/leave/holidays?year=${year}`),
+  leaveSettings: () =>
+    request<{ settings: LeaveSettings; updated_at: string | null; updated_by: string | null }>('/api/leave/settings'),
+  saveLeaveSettings: (v: LeaveSettings) =>
+    request<{ settings: LeaveSettings; updated_at: string | null; updated_by: string | null }>('/api/leave/settings', put({ ...v })),
 };
 
 /** URL of the CSV export for a profile over a date range. */

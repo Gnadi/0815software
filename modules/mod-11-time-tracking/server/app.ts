@@ -23,6 +23,25 @@ import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from '.
 import { EXPORT_PROFILES, getProfile } from './export-profiles.js';
 import { assertMayRecordFor, employeeOf } from './ownership.js';
 import {
+  addEntitlement,
+  balance,
+  calendar,
+  createRequest,
+  decideRequest,
+  getRequest,
+  holidaysOf,
+  leaveSettingsStamp,
+  listEntitlements,
+  listRequests,
+  readLeaveSettings,
+  requestEvents,
+  validateLeaveSettings,
+  withdrawRequest,
+  writeLeaveSettings,
+  type Viewer,
+} from './leave.js';
+import { LEAVE_STATUSES, LEAVE_TYPES, type LeaveStatus, type LeaveType } from '../shared/types.js';
+import {
   approveTimesheet,
   createEmployee,
   createEntry,
@@ -128,8 +147,16 @@ function validateEmployee(input: Record<string, unknown>): EmployeeInput {
   if (email !== null && !/^\S+@\S+\.\S+$/.test(email)) {
     errors.push({ field: 'email', message: 'Email must look like an email address' });
   }
+  // Work days as ISO weekday digits, e.g. "12345" or "135" for part-time.
+  let workDays: string | undefined;
+  if (input.work_days !== undefined && input.work_days !== null && input.work_days !== '') {
+    const raw = String(input.work_days);
+    if (!/^[1-7]{1,7}$/.test(raw) || new Set(raw).size !== raw.length) {
+      errors.push({ field: 'work_days', message: 'Work days are weekday digits 1 (Mon) to 7 (Sun), each once, e.g. 12345' });
+    } else workDays = [...raw].sort().join('');
+  }
   if (errors.length > 0) fail(errors);
-  return { name, email };
+  return { name, email, workDays };
 }
 
 function validateEntry(input: Record<string, unknown>): EntryInput {
@@ -470,6 +497,124 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   app.delete('/api/employees/:id', (req, res) => {
     deleteEmployee(db, Number(req.params.id));
     res.json({ ok: true });
+  });
+
+  // ── Absences (server/leave.ts) ───────────────────────────────────────
+  // The policy says who may write at all; leave.ts says whose leave
+  // (mayActFor) and who decides (mayDecide) — never one's own.
+  const viewerOf = (res: Response): Viewer => ({ actor: actorOf(res, auth), access: accessOf(res) });
+  const optInt = (raw: unknown): number | undefined => (raw === undefined || raw === '' ? undefined : Number(raw));
+
+  app.get('/api/leave/requests', (req, res) => {
+    const status = typeof req.query.status === 'string' && (LEAVE_STATUSES as readonly string[]).includes(req.query.status) ? (req.query.status as LeaveStatus) : undefined;
+    res.json({
+      requests: listRequests(db, viewerOf(res), {
+        employeeId: optInt(req.query.employee_id),
+        year: optInt(req.query.year),
+        status,
+        toDecide: req.query.to_decide === '1',
+      }),
+    });
+  });
+
+  app.post('/api/leave/requests', (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const viewer = viewerOf(res);
+    // Without an employee_id it is one's own leave.
+    const employeeId =
+      input.employee_id === undefined || input.employee_id === null || input.employee_id === ''
+        ? (employeeOf(db, viewer.actor) ?? 0)
+        : reqId(input.employee_id, 'employee_id', errors);
+    if (employeeId === 0) throw new DomainError(403, `No employee record carries ${viewer.actor} — ask a manager to add your email to it`);
+    const type = input.type as LeaveType;
+    if (!(LEAVE_TYPES as readonly unknown[]).includes(type)) errors.push({ field: 'type', message: `type must be one of: ${LEAVE_TYPES.join(', ')}` });
+    const startDate = reqDate(input.start_date, 'start_date', errors);
+    const endDate = input.end_date === undefined || input.end_date === '' ? startDate : reqDate(input.end_date, 'end_date', errors);
+    if (input.half_day !== undefined && typeof input.half_day !== 'boolean') errors.push({ field: 'half_day', message: 'half_day is true or false' });
+    const note = optText(input.note, 'note', errors, 300);
+    if (errors.length > 0) fail(errors);
+    const request = createRequest(db, { employeeId, type, startDate, endDate, halfDay: input.half_day === true, note }, viewer);
+    void platform.audit({ actor: viewer.actor, action: `leave.${type === 'sick' ? 'recorded' : 'requested'}`, resource: `employee:${employeeId}`, metadata: { request: request.id } });
+    res.status(201).json(request);
+  });
+
+  app.get('/api/leave/requests/:id', (req, res) => {
+    const id = Number(req.params.id);
+    res.json({ request: getRequest(db, id, viewerOf(res)), events: requestEvents(db, id) });
+  });
+
+  const decide = (decision: 'approved' | 'rejected') => (req: Request, res: Response) => {
+    const errors: FieldError[] = [];
+    const note = optText(body(req).note, 'note', errors, 300);
+    if (decision === 'rejected' && !note) errors.push({ field: 'note', message: 'A rejection says why' });
+    if (errors.length > 0) fail(errors);
+    const viewer = viewerOf(res);
+    const request = decideRequest(db, Number(req.params.id), decision, note, viewer);
+    void platform.audit({ actor: viewer.actor, action: `leave.${decision}`, resource: `employee:${request.employee_id}`, metadata: { request: request.id } });
+    res.json(request);
+  };
+  app.post('/api/leave/requests/:id/approve', decide('approved'));
+  app.post('/api/leave/requests/:id/reject', decide('rejected'));
+
+  app.post('/api/leave/requests/:id/withdraw', (req, res) => {
+    const viewer = viewerOf(res);
+    const request = withdrawRequest(db, Number(req.params.id), viewer);
+    void platform.audit({ actor: viewer.actor, action: 'leave.withdrawn', resource: `employee:${request.employee_id}`, metadata: { request: request.id } });
+    res.json(request);
+  });
+
+  app.get('/api/leave/balance', (req, res) => {
+    const viewer = viewerOf(res);
+    const employeeId = optInt(req.query.employee_id) ?? employeeOf(db, viewer.actor);
+    if (employeeId === null || employeeId === undefined) throw new DomainError(404, 'No employee record carries this login');
+    res.json(balance(db, employeeId, optInt(req.query.year) ?? Number(todayIso().slice(0, 4))));
+  });
+
+  app.get('/api/employees/:id/entitlements', (req, res) => {
+    res.json({ entitlements: listEntitlements(db, Number(req.params.id), optInt(req.query.year)) });
+  });
+
+  app.post('/api/employees/:id/entitlements', (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const year = Number(input.year);
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) errors.push({ field: 'year', message: 'year is a four-digit year' });
+    const kind = input.kind ?? 'allowance';
+    if (kind !== 'allowance' && kind !== 'carryover' && kind !== 'adjustment') errors.push({ field: 'kind', message: 'kind is allowance, carryover or adjustment' });
+    const days = Number(input.days);
+    // Half days count; a correction may be negative, an allowance may not.
+    if (!Number.isFinite(days) || days === 0 || Math.abs(days) > 366 || Math.round(days * 2) !== days * 2 || (kind !== 'adjustment' && days < 0)) {
+      errors.push({ field: 'days', message: 'days is a non-zero number of whole or half days (negative only as an adjustment)' });
+    }
+    const note = optText(input.note, 'note', errors, 300);
+    if (errors.length > 0) fail(errors);
+    const actor = actorOf(res, auth);
+    const entry = addEntitlement(db, Number(req.params.id), { year, kind: kind as 'allowance', days, note }, actor);
+    void platform.audit({ actor, action: 'leave.entitlement', resource: `employee:${req.params.id}`, metadata: { year, kind, days } });
+    res.status(201).json(entry);
+  });
+
+  app.get('/api/leave/calendar', (req, res) => {
+    const month = typeof req.query.month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(req.query.month) ? req.query.month : todayIso().slice(0, 7);
+    res.json({ month, ...calendar(db, month, viewerOf(res)) });
+  });
+
+  app.get('/api/leave/holidays', (req, res) => {
+    const year = optInt(req.query.year) ?? Number(todayIso().slice(0, 4));
+    res.json({ year, holidays: [...holidaysOf(db, year)].map(([date, name]) => ({ date, name })).sort((a, b) => a.date.localeCompare(b.date)) });
+  });
+
+  app.get('/api/leave/settings', (_req, res) => {
+    res.json({ settings: readLeaveSettings(db), ...leaveSettingsStamp(db) });
+  });
+
+  app.put('/api/leave/settings', (req, res) => {
+    const settings = validateLeaveSettings(body(req));
+    const actor = actorOf(res, auth);
+    writeLeaveSettings(db, settings, actor);
+    void platform.audit({ actor, action: 'leave.settings', resource: 'leave-settings' });
+    res.json({ settings, ...leaveSettingsStamp(db) });
   });
 
   // ── Time entries & daily grid ─────────────────────────────────────────

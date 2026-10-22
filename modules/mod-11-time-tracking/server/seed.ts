@@ -9,6 +9,7 @@ import {
   submitTimesheet,
   todayIso,
 } from './tracking.js';
+import { addEntitlement, createRequest, decideRequest } from './leave.js';
 
 /**
  * Example dataset: 4 projects (mixed billable flags and hourly rates,
@@ -143,9 +144,28 @@ export function seed(db: Database.Database): void {
     submitTimesheet(db, anna, lastWeek, 'admin');
     submitTimesheet(db, bob, lastWeek, 'admin');
     submitTimesheet(db, clara, lastWeek, 'admin');
+
+    // ── Absences ───────────────────────────────────────────────────────
+    // Allowances for this year and next (a request near New Year may land
+    // in either), one approved and one pending vacation, one sick day.
+    const admin = { actor: 'admin', access: 'manage' as const };
+    const year = Number(thisWeek.slice(0, 4));
+    for (const person of [anna, bob, clara, david]) {
+      for (const y of [year, year + 1]) addEntitlement(db, person, { year: y, kind: 'allowance', days: 25, note: null }, 'admin');
+    }
+    // Monday to Friday of a week ahead, kept inside one year as the rules require.
+    const weekOff = (weeks: number): { startDate: string; endDate: string } => {
+      const startDate = addDays(thisWeek, 7 * weeks);
+      const friday = addDays(startDate, 4);
+      return { startDate, endDate: friday.slice(0, 4) === startDate.slice(0, 4) ? friday : `${startDate.slice(0, 4)}-12-31` };
+    };
+    const annaOff = createRequest(db, { employeeId: anna, type: 'vacation', ...weekOff(2), halfDay: false, note: 'Family visit' }, admin);
+    decideRequest(db, annaOff.id, 'approved', null, admin);
+    createRequest(db, { employeeId: bob, type: 'vacation', ...weekOff(3), halfDay: false, note: null }, admin);
+    createRequest(db, { employeeId: david, type: 'sick', startDate: addDays(lastWeek, 4), endDate: addDays(lastWeek, 4), halfDay: false, note: null }, admin);
   })();
 
-  console.log('[seed] example data created (4 projects, 5 employees, 3 weeks of entries)');
+  console.log('[seed] example data created (4 projects, 5 employees, 3 weeks of entries, absences)');
 }
 
 // Allow `npm run seed` to run this file directly.

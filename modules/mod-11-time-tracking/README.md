@@ -1,7 +1,7 @@
 # MOD-11 · Time Tracking
 
-Project allocation, daily entry, weekly approval, and export to payroll
-or billing. Works offline. Part of the
+Project allocation, daily entry, weekly approval, absences (vacation,
+sick leave, holidays), and export to payroll or billing. Works offline. Part of the
 [0815software](https://0815software.com) module catalogue — standard
 business software, MIT-licensed, always free.
 
@@ -26,6 +26,11 @@ suite proves each of them:
    rejecting a submitted week returns it to draft and records the reason.
    Every transition writes an append-only status event (who / when /
    note).
+4. **Leave days and balances are derived, never stored.** What a request
+   costs is counted from its dates, the person's work days and the
+   holiday calendar; the vacation balance is the entitlement ledger minus
+   approved vacation. Change the calendar or a part-timer's days and every
+   figure follows. See [Absences](#absences).
 
 ## Stack
 
@@ -75,17 +80,22 @@ The server seeds an empty database automatically on first start, so
 
 ## Data model
 
-Six tables, no stored derived state:
+Ten tables, no stored derived state:
 
 ```
 projects          name, client, billable_default, rate_cents, active   (CRUD via UI/API)
 tasks             project, name, active                                (optional, per project)
-employees         name, email                                          (a simple list; no login)
+employees         name, email, work_days                               (email = the person's login)
 time_entries      employee, project, task?, entry_date, minutes,
                   billable, note                                       (minutes = positive integer)
 timesheets        employee, week_start (Monday), status                (one row per touched week)
 timesheet_events  employee, week_start, action, from/to status,
                   actor, note                                          (append-only history)
+leave_requests    employee, type, start/end, half_day, status,
+                  created_by, decided_by, decision_note                (no day count stored)
+leave_events      request, type, actor, note                           (append-only history)
+leave_entitlements employee, year, kind, days, note, actor             (append-only ledger)
+leave_settings    country, extra holidays                              (one row, admin-maintained)
 ```
 
 **Minutes** are integer everywhere; hours only exist at the rendering
@@ -201,7 +211,11 @@ is intentionally out of scope.
   detail).
 - **Projects & Tasks** — CRUD with billable default and hourly rate;
   optional tasks; archive instead of delete once entries exist.
-- **Employees** — a simple name/email list.
+- **Absences** — request vacation and other leave, record sick leave,
+  approve or reject (manage), the year's balance, a team calendar per
+  month, and the holiday calendar (AT or DE plus company days).
+- **Employees** — name, login email, work days, and the vacation
+  entitlement ledger per year.
 - **Auth** — single staff login from env vars; stateless HMAC-signed
   session cookie (HttpOnly, SameSite=Lax, optional Secure), exactly as in
   MOD-02/03/04.
@@ -246,10 +260,12 @@ PUT    /api/tasks/:id                    {name, active?}
 DELETE /api/tasks/:id                    409 if the task has entries
 
 GET    /api/employees
-POST   /api/employees                    {name, email?}
+POST   /api/employees                    {name, email?, work_days?}   work_days "12345" = Mon–Fri
 GET    /api/employees/:id
 PUT    /api/employees/:id
-DELETE /api/employees/:id                409 if the employee has entries
+DELETE /api/employees/:id                409 if the employee has entries or leave on record
+GET    /api/employees/:id/entitlements    ?year= → the ledger
+POST   /api/employees/:id/entitlements    {year, kind: allowance|carryover|adjustment, days, note?}  (manage)
 
 GET    /api/day                          ?employee_id=&date= → day grid + totals
 POST   /api/entries                      {employee_id, project_id, task_id?, entry_date,
@@ -267,6 +283,19 @@ POST   /api/timesheets/reject             {employee_id, week_start, note?}  subm
 GET    /api/summary                       ?from=&to= → per-project & per-employee rollups
 GET    /api/export/profiles               the declared CSV profiles
 GET    /api/export/timesheets.csv         ?profile=&from=&to= → CSV download
+
+GET    /api/leave/requests                ?employee_id=&year=&status=&to_decide=1
+POST   /api/leave/requests                {employee_id?, type, start_date, end_date?,
+                                           half_day?, note?}  without employee_id: your own
+GET    /api/leave/requests/:id            request + its history
+POST   /api/leave/requests/:id/approve    {note?}   manage, never one's own
+POST   /api/leave/requests/:id/reject     {note}    manage, never one's own; says why
+POST   /api/leave/requests/:id/withdraw   own or manage; approved leave only before it begins
+GET    /api/leave/balance                 ?employee_id=&year= → entitled/taken/pending/remaining/free
+GET    /api/leave/calendar                ?month=YYYY-MM → days (with holidays) × people
+GET    /api/leave/holidays                ?year= → statutory + company days
+GET    /api/leave/settings
+PUT    /api/leave/settings                {country: AT|DE, extra_holidays: [{date, name}]}  (manage)
 ```
 
 Validation failures return `422` with `{error, details: [{field,
@@ -322,8 +351,14 @@ these, that's commissioned work — exactly the kind 0815software does:
 - **Reopening an approved week** — approval is a lock; corrections to an
   approved period are a policy decision left to you (delete the DB row or
   add a reopen endpoint).
-- **Overtime, leave, holidays, multi-currency, tax** — minutes and one
-  euro rate per project only.
+- **Overtime and flexitime accounts, multi-currency, tax** — minutes and
+  one euro rate per project only. Absences do not credit target hours.
+- **Regional holidays by rule** — the calendar knows Austria's statutory
+  days and Germany's nine nationwide ones; a Land's own days (e.g.
+  Fronleichnam in Bavaria) or 24/31 December are entered as company days.
+- **Leave beyond the basics** — no expiry of carried-over days, no
+  accrual by month, no sick notes (Krankmeldung uploads), no notification
+  e-mails, no deputy rules.
 - **Invoice / payroll generation** — this module *exports* CSV for those
   systems (feed BILLING into MOD-04, PAYROLL into your payroll); it does
   not produce invoices or payslips itself.
@@ -353,7 +388,7 @@ person signs in as themselves and gets the level PS-01 grants them here:
 | `module:time-tracking:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
 
 `module:*:<level>` grants a level in every module. Reads need `view`, any other
-method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) reserves approving and rejecting weeks, and maintaining employees, projects and tasks (including importing an offer as a project), for `manage`. A refused request answers **403**
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) reserves approving and rejecting weeks, deciding leave, granting entitlements, the holiday calendar, and maintaining employees, projects and tasks (including importing an offer as a project), for `manage`. A refused request answers **403**
 `{ error, required, access }`; `GET /api/me` reports the caller's `access`.
 Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
 manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
@@ -371,6 +406,43 @@ employee carries is told so (**403**) rather than shown a colleague's sheet.
 `GET /api/me` reports `employee_id`, and the daily and weekly screens open on
 it and stay there for an editor. A manager records and corrects anyone's time.
 `test/ownership.test.ts` pins every case.
+
+## Absences
+
+Absences live here, next to the time they replace, not in a module of their
+own. Types: vacation, sick leave, special leave, unpaid leave, comp time.
+
+- **Requesting.** An editor requests leave for themselves (the same
+  ownership rule as time, `server/ownership.ts`); a manager for anyone. A
+  request covers whole days or one half day, stays within one calendar year
+  (each year has its own allowance), and may not overlap another open or
+  approved one.
+- **Deciding.** Only `manage` approves or rejects, and **never their own
+  request** — a manager's leave is decided by another manager. A rejection
+  says why. Approval re-checks the balance, since another request may have
+  been approved in between.
+- **Sick leave** is reported, not asked for: it stands approved as it is
+  recorded. Only the person and managers see that it is sickness; everyone
+  else sees `absent` in lists and the calendar. Health data is special
+  category data (GDPR Art. 9) — see `docs/PII-MAP.md`.
+- **Withdrawing.** A request can be withdrawn while open; approved leave
+  only before its first day. Leave that has begun was taken and stays.
+- **Days are derived.** `server/leave.ts:workingDays` counts the person's
+  work days in the range minus holidays; nothing stores a day count. The
+  holidays come from `shared/holidays.ts` (Austria: the 13 days of Feiertagsruhegesetz
+  § 7; Germany: the nine nationwide
+  days; Easter by the Gregorian computus) plus the company days a manager
+  enters.
+- **The balance is derived.** Entitled = the sum of the year's ledger
+  (allowance, carry-over, ± corrections — rows are added, never edited);
+  taken = approved vacation days; free = entitled − taken − pending.
+- **Nobody with leave on record is deleted** — the history would lose its
+  subject.
+
+Pinned by `test/leave.test.ts` (costs, part-time, calendar settings,
+balance and re-check, overlap and year split, who may do what, withdraw,
+delete guard, sick-leave masking, team calendar) and `test/holidays.test.ts`
+(Easter dates and the full AT/DE lists for 2025 and 2026).
 
 ## The shell contract — appearing on a dashboard
 

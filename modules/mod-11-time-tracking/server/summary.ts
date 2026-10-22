@@ -7,6 +7,7 @@ import {
   type SummaryContext,
   type SummaryItem,
 } from '../shared/summary.js';
+import { absentOn } from './leave.js';
 import { listEmployees, listProjects, listTimesheets, rangeSummary, todayIso } from './tracking.js';
 import type { TimesheetRow } from '../shared/types.js';
 
@@ -101,6 +102,8 @@ export function moduleSummary(
   }
   pending.sort((a, b) => a.row.week_start.localeCompare(b.row.week_start));
 
+  const { n: leaveToDecide } = db.prepare("SELECT COUNT(*) AS n FROM leave_requests WHERE status = 'requested'").get() as { n: number };
+
   const billablePct =
     range.total_minutes === 0 ? null : Math.round((range.billable_minutes / range.total_minutes) * 100);
 
@@ -141,6 +144,22 @@ export function moduleSummary(
         unit: 'submitted',
         tone: pending.length > 0 ? 'warn' : 'good',
         href: '/timesheets',
+      },
+      {
+        key: 'absent_today',
+        label: 'Absent today',
+        value: String(absentOn(db, today)),
+        unit: 'people',
+        tone: 'neutral',
+        href: '/absences',
+      },
+      {
+        key: 'leave_to_decide',
+        label: 'Leave to decide',
+        value: String(leaveToDecide),
+        unit: 'requests',
+        tone: leaveToDecide > 0 ? 'warn' : 'good',
+        href: '/absences',
       },
       {
         key: 'active_projects',

@@ -40,6 +40,14 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'POST', path: '/api/projects/:id/tasks', access: 'manage' },
   { method: 'PUT', path: '/api/tasks/:id', access: 'manage' },
   { method: 'DELETE', path: '/api/tasks/:id', access: 'manage' },
+  // Leave: deciding, the entitlement ledger and the holiday calendar are the
+  // office's. Requesting and withdrawing one's own is `edit`; whose leave an
+  // editor may touch is server/leave.ts (mayActFor), and nobody decides their
+  // own request even with `manage` (mayDecide).
+  { method: 'POST', path: '/api/leave/requests/:id/approve', access: 'manage' },
+  { method: 'POST', path: '/api/leave/requests/:id/reject', access: 'manage' },
+  { method: 'POST', path: '/api/employees/:id/entitlements', access: 'manage' },
+  { method: 'PUT', path: '/api/leave/settings', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

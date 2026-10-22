@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AccessProvider, type AccessLevel } from './access';
 import { api, ApiError } from './api';
+import { AbsencesView } from './components/AbsencesView';
 import { DailyEntryView } from './components/DailyEntryView';
 import { EmployeesView } from './components/EmployeesView';
 import { ExportView } from './components/ExportView';
@@ -9,11 +10,12 @@ import { ProjectsView } from './components/ProjectsView';
 import { SummaryView } from './components/SummaryView';
 import { TimesheetsView } from './components/TimesheetsView';
 
-export type View = 'daily' | 'projects' | 'employees' | 'timesheets' | 'summary' | 'export';
+export type View = 'daily' | 'absences' | 'projects' | 'employees' | 'timesheets' | 'summary' | 'export';
 
 const NAV: { view: View; label: string }[] = [
   { view: 'daily', label: 'Daily Entry' },
   { view: 'timesheets', label: 'Timesheets' },
+  { view: 'absences', label: 'Absences' },
   { view: 'summary', label: 'Summary' },
   { view: 'export', label: 'Export' },
   { view: 'projects', label: 'Projects' },
@@ -91,6 +93,7 @@ export function App() {
         <main className="main">
           {view === 'daily' && <DailyEntryView ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}
           {view === 'timesheets' && <TimesheetsView ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}
+          {view === 'absences' && <AbsencesView ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}
           {view === 'summary' && <SummaryView onAuthLost={onAuthLost} />}
           {view === 'export' && <ExportView onAuthLost={onAuthLost} />}
           {view === 'projects' && <ProjectsView onAuthLost={onAuthLost} />}

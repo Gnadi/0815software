@@ -179,6 +179,7 @@ interface EmployeeStored {
   id: number;
   name: string;
   email: string | null;
+  work_days: string;
   created_at: string;
 }
 
@@ -209,18 +210,20 @@ export function listEmployees(db: Database.Database): Employee[] {
 export interface EmployeeInput {
   name: string;
   email: string | null;
+  /** ISO weekdays worked; omitted keeps what is there (Mon–Fri for a new person). */
+  workDays?: string;
 }
 
 export function createEmployee(db: Database.Database, input: EmployeeInput): number {
   const info = db
-    .prepare('INSERT INTO employees (name, email, created_at) VALUES (?, ?, ?)')
-    .run(input.name, input.email, nowIso());
+    .prepare('INSERT INTO employees (name, email, work_days, created_at) VALUES (?, ?, ?, ?)')
+    .run(input.name, input.email, input.workDays ?? '12345', nowIso());
   return Number(info.lastInsertRowid);
 }
 
 export function updateEmployee(db: Database.Database, id: number, input: EmployeeInput): void {
-  getEmployee(db, id);
-  db.prepare('UPDATE employees SET name = ?, email = ? WHERE id = ?').run(input.name, input.email, id);
+  const current = getEmployee(db, id);
+  db.prepare('UPDATE employees SET name = ?, email = ?, work_days = ? WHERE id = ?').run(input.name, input.email, input.workDays ?? current.work_days, id);
 }
 
 export function deleteEmployee(db: Database.Database, id: number): void {
@@ -231,6 +234,10 @@ export function deleteEmployee(db: Database.Database, id: number): void {
   if (used.n > 0) {
     throw new DomainError(409, 'Employee has time entries and cannot be deleted');
   }
+  const leave = db
+    .prepare('SELECT (SELECT COUNT(*) FROM leave_requests WHERE employee_id = ?) + (SELECT COUNT(*) FROM leave_entitlements WHERE employee_id = ?) AS n')
+    .get(id, id) as { n: number };
+  if (leave.n > 0) throw new DomainError(409, 'Employee has leave on record and cannot be deleted');
   db.prepare('DELETE FROM employees WHERE id = ?').run(id);
 }
 
