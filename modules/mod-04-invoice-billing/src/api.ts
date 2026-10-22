@@ -128,9 +128,13 @@ export const api = {
     request<{ seller: SellerParty; problems: Record<EInvoiceProfile, EInvoiceProblem[]> }>('/api/einvoice-config'),
   /** Whether an issued invoice can be downloaded as XRechnung / ZUGFeRD, and what is missing. */
   einvoiceStatus: (id: number) => request<EInvoiceStatus>(`/api/invoices/${id}/einvoice`),
+  /** The seller as the admin maintains it — each field with its source. */
+  sellerSettings: () => request<SellerSettingsResponse>('/api/settings/seller'),
+  saveSellerSettings: (values: Record<string, string>) =>
+    request<SellerSettingsResponse>('/api/settings/seller', { method: 'PUT', body: JSON.stringify(values) }),
   accountingSettings: () => request<AccountingSettingsResponse>('/api/accounting-settings'),
   saveAccountingSettings: (settings: AccountingSettings) =>
-    request<{ settings: AccountingSettings }>('/api/accounting-settings', {
+    request<{ settings: AccountingSettings; updated_at: string | null; updated_by: string | null }>('/api/accounting-settings', {
       method: 'PUT',
       body: JSON.stringify(settings),
     }),
@@ -229,8 +233,28 @@ export interface AccountingSettings {
   };
 }
 
+export interface SellerFieldState {
+  key: string;
+  env: string;
+  value: string | null;
+  setting: string | null;
+  source: 'settings' | 'platform' | 'env' | 'unset';
+  locked: boolean;
+}
+
+export interface SellerSettingsResponse {
+  fields: SellerFieldState[];
+  platform_managed: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
+  seller: SellerParty;
+  problems: Record<EInvoiceProfile, EInvoiceProblem[]>;
+}
+
 export interface AccountingSettingsResponse {
   settings: AccountingSettings;
+  updated_at: string | null;
+  updated_by: string | null;
   suggested: Record<'SKR03' | 'SKR04', Record<string, number>>;
   revenue_keys: string[];
   revenue_labels: Record<string, string>;

@@ -305,15 +305,32 @@ export function openDb(path: string): Database.Database {
   }
 
   // The bookkeeping export settings (DATEV consultant / client number, chart
-  // of accounts, revenue accounts, BMD tax codes). One row, edited on the
-  // export screen — see server/accounting-export.ts for the defaults.
+  // of accounts, revenue accounts, BMD tax codes). One row, edited by the
+  // admin on the Settings screen — see server/accounting-export.ts.
   db.exec(`
     CREATE TABLE IF NOT EXISTS accounting_settings (
       id         INTEGER PRIMARY KEY CHECK (id = 1),
       settings   TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      updated_by TEXT
+    );
+
+    -- The seller as the admin maintains it on the Settings screen: only the
+    -- fields actually filled in, each overriding PS-11 / the SELLER_* env.
+    -- See server/seller-settings.ts for the precedence.
+    CREATE TABLE IF NOT EXISTS seller_settings (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      settings   TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT
     );
   `);
+
+  // A database that ran the first e-invoicing build has the settings table
+  // without the column saying who saved it.
+  if (!columns('accounting_settings').includes('updated_by')) {
+    db.exec('ALTER TABLE accounting_settings ADD COLUMN updated_by TEXT');
+  }
 
   ensureReportViews(db);
 

@@ -181,6 +181,12 @@ export interface PlatformHooks {
   /** Record a payment-run event on PS-07, when configured. Best-effort. */
   paymentRunEvent(info: PaymentRunEventInfo): Promise<void>;
   /**
+   * Record that the admin changed the seller or the export settings — which
+   * fields, never their values. Optional, so a hand-built set of hooks need
+   * not implement it. Best-effort.
+   */
+  settingsChanged?(info: { actor: string; section: 'seller' | 'accounting'; fields: string[] }): Promise<void>;
+  /**
    * What arrived on the bank account, for matching against open invoices.
    *
    * **Null when BANKING_URL is unset** — the standalone posture, in which
@@ -416,6 +422,20 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
             customer: info.customerName,
             total: info.totalFormatted,
           },
+        });
+      } catch (err) {
+        console.warn('[mod-04] audit failed:', err);
+      }
+    },
+
+    async settingsChanged(info: { actor: string; section: 'seller' | 'accounting'; fields: string[] }): Promise<void> {
+      if (!audit) return;
+      try {
+        await audit.record({
+          actor: info.actor,
+          action: `settings.${info.section}_changed`,
+          resource: `settings:${info.section}`,
+          metadata: { fields: info.fields },
         });
       } catch (err) {
         console.warn('[mod-04] audit failed:', err);

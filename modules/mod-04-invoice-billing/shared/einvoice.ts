@@ -117,8 +117,13 @@ export interface EInvoiceModel {
 }
 
 export interface EInvoiceProblem {
-  /** The EN 16931 business term, e.g. "BT-49", or the module field it maps to. */
+  /** The EN 16931 business term, e.g. "BT-49". */
   term: string;
+  /**
+   * Where to fix it: `seller.<key>` is a field on Settings → Seller (see
+   * server/seller-settings.ts), `customer.<field>` one on the customer, and a
+   * bare name a field of the invoice draft.
+   */
   field: string;
   message: string;
 }
@@ -182,23 +187,23 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
   const xr = profile === 'xrechnung';
 
   // ── Seller (BG-4) ──
-  if (blank(seller.name)) add('BT-27', 'SELLER_NAME', 'Seller name is missing');
-  if (blank(seller.city)) add('BT-37', 'SELLER_CITY', 'Seller city is missing (set SELLER_CITY or an address line "PLZ Ort")');
-  if (blank(seller.postcode)) add('BT-38', 'SELLER_POSTCODE', 'Seller postcode is missing');
-  if (blank(seller.street)) add('BT-35', 'SELLER_STREET', 'Seller street is missing');
-  if (blank(seller.country)) add('BT-40', 'SELLER_COUNTRY', 'Seller country (ISO code, e.g. DE or AT) is missing');
+  if (blank(seller.name)) add('BT-27', 'seller.name', 'Seller name is missing');
+  if (blank(seller.city)) add('BT-37', 'seller.city', 'Seller city is missing (Settings → Seller: city, or an address line "PLZ Ort")');
+  if (blank(seller.postcode)) add('BT-38', 'seller.postcode', 'Seller postcode is missing');
+  if (blank(seller.street)) add('BT-35', 'seller.street', 'Seller street is missing');
+  if (blank(seller.country)) add('BT-40', 'seller.country', 'Seller country (ISO code, e.g. DE or AT) is missing');
   if (!blank(seller.vat_id) && !VAT_ID_RE.test(seller.vat_id!.replace(/\s/g, ''))) {
-    add('BT-31', 'SELLER_VAT_ID', `Seller VAT id "${seller.vat_id}" is not a VAT id (country prefix + number)`);
+    add('BT-31', 'seller.vatId', `Seller VAT id "${seller.vat_id}" is not a VAT id (country prefix + number)`);
   }
   if (/^ATU0{8}$/.test(seller.vat_id ?? '')) {
-    add('BT-31', 'SELLER_VAT_ID', 'SELLER_VAT_ID is still the shipped placeholder ATU00000000');
+    add('BT-31', 'seller.vatId', 'The seller VAT id is still the shipped placeholder ATU00000000');
   }
-  if (blank(seller.iban)) add('BT-84', 'SELLER_IBAN', 'Seller IBAN is missing — the payment instructions need it');
+  if (blank(seller.iban)) add('BT-84', 'seller.iban', 'Seller IBAN is missing — the payment instructions need it');
   const notSubject = model.exemption?.category === 'O';
   if ((blank(seller.vat_id) || notSubject) && blank(seller.registration)) {
     add(
       'BT-30',
-      'SELLER_REGISTRATION',
+      'seller.registration',
       notSubject
         ? 'A "not subject to VAT" invoice may not carry the VAT id, so the seller must be identified by its register number (BR-CO-26, BR-O-02)'
         : 'Without a VAT id the seller must be identified by its register number, e.g. HRB 12345 (BR-CO-26)',
@@ -206,14 +211,14 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
   }
 
   if (xr) {
-    if (blank(seller.contact_name)) add('BT-41', 'SELLER_CONTACT_NAME', 'XRechnung requires a seller contact name');
-    if (blank(seller.phone)) add('BT-42', 'SELLER_PHONE', 'XRechnung requires a seller contact phone number');
-    if (blank(seller.email)) add('BT-43', 'SELLER_EMAIL', 'XRechnung requires a seller contact email');
+    if (blank(seller.contact_name)) add('BT-41', 'seller.contactName', 'XRechnung requires a seller contact name');
+    if (blank(seller.phone)) add('BT-42', 'seller.phone', 'XRechnung requires a seller contact phone number');
+    if (blank(seller.email)) add('BT-43', 'seller.email', 'XRechnung requires a seller contact email');
     if (blank(seller.einvoice_address ?? seller.email)) {
-      add('BT-34', 'SELLER_EINVOICE_ADDRESS', 'XRechnung requires the seller electronic address (SELLER_EINVOICE_ADDRESS or SELLER_EMAIL)');
+      add('BT-34', 'seller.einvoiceAddress', 'XRechnung requires the seller electronic address (e-invoice address or contact email)');
     }
   }
-  if (!blank(seller.email) && !EMAIL_RE.test(seller.email!)) add('BT-43', 'SELLER_EMAIL', 'Seller email is not an email address');
+  if (!blank(seller.email) && !EMAIL_RE.test(seller.email!)) add('BT-43', 'seller.email', 'Seller email is not an email address');
 
   // ── Buyer (BG-7) ──
   if (blank(buyer.name)) add('BT-44', 'customer.name', 'Buyer name is missing');
@@ -234,7 +239,7 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
   const hasZero = rates.has(0);
   const hasStandard = [...rates].some((r) => r > 0);
   if (hasStandard && blank(seller.vat_id) && blank(seller.tax_number)) {
-    add('BT-31', 'SELLER_VAT_ID', 'Lines with VAT need the seller VAT id or tax number (BR-S-02)');
+    add('BT-31', 'seller.vatId', 'Lines with VAT need the seller VAT id or tax number (BR-S-02)');
   }
   if (hasZero) {
     const exemption = model.exemption;
@@ -247,7 +252,7 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
       }
       if (exemption.category === 'AE' || exemption.category === 'K') {
         if (blank(buyer.vat_id)) add('BT-48', 'customer.vat_id', `${exemption.category === 'AE' ? 'Reverse charge' : 'An intra-EU supply'} requires the buyer's VAT id`);
-        if (blank(seller.vat_id)) add('BT-31', 'SELLER_VAT_ID', `${exemption.category === 'AE' ? 'Reverse charge' : 'An intra-EU supply'} requires the seller's VAT id`);
+        if (blank(seller.vat_id)) add('BT-31', 'seller.vatId', `${exemption.category === 'AE' ? 'Reverse charge' : 'An intra-EU supply'} requires the seller's VAT id`);
       }
       if (exemption.category === 'O' && hasStandard) {
         add('BT-118', 'tax_exemption_category', '"Not subject to VAT" cannot be combined with taxed lines on one invoice (BR-O-11)');

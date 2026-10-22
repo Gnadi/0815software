@@ -105,7 +105,8 @@ invoice_lines      invoice, position, description, quantity,
                    unit_price_cents, vat_rate (0 | 7 | 10 | 13 | 19 | 20)
 payments           invoice, date, amount_cents, note
 invoice_counters   year → last_seq                           (the number source)
-accounting_settings  one row: DATEV / BMD export settings (JSON)
+accounting_settings  one row: DATEV / BMD export settings (JSON), who saved it
+seller_settings      one row: the seller fields the admin set (JSON), who saved it
 
 creditors          name, iban (validated), bic, note         (who we pay)
 bills              creditor, reference, remittance, amount_cents (GROSS),
@@ -256,14 +257,22 @@ draft ──finalize──▶ sent ──payments cover gross──▶ paid   (d
   every issued invoice, and for a cancellation as a credit note; the detail
   view lists exactly what is still missing, by EN 16931 business term.
 - **Exports** — the issued invoices of a period as a DATEV Buchungsstapel or a
-  BMD NTCS booking import, with the account settings on the same screen.
+  BMD NTCS booking import.
+- **Settings** — what the admin maintains: the seller (letterhead, bank
+  account, XRechnung contact and register data) and the DATEV / BMD settings.
+  Every field shows where its value comes from; every save records who and
+  when.
 - **Auth** — single staff login from env vars; stateless HMAC-signed
   session cookie (HttpOnly, SameSite=Lax, optional Secure), exactly as
   in MOD-02/MOD-03.
 
 ## Configuration
 
-All via environment variables (see [`.env.example`](.env.example)):
+All via environment variables (see [`.env.example`](.env.example)). The
+`SELLER_*` values are **starting values only**: the admin maintains the seller
+on the Settings screen, and what is saved there wins (see
+[E-invoices](#e-invoices-xrechnung-and-zugferd) and
+[`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md)).
 
 | Variable            | Default                | Purpose                                  |
 | ------------------- | ---------------------- | ---------------------------------------- |
@@ -330,6 +339,8 @@ GET    /api/invoices/:id/xrechnung.xml ?document=cancellation for the credit not
 GET    /api/invoices/:id/zugferd.pdf   PDF/A-3 with factur-x.xml; ?document=cancellation
 GET    /api/einvoice-config            the seller as e-invoices see it + what is missing
 
+GET    /api/settings/seller            the seller: each field, its value and source
+PUT    /api/settings/seller            the admin's overrides — empty falls back
 GET    /api/accounting-settings        DATEV / BMD settings + suggested accounts
 PUT    /api/accounting-settings
 GET    /api/exports/datev.csv          ?from=&to=&payments=1 — EXTF Buchungsstapel
@@ -512,6 +523,12 @@ env, so a half-filled party cannot blank a letterhead, and an unreachable PS-11
 leaves the env in charge. The module never writes the seller back — one
 authority. See `server/seller.ts`.
 
+Above both sits the admin's **Settings** screen: a field saved there wins over
+PS-11 and the env — except the fields PS-11 carries, which stay read-only while
+`CUSTOMERS_URL` is set, so there is still one place to change the company
+name. A PS-11 refresh never undoes an admin's save; both are inputs to the
+same computation (`server/seller-settings.ts`).
+
 Every call is best-effort — a downstream outage is logged and never fails the
 invoice — and entirely opt-in: with the URLs unset (`NOTIFICATION_URL`,
 `FILES_URL`, `AUDIT_URL`, `PLATFORM_SERVICE_TOKEN`) the module behaves exactly
@@ -574,8 +591,10 @@ file the tax adviser imports:
   account, numeric document number, gross amount with the VAT opposite, the
   BMD tax code per VAT group.
 
-Account numbers belong to the adviser's chart, not to this module: the
-settings start from suggestions, every one is editable, and an export that
+Account numbers belong to the adviser's chart, not to this module. The admin
+enters them, together with the DATEV Beraternummer / Mandantennummer and the
+BMD Steuercodes, on **Settings**. The settings start from suggestions, every
+one is editable, and an export that
 needs an unconfigured account refuses with the list instead of guessing.
 **Run the first file through the adviser's import preview.**
 

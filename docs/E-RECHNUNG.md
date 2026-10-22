@@ -98,24 +98,40 @@ the rates of the seller's country only.
 
 ## Setting it up
 
-### The seller (environment)
+### The seller (Settings screen, admin)
 
-| Variable | Business term | Needed for |
-| -------- | ------------- | ---------- |
-| `SELLER_NAME` | BT-27 | both |
-| `SELLER_ADDRESS` | (printed lines) | both. Street, postcode and city are **read from it** ("Street\|PLZ Ort\|Country") unless set below |
-| `SELLER_STREET`, `SELLER_POSTCODE`, `SELLER_CITY` | BT-35, BT-38, BT-37 | both, when `SELLER_ADDRESS` does not read cleanly |
-| `SELLER_COUNTRY` | BT-40 | both. Defaults to the address's country line, else the VAT id prefix |
-| `SELLER_VAT_ID` | BT-31 | both. The shipped placeholder `ATU00000000` is refused |
-| `SELLER_TAX_NUMBER` | BT-32 | instead of / beside the VAT id |
-| `SELLER_REGISTRATION` | BT-30 | when there is no VAT id (BR-CO-26), and for category `O` |
-| `SELLER_IBAN`, `SELLER_BIC` | BT-84, BT-86 | both. Payment means 58, SEPA credit transfer |
-| `SELLER_CONTACT_NAME`, `SELLER_PHONE`, `SELLER_EMAIL` | BT-41, BT-42, BT-43 | **XRechnung** |
-| `SELLER_EINVOICE_ADDRESS` | BT-34 | **XRechnung**. Defaults to `SELLER_EMAIL` |
+The admin maintains the company on **Settings → Seller**. Each field shows
+where its current value comes from: **SET HERE**, **FROM PS-11** or **FROM
+ENV**. The precedence, field by field (`server/seller-settings.ts`):
 
-**Exports → E-invoicing · your own data** shows the seller as the e-invoice
-will see it, and which variable is still missing. The same data is available
-from `GET /api/einvoice-config`.
+1. what was saved on the Settings screen,
+2. PS-11 Customers' `self` party, when `CUSTOMERS_URL` is set,
+3. the `SELLER_*` environment variables, which are now only starting values.
+
+Clearing a field on the screen falls back to the next source. While PS-11 is
+wired, it stays the single authority for what it carries (name, address, VAT
+id, IBAN, BIC): those fields are read-only on the screen, and the API refuses
+them with 422. Every save records who made it and when. With `AUDIT_URL` set,
+the save is also logged on PS-07 as `settings.seller_changed`, with the field
+names but not their values. Invoices issued earlier never change, because
+they carry the seller frozen at issue.
+
+| Field | Business term | Needed for | Starting value |
+| ----- | ------------- | ---------- | -------------- |
+| company name | BT-27 | both | `SELLER_NAME` |
+| address (printed) | — | both. Street, postcode and city are **read from it** ("Street / PLZ Ort / Country") unless set below | `SELLER_ADDRESS` |
+| street, postcode, city | BT-35, BT-38, BT-37 | both, when the address does not read cleanly | `SELLER_STREET`, `SELLER_POSTCODE`, `SELLER_CITY` |
+| country (ISO) | BT-40 | both. Defaults to the address's country line, else the VAT id prefix | `SELLER_COUNTRY` |
+| VAT id | BT-31 | both. The shipped placeholder `ATU00000000` is refused | `SELLER_VAT_ID` |
+| Steuernummer | BT-32 | instead of / beside the VAT id | `SELLER_TAX_NUMBER` |
+| register number | BT-30 | when there is no VAT id (BR-CO-26), and for category `O` | `SELLER_REGISTRATION` |
+| IBAN, BIC | BT-84, BT-86 | both (payment means 58). The IBAN is also the debtor of every payment file and is check-digit validated on save | `SELLER_IBAN`, `SELLER_BIC` |
+| contact person, phone, email | BT-41, BT-42, BT-43 | **XRechnung** | `SELLER_CONTACT_NAME`, `SELLER_PHONE`, `SELLER_EMAIL` |
+| e-invoice address | BT-34 | **XRechnung**. Defaults to the contact email | `SELLER_EINVOICE_ADDRESS` |
+
+Below the fields, the screen shows whether XRechnung and ZUGFeRD are
+**READY**, or what is still missing. The API is `GET` / `PUT
+/api/settings/seller`.
 
 ### The customer (Customers screen)
 
@@ -171,6 +187,13 @@ rules change, and this document and the golden files need a new pass.
 
 ## DATEV export
 
+The admin enters the DATEV settings on **Settings → DATEV**: Beraternummer,
+Mandantennummer, chart of accounts, account length, fiscal-year start, debtor
+numbering, bank account and revenue accounts. Each save records who made it
+and when, and is logged on PS-07 as `settings.accounting_changed` when wired.
+An export that needs something missing refuses with the list and a link to
+Settings.
+
 `GET /api/exports/datev.csv?from=YYYY-MM-DD&to=YYYY-MM-DD[&payments=1]` (also
 on **Exports**) returns a DATEV-Format **Buchungsstapel**: header `EXTF`,
 version 700, category 21, format version 13, all 125 columns in DATEV's own
@@ -224,7 +247,8 @@ JJJJMMTT), the booking symbol (default `AR`) and the first debtor account
 (default 200000) are settings.
 
 The **Steuercode** comes from the client's NTCS tax code table and differs
-between installations. Only the Austrian standard rates ship with a
+between installations. The admin enters it per revenue group on **Settings →
+BMD NTCS**, next to the revenue account. Only the Austrian standard rates ship with a
 suggestion (accounts 4000 / 4010 / 4013, code 1). Every other group refuses
 until it is configured. Map the columns once in the NTCS import template, and
 check the first file in its preview.

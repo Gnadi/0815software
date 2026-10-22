@@ -1,4 +1,5 @@
 import type { SellerConfig } from './config.js';
+import type { SellerSource } from './seller-settings.js';
 
 /**
  * Where the seller letterhead comes from.
@@ -69,6 +70,33 @@ export function startSellerRefresh(
   intervalMs = SELLER_REFRESH_MS,
 ): () => void {
   const timer = setInterval(() => void applySeller(seller, fetchSelf), intervalMs);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
+/**
+ * The same refresh for a `SellerSource` — what the server runs. PS-11's party
+ * becomes ONE of the sources (server/seller-settings.ts), so a refresh can
+ * never overwrite what the admin set on the Settings screen. Returns true
+ * when PS-11 supplied a party.
+ */
+export async function refreshSellerSource(source: SellerSource, fetchSelf: FetchSelf): Promise<boolean> {
+  let self: SelfParty | null;
+  try {
+    self = await fetchSelf();
+  } catch {
+    return false; // best-effort: an unreachable PS-11 leaves the last known state
+  }
+  source.setPlatform(self);
+  return self !== null;
+}
+
+export function startSellerSourceRefresh(
+  source: SellerSource,
+  fetchSelf: FetchSelf,
+  intervalMs = SELLER_REFRESH_MS,
+): () => void {
+  const timer = setInterval(() => void refreshSellerSource(source, fetchSelf), intervalMs);
   timer.unref?.();
   return () => clearInterval(timer);
 }

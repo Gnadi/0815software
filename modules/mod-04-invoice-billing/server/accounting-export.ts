@@ -161,8 +161,34 @@ function revenueMap(raw: unknown, prefix: string, problems: Problem[]): Record<R
   return out;
 }
 
-/** Validate and store the settings as the export screen sends them. */
-export function writeSettings(db: Database.Database, raw: unknown): AccountingSettings {
+/** When the settings were last saved, and by whom — shown on the Settings screen. */
+export function settingsStamp(db: Database.Database): { updated_at: string | null; updated_by: string | null } {
+  const row = db.prepare('SELECT updated_at, updated_by FROM accounting_settings WHERE id = 1').get() as
+    | { updated_at: string; updated_by: string | null }
+    | undefined;
+  return { updated_at: row?.updated_at ?? null, updated_by: row?.updated_by ?? null };
+}
+
+/** The dotted names of every setting that differs between two versions. */
+function changedPaths(before: unknown, after: unknown, prefix = ''): string[] {
+  if (typeof before === 'object' && before !== null && typeof after === 'object' && after !== null) {
+    const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+    return [...keys].flatMap((k) =>
+      changedPaths((before as Record<string, unknown>)[k], (after as Record<string, unknown>)[k], prefix ? `${prefix}.${k}` : k),
+    );
+  }
+  return JSON.stringify(before ?? null) === JSON.stringify(after ?? null) ? [] : [prefix];
+}
+
+/**
+ * Validate and store the settings as the Settings screen sends them. Returns
+ * the stored settings and which of them changed, for the audit trail.
+ */
+export function writeSettings(
+  db: Database.Database,
+  raw: unknown,
+  actor: string | null = null,
+): { settings: AccountingSettings; changed: string[] } {
   const input = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, Record<string, unknown>>;
   const d = input.datev ?? {};
   const b = input.bmd ?? {};
@@ -192,11 +218,13 @@ export function writeSettings(db: Database.Database, raw: unknown): AccountingSe
     },
   };
   if (problems.length > 0) throw new DomainError(422, 'Validation failed', problems);
+  const changed = changedPaths(readSettings(db), settings);
   db.prepare(
-    `INSERT INTO accounting_settings (id, settings, updated_at) VALUES (1, ?, ?)
-     ON CONFLICT (id) DO UPDATE SET settings = excluded.settings, updated_at = excluded.updated_at`,
-  ).run(JSON.stringify(settings), nowIso());
-  return settings;
+    `INSERT INTO accounting_settings (id, settings, updated_at, updated_by) VALUES (1, ?, ?, ?)
+     ON CONFLICT (id) DO UPDATE SET settings = excluded.settings, updated_at = excluded.updated_at,
+       updated_by = excluded.updated_by`,
+  ).run(JSON.stringify(settings), nowIso(), actor);
+  return { settings, changed };
 }
 
 // ── The bookings, independent of either format ─────────────────────────

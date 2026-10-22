@@ -5,6 +5,7 @@ import { CreditorsView } from './components/CreditorsView';
 import { CustomerLedger } from './components/CustomerLedger';
 import { CustomersView } from './components/CustomersView';
 import { ExportView } from './components/ExportView';
+import { SettingsView } from './components/SettingsView';
 import { InvoiceDetail } from './components/InvoiceDetail';
 import { InvoiceEditor } from './components/InvoiceEditor';
 import { IncomingPaymentsView } from './components/IncomingPaymentsView';
@@ -23,7 +24,8 @@ export type View =
   | { name: 'runs' }
   | { name: 'run'; id: number }
   | { name: 'incoming' }
-  | { name: 'exports' };
+  | { name: 'exports' }
+  | { name: 'settings' };
 
 const NAV: { view: View; label: string }[] = [
   { view: { name: 'invoices' }, label: 'Invoices' },
@@ -38,6 +40,8 @@ const NAV: { view: View; label: string }[] = [
   { view: { name: 'creditors' }, label: 'Creditors' },
   // For the tax adviser: DATEV / BMD, and the e-invoicing self-check.
   { view: { name: 'exports' }, label: 'Exports' },
+  // The admin's: the seller (letterhead, e-invoice data) and the DATEV / BMD settings.
+  { view: { name: 'settings' }, label: 'Settings' },
 ];
 
 /**
@@ -70,6 +74,7 @@ export function initialView(path: string, search: string): View {
   if (path === '/bills') return { name: 'bills' };
   if (path === '/creditors') return { name: 'creditors' };
   if (path === '/exports') return { name: 'exports' };
+  if (path === '/settings') return { name: 'settings' };
   return { name: 'invoices' };
 }
 
@@ -185,7 +190,10 @@ export function App() {
           <BillsView onOpenRun={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />
         )}
         {view.name === 'creditors' && <CreditorsView onAuthLost={onAuthLost} />}
-        {view.name === 'exports' && <ExportView onAuthLost={onAuthLost} />}
+        {view.name === 'exports' && (
+          <ExportView onOpenSettings={() => setView({ name: 'settings' })} onAuthLost={onAuthLost} />
+        )}
+        {view.name === 'settings' && <SettingsView onAuthLost={onAuthLost} />}
         {view.name === 'incoming' && <IncomingPaymentsView onAuthLost={onAuthLost} />}
         {view.name === 'runs' && (
           <PaymentRunsView onOpen={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />

@@ -28,8 +28,10 @@ import {
   readSettings,
   REVENUE_KEYS,
   REVENUE_LABELS,
+  settingsStamp,
   writeSettings,
 } from './accounting-export.js';
+import { readSellerSettings, SellerSource, writeSellerSettings } from './seller-settings.js';
 import {
   actorOf,
   checkCredentials,
@@ -309,6 +311,12 @@ export interface AppOptions {
   db: Database.Database;
   auth: AuthConfig;
   seller: SellerConfig;
+  /**
+   * Where the seller's fields come from — Settings screen, PS-11, env. The
+   * server builds it so PS-11's refresh feeds the same object; omitted (tests)
+   * it is built here over `seller`, with nothing managed by PS-11.
+   */
+  sellerSource?: SellerSource;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
   /** Optional Platform Services integration; defaults to a no-op (standalone). */
@@ -348,8 +356,12 @@ export interface AppOptions {
   loginMode?: LoginMode;
 }
 
-export function createApp({ db, hardening, auth, seller, staticDir, platform = noopPlatform, bankingConfigured = false, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [], austrianRemittance = { TAXS: null } }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, seller, sellerSource, staticDir, platform = noopPlatform, bankingConfigured = false, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [], austrianRemittance = { TAXS: null } }: AppOptions): express.Express {
   const app = express();
+  // What the admin set on the Settings screen overrides PS-11 and the env.
+  // (A suite that never renders an invoice may build the app without a seller.)
+  const sellerSources = sellerSource ?? new SellerSource(seller ?? ({} as SellerConfig));
+  if (db) sellerSources.setSettings(readSellerSettings(db).overrides);
   const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
 
   // Transport hardening: security headers, a default-deny CORS policy and
@@ -841,21 +853,8 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
   // What the seller side is missing for e-invoicing, independent of any
   // invoice — the settings banner reads this.
   app.get('/api/einvoice-config', (_req, res) => {
-    const party = sellerParty(seller);
-    // A probe invoice with a taxed line: what is left is about the seller only.
-    const probe: EInvoiceModel = {
-      type_code: '380', number: 'PROBE', issue_date: todayIso(), due_date: todayIso(), delivery_date: todayIso(),
-      payment_terms_days: 14, buyer_reference: 'PROBE', note: null, preceding: null, exemption: null, seller: party,
-      buyer: { name: 'PROBE', address: null, street: 'x', postcode: '1', city: 'x', country: 'DE', vat_id: null, email: 'probe@example.com', einvoice_address: null },
-      lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: party.country === 'AT' ? 20 : 19 }],
-    };
-    res.json({
-      seller: party,
-      problems: {
-        xrechnung: eInvoiceProblems(probe, 'xrechnung'),
-        zugferd: eInvoiceProblems(probe, 'zugferd'),
-      },
-    });
+    const { seller: party, problems } = sellerSettingsResponse();
+    res.json({ seller: party, problems });
   });
 
   app.get('/api/invoices/:id/einvoice', (req, res) => {
@@ -897,11 +896,53 @@ export function createApp({ db, hardening, auth, seller, staticDir, platform = n
       suggested: DATEV_SUGGESTED,
       revenue_keys: REVENUE_KEYS,
       revenue_labels: REVENUE_LABELS,
+      ...settingsStamp(db),
     });
   });
 
-  app.put('/api/accounting-settings', (req, res) => {
-    res.json({ settings: writeSettings(db, body(req)) });
+  app.put('/api/accounting-settings', async (req, res) => {
+    const actor = actorOf(res, auth);
+    const { settings, changed } = writeSettings(db, body(req), actor);
+    if (changed.length > 0) await platform.settingsChanged?.({ actor, section: 'accounting', fields: changed });
+    res.json({ settings, ...settingsStamp(db) });
+  });
+
+  // ── Settings: the seller, as the admin maintains it ──────────────────
+  // server/seller-settings.ts holds the precedence (Settings > PS-11 > env)
+  // and the validation. Issued invoices are unaffected by a change here:
+  // they carry the seller frozen at issue.
+  const sellerSettingsResponse = () => {
+    const stored = readSellerSettings(db);
+    const party = sellerParty(seller);
+    const probe: EInvoiceModel = {
+      type_code: '380', number: 'PROBE', issue_date: todayIso(), due_date: todayIso(), delivery_date: todayIso(),
+      payment_terms_days: 14, buyer_reference: 'PROBE', note: null, preceding: null, exemption: null, seller: party,
+      buyer: { name: 'PROBE', address: null, street: 'x', postcode: '1', city: 'x', country: 'DE', vat_id: null, email: 'probe@example.com', einvoice_address: null },
+      lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: party.country === 'AT' ? 20 : 19 }],
+    };
+    return {
+      fields: sellerSources.describe(),
+      platform_managed: sellerSources.platformManaged,
+      updated_at: stored.updated_at,
+      updated_by: stored.updated_by,
+      seller: party,
+      problems: { xrechnung: eInvoiceProblems(probe, 'xrechnung'), zugferd: eInvoiceProblems(probe, 'zugferd') },
+    };
+  };
+
+  app.get('/api/settings/seller', (_req, res) => {
+    res.json(sellerSettingsResponse());
+  });
+
+  app.put('/api/settings/seller', async (req, res) => {
+    const actor = actorOf(res, auth);
+    const { overrides, changed } = writeSellerSettings(db, body(req), {
+      platformManaged: sellerSources.platformManaged,
+      actor,
+    });
+    sellerSources.setSettings(overrides);
+    if (changed.length > 0) await platform.settingsChanged?.({ actor, section: 'seller', fields: changed });
+    res.json(sellerSettingsResponse());
   });
 
   const exportRange = (query: Request['query']): { from: string; to: string } => {
