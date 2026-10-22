@@ -10,7 +10,7 @@ interface Props {
   onAuthLost: () => void;
 }
 
-const TYPE_LABELS = { invoice: 'INVOICE', cancellation: 'CANCELLATION', payment: 'PAYMENT' } as const;
+const TYPE_LABELS = { invoice: 'INVOICE', cancellation: 'CANCELLATION', credit_note: 'CREDIT NOTE', payment: 'PAYMENT' } as const;
 
 export function CustomerLedger({ id, onBack, onOpenInvoice, onAuthLost }: Props) {
   const [ledger, setLedger] = useState<Ledger | null>(null);

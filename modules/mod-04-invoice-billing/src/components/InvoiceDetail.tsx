@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { InvoiceDetail as Detail } from '../../shared/types';
-import { api, ApiError, ebInterfaceUrl, invoicePdfUrl, xrechnungUrl, zugferdUrl, type EInvoiceStatus } from '../api';
-import { fmtDate, fmtEur, fmtQty } from '../format';
+import { computeTotals } from '../../shared/money';
+import type { CreditNote, InvoiceDetail as Detail } from '../../shared/types';
+import { api, ApiError, creditNotePdfUrl, ebInterfaceUrl, invoicePdfUrl, xrechnungUrl, zugferdUrl, type EInvoiceStatus } from '../api';
+import { centsToInput, fmtDate, fmtEur, fmtQty, parseEurToCents } from '../format';
 import { PaymentBadge, StatusBadge } from './StatusBadge';
 import { Can } from '../access';
 
@@ -21,6 +22,7 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
   const [busy, setBusy] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
+  const [crediting, setCrediting] = useState(false);
   const [payAmount, setPayAmount] = useState('');
   const [payDate, setPayDate] = useState('');
   const [payNote, setPayNote] = useState('');
@@ -82,7 +84,10 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
 
   const isDraft = invoice.status === 'draft';
   const canPay = invoice.status === 'sent';
-  const canCancel = invoice.status === 'sent' || invoice.status === 'paid';
+  // A credited invoice is corrected further by credit notes, never cancelled
+  // on top of them (the server refuses it too).
+  const canCredit = invoice.status === 'sent' || invoice.status === 'paid';
+  const canCancel = canCredit && invoice.credit_notes.length === 0;
 
   return (
     <div>
@@ -134,6 +139,13 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
               </Can>
             </>
           )}
+          {canCredit && invoice.creditable.some((r) => r.base_cents > 0) && (
+            <Can>
+              <button className="btn btn--ghost" disabled={busy} onClick={() => setCrediting(true)}>
+                CREDIT NOTE
+              </button>
+            </Can>
+          )}
           {canCancel && (
             <Can>
               <button className="btn btn--ghost" disabled={busy} onClick={() => setCancelling(true)}>
@@ -166,6 +178,12 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
           <div className="stat__label mono">GROSS</div>
           <div className="stat__value">{fmtEur(invoice.gross_cents)}</div>
         </div>
+        {invoice.credited_cents > 0 && (
+          <div className="stat">
+            <div className="stat__label mono">CREDITED</div>
+            <div className="stat__value">{fmtEur(-invoice.credited_cents)}</div>
+          </div>
+        )}
         <div className="stat">
           <div className="stat__label mono">PAID</div>
           <div className="stat__value">{fmtEur(invoice.paid_cents)}</div>
@@ -242,7 +260,43 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
       {einvoice?.available && (
         <>
           <div className="section-title mono">E-INVOICE · XRECHNUNG / ZUGFERD</div>
-          <EInvoicePanel id={invoice.id} status={einvoice} />
+          <EInvoicePanel id={invoice.id} status={einvoice} creditNotes={invoice.credit_notes} />
+        </>
+      )}
+
+      {invoice.credit_notes.length > 0 && (
+        <>
+          <div className="section-title mono">CREDIT NOTES</div>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th className="mono">NUMBER</th>
+                  <th className="mono">DATE</th>
+                  <th className="mono">REASON</th>
+                  <th className="mono" style={{ textAlign: 'right' }}>GROSS</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {invoice.credit_notes.map((n) => (
+                  <tr key={n.id}>
+                    <td className="mono">{n.number}</td>
+                    <td className="mono table__id">{fmtDate(n.issue_date)}</td>
+                    <td className="note-cell">
+                      {n.reason} <span className="table__id">· {n.actor}</span>
+                    </td>
+                    <td className="table__num mono" style={{ textAlign: 'right' }}>{fmtEur(n.gross_cents)}</td>
+                    <td className="table__rowactions">
+                      <a className="rowbtn mono" href={creditNotePdfUrl(invoice.id, n.id)} target="_blank" rel="noreferrer">
+                        PDF ↓
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
 
@@ -316,6 +370,15 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
         </>
       )}
 
+      {crediting && (
+        <CreditNoteForm
+          invoice={invoice}
+          busy={busy}
+          onClose={() => setCrediting(false)}
+          onSubmit={(payload) => void run(() => api.issueCreditNote(invoice.id, payload), () => setCrediting(false))}
+        />
+      )}
+
       {cancelling && (
         <div className="modal">
           <div className="modal__backdrop" onClick={() => setCancelling(false)} />
@@ -364,7 +427,15 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
  * business terms (EN 16931 numbering, also for ebInterface), which is what
  * the server would refuse with.
  */
-function EInvoicePanel({ id, status }: { id: number; status: Extract<EInvoiceStatus, { available: true }> }) {
+function EInvoicePanel({
+  id,
+  status,
+  creditNotes,
+}: {
+  id: number;
+  status: Extract<EInvoiceStatus, { available: true }>;
+  creditNotes: CreditNote[];
+}) {
   const formats = [
     { key: 'xrechnung' as const, label: 'XRECHNUNG (XML)', url: xrechnungUrl },
     { key: 'zugferd' as const, label: 'ZUGFERD (PDF/A-3)', url: zugferdUrl },
@@ -394,10 +465,15 @@ function EInvoicePanel({ id, status }: { id: number; status: Extract<EInvoiceSta
                   INVOICE ↓
                 </a>
                 {status.cancellation && (
-                  <a className="btn btn--ghost" href={f.url(id, true)}>
+                  <a className="btn btn--ghost" href={f.url(id, 'cancellation')}>
                     CANCELLATION ↓
                   </a>
                 )}
+                {creditNotes.map((n) => (
+                  <a key={n.id} className="btn btn--ghost" href={f.url(id, n.id)}>
+                    {n.number.split('-').at(-1)} ↓
+                  </a>
+                ))}
               </span>
             ) : (
               <span className="table__id">{problems.length} MISSING</span>
@@ -412,6 +488,128 @@ function EInvoicePanel({ id, status }: { id: number; status: Extract<EInvoiceSta
           </span>
         </div>
       )}
+    </div>
+  );
+}
+
+interface CreditLine {
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  vatRate: number;
+  include: boolean;
+}
+
+/**
+ * The partial credit note: the invoice's lines as a starting point, each
+ * switched on and adjusted — a returned item is its quantity, a price
+ * reduction its amount. Issued at once with its own number; the server
+ * refuses more than is left per VAT rate.
+ */
+function CreditNoteForm({
+  invoice,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  invoice: Detail;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (payload: { reason: string; issue_date?: string; lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[] }) => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [date, setDate] = useState('');
+  const [lines, setLines] = useState<CreditLine[]>(
+    invoice.lines.map((l) => ({
+      description: l.description,
+      quantity: String(l.quantity),
+      unitPrice: centsToInput(l.unit_price_cents),
+      vatRate: l.vat_rate,
+      include: false,
+    })),
+  );
+  const setLine = (i: number, patch: Partial<CreditLine>) => setLines(lines.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const chosen = lines.filter((l) => l.include);
+  const totals = computeTotals(
+    chosen.map((l) => ({
+      quantity: Number(l.quantity.replace(',', '.')) || 0,
+      unit_price_cents: parseEurToCents(l.unitPrice) ?? 0,
+      vat_rate: l.vatRate,
+    })),
+  );
+
+  return (
+    <div className="modal">
+      <div className="modal__backdrop" onClick={onClose} />
+      <form
+        className="modal__card"
+        style={{ maxWidth: 760 }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit({
+            reason: reason.trim(),
+            issue_date: date || undefined,
+            lines: chosen.map((l) => ({
+              description: l.description,
+              quantity: Number(l.quantity.replace(',', '.')),
+              unit_price_cents: parseEurToCents(l.unitPrice) ?? -1,
+              vat_rate: l.vatRate,
+            })),
+          });
+        }}
+      >
+        <div className="modal__eyebrow mono">CREDIT NOTE ON {invoice.number}</div>
+        <h2 className="modal__title">Partial credit note</h2>
+        <p className="resource__desc" style={{ marginBottom: 16 }}>
+          Its own document with its own number, issued at once and never changed. Still creditable:{' '}
+          {invoice.creditable
+            .filter((r) => r.base_cents > 0)
+            .map((r) => `${fmtEur(r.base_cents)} net at ${r.rate} %`)
+            .join(' · ')}
+          .
+        </p>
+        {lines.map((line, i) => (
+          <div key={i} className="inv-line">
+            <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" checked={line.include} onChange={(e) => setLine(i, { include: e.target.checked })} />
+              <input className="field__input" value={line.description} disabled={!line.include} onChange={(e) => setLine(i, { description: e.target.value })} />
+            </label>
+            <label className="field">
+              <span className="field__label mono">QTY</span>
+              <input className="field__input" type="number" step="any" min="0" value={line.quantity} disabled={!line.include} onChange={(e) => setLine(i, { quantity: e.target.value })} />
+            </label>
+            <label className="field">
+              <span className="field__label mono">UNIT PRICE €</span>
+              <input className="field__input" value={line.unitPrice} disabled={!line.include} onChange={(e) => setLine(i, { unitPrice: e.target.value })} />
+            </label>
+            <span className="mono table__id">{line.vatRate}%</span>
+          </div>
+        ))}
+        <div className="editor__meta" style={{ marginTop: 12 }}>
+          <label className="field editor__note">
+            <span className="field__label mono">
+              REASON <span className="field__req">*</span>
+            </span>
+            <input className="field__input" value={reason} placeholder="e.g. 2 units returned" onChange={(e) => setReason(e.target.value)} />
+          </label>
+          <label className="field">
+            <span className="field__label mono">DATE</span>
+            <input className="field__input" type="date" value={date} title="Empty → today" onChange={(e) => setDate(e.target.value)} />
+          </label>
+        </div>
+        <div className="totals__row totals__row--gross mono">
+          <span>CREDIT GROSS</span>
+          <span className="table__num">{fmtEur(totals.gross_cents)}</span>
+        </div>
+        <div className="modal__actions">
+          <button className="btn btn--ghost" type="button" onClick={onClose}>
+            CANCEL
+          </button>
+          <button className="btn btn--primary" type="submit" disabled={busy || !reason.trim() || chosen.length === 0}>
+            ISSUE CREDIT NOTE →
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

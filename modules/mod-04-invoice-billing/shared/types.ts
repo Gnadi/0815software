@@ -112,7 +112,11 @@ export interface InvoiceRow {
   net_cents: number;
   vat_cents: number;
   gross_cents: number;
+  /** Gross of the partial credit notes on this invoice (Teilgutschriften). */
+  credited_cents: number;
   paid_cents: number;
+  /** gross − credited − paid, never below 0; 0 for drafts and cancelled invoices. */
+  open_cents: number;
   created_at: string;
 }
 
@@ -144,17 +148,41 @@ export interface InvoiceDetail extends InvoiceRow {
   lines: InvoiceLine[];
   vat_breakdown: VatBreakdownRow[];
   payments: Payment[];
-  /** gross − paid (0 for drafts and cancelled invoices). */
-  open_cents: number;
+  credit_notes: CreditNote[];
+  /** Per VAT rate, the net a further credit note may still take back. */
+  creditable: VatBreakdownRow[];
+}
+
+/**
+ * A partial credit note (Teilgutschrift / Rechnungskorrektur): its own
+ * document with its own number, correcting part of one issued invoice.
+ * Immutable once issued; amounts are positive, as on a type-381 document.
+ */
+export interface CreditNote {
+  id: number;
+  invoice_id: number;
+  invoice_number: string;
+  /** "<invoice number>-GS<n>". */
+  number: string;
+  issue_date: string;
+  reason: string;
+  lines: InvoiceLine[];
+  vat_breakdown: VatBreakdownRow[];
+  net_cents: number;
+  vat_cents: number;
+  gross_cents: number;
+  actor: string;
+  created_at: string;
 }
 
 /** One row of a customer statement, in chronological order. */
 export interface LedgerEntry {
   date: string;
-  type: 'invoice' | 'cancellation' | 'payment';
+  type: 'invoice' | 'cancellation' | 'credit_note' | 'payment';
   invoice_id: number;
+  /** The invoice's number — the credit note's own for a credit note. */
   number: string;
-  /** Signed cents: +gross for invoices, −gross for cancellations, −amount for payments. */
+  /** Signed cents: +gross for invoices, −gross for cancellations and credit notes, −amount for payments. */
   amount_cents: number;
   /** Running balance after this entry. */
   balance_cents: number;
@@ -165,8 +193,10 @@ export interface Ledger {
   entries: LedgerEntry[];
   /** Gross total of finalized, non-cancelled invoices. */
   invoiced_cents: number;
+  /** Gross of the credit notes on those invoices. */
+  credited_cents: number;
   paid_cents: number;
-  /** invoiced − paid — always equals the last entry's running balance. */
+  /** invoiced − credited − paid — always equals the last entry's running balance. */
   balance_cents: number;
 }
 

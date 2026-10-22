@@ -75,8 +75,17 @@ of cancellation, with BT-25/26 referring to the cancelled invoice and the
 payment means set to 97 (settled between the parties). It is available for
 both formats with `?document=cancellation`.
 
-A partial correction is a cancellation plus a new invoice, as before. A
-corrected invoice (type 384) is not produced.
+### Partial credit notes (Teilgutschriften)
+
+A correction of PART of an invoice — returned goods, a price reduction — is a
+credit note of its own: type code 381, number `<invoice number>-GS<n>`
+(counting per invoice), dated on its own day, with BT-25/26 naming the
+invoice and only its own lines. The invoice's parties, service date, buyer
+reference and VAT exemption carry over. Per VAT rate, all credit notes
+together never exceed the invoice's base or VAT, so the VAT correction is
+exact. Download with `?credit_note=<id>` in all three formats (ebInterface:
+`CreditMemo`). The golden case `teilgutschrift` is validated by Mustang like
+the others. A corrected invoice (type 384) is not produced.
 
 ### Tax categories
 
@@ -254,6 +263,7 @@ spelling, Windows-1252, CRLF.
 | ------- | ----- | ---------- | ------ | --- | ---------- | ----------- |
 | invoice, per VAT rate | debtor | revenue account of the rate / category | gross of that rate | S | issue date | invoice number |
 | cancellation, per VAT rate | debtor | same | same | **H** | cancellation date | `<number>-ST` |
+| partial credit note, per VAT rate | debtor | same | its gross at that rate | **H** | credit note date | `<number>-GS<n>` |
 | payment (optional) | bank account | debtor | amount | S | payment date | invoice number (OPOS) |
 
 - **Revenue accounts.** The suggestions are the SKR03 / SKR04 automatic
@@ -293,7 +303,8 @@ account, the gross `betrag` with the `steuer` opposite in sign, `buchcode` 1.
 `belegnr` is the numeric part of the invoice number (`INV-2026-0001` →
 `20260001`), because BMD document numbers are numeric. The full number goes
 in `extbelegnr`. A cancellation is the same rows with the signs inverted,
-the way BMD books an outgoing credit note. The date format (TT.MM.JJJJ or
+the way BMD books an outgoing credit note; a partial credit note likewise,
+for its own amounts, with its own number in `extbelegnr`. The date format (TT.MM.JJJJ or
 JJJJMMTT), the booking symbol (default `AR`) and the first debtor account
 (default 200000) are settings.
 

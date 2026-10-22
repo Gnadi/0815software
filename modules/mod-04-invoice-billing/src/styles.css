@@ -598,7 +598,8 @@ textarea.field__input {
   border-color: var(--line-strong);
 }
 
-.movetype--cancellation {
+.movetype--cancellation,
+.movetype--credit_note {
   color: var(--danger);
   border-color: rgba(217, 138, 122, 0.4);
 }

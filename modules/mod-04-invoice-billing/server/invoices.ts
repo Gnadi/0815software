@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { computeTotals, lineNetCents } from '../shared/money.js';
 import type {
+  CreditNote,
   Customer,
   InvoiceDetail,
   InvoiceLine,
@@ -12,6 +13,7 @@ import type {
   PaymentStatus,
   StoredStatus,
   TaxExemptionCategory,
+  VatBreakdownRow,
 } from '../shared/types.js';
 
 /** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
@@ -100,19 +102,108 @@ function paidCents(db: Database.Database, invoiceId: number): number {
   return row.paid;
 }
 
-function paymentStatusOf(grossCents: number, paid: number): PaymentStatus {
-  if (paid <= 0) return 'unpaid';
-  return paid >= grossCents ? 'paid' : 'partially_paid';
+interface CreditNoteStoredRow {
+  id: number;
+  invoice_id: number;
+  seq: number;
+  number: string;
+  issue_date: string;
+  reason: string;
+  actor: string;
+  created_at: string;
 }
 
-/** Derived lifecycle status: "paid" is a sent invoice fully covered by payments. */
-function derivedStatus(stored: StoredStatus, grossCents: number, paid: number): InvoiceStatus {
-  if (stored === 'sent' && grossCents > 0 && paid >= grossCents) return 'paid';
+/** The credit notes of an invoice, oldest first, each with its own totals. */
+export function creditNotesOf(db: Database.Database, invoiceId: number): CreditNote[] {
+  const notes = db
+    .prepare('SELECT * FROM credit_notes WHERE invoice_id = ? ORDER BY seq')
+    .all(invoiceId) as CreditNoteStoredRow[];
+  if (notes.length === 0) return [];
+  const invoiceNumber = (db.prepare('SELECT number FROM invoices WHERE id = ?').get(invoiceId) as { number: string }).number;
+  return notes.map((note) => toCreditNote(db, note, invoiceNumber));
+}
+
+function toCreditNote(db: Database.Database, note: CreditNoteStoredRow, invoiceNumber: string): CreditNote {
+  const rows = db
+    .prepare('SELECT * FROM credit_note_lines WHERE credit_note_id = ? ORDER BY position, id')
+    .all(note.id) as (Omit<InvoiceLine, 'net_cents' | 'invoice_id'> & { credit_note_id: number })[];
+  const lines: InvoiceLine[] = rows.map(({ credit_note_id: _cn, ...row }) => ({
+    ...row,
+    invoice_id: note.invoice_id,
+    net_cents: lineNetCents(row),
+  }));
+  const totals = computeTotals(lines);
+  return {
+    id: note.id,
+    invoice_id: note.invoice_id,
+    invoice_number: invoiceNumber,
+    number: note.number,
+    issue_date: note.issue_date,
+    reason: note.reason,
+    lines,
+    vat_breakdown: totals.by_rate,
+    net_cents: totals.net_cents,
+    vat_cents: totals.vat_cents,
+    gross_cents: totals.gross_cents,
+    actor: note.actor,
+    created_at: note.created_at,
+  };
+}
+
+export function getCreditNote(db: Database.Database, id: number): CreditNote {
+  const note = requireRow(
+    db.prepare('SELECT * FROM credit_notes WHERE id = ?').get(id) as CreditNoteStoredRow | undefined,
+    'Credit note',
+  );
+  const invoice = getInvoice(db, note.invoice_id);
+  return toCreditNote(db, note, invoice.number!);
+}
+
+/**
+ * Per VAT rate, what a further credit note may still take back: the
+ * invoice's base and VAT minus every credit note's. Both, not only the base —
+ * each document rounds its VAT on its own base, so two half credits could
+ * otherwise return a cent more VAT than the invoice charged.
+ */
+export function creditableByRate(db: Database.Database, invoiceId: number): VatBreakdownRow[] {
+  const invoiced = computeTotals(invoiceLines(db, invoiceId)).by_rate;
+  const notes = creditNotesOf(db, invoiceId);
+  return invoiced.map((row) => {
+    const taken = notes.flatMap((n) => n.vat_breakdown).filter((r) => r.rate === row.rate);
+    return {
+      rate: row.rate,
+      base_cents: row.base_cents - taken.reduce((sum, r) => sum + r.base_cents, 0),
+      vat_cents: row.vat_cents - taken.reduce((sum, r) => sum + r.vat_cents, 0),
+    };
+  });
+}
+
+function creditedCents(db: Database.Database, invoiceId: number): number {
+  return creditNotesOf(db, invoiceId).reduce((sum, n) => sum + n.gross_cents, 0);
+}
+
+/** What the customer still owes on an issued invoice; may be negative after a credit on a paid one. */
+function owedCents(grossCents: number, credited: number): number {
+  return grossCents - credited;
+}
+
+function paymentStatusOf(owed: number, paid: number): PaymentStatus {
+  if (paid <= 0) return 'unpaid';
+  return paid >= owed ? 'paid' : 'partially_paid';
+}
+
+/**
+ * Derived lifecycle status: "paid" is a sent invoice whose payments cover
+ * what is owed. One credited in full without a payment stays "sent" with
+ * nothing open — nobody paid it.
+ */
+function derivedStatus(stored: StoredStatus, owed: number, paid: number): InvoiceStatus {
+  if (stored === 'sent' && owed > 0 && paid >= owed) return 'paid';
   return stored;
 }
 
-function isOverdue(status: InvoiceStatus, dueDate: string | null, today: string): boolean {
-  return status === 'sent' && dueDate !== null && dueDate < today;
+function isOverdue(status: InvoiceStatus, dueDate: string | null, open: number, today: string): boolean {
+  return status === 'sent' && open > 0 && dueDate !== null && dueDate < today;
 }
 
 function toRow(
@@ -123,7 +214,10 @@ function toRow(
   const lines = invoiceLines(db, invoice.id);
   const totals = computeTotals(lines);
   const paid = paidCents(db, invoice.id);
-  const status = derivedStatus(invoice.status, totals.gross_cents, paid);
+  const credited = invoice.status === 'draft' ? 0 : creditedCents(db, invoice.id);
+  const owed = owedCents(totals.gross_cents, credited);
+  const status = derivedStatus(invoice.status, owed, paid);
+  const open = invoice.status === 'sent' ? Math.max(0, owed - paid) : 0;
   const customer = db
     .prepare('SELECT name FROM customers WHERE id = ?')
     .get(invoice.customer_id) as { name: string };
@@ -135,14 +229,16 @@ function toRow(
       customer_id: invoice.customer_id,
       customer_name: customer.name,
       status,
-      payment_status: paymentStatusOf(totals.gross_cents, paid),
+      payment_status: paymentStatusOf(owed, paid),
       issue_date: invoice.issue_date,
       due_date: invoice.due_date,
-      overdue: isOverdue(status, invoice.due_date, today),
+      overdue: isOverdue(status, invoice.due_date, open, today),
       net_cents: totals.net_cents,
       vat_cents: totals.vat_cents,
       gross_cents: totals.gross_cents,
+      credited_cents: credited,
       paid_cents: paid,
+      open_cents: open,
       created_at: invoice.created_at,
     },
   };
@@ -199,8 +295,8 @@ export function invoiceDetail(
     lines,
     vat_breakdown: totals.by_rate,
     payments,
-    open_cents:
-      invoice.status === 'sent' ? Math.max(0, totals.gross_cents - row.paid_cents) : 0,
+    credit_notes: invoice.status === 'draft' ? [] : creditNotesOf(db, id),
+    creditable: invoice.status === 'sent' ? creditableByRate(db, id) : [],
   };
 }
 
@@ -380,6 +476,15 @@ export function cancelInvoice(
   if (invoice.status === 'cancelled') {
     throw new DomainError(409, `${invoice.number} is already cancelled`);
   }
+  // A cancellation reverses the whole invoice; on top of a credit note it
+  // would take the credited part back twice.
+  const notes = creditNotesOf(db, id);
+  if (notes.length > 0) {
+    throw new DomainError(
+      409,
+      `${invoice.number} is partly credited (${notes.map((n) => n.number).join(', ')}) — credit the rest with another credit note instead of cancelling`,
+    );
+  }
   db.prepare(
     "UPDATE invoices SET status = 'cancelled', cancelled_at = ?, cancellation_reason = ? WHERE id = ?",
   ).run(cancelledAt ?? nowIso(), reason, id);
@@ -415,13 +520,13 @@ export function recordPayment(db: Database.Database, id: number, input: PaymentI
   }
 
   return db.transaction(() => {
-    const gross = computeTotals(invoiceLines(db, id)).gross_cents;
+    const gross = owedCents(computeTotals(invoiceLines(db, id)).gross_cents, creditedCents(db, id));
     const open = gross - paidCents(db, id);
     if (input.amountCents > open) {
       throw new DomainError(422, 'Validation failed', [
         {
           field: 'amount_cents',
-          message: `Payment exceeds the open amount (${open} cents open of ${gross} gross)`,
+          message: `Payment exceeds the open amount (${open} cents open of ${gross} owed)`,
         },
       ]);
     }
@@ -435,9 +540,9 @@ export function recordPayment(db: Database.Database, id: number, input: PaymentI
 }
 
 /**
- * Customer statement: invoices, cancellations and payments in
+ * Customer statement: invoices, cancellations, credit notes and payments in
  * chronological order with a running balance. The final balance always
- * equals total invoiced (finalized, non-cancelled) minus total paid —
+ * equals total invoiced (finalized, non-cancelled) minus credited minus paid —
  * the test suite proves it.
  */
 export function customerLedger(db: Database.Database, customerId: number): Ledger {
@@ -449,6 +554,7 @@ export function customerLedger(db: Database.Database, customerId: number): Ledge
   const entries: (Omit<LedgerEntry, 'balance_cents'> & { seq: number })[] = [];
   let seq = 0;
   let invoiced = 0;
+  let credited = 0;
   let paid = 0;
 
   for (const invoice of invoices) {
@@ -472,6 +578,17 @@ export function customerLedger(db: Database.Database, customerId: number): Ledge
       });
     } else {
       invoiced += gross;
+    }
+    for (const note of creditNotesOf(db, invoice.id)) {
+      entries.push({
+        date: note.issue_date,
+        type: 'credit_note',
+        invoice_id: invoice.id,
+        number: note.number,
+        amount_cents: -note.gross_cents,
+        seq: seq++,
+      });
+      credited += note.gross_cents;
     }
     const payments = db
       .prepare('SELECT * FROM payments WHERE invoice_id = ? ORDER BY date, id')
@@ -501,7 +618,8 @@ export function customerLedger(db: Database.Database, customerId: number): Ledge
     customer,
     entries: withBalance,
     invoiced_cents: invoiced,
+    credited_cents: credited,
     paid_cents: paid,
-    balance_cents: invoiced - paid,
+    balance_cents: invoiced - credited - paid,
   };
 }

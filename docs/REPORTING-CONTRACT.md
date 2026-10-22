@@ -67,13 +67,14 @@ next boot, on a fresh database and an existing one alike, and running it twice
 is a no-op.
 
 MOD-04 Invoice & Billing is the reference implementation
-(`modules/mod-04-invoice-billing/server/db.ts`), publishing four views:
+(`modules/mod-04-invoice-billing/server/db.ts`), publishing five views:
 
 | View | One row per | Key | Cancellation fields |
 | ---- | ----------- | --- | ------------------- |
-| `report_invoices` | non-draft invoice — header, customer, net/VAT/gross, paid, outstanding, days overdue | `invoice_number` | `status`, `is_cancelled`, `cancelled_at`, `cancellation_reason` |
+| `report_invoices` | non-draft invoice — header, customer, net/VAT/gross, credited, paid, outstanding (gross − credited − paid), days overdue | `invoice_number` | `status`, `is_cancelled`, `cancelled_at`, `cancellation_reason` |
 | `report_invoice_lines` | invoice line, with the line net | `invoice_number` + `line_position` | `status`, `is_cancelled` |
 | `report_payments` | payment, joined to invoice and customer | `payment_id` | `invoice_status`, `invoice_is_cancelled` |
+| `report_credit_notes` | partial credit note, with its own net/VAT/gross and the invoice it corrects | `credit_note_number` | `invoice_status`, `invoice_is_cancelled` |
 | `report_receivables_aging` | customer with an open balance, in the conventional buckets | `customer_id` | n/a — cancelled invoices are excluded |
 
 It is deliberately the *only* module with a set so far. One reference

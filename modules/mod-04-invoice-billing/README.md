@@ -88,7 +88,7 @@ The server seeds an empty database automatically on first start, so
 
 ## Data model
 
-Thirteen tables, no stored derived state — money coming in, reminding
+Fifteen tables, no stored derived state — money coming in, reminding
 and repeating it, and money going out:
 
 ```
@@ -110,6 +110,10 @@ seller_settings      one row: the seller fields the admin set (JSON), who saved 
 dunning_settings     one row: the dunning levels (JSON), who saved it
 dunning_notices      invoice, level, what was claimed and the letter text
                      UNIQUE (invoice, level)   ← append-only
+credit_notes         invoice, seq, number (<invoice>-GS<seq>), issue_date,
+                     reason, actor   UNIQUE (invoice, seq) ← never updated
+credit_note_lines    credit note, position, description, quantity,
+                     unit_price_cents, vat_rate (positive, like any 381)
 recurring_invoices   name, customer, interval, start/end date, active,
                      the draft it produces (JSON)
 recurring_runs       template, period start/end, the draft it produced
@@ -220,14 +224,18 @@ never sees the tables above.
 ```
 draft ──finalize──▶ sent ──payments cover gross──▶ paid   (derived)
   │                   │
-  delete (ok)         └──cancel (keeps number)──▶ cancelled
+  delete (ok)         ├──credit note (-GS1, -GS2 …)──▶ sent, owes less
+                      └──cancel (keeps number)──▶ cancelled
 ```
 
 - Drafts: fully editable, deletable, no number, never on a statement.
 - Sent: immutable (edits → 409), accepts payments, appears in the ledger.
 - Paid: derived, not a stored state — recorded payments equal gross.
 - Cancelled: keeps its number; no edits, deletes or payments (409).
-  Corrections = cancel + issue a new invoice.
+  A wrong invoice = cancel + issue a new one.
+- Credited in part: a partial credit note takes back part of a correct
+  invoice (see [Partial credit notes](#partial-credit-notes-teilgutschriften));
+  a credited invoice is not cancelled on top (409).
 - **"Send" means mark-as-sent.** There is no email integration — this
   module has zero external services. Download the PDF and deliver it
   however you like.
@@ -340,14 +348,16 @@ GET    /api/invoices/:id               lines, VAT breakdown, payments, derived s
 PUT    /api/invoices/:id               drafts only — sent invoices → 409
 DELETE /api/invoices/:id               drafts only — sent invoices → 409
 POST   /api/invoices/:id/finalize      {issue_date?} draft → sent, assigns number
-POST   /api/invoices/:id/cancel        {reason} — keeps the number
+POST   /api/invoices/:id/cancel        {reason} — keeps the number (409 once credited)
+POST   /api/invoices/:id/credit-notes  {reason, lines, issue_date?} — partial credit note
+GET    /api/invoices/:id/credit-notes/:noteId/pdf   the credit note as a PDF
 POST   /api/invoices/:id/payments      {amount_cents, date?, note?}
                                        overpayment → 422
 GET    /api/invoices/:id/pdf           the invoice as a generated PDF
 GET    /api/invoices/:id/einvoice      what XRechnung / ZUGFeRD / ebInterface would still refuse
-GET    /api/invoices/:id/xrechnung.xml ?document=cancellation for the credit note
-GET    /api/invoices/:id/ebinterface.xml  ebInterface 6.1; ?document=cancellation (CreditMemo)
-GET    /api/invoices/:id/zugferd.pdf   PDF/A-3 with factur-x.xml; ?document=cancellation
+GET    /api/invoices/:id/xrechnung.xml ?document=cancellation · ?credit_note=<id>
+GET    /api/invoices/:id/ebinterface.xml  ebInterface 6.1; ?document=cancellation · ?credit_note=<id> (CreditMemo)
+GET    /api/invoices/:id/zugferd.pdf   PDF/A-3 with factur-x.xml; same parameters
 GET    /api/einvoice-config            the seller as e-invoices see it + what is missing
 
 GET    /api/dunning                    overdue invoices, where each stands (derived), the levels
@@ -442,6 +452,11 @@ later IBAN correction; discard releasing the bills and never reusing a
 `test/dunning.test.ts` pins the reminder rules: levels in order with the
 minimum gap, a payment ending the run, one notice per level at the unique
 index, and a letter that renders byte-identical on every download.
+`test/credit-notes.test.ts` pins the credit-note rules: its own numbering,
+the per-rate cap on base *and* VAT (the rounding cent included), the
+derived open amount, payment cap and paid status, no cancellation on top,
+the ledger and reporting views agreeing, the export booking it on its own
+date, and the 381 / CreditMemo against both schemas.
 `test/recurring.test.ts` pins the recurring rules: month-end clamping
 without drift, at most one draft per period (also at the unique index), a
 deleted draft not being regenerated, bounded catch-up, the end date, the
@@ -642,6 +657,30 @@ Overdue invoices with an open amount, and which reminder each needs next
 Not covered: collection agencies and court reminders (Mahnklage /
 gerichtliches Mahnverfahren), booking fees or interest as receivables, and a
 scheduled automatic run — PS-02 can call `POST /api/dunning/run` on a schedule.
+
+## Partial credit notes (Teilgutschriften)
+
+When part of a correct invoice is taken back — goods returned, a price
+reduced after a complaint, a service only partly delivered — **Credit note**
+on the invoice issues a document of its own (`server/credit-notes.ts`).
+
+- **Its own number and date.** `<invoice>-GS1`, `-GS2` … per invoice, issued
+  at once, never edited or deleted. The VAT is corrected in the period of
+  the credit note (§ 16 UStG-AT, § 17 UStG-DE), which is where the DATEV /
+  BMD export books it.
+- **Never more than was invoiced, per VAT rate** — base and VAT, across all
+  credit notes. A rate the invoice does not carry cannot be credited.
+- **Derived effect.** Owed = gross − credited − paid, on every read: the open
+  amount, the payment cap, *paid*, *overdue*, dunning, the dashboard and the
+  ledger all follow. Credited in full and unpaid is *sent* with nothing open.
+  A credit after full payment leaves the customer in credit (negative
+  ledger balance); the refund is a bank transfer outside this module.
+- **Documents.** PDF, and as e-invoice a type-381 XRechnung / ZUGFeRD or an
+  ebInterface CreditMemo naming the invoice (`?credit_note=<id>`).
+- **Not with a cancellation.** A cancelled invoice cannot be credited; a
+  credited one cannot be cancelled — credit the rest instead.
+- **Who.** Issuing is `edit`; the actor is on the document and, with PS-07,
+  on the audit trail.
 
 ## Recurring invoices (wiederkehrende Rechnungen)
 
@@ -988,8 +1027,9 @@ these, that's commissioned work — exactly the kind 0815software does:
 - **Subscriptions beyond fixed templates** — usage-based billing, proration,
   automatic sending. Recurring drafts are the Recurring screen, quotes are
   MOD-13 Offers, reminders are the Dunning screen.
-- **Formal credit notes** — corrections are cancellation + new invoice.
-  A credit-note document type (negative invoice) is an extension.
+- **Corrected invoices (type 384) and refunds** — a wrong invoice is
+  cancelled and reissued; part of a correct one is a partial credit note.
+  Paying a customer's credit back is a bank transfer outside this module.
 - **Bank reconciliation without PS-12** — standalone, payments are recorded
   manually or via the API and a payment run is marked executed by a human.
   With PS-12 Banking wired, statements come back in and are matched (see

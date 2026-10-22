@@ -100,12 +100,12 @@ export function moduleSummary(
   const overdue = live.filter((r) => r.overdue);
   const paid = live.filter((r) => r.status === 'paid');
 
-  // What the customer still owes: gross minus what has been paid, over every
-  // issued invoice that is not cancelled. Drafts are excluded — nobody owes
-  // money on an invoice that has not been sent.
+  // What the customer still owes: gross minus credit notes minus what has
+  // been paid, over every issued invoice that is not cancelled. Drafts are
+  // excluded — nobody owes money on an invoice that has not been sent.
   const issued = live.filter((r) => r.status !== 'draft');
-  const outstanding = issued.reduce((acc, r) => acc + (r.gross_cents - r.paid_cents), 0);
-  const overdueValue = overdue.reduce((acc, r) => acc + (r.gross_cents - r.paid_cents), 0);
+  const outstanding = issued.reduce((acc, r) => acc + r.open_cents, 0);
+  const overdueValue = overdue.reduce((acc, r) => acc + r.open_cents, 0);
 
   const byDueDate = [...overdue].sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'));
 

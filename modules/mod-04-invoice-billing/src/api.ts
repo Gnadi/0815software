@@ -17,7 +17,7 @@ import type {
 import type { EInvoiceProblem, SellerParty } from '../shared/einvoice';
 import type { EInvoiceFormat } from '../shared/ebinterface';
 import type { DunningNotice, DunningRow, DunningSettings } from '../shared/types';
-import type { RecurringInterval, RecurringTemplate, TaxExemptionCategory } from '../shared/types';
+import type { CreditNote, RecurringInterval, RecurringTemplate, TaxExemptionCategory } from '../shared/types';
 
 /** What the recurring-template form sends: the schedule plus a draft's fields. */
 export interface RecurringPayload {
@@ -144,6 +144,11 @@ export const api = {
     request<InvoiceDetail>(`/api/invoices/${id}`, { method: 'PUT', body: JSON.stringify(values) }),
   deleteDraft: (id: number) => request<{ ok: true }>(`/api/invoices/${id}`, { method: 'DELETE' }),
   finalize: (id: number) => request<InvoiceDetail>(`/api/invoices/${id}/finalize`, post()),
+  /** A partial credit note — issued at once, never changed. */
+  issueCreditNote: (
+    id: number,
+    payload: { reason: string; issue_date?: string; lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[] },
+  ) => request<CreditNote>(`/api/invoices/${id}/credit-notes`, { method: 'POST', body: JSON.stringify(payload) }),
   cancel: (id: number, reason: string) =>
     request<InvoiceDetail>(`/api/invoices/${id}/cancel`, post({ reason })),
   recordPayment: (id: number, values: Record<string, unknown>) =>
@@ -314,18 +319,31 @@ export function dunningLetterUrl(noticeId: number): string {
   return `/api/dunning-notices/${noticeId}/pdf`;
 }
 
+/** Which document of an invoice: itself, its cancellation, or a partial credit note (by id). */
+export type EInvoiceDocument = 'invoice' | 'cancellation' | number;
+
+function documentQuery(document: EInvoiceDocument): string {
+  if (typeof document === 'number') return `?credit_note=${document}`;
+  return document === 'cancellation' ? '?document=cancellation' : '';
+}
+
 /** Download links for the e-invoice files of an issued invoice. */
-export function xrechnungUrl(id: number, cancellation = false): string {
-  return `/api/invoices/${id}/xrechnung.xml${cancellation ? '?document=cancellation' : ''}`;
+export function xrechnungUrl(id: number, document: EInvoiceDocument = 'invoice'): string {
+  return `/api/invoices/${id}/xrechnung.xml${documentQuery(document)}`;
 }
 
 /** ebInterface 6.1 — the Austrian e-invoice (e-rechnung.gv.at). */
-export function ebInterfaceUrl(id: number, cancellation = false): string {
-  return `/api/invoices/${id}/ebinterface.xml${cancellation ? '?document=cancellation' : ''}`;
+export function ebInterfaceUrl(id: number, document: EInvoiceDocument = 'invoice'): string {
+  return `/api/invoices/${id}/ebinterface.xml${documentQuery(document)}`;
 }
 
-export function zugferdUrl(id: number, cancellation = false): string {
-  return `/api/invoices/${id}/zugferd.pdf${cancellation ? '?document=cancellation' : ''}`;
+export function zugferdUrl(id: number, document: EInvoiceDocument = 'invoice'): string {
+  return `/api/invoices/${id}/zugferd.pdf${documentQuery(document)}`;
+}
+
+/** A partial credit note as a plain PDF. */
+export function creditNotePdfUrl(invoiceId: number, creditNoteId: number): string {
+  return `/api/invoices/${invoiceId}/credit-notes/${creditNoteId}/pdf`;
 }
 
 /** The payables figures the bills screen shows above its list. */

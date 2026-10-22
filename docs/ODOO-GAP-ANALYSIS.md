@@ -145,9 +145,9 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    ebInterface 6.1 (AT, Bund), jeweils gegen das offizielle Schema geprüft
    (`docs/E-RECHNUNG.md`). Offen: UBL/PEPPOL-Versand, Eingangsrechnungen lesen.
 3. ✅ **MOD-04: Wiederkehrende Rechnungen** (= Odoo Subscriptions light:
-   Vorlage → höchstens ein Entwurf je Periode). **Teilgutschriften** als
-   eigener Belegtyp (die Storno-Gutschrift gibt es seit PR #37). ✅
-   **Mahnwesen** umgesetzt (Stufen abgeleitet, Mahnungen
+   Vorlage → höchstens ein Entwurf je Periode). ✅ **Teilgutschriften** als
+   eigener Beleg (`-GS<n>`, je Steuersatz gedeckelt, als 381 / CreditMemo).
+   ✅ **Mahnwesen** umgesetzt (Stufen abgeleitet, Mahnungen
    unveränderlich gespeichert, Versand über PS-03).
 4. ✅ **MOD-04: Buchhaltungsexport** BMD (AT) und DATEV-Buchungsstapel (DE)
    (PR #37). Offen: Belegverknüpfung zu PS-06.

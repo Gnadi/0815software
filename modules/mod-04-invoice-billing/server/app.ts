@@ -95,7 +95,8 @@ import {
 } from './bills.js';
 import { MAX_AMOUNT_CENTS, MAX_REMITTANCE, sepaAmount } from '../shared/sepa.js';
 import { BILL_STATUSES, type BillStatus } from '../shared/types.js';
-import { renderInvoicePdf } from './pdf.js';
+import { renderCreditNotePdf, renderInvoicePdf } from './pdf.js';
+import { issueCreditNote } from './credit-notes.js';
 import { fmtEur } from '../shared/money.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
 import { apply as applyReceivables, suggest } from './receivables.js';
@@ -308,9 +309,16 @@ function validateDraft(input: Record<string, unknown>): DraftInput {
   }
   const taxExemptionReason = optText(input.tax_exemption_reason, 'tax_exemption_reason', errors, 300);
 
-  const rawLines = Array.isArray(input.lines) ? (input.lines as Record<string, unknown>[]) : [];
+  const lines = validateLines(input.lines, errors);
+  if (errors.length > 0) fail(errors);
+  return { customerId, paymentTermsDays, note, lines, buyerReference, deliveryDate, taxExemptionCategory, taxExemptionReason };
+}
+
+/** Line items as a draft and a credit note take them — every error into `errors`. */
+function validateLines(raw: unknown, errors: FieldError[]): LineInput[] {
+  const rawLines = Array.isArray(raw) ? (raw as Record<string, unknown>[]) : [];
   if (rawLines.length === 0) errors.push({ field: 'lines', message: 'At least one line item is required' });
-  const lines: LineInput[] = rawLines.map((line, i) => {
+  return rawLines.map((line, i) => {
     const description = typeof line.description === 'string' ? line.description.trim() : '';
     if (description === '' || description.length > 200) {
       errors.push({ field: `lines[${i}].description`, message: 'Description is required (max 200 characters)' });
@@ -330,8 +338,6 @@ function validateDraft(input: Record<string, unknown>): DraftInput {
     }
     return { description, quantity, unitPriceCents, vatRate };
   });
-  if (errors.length > 0) fail(errors);
-  return { customerId, paymentTermsDays, note, lines, buyerReference, deliveryDate, taxExemptionCategory, taxExemptionReason };
 }
 
 /**
@@ -805,6 +811,43 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     res.json(invoiceDetail(db, Number(req.params.id)));
   });
 
+  // ── Partial credit notes (server/credit-notes.ts) ────────────────────
+  // Issued at once and never changed; each line is validated like a draft's.
+  app.post('/api/invoices/:id/credit-notes', async (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const reason = optText(input.reason, 'reason', errors, 300)?.trim() ?? null;
+    if (!reason) errors.push({ field: 'reason', message: 'A credit note states why — a reason is required' });
+    const issueDate = optDate(input.issue_date, 'issue_date', errors);
+    const lines = validateLines(input.lines, errors);
+    if (errors.length > 0) fail(errors);
+    const actor = actorOf(res, auth);
+    const note = issueCreditNote(db, Number(req.params.id), { issueDate, reason: reason!, lines }, actor);
+    try {
+      await platform.creditNoteIssued?.({
+        number: note.number,
+        invoiceNumber: note.invoice_number,
+        totalFormatted: fmtEur(note.gross_cents),
+        reason: note.reason,
+        actor,
+      });
+    } catch (err) {
+      // A platform side-effect must never fail the credit note itself.
+      console.warn('[mod-04] platform.creditNoteIssued failed:', err);
+    }
+    res.status(201).json(note);
+  });
+
+  app.get('/api/invoices/:id/credit-notes/:noteId/pdf', (req, res) => {
+    const invoice = invoiceDetail(db, Number(req.params.id));
+    const note = invoice.credit_notes.find((n) => n.id === Number(req.params.noteId));
+    if (!note) throw new DomainError(404, 'Credit note not found');
+    const parties = pdfParties(invoiceParties(db, invoice.id, seller));
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${note.number}.pdf"`);
+    res.send(renderCreditNotePdf(invoice, note, parties.customer, parties.seller));
+  });
+
   app.post('/api/invoices/:id/payments', (req, res) => {
     const input = body(req);
     const errors: FieldError[] = [];
@@ -940,7 +983,17 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
   // when it would validate: otherwise 422, naming every missing field with
   // its business term, so the operator fixes the master data rather than
   // learning about it from the recipient's rejection.
-  const documentOf = (raw: unknown): EInvoiceDocument => {
+  // ?document=cancellation for the cancellation, ?credit_note=<id> for a
+  // partial credit note — each its own type-381 document.
+  const documentOf = (query: Request['query']): EInvoiceDocument => {
+    if (query.credit_note !== undefined) {
+      const creditNoteId = Number(query.credit_note);
+      if (!Number.isInteger(creditNoteId) || creditNoteId <= 0) {
+        fail([{ field: 'credit_note', message: 'credit_note must be a positive integer id' }]);
+      }
+      return { creditNoteId };
+    }
+    const raw = query.document;
     if (raw === undefined || raw === 'invoice') return 'invoice';
     if (raw === 'cancellation') return 'cancellation';
     fail([{ field: 'document', message: 'document must be invoice or cancellation' }]);
@@ -968,7 +1021,7 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
   });
 
   app.get('/api/invoices/:id/xrechnung.xml', (req, res) => {
-    const file = xrechnungFile(db, Number(req.params.id), seller, documentOf(req.query.document));
+    const file = xrechnungFile(db, Number(req.params.id), seller, documentOf(req.query));
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
     res.send(file.xml);
@@ -977,14 +1030,14 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
   // ebInterface 6.1 — the Austrian format, for e-rechnung.gv.at and Austrian
   // recipients (shared/ebinterface.ts). Same model, same 422-before-wrong rule.
   app.get('/api/invoices/:id/ebinterface.xml', (req, res) => {
-    const file = ebInterfaceFile(db, Number(req.params.id), seller, documentOf(req.query.document));
+    const file = ebInterfaceFile(db, Number(req.params.id), seller, documentOf(req.query));
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
     res.send(file.xml);
   });
 
   app.get('/api/invoices/:id/zugferd.pdf', (req, res) => {
-    const file = zugferdFile(db, Number(req.params.id), seller, documentOf(req.query.document));
+    const file = zugferdFile(db, Number(req.params.id), seller, documentOf(req.query));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
     res.send(file.pdf);

@@ -14,8 +14,8 @@ import {
 import { ebInterfaceProblems, renderEbInterface, type EInvoiceFormat } from '../shared/ebinterface.js';
 import type { Customer } from '../shared/types.js';
 import type { SellerConfig } from './config.js';
-import { DomainError, getCustomer, getInvoice, invoiceDetail, invoiceLines } from './invoices.js';
-import { layoutInvoice } from './pdf.js';
+import { DomainError, getCreditNote, getCustomer, getInvoice, invoiceDetail, invoiceLines } from './invoices.js';
+import { creditNoteView, layoutInvoice } from './pdf.js';
 import { buildPdfA } from './pdfa.js';
 
 /**
@@ -140,13 +140,15 @@ export function pdfParties(parties: { seller: SellerParty; buyer: BuyerParty }):
   };
 }
 
-export type EInvoiceDocument = 'invoice' | 'cancellation';
+/** Which document of an invoice: itself, its cancellation, or one of its partial credit notes. */
+export type EInvoiceDocument = 'invoice' | 'cancellation' | { creditNoteId: number };
 
 /**
- * The e-invoice model of an issued invoice — or of its cancellation, which is
- * a credit note (type 381) referring back to it. Drafts have no number and are
- * not invoices yet (409); asking for the cancellation of an invoice that is
- * not cancelled is equally a 409.
+ * The e-invoice model of an issued invoice — or of its cancellation or a
+ * partial credit note, each a credit note (type 381) referring back to it.
+ * Drafts have no number and are not invoices yet (409); asking for the
+ * cancellation of an invoice that is not cancelled is equally a 409, and a
+ * credit note is only found under the invoice it belongs to (404).
  */
 export function eInvoiceModel(
   db: Database.Database,
@@ -192,6 +194,26 @@ export function eInvoiceModel(
     buyer,
     lines,
   };
+  if (typeof document === 'object') {
+    const note = getCreditNote(db, document.creditNoteId);
+    if (note.invoice_id !== invoiceId) throw new DomainError(404, 'Credit note not found');
+    return {
+      ...base,
+      lines: note.lines.map((l) => ({
+        position: l.position,
+        description: l.description,
+        quantity: l.quantity,
+        unit_price_cents: l.unit_price_cents,
+        vat_rate: l.vat_rate,
+      })),
+      type_code: '381',
+      number: note.number,
+      issue_date: note.issue_date,
+      due_date: null,
+      note: `Gutschrift zur Rechnung ${invoice.number} vom ${invoice.issue_date}: ${note.reason}`,
+      preceding: { number: invoice.number, issue_date: invoice.issue_date },
+    };
+  }
   if (document === 'cancellation') {
     const cancelledOn = invoice.cancelled_at!.slice(0, 10);
     return {
@@ -297,8 +319,15 @@ export function zugferdFile(
   const xml = renderCii(model, 'zugferd');
   const parties = pdfParties(invoiceParties(db, invoiceId, liveSeller));
   const detail = invoiceDetail(db, invoiceId);
+  const credit = typeof document === 'object' ? getCreditNote(db, document.creditNoteId) : null;
   const pages =
-    document === 'cancellation'
+    credit !== null
+      ? layoutInvoice(creditNoteView(detail, credit), parties.customer, parties.seller, {
+          number: model.number,
+          date: model.issue_date,
+          reason: credit.reason,
+        })
+      : document === 'cancellation'
       ? layoutInvoice(detail, parties.customer, parties.seller, { number: model.number, date: model.issue_date })
       : layoutInvoice(
           { ...detail, status: 'sent', paid_cents: 0, open_cents: detail.gross_cents, cancellation_reason: null },
@@ -307,7 +336,7 @@ export function zugferdFile(
         );
   const pdf = buildPdfA(pages, {
     xml,
-    title: `${document === 'cancellation' ? 'Gutschrift' : 'Rechnung'} ${model.number}`,
+    title: `${document === 'invoice' ? 'Rechnung' : 'Gutschrift'} ${model.number}`,
     author: model.seller.name,
     date: model.issue_date,
   });

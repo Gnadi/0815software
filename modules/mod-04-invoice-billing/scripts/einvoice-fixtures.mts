@@ -24,25 +24,31 @@ for (const [name, model] of Object.entries(CASES)) {
   for (const profile of EINVOICE_PROFILES) writeFileSync(join(out, `${name}-${profile}.xml`), renderCii(model, profile));
   if (!withPdf) continue;
   const totals = computeTotals(model.lines);
+  // A cancellation is laid out from the cancelled invoice; a partial credit
+  // note (-GS) from a live one carrying the credit note's lines.
+  const cancels = model.type_code === '381' && !model.number.includes('-GS');
   const detail: InvoiceDetail = {
     // A cancellation is laid out from the invoice it cancels, as the API does.
     id: 1, number: model.preceding?.number ?? model.number, customer_id: 1, customer_name: model.buyer.name,
-    status: model.type_code === '381' ? 'cancelled' : 'sent',
+    status: cancels ? 'cancelled' : 'sent',
     payment_status: 'unpaid', issue_date: model.preceding?.issue_date ?? model.issue_date, due_date: model.due_date, overdue: false,
     net_cents: totals.net_cents, vat_cents: totals.vat_cents, gross_cents: totals.gross_cents, paid_cents: 0,
-    created_at: model.issue_date, payment_terms_days: model.payment_terms_days, note: model.note,
+    created_at: model.issue_date, payment_terms_days: model.payment_terms_days, note: cancels || model.type_code === '380' ? model.note : null,
     buyer_reference: model.buyer_reference, delivery_date: model.delivery_date,
     tax_exemption_category: model.exemption?.category ?? null, tax_exemption_reason: model.exemption?.reason ?? null,
-    parties_frozen: true, cancelled_at: model.type_code === '381' ? `${model.issue_date}T00:00:00Z` : null,
-    cancellation_reason: model.type_code === '381' ? 'Doppelt fakturiert' : null,
+    parties_frozen: true, cancelled_at: cancels ? `${model.issue_date}T00:00:00Z` : null,
+    cancellation_reason: cancels ? 'Doppelt fakturiert' : null,
     lines: model.lines.map((l, i) => ({ ...l, id: i + 1, invoice_id: 1, net_cents: lineNetCents(l) })),
     vat_breakdown: totals.by_rate, payments: [], open_cents: totals.gross_cents,
+    credited_cents: 0, credit_notes: [], creditable: [],
   };
   const pages = layoutInvoice(
     detail,
     { name: model.buyer.name, address: [model.buyer.street, `${model.buyer.postcode} ${model.buyer.city}`].join('\n'), vat_id: model.buyer.vat_id },
     { name: model.seller.name, addressLines: [model.seller.street ?? '', `${model.seller.postcode} ${model.seller.city}`], vatId: model.seller.vat_id ?? '', iban: model.seller.iban, bic: model.seller.bic ?? '' },
-    model.type_code === '381' ? { number: model.number, date: model.issue_date } : undefined,
+    model.type_code === '381'
+      ? { number: model.number, date: model.issue_date, ...(model.number.includes('-GS') ? { reason: model.note ?? '' } : {}) }
+      : undefined,
   );
   writeFileSync(
     join(out, `${name}-zugferd.pdf`),

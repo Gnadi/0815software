@@ -46,5 +46,10 @@ export const CASES: Record<string, EInvoiceModel> = {
   taxno: { ...BASE, seller: { ...BASE.seller, vat_id: null, tax_number: '143/123/45678', registration: 'HRB 12345' }, buyer: { ...BASE.buyer, country: 'DE' }, lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: 19 }] },
   storno: { ...BASE, type_code: '381', number: 'INV-2026-0042-ST', due_date: null, note: 'Storno der Rechnung INV-2026-0042', preceding: { number: 'INV-2026-0042', issue_date: '2026-10-01' },
     buyer: { ...BASE.buyer, country: 'DE' }, lines: [{ position: 1, description: 'x', quantity: 3, unit_price_cents: 33, vat_rate: 19 }] },
+  // A partial credit note (Teilgutschrift): 381 like the storno, but only part
+  // of the invoice — two returned books at 7 %, the 19 % lines untouched.
+  teilgutschrift: { ...BASE, type_code: '381', number: 'INV-2026-0042-GS1', issue_date: '2026-10-25', due_date: null,
+    note: 'Gutschrift zur Rechnung INV-2026-0042 vom 2026-10-21: 2 Fachbücher retourniert', preceding: { number: 'INV-2026-0042', issue_date: '2026-10-21' },
+    buyer: { ...BASE.buyer, country: 'DE' }, lines: [{ position: 1, description: 'Fachbuch', quantity: 2, unit_price_cents: 1999, vat_rate: 7 }] },
   leitweg: { ...BASE, buyer_reference: '991-12345-06', buyer: { ...BASE.buyer, country: 'DE', einvoice_address: '991-12345-06' }, lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: 7 }] },
 };

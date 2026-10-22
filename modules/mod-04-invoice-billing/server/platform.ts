@@ -98,6 +98,14 @@ export interface DunningNoticeInfo {
   actor: string;
 }
 
+export interface CreditNoteInfo {
+  number: string;
+  invoiceNumber: string;
+  totalFormatted: string;
+  reason: string;
+  actor: string;
+}
+
 export interface PayInvoiceInfo {
   number: string;
   amountMinor: number;
@@ -205,6 +213,8 @@ export interface PlatformHooks {
    * the notice is issued and its letter downloadable either way.
    */
   dunningNoticeIssued?(info: DunningNoticeInfo): Promise<void>;
+  /** A partial credit note was issued — recorded on the audit trail (PS-07). */
+  creditNoteIssued?(info: CreditNoteInfo): Promise<void>;
   /**
    * What arrived on the bank account, for matching against open invoices.
    *
@@ -471,6 +481,20 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
       }
       for (const result of await Promise.allSettled(tasks)) {
         if (result.status === 'rejected') console.warn('[mod-04] dunning notice delivery failed:', result.reason);
+      }
+    },
+
+    async creditNoteIssued(info: CreditNoteInfo): Promise<void> {
+      if (!audit) return;
+      try {
+        await audit.record({
+          actor: info.actor,
+          action: 'invoice.credit_note',
+          resource: `invoice:${info.invoiceNumber}`,
+          metadata: { credit_note: info.number, total: info.totalFormatted, reason: info.reason },
+        });
+      } catch (err) {
+        console.warn('[mod-04] audit failed:', err);
       }
     },
 

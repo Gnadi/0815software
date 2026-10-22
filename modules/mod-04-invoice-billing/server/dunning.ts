@@ -153,7 +153,7 @@ export function dunningOverview(db: Database.Database, today = todayIso()): Dunn
   const settings = readDunningSettings(db);
   const rows: DunningRow[] = [];
   for (const invoice of listInvoices(db, { overdueOnly: true }, today)) {
-    const open = invoice.gross_cents - invoice.paid_cents;
+    const open = invoice.open_cents;
     if (open <= 0 || invoice.due_date === null || invoice.number === null) continue;
     const notices = noticesOf(db, invoice.id);
     const last = notices.at(-1) ?? null;

@@ -343,6 +343,34 @@ export function openDb(path: string): Database.Database {
     );
   `);
 
+  // Partial credit notes (Teilgutschriften): their own documents, numbered
+  // "<invoice>-GS<n>" per invoice, immutable once written — no UPDATE or
+  // DELETE path exists (server/credit-notes.ts). Lines are positive amounts,
+  // as on any type-381 document; the sign is the document type's.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS credit_notes (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_id  INTEGER NOT NULL REFERENCES invoices(id),
+      seq         INTEGER NOT NULL CHECK (seq >= 1),
+      number      TEXT    NOT NULL UNIQUE,
+      issue_date  TEXT    NOT NULL,
+      reason      TEXT    NOT NULL,
+      actor       TEXT    NOT NULL,
+      created_at  TEXT    NOT NULL,
+      UNIQUE (invoice_id, seq)
+    );
+    CREATE TABLE IF NOT EXISTS credit_note_lines (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      credit_note_id   INTEGER NOT NULL REFERENCES credit_notes(id),
+      position         INTEGER NOT NULL,
+      description      TEXT    NOT NULL,
+      quantity         REAL    NOT NULL CHECK (quantity > 0),
+      unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
+      vat_rate         INTEGER NOT NULL CHECK (vat_rate IN (0, 7, 10, 13, 19, 20))
+    );
+    CREATE INDEX IF NOT EXISTS idx_credit_note_lines_note ON credit_note_lines(credit_note_id);
+  `);
+
   // The supplier number a customer assigned us — ebInterface's
   // InvoiceRecipientsBillerID, which the Republic of Austria requires.
   if (!columns('customers').includes('supplier_number')) {
@@ -407,6 +435,7 @@ function dropReportViews(db: Database.Database): void {
     DROP VIEW IF EXISTS report_payments;
     DROP VIEW IF EXISTS report_invoice_lines;
     DROP VIEW IF EXISTS report_invoices;
+    DROP VIEW IF EXISTS report_credit_notes;
   `);
 }
 
@@ -414,7 +443,7 @@ function dropReportViews(db: Database.Database): void {
  * The published REPORTING CONTRACT — `report_*` views (docs/REPORTING-CONTRACT.md).
  *
  * The tables above are this module's private business, free to be refactored.
- * These four views are the public surface anything else — MOD-08 Reporting
+ * These five views are the public surface anything else — MOD-08 Reporting
  * Suite, an operator with `sqlite3`, a nightly dump — is allowed to read, and
  * they are what stays stable across schema changes. Adding a column is fine;
  * renaming or removing one is a breaking change to the contract.
@@ -457,6 +486,42 @@ function ensureReportViews(db: Database.Database): void {
   dropReportViews(db);
 
   db.exec(`
+    -- One row per partial credit note, with its own money — rounded as any
+    -- document is: per line, then VAT once per rate on its own base. A credit
+    -- note always belongs to an issued invoice, so there is no draft to hide;
+    -- it carries its invoice's number and cancellation state.
+    CREATE VIEW report_credit_notes AS
+    SELECT
+      cn.number                                          AS credit_note_number,
+      i.number                                           AS invoice_number,
+      cn.issue_date                                      AS issue_date,
+      cn.reason                                          AS reason,
+      c.id                                               AS customer_id,
+      c.name                                             AS customer_name,
+      COALESCE(t.net_cents, 0)                           AS net_cents,
+      COALESCE(t.vat_cents, 0)                           AS vat_cents,
+      COALESCE(t.net_cents, 0) + COALESCE(t.vat_cents, 0) AS gross_cents,
+      i.status                                           AS invoice_status,
+      CASE WHEN i.status = 'cancelled' THEN 1 ELSE 0 END  AS invoice_is_cancelled
+    FROM credit_notes cn
+    JOIN invoices i ON i.id = cn.invoice_id
+    JOIN customers c ON c.id = i.customer_id
+    LEFT JOIN (
+      SELECT
+        credit_note_id,
+        SUM(base_cents)                                    AS net_cents,
+        SUM(CAST(ROUND(base_cents * vat_rate / 100.0) AS INTEGER)) AS vat_cents
+      FROM (
+        SELECT
+          l.credit_note_id,
+          l.vat_rate,
+          SUM(CAST(ROUND(l.quantity * l.unit_price_cents) AS INTEGER)) AS base_cents
+        FROM credit_note_lines l
+        GROUP BY l.credit_note_id, l.vat_rate
+      )
+      GROUP BY credit_note_id
+    ) t ON t.credit_note_id = cn.id;
+
     -- One row per non-draft invoice: the header, the customer, the money.
     -- Key: invoice_number (unique, immutable — kept even when cancelled).
     CREATE VIEW report_invoices AS
@@ -476,17 +541,21 @@ function ensureReportViews(db: Database.Database): void {
       COALESCE(t.vat_cents, 0)                        AS vat_cents,
       COALESCE(t.net_cents, 0) + COALESCE(t.vat_cents, 0) AS gross_cents,
       COALESCE(p.paid_cents, 0)                       AS paid_cents,
-      COALESCE(t.net_cents, 0) + COALESCE(t.vat_cents, 0) - COALESCE(p.paid_cents, 0)
+      -- What is still owed: gross less credit notes less payments. Negative
+      -- when a credit note followed full payment — the customer is in credit.
+      COALESCE(t.net_cents, 0) + COALESCE(t.vat_cents, 0) - COALESCE(cr.credited_cents, 0) - COALESCE(p.paid_cents, 0)
                                                       AS outstanding_cents,
       -- Whole days past due_date, and only while money is still owed. 0 for a
       -- settled, cancelled or not-yet-due invoice, so it never reads as debt.
       CASE
         WHEN i.due_date IS NULL THEN 0
-        WHEN COALESCE(t.net_cents, 0) + COALESCE(t.vat_cents, 0) - COALESCE(p.paid_cents, 0) <= 0 THEN 0
+        WHEN COALESCE(t.net_cents, 0) + COALESCE(t.vat_cents, 0) - COALESCE(cr.credited_cents, 0) - COALESCE(p.paid_cents, 0) <= 0 THEN 0
         WHEN i.status = 'cancelled' THEN 0
         WHEN date('now') <= i.due_date THEN 0
         ELSE CAST(julianday(date('now')) - julianday(i.due_date) AS INTEGER)
-      END                                             AS days_overdue
+      END                                             AS days_overdue,
+      -- Appended, not inserted: a consumer reading by position keeps working.
+      COALESCE(cr.credited_cents, 0)                  AS credited_cents
     FROM invoices i
     JOIN customers c ON c.id = i.customer_id
     LEFT JOIN (
@@ -509,6 +578,11 @@ function ensureReportViews(db: Database.Database): void {
     LEFT JOIN (
       SELECT invoice_id, SUM(amount_cents) AS paid_cents FROM payments GROUP BY invoice_id
     ) p ON p.invoice_id = i.id
+    LEFT JOIN (
+      SELECT i2.id AS invoice_id, SUM(r.gross_cents) AS credited_cents
+      FROM report_credit_notes r JOIN invoices i2 ON i2.number = r.invoice_number
+      GROUP BY i2.id
+    ) cr ON cr.invoice_id = i.id
     WHERE i.status <> 'draft';
 
     -- Line-level detail, joined to the invoice number a reader can cite.
