@@ -3,6 +3,7 @@ import type { RfqRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDate } from '../format';
 import { RfqBadge } from './StatusBadge';
+import { Can } from '../access';
 
 interface Props {
   onOpen: (id: number) => void;
@@ -52,9 +53,11 @@ export function RfqsView({ onOpen, onNew, onAuthLost }: Props) {
           <p className="resource__desc">open → quoted → awarded (draft PO) or closed without award.</p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={onNew}>
-            + NEW RFQ
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={onNew}>
+              + NEW RFQ
+            </button>
+          </Can>
         </div>
       </div>
 

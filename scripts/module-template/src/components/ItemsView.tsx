@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { Item, Me } from '../../shared/types';
+import type { Item } from '../../shared/types';
+import { useCan } from '../access';
 import { api, ApiError } from '../api';
 
 /**
  * The example screen. It shows the pattern every screen should follow: the
  * server enforces access (server/access.ts), and the UI only HIDES what the
- * person cannot do, so nobody is offered a button that answers 403.
+ * person cannot do (src/access.tsx: `useCan`, `<Can>`), so nobody is offered a
+ * button that answers 403.
  */
-export function ItemsView({ access, onAuthLost }: { access: Me['access']; onAuthLost: () => void }) {
+export function ItemsView({ onAuthLost }: { onAuthLost: () => void }) {
   const [items, setItems] = useState<Item[] | null>(null);
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
 
-  const canEdit = access === 'edit' || access === 'manage';
-  const canManage = access === 'manage';
+  const canEdit = useCan('edit');
+  const canManage = useCan('manage');
 
   const guard = useCallback(
     async (action: () => Promise<unknown>) => {

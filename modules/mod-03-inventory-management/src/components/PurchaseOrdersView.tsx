@@ -3,6 +3,7 @@ import type { FieldError, Product, Supplier } from '../../shared/types';
 import { api, ApiError, type PoListRow } from '../api';
 import { fmtDate, fmtQty } from '../format';
 import { StatusBadge } from './StatusBadge';
+import { Can } from '../access';
 
 interface Props {
   onOpen: (id: number) => void;
@@ -88,9 +89,11 @@ export function PurchaseOrdersView({ onOpen, onAuthLost }: Props) {
           <p className="resource__desc">draft → ordered → partially received → received.</p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={() => setCreating(true)}>
-            + NEW PO
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setCreating(true)}>
+              + NEW PO
+            </button>
+          </Can>
         </div>
       </div>
 

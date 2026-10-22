@@ -102,6 +102,7 @@ describe('the copy-in files are still shared', () => {
     'shared/summary.ts',
     'test/access.test.ts',
     'test/transport-hardening.test.ts',
+    'src/access.tsx',
   ];
   const reference = (rel: string) => readFileSync(join(root, 'modules/mod-03-inventory-management', rel), 'utf8');
 

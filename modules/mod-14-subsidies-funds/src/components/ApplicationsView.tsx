@@ -3,6 +3,7 @@ import type { AppConfig, ApplicationRow, ProgramRow } from '../../shared/types';
 import { api, ApiError, EXPORT_URL } from '../api';
 import { eurosToCents, fmtEur } from '../format';
 import { StatusBadge } from './Badges';
+import { Can } from '../access';
 
 interface Props {
   config: AppConfig;
@@ -95,9 +96,11 @@ export function ApplicationsView({ config, onOpen, onAuthLost }: Props) {
           <a className="btn btn--ghost" href={EXPORT_URL}>
             EXPORT CSV ↓
           </a>
-          <button className="btn btn--primary" onClick={() => setShowForm((s) => !s)}>
-            {showForm ? 'CLOSE' : 'NEW APPLICATION +'}
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setShowForm((s) => !s)}>
+              {showForm ? 'CLOSE' : 'NEW APPLICATION +'}
+            </button>
+          </Can>
         </div>
       </div>
 

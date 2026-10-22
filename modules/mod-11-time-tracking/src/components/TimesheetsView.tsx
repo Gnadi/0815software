@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Employee, TimesheetDetail, TimesheetRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDate, fmtEur, fmtHm } from '../format';
+import { Can } from '../access';
 
 interface Props {
   onAuthLost: () => void;
@@ -139,25 +140,31 @@ export function TimesheetsView({ onAuthLost }: Props) {
                       VIEW
                     </button>
                     {w.status === 'draft' && (
-                      <button
-                        className="rowbtn"
-                        onClick={() => void act('submit', w.week_start)}
-                        disabled={w.entry_count === 0}
-                      >
-                        SUBMIT
-                      </button>
+                      <Can>
+                        <button
+                          className="rowbtn"
+                          onClick={() => void act('submit', w.week_start)}
+                          disabled={w.entry_count === 0}
+                        >
+                          SUBMIT
+                        </button>
+                      </Can>
                     )}
                     {w.status === 'submitted' && (
                       <>
-                        <button className="rowbtn" onClick={() => void act('approve', w.week_start)}>
-                          APPROVE
-                        </button>
-                        <button
-                          className="rowbtn rowbtn--danger"
-                          onClick={() => void act('reject', w.week_start)}
-                        >
-                          REJECT
-                        </button>
+                        <Can level="manage">
+                          <button className="rowbtn" onClick={() => void act('approve', w.week_start)}>
+                            APPROVE
+                          </button>
+                        </Can>
+                        <Can level="manage">
+                          <button
+                            className="rowbtn rowbtn--danger"
+                            onClick={() => void act('reject', w.week_start)}
+                          >
+                            REJECT
+                          </button>
+                        </Can>
                       </>
                     )}
                   </div>

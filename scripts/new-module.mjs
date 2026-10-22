@@ -58,6 +58,7 @@ export const COPY_IN = [
   'server/guard.ts',
   'shared/summary.ts',
   'src/styles.css',
+  'src/access.tsx',
   'src/components/Login.tsx',
   'test/access.test.ts',
   'test/handoff.test.ts',

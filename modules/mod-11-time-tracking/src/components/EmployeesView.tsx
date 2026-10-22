@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Employee } from '../../shared/types';
 import { api, ApiError } from '../api';
+import { Can } from '../access';
 
 interface Props {
   onAuthLost: () => void;
@@ -68,35 +69,37 @@ export function EmployeesView({ onAuthLost }: Props) {
 
       {error && <div className="resource__error mono">{error}</div>}
 
-      <div className="editbar">
-        <input
-          className="field__input"
-          placeholder="Full name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <input
-          className="field__input"
-          placeholder="email@example.com (optional)"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-        />
-        <button className="btn btn--primary" onClick={() => void save()} disabled={!name.trim()}>
-          {editing ? 'SAVE' : 'ADD'}
-        </button>
-        {editing && (
-          <button
-            className="btn btn--ghost"
-            onClick={() => {
-              setEditing(null);
-              setName('');
-              setEmail('');
-            }}
-          >
-            CANCEL
+      <Can>
+        <div className="editbar">
+          <input
+            className="field__input"
+            placeholder="Full name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <input
+            className="field__input"
+            placeholder="email@example.com (optional)"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <button className="btn btn--primary" onClick={() => void save()} disabled={!name.trim()}>
+            {editing ? 'SAVE' : 'ADD'}
           </button>
-        )}
-      </div>
+          {editing && (
+            <button
+              className="btn btn--ghost"
+              onClick={() => {
+                setEditing(null);
+                setName('');
+                setEmail('');
+              }}
+            >
+              CANCEL
+            </button>
+          )}
+        </div>
+      </Can>
 
       <div className="table-wrap">
         <table className="table">
@@ -116,24 +119,28 @@ export function EmployeesView({ onAuthLost }: Props) {
                 <td className="mono">{emp.entry_count}</td>
                 <td>
                   <div className="table__rowactions">
-                    <button
-                      className="rowbtn"
-                      onClick={() => {
-                        setEditing(emp.id);
-                        setName(emp.name);
-                        setEmail(emp.email ?? '');
-                      }}
-                    >
-                      EDIT
-                    </button>
-                    <button
-                      className="rowbtn rowbtn--danger"
-                      onClick={() => void remove(emp)}
-                      disabled={emp.entry_count > 0}
-                      title={emp.entry_count > 0 ? 'Has time entries — cannot delete' : ''}
-                    >
-                      DELETE
-                    </button>
+                    <Can>
+                      <button
+                        className="rowbtn"
+                        onClick={() => {
+                          setEditing(emp.id);
+                          setName(emp.name);
+                          setEmail(emp.email ?? '');
+                        }}
+                      >
+                        EDIT
+                      </button>
+                    </Can>
+                    <Can>
+                      <button
+                        className="rowbtn rowbtn--danger"
+                        onClick={() => void remove(emp)}
+                        disabled={emp.entry_count > 0}
+                        title={emp.entry_count > 0 ? 'Has time entries — cannot delete' : ''}
+                      >
+                        DELETE
+                      </button>
+                    </Can>
                   </div>
                 </td>
               </tr>

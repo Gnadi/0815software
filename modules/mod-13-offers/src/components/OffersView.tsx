@@ -3,6 +3,7 @@ import type { OfferRow } from '../../shared/types';
 import { api, ApiError, offersCsvUrl } from '../api';
 import { fmtDate, fmtEur } from '../format';
 import { StatusBadge } from './StatusBadge';
+import { Can } from '../access';
 
 interface Props {
   /** Status filter to open with, from a deep link (`/offers?status=sent`). */
@@ -69,9 +70,11 @@ export function OffersView({ initialStatus, onOpen, onNew, onAuthLost }: Props) 
           <a className="btn btn--ghost" href={offersCsvUrl(params)}>
             CSV ↓
           </a>
-          <button className="btn btn--primary" onClick={onNew}>
-            + NEW OFFER
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={onNew}>
+              + NEW OFFER
+            </button>
+          </Can>
         </div>
       </div>
 

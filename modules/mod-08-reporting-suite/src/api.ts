@@ -1,3 +1,4 @@
+import type { AccessLevel } from './access';
 import type {
   Chart,
   ChartRow,
@@ -86,7 +87,7 @@ export const api = {
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
   /** Which credentials this deployment accepts — readable before signing in. */
   authMode: () => request<AuthMode>('/api/auth-mode'),
-  me: () => request<{ username: string }>('/api/me'),
+  me: () => request<{ username: string; access: AccessLevel }>('/api/me'),
   source: () => request<SourceSchema>('/api/source'),
 
   reports: (search?: string) =>

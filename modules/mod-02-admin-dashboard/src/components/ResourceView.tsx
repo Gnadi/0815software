@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { FieldDef, ResourceDef } from '../../shared/resources';
 import { api, ApiError, exportUrl, type Row } from '../api';
 import { RecordForm } from './RecordForm';
+import { Can } from '../access';
 
 interface Props {
   resource: ResourceDef;
@@ -132,9 +133,11 @@ export function ResourceView({ resource, onAuthLost }: Props) {
           <a className="btn btn--ghost" href={exportUrl(resource.name, queryParams(false))} download>
             EXPORT CSV ↓
           </a>
-          <button className="btn btn--primary" onClick={() => setEditing('new')}>
-            + NEW RECORD
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setEditing('new')}>
+              + NEW RECORD
+            </button>
+          </Can>
         </div>
       </header>
 
@@ -175,16 +178,18 @@ export function ResourceView({ resource, onAuthLost }: Props) {
           >
             EXPORT SELECTED ↓
           </a>
-          <button
-            className="bulkbar__btn bulkbar__btn--danger mono"
-            onClick={() => {
-              if (window.confirm(`Delete ${selected.size} record(s)? This cannot be undone.`)) {
-                void guarded(() => api.bulkDelete(resource.name, [...selected]));
-              }
-            }}
-          >
-            DELETE SELECTED ×
-          </button>
+          <Can level="manage">
+            <button
+              className="bulkbar__btn bulkbar__btn--danger mono"
+              onClick={() => {
+                if (window.confirm(`Delete ${selected.size} record(s)? This cannot be undone.`)) {
+                  void guarded(() => api.bulkDelete(resource.name, [...selected]));
+                }
+              }}
+            >
+              DELETE SELECTED ×
+            </button>
+          </Can>
         </div>
       )}
 
@@ -271,19 +276,23 @@ export function ResourceView({ resource, onAuthLost }: Props) {
                   </td>
                 ))}
                 <td className="table__rowactions">
-                  <button className="rowbtn mono" onClick={() => setEditing(row)}>
-                    EDIT
-                  </button>
-                  <button
-                    className="rowbtn rowbtn--danger mono"
-                    onClick={() => {
-                      if (window.confirm(`Delete record #${row.id}?`)) {
-                        void guarded(() => api.remove(resource.name, row.id));
-                      }
-                    }}
-                  >
-                    DEL
-                  </button>
+                  <Can>
+                    <button className="rowbtn mono" onClick={() => setEditing(row)}>
+                      EDIT
+                    </button>
+                  </Can>
+                  <Can>
+                    <button
+                      className="rowbtn rowbtn--danger mono"
+                      onClick={() => {
+                        if (window.confirm(`Delete record #${row.id}?`)) {
+                          void guarded(() => api.remove(resource.name, row.id));
+                        }
+                      }}
+                    >
+                      DEL
+                    </button>
+                  </Can>
                 </td>
               </tr>
             ))}

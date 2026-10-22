@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DaySheet, Employee, Project } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { addDays, fmtEur, fmtHm } from '../format';
+import { Can } from '../access';
 
 interface Props {
   onAuthLost: () => void;
@@ -247,14 +248,16 @@ export function DailyEntryView({ onAuthLost }: Props) {
                 <td className="mono">{entry.billable ? fmtEur(entry.billable_cents) : '—'}</td>
                 <td className="cell-note">{entry.note ?? ''}</td>
                 <td>
-                  <button
-                    className="rowbtn rowbtn--danger"
-                    onClick={() => void deleteRow(entry.id)}
-                    disabled={entry.locked}
-                    title={entry.locked ? 'Approved week — locked' : ''}
-                  >
-                    DEL
-                  </button>
+                  <Can>
+                    <button
+                      className="rowbtn rowbtn--danger"
+                      onClick={() => void deleteRow(entry.id)}
+                      disabled={entry.locked}
+                      title={entry.locked ? 'Approved week — locked' : ''}
+                    >
+                      DEL
+                    </button>
+                  </Can>
                 </td>
               </tr>
             ))}
@@ -266,79 +269,81 @@ export function DailyEntryView({ onAuthLost }: Props) {
               </tr>
             )}
             {sheet && !sheet.locked && (
-              <tr className="addrow">
-                <td>
-                  <select
-                    className="field__input"
-                    value={row.project_id}
-                    onChange={(e) => setRow({ ...row, project_id: e.target.value, task_id: '' })}
-                  >
-                    <option value="">— project —</option>
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <select
-                    className="field__input"
-                    value={row.task_id}
-                    onChange={(e) => setRow({ ...row, task_id: e.target.value })}
-                    disabled={!selectedProject || selectedProject.tasks.length === 0}
-                  >
-                    <option value="">— none —</option>
-                    {selectedProject?.tasks
-                      .filter((t) => t.active)
-                      .map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
+              <Can>
+                <tr className="addrow">
+                  <td>
+                    <select
+                      className="field__input"
+                      value={row.project_id}
+                      onChange={(e) => setRow({ ...row, project_id: e.target.value, task_id: '' })}
+                    >
+                      <option value="">— project —</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
                         </option>
                       ))}
-                  </select>
-                </td>
-                <td>
-                  <input
-                    className="field__input field__input--narrow mono"
-                    placeholder="1:30"
-                    value={row.hours}
-                    onChange={(e) => setRow({ ...row, hours: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void addRow();
-                    }}
-                  />
-                </td>
-                <td>
-                  <button
-                    className={`toggle mono ${effectiveBillable ? 'is-on' : ''}`}
-                    onClick={() => setRow({ ...row, billable: !effectiveBillable })}
-                  >
-                    {effectiveBillable ? 'BILLABLE' : 'NON-BILL'}
-                  </button>
-                </td>
-                <td className="mono">
-                  {parsedMinutes !== null && effectiveBillable && selectedProject
-                    ? fmtEur(Math.round((parsedMinutes * selectedProject.rate_cents) / 60))
-                    : '—'}
-                </td>
-                <td>
-                  <input
-                    className="field__input"
-                    placeholder="note"
-                    value={row.note}
-                    onChange={(e) => setRow({ ...row, note: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void addRow();
-                    }}
-                  />
-                </td>
-                <td>
-                  <button className="btn btn--primary btn--sm" onClick={() => void addRow()} disabled={!canAdd}>
-                    ADD
-                  </button>
-                </td>
-              </tr>
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      className="field__input"
+                      value={row.task_id}
+                      onChange={(e) => setRow({ ...row, task_id: e.target.value })}
+                      disabled={!selectedProject || selectedProject.tasks.length === 0}
+                    >
+                      <option value="">— none —</option>
+                      {selectedProject?.tasks
+                        .filter((t) => t.active)
+                        .map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                    </select>
+                  </td>
+                  <td>
+                    <input
+                      className="field__input field__input--narrow mono"
+                      placeholder="1:30"
+                      value={row.hours}
+                      onChange={(e) => setRow({ ...row, hours: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void addRow();
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <button
+                      className={`toggle mono ${effectiveBillable ? 'is-on' : ''}`}
+                      onClick={() => setRow({ ...row, billable: !effectiveBillable })}
+                    >
+                      {effectiveBillable ? 'BILLABLE' : 'NON-BILL'}
+                    </button>
+                  </td>
+                  <td className="mono">
+                    {parsedMinutes !== null && effectiveBillable && selectedProject
+                      ? fmtEur(Math.round((parsedMinutes * selectedProject.rate_cents) / 60))
+                      : '—'}
+                  </td>
+                  <td>
+                    <input
+                      className="field__input"
+                      placeholder="note"
+                      value={row.note}
+                      onChange={(e) => setRow({ ...row, note: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void addRow();
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <button className="btn btn--primary btn--sm" onClick={() => void addRow()} disabled={!canAdd}>
+                      ADD
+                    </button>
+                  </td>
+                </tr>
+              </Can>
             )}
           </tbody>
         </table>

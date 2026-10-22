@@ -3,6 +3,7 @@ import type { PoRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDate, fmtEur } from '../format';
 import { PoBadge, TierProgress } from './StatusBadge';
+import { Can } from '../access';
 
 interface Props {
   onOpen: (id: number) => void;
@@ -55,9 +56,11 @@ export function PosView({ onOpen, onNew, onAuthLost }: Props) {
           </p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={onNew}>
-            + NEW PO
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={onNew}>
+              + NEW PO
+            </button>
+          </Can>
         </div>
       </div>
 

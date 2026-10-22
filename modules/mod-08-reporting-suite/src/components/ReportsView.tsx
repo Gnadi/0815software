@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Report } from '../../shared/types';
 import { api, ApiError, exportCsvUrl } from '../api';
+import { Can } from '../access';
 
 interface Props {
   onOpen: (id: number) => void;
@@ -52,9 +53,11 @@ export function ReportsView({ onOpen, onNew, onEdit, onAuthLost }: Props) {
           </p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={onNew}>
-            NEW REPORT +
-          </button>
+          <Can level="manage">
+            <button className="btn btn--primary" onClick={onNew}>
+              NEW REPORT +
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -88,15 +91,19 @@ export function ReportsView({ onOpen, onNew, onEdit, onAuthLost }: Props) {
                 <button className="rowbtn" onClick={() => onOpen(r.id)}>
                   OPEN
                 </button>
-                <button className="rowbtn" onClick={() => onEdit(r.id)}>
-                  EDIT
-                </button>
+                <Can level="manage">
+                  <button className="rowbtn" onClick={() => onEdit(r.id)}>
+                    EDIT
+                  </button>
+                </Can>
                 <a className="rowbtn" href={exportCsvUrl(r.id)}>
                   CSV
                 </a>
-                <button className="rowbtn rowbtn--danger" onClick={() => void remove(r.id)}>
-                  DELETE
-                </button>
+                <Can level="manage">
+                  <button className="rowbtn rowbtn--danger" onClick={() => void remove(r.id)}>
+                    DELETE
+                  </button>
+                </Can>
               </div>
             </div>
           ))}

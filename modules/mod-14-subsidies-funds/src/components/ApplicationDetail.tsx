@@ -7,6 +7,7 @@ import type {
 import { api, ApiError } from '../api';
 import { eurosToCents, fmtDate, fmtDateTime, fmtEur, centsToInput } from '../format';
 import { DeadlineBadge, StatusBadge } from './Badges';
+import { Can, useCan } from '../access';
 
 interface Props {
   applicationId: number;
@@ -29,6 +30,8 @@ export function ApplicationDetail({ applicationId, onBack, onAuthLost }: Props) 
   const [busy, setBusy] = useState(false);
   const [approveAmount, setApproveAmount] = useState('');
   const [showApprove, setShowApprove] = useState(false);
+  // Whether an obligation is done stays visible; only an editor may tick it.
+  const canEdit = useCan();
   const [tranche, setTranche] = useState({ on: fmtDate(new Date().toISOString()), amount: '', reference: '', note: '' });
   const [obligation, setObligation] = useState({ title: '', due: '' });
 
@@ -193,28 +196,30 @@ export function ApplicationDetail({ applicationId, onBack, onAuthLost }: Props) 
           </div>
 
           {approved && remaining > 0 && (
-            <form className="form" style={{ marginTop: 16 }} onSubmit={(e) => void addTranche(e)}>
-              <div className="form__grid">
-                <label className="field">
-                  <span className="field__label mono">DISBURSED ON</span>
-                  <input className="field__input" type="date" value={tranche.on} onChange={(e) => setTranche({ ...tranche, on: e.target.value })} required />
-                </label>
-                <label className="field">
-                  <span className="field__label mono">AMOUNT (EUR)</span>
-                  <input className="field__input" value={tranche.amount} onChange={(e) => setTranche({ ...tranche, amount: e.target.value })} placeholder={centsToInput(remaining)} required />
-                </label>
-                <label className="field">
-                  <span className="field__label mono">REFERENCE</span>
-                  <input className="field__input" value={tranche.reference} onChange={(e) => setTranche({ ...tranche, reference: e.target.value })} />
-                </label>
-              </div>
-              <div className="form__hint mono">REMAINING {fmtEur(remaining)} — a tranche above this is rejected (422).</div>
-              <div className="form__actions">
-                <button className="btn btn--primary" type="submit" disabled={busy}>
-                  RECORD TRANCHE →
-                </button>
-              </div>
-            </form>
+            <Can>
+              <form className="form" style={{ marginTop: 16 }} onSubmit={(e) => void addTranche(e)}>
+                <div className="form__grid">
+                  <label className="field">
+                    <span className="field__label mono">DISBURSED ON</span>
+                    <input className="field__input" type="date" value={tranche.on} onChange={(e) => setTranche({ ...tranche, on: e.target.value })} required />
+                  </label>
+                  <label className="field">
+                    <span className="field__label mono">AMOUNT (EUR)</span>
+                    <input className="field__input" value={tranche.amount} onChange={(e) => setTranche({ ...tranche, amount: e.target.value })} placeholder={centsToInput(remaining)} required />
+                  </label>
+                  <label className="field">
+                    <span className="field__label mono">REFERENCE</span>
+                    <input className="field__input" value={tranche.reference} onChange={(e) => setTranche({ ...tranche, reference: e.target.value })} />
+                  </label>
+                </div>
+                <div className="form__hint mono">REMAINING {fmtEur(remaining)} — a tranche above this is rejected (422).</div>
+                <div className="form__actions">
+                  <button className="btn btn--primary" type="submit" disabled={busy}>
+                    RECORD TRANCHE →
+                  </button>
+                </div>
+              </form>
+            </Can>
           )}
 
           <div className="section-title mono">REPORTING OBLIGATIONS</div>
@@ -230,7 +235,7 @@ export function ApplicationDetail({ applicationId, onBack, onAuthLost }: Props) 
                 </div>
                 <span style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                   <DeadlineBadge state={o.state} />
-                  <button className={`chooser__btn ${o.done ? 'is-active' : ''}`} disabled={busy} onClick={() => void act(() => api.toggleObligation(o.id)).catch(() => {})}>
+                  <button className={`chooser__btn ${o.done ? 'is-active' : ''}`} disabled={busy || !canEdit} onClick={() => void act(() => api.toggleObligation(o.id)).catch(() => {})}>
                     {o.done ? 'DONE' : 'MARK DONE'}
                   </button>
                 </span>
@@ -240,23 +245,25 @@ export function ApplicationDetail({ applicationId, onBack, onAuthLost }: Props) 
           </div>
 
           {approved && (
-            <form className="form" style={{ marginTop: 16 }} onSubmit={(e) => void addObligation(e)}>
-              <div className="form__grid">
-                <label className="field">
-                  <span className="field__label mono">OBLIGATION TITLE</span>
-                  <input className="field__input" value={obligation.title} onChange={(e) => setObligation({ ...obligation, title: e.target.value })} placeholder="Interim report" required />
-                </label>
-                <label className="field">
-                  <span className="field__label mono">DUE DATE</span>
-                  <input className="field__input" type="date" value={obligation.due} onChange={(e) => setObligation({ ...obligation, due: e.target.value })} required />
-                </label>
-              </div>
-              <div className="form__actions">
-                <button className="btn btn--primary" type="submit" disabled={busy}>
-                  ADD OBLIGATION →
-                </button>
-              </div>
-            </form>
+            <Can>
+              <form className="form" style={{ marginTop: 16 }} onSubmit={(e) => void addObligation(e)}>
+                <div className="form__grid">
+                  <label className="field">
+                    <span className="field__label mono">OBLIGATION TITLE</span>
+                    <input className="field__input" value={obligation.title} onChange={(e) => setObligation({ ...obligation, title: e.target.value })} placeholder="Interim report" required />
+                  </label>
+                  <label className="field">
+                    <span className="field__label mono">DUE DATE</span>
+                    <input className="field__input" type="date" value={obligation.due} onChange={(e) => setObligation({ ...obligation, due: e.target.value })} required />
+                  </label>
+                </div>
+                <div className="form__actions">
+                  <button className="btn btn--primary" type="submit" disabled={busy}>
+                    ADD OBLIGATION →
+                  </button>
+                </div>
+              </form>
+            </Can>
           )}
         </div>
 
@@ -299,35 +306,39 @@ export function ApplicationDetail({ applicationId, onBack, onAuthLost }: Props) 
             {app.allowed_transitions.length === 0 ? (
               <div className="form__hint mono">TERMINAL — NO FURTHER MOVES</div>
             ) : (
-              <div className="chooser">
-                {app.allowed_transitions.map((to) => (
-                  <button
-                    key={to}
-                    className={`chooser__btn ${to === 'rejected' || to === 'withdrawn' ? 'chooser__btn--danger' : ''}`}
-                    disabled={busy}
-                    onClick={() => void move(to)}
-                  >
-                    {to.replace('_', ' ').toUpperCase()}
-                  </button>
-                ))}
-              </div>
+              <Can>
+                <div className="chooser">
+                  {app.allowed_transitions.map((to) => (
+                    <button
+                      key={to}
+                      className={`chooser__btn ${to === 'rejected' || to === 'withdrawn' ? 'chooser__btn--danger' : ''}`}
+                      disabled={busy}
+                      onClick={() => void move(to)}
+                    >
+                      {to.replace('_', ' ').toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </Can>
             )}
             {showApprove && (
-              <form onSubmit={(e) => void submitApprove(e)} style={{ display: 'grid', gap: 10, marginTop: 8 }}>
-                <label className="field">
-                  <span className="field__label mono">APPROVED AMOUNT (EUR)</span>
-                  <input className="field__input" value={approveAmount} onChange={(e) => setApproveAmount(e.target.value)} placeholder={centsToInput(app.requested_amount_cents)} autoFocus />
-                </label>
-                <div className="form__hint mono">MAX GRANT {fmtEur(app.program_max_grant_cents)} — above it is rejected (422).</div>
-                <div className="chooser">
-                  <button className="btn btn--primary btn--sm" type="submit" disabled={busy}>
-                    APPROVE →
-                  </button>
-                  <button className="chooser__btn" type="button" onClick={() => setShowApprove(false)}>
-                    CANCEL
-                  </button>
-                </div>
-              </form>
+              <Can>
+                <form onSubmit={(e) => void submitApprove(e)} style={{ display: 'grid', gap: 10, marginTop: 8 }}>
+                  <label className="field">
+                    <span className="field__label mono">APPROVED AMOUNT (EUR)</span>
+                    <input className="field__input" value={approveAmount} onChange={(e) => setApproveAmount(e.target.value)} placeholder={centsToInput(app.requested_amount_cents)} autoFocus />
+                  </label>
+                  <div className="form__hint mono">MAX GRANT {fmtEur(app.program_max_grant_cents)} — above it is rejected (422).</div>
+                  <div className="chooser">
+                    <button className="btn btn--primary btn--sm" type="submit" disabled={busy}>
+                      APPROVE →
+                    </button>
+                    <button className="chooser__btn" type="button" onClick={() => setShowApprove(false)}>
+                      CANCEL
+                    </button>
+                  </div>
+                </form>
+              </Can>
             )}
           </div>
         </aside>

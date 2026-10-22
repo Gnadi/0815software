@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AccessProvider, type AccessLevel } from './access';
 import { api, ApiError } from './api';
 import { BillsView } from './components/BillsView';
 import { CreditorsView } from './components/CreditorsView';
@@ -71,11 +72,12 @@ export function initialView(path: string, search: string): View {
 export function App() {
   const [ready, setReady] = useState(false);
   const [loggedOut, setLoggedOut] = useState(false);
+  const [access, setAccess] = useState<AccessLevel>('view');
   const [view, setView] = useState<View>(() => initialView(window.location.pathname, window.location.search));
 
   const load = useCallback(async () => {
     try {
-      await api.me();
+      setAccess((await api.me()).access);
       setReady(true);
       setLoggedOut(false);
     } catch (err) {
@@ -111,87 +113,89 @@ export function App() {
           : view.name;
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="sidebar__brand mono">
-          <span className="sidebar__num">MOD-04</span>
-          <span>INVOICE &amp; BILLING</span>
-        </div>
-        <nav className="sidebar__nav">
-          {NAV.map(({ view: target, label }) => (
+    <AccessProvider level={access}>
+      <div className="shell">
+        <aside className="sidebar">
+          <div className="sidebar__brand mono">
+            <span className="sidebar__num">MOD-04</span>
+            <span>INVOICE &amp; BILLING</span>
+          </div>
+          <nav className="sidebar__nav">
+            {NAV.map(({ view: target, label }) => (
+              <button
+                key={target.name}
+                className={`sidebar__item mono ${target.name === activeNav ? 'is-active' : ''}`}
+                onClick={() => setView(target)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar__foot mono">
+            <span>0815SOFTWARE · MIT</span>
             <button
-              key={target.name}
-              className={`sidebar__item mono ${target.name === activeNav ? 'is-active' : ''}`}
-              onClick={() => setView(target)}
+              className="sidebar__logout mono"
+              onClick={() => {
+                void api.logout().then(onAuthLost);
+              }}
             >
-              {label}
+              LOG OUT ↗
             </button>
-          ))}
-        </nav>
-        <div className="sidebar__foot mono">
-          <span>0815SOFTWARE · MIT</span>
-          <button
-            className="sidebar__logout mono"
-            onClick={() => {
-              void api.logout().then(onAuthLost);
-            }}
-          >
-            LOG OUT ↗
-          </button>
-        </div>
-      </aside>
-      <main className="main">
-        {view.name === 'invoices' && (
-          <InvoicesView
-            initialStatus={view.status}
-            onOpen={(id) => setView({ name: 'invoice', id })}
-            onNew={() => setView({ name: 'editor', id: null })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'invoice' && (
-          <InvoiceDetail
-            id={view.id}
-            onBack={() => setView({ name: 'invoices' })}
-            onEdit={(id) => setView({ name: 'editor', id })}
-            onOpenLedger={(id) => setView({ name: 'ledger', id })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'editor' && (
-          <InvoiceEditor
-            id={view.id}
-            onDone={(id) => setView(id === null ? { name: 'invoices' } : { name: 'invoice', id })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'customers' && (
-          <CustomersView onOpenLedger={(id) => setView({ name: 'ledger', id })} onAuthLost={onAuthLost} />
-        )}
-        {view.name === 'ledger' && (
-          <CustomerLedger
-            id={view.id}
-            onBack={() => setView({ name: 'customers' })}
-            onOpenInvoice={(id) => setView({ name: 'invoice', id })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'bills' && (
-          <BillsView onOpenRun={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />
-        )}
-        {view.name === 'creditors' && <CreditorsView onAuthLost={onAuthLost} />}
-        {view.name === 'incoming' && <IncomingPaymentsView onAuthLost={onAuthLost} />}
-        {view.name === 'runs' && (
-          <PaymentRunsView onOpen={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />
-        )}
-        {view.name === 'run' && (
-          <PaymentRunDetailView
-            id={view.id}
-            onBack={() => setView({ name: 'runs' })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-      </main>
-    </div>
+          </div>
+        </aside>
+        <main className="main">
+          {view.name === 'invoices' && (
+            <InvoicesView
+              initialStatus={view.status}
+              onOpen={(id) => setView({ name: 'invoice', id })}
+              onNew={() => setView({ name: 'editor', id: null })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'invoice' && (
+            <InvoiceDetail
+              id={view.id}
+              onBack={() => setView({ name: 'invoices' })}
+              onEdit={(id) => setView({ name: 'editor', id })}
+              onOpenLedger={(id) => setView({ name: 'ledger', id })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'editor' && (
+            <InvoiceEditor
+              id={view.id}
+              onDone={(id) => setView(id === null ? { name: 'invoices' } : { name: 'invoice', id })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'customers' && (
+            <CustomersView onOpenLedger={(id) => setView({ name: 'ledger', id })} onAuthLost={onAuthLost} />
+          )}
+          {view.name === 'ledger' && (
+            <CustomerLedger
+              id={view.id}
+              onBack={() => setView({ name: 'customers' })}
+              onOpenInvoice={(id) => setView({ name: 'invoice', id })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'bills' && (
+            <BillsView onOpenRun={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />
+          )}
+          {view.name === 'creditors' && <CreditorsView onAuthLost={onAuthLost} />}
+          {view.name === 'incoming' && <IncomingPaymentsView onAuthLost={onAuthLost} />}
+          {view.name === 'runs' && (
+            <PaymentRunsView onOpen={(id) => setView({ name: 'run', id })} onAuthLost={onAuthLost} />
+          )}
+          {view.name === 'run' && (
+            <PaymentRunDetailView
+              id={view.id}
+              onBack={() => setView({ name: 'runs' })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+        </main>
+      </div>
+    </AccessProvider>
   );
 }
