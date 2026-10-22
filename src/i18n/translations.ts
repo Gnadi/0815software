@@ -238,7 +238,7 @@ export const T: Record<Lang, Record<string, string>> = {
 
     'page.platform.eyebrow':   'DIN 0815/S · PLATFORM SERVICES',
     'page.platform.heading':   'What modules run on.',
-    'page.platform.lead':      'Eleven shared backend services. Reusable capabilities the modules consume over APIs — never the other way around.',
+    'page.platform.lead':      'Twelve shared backend services. Reusable capabilities the modules consume over APIs — never the other way around.',
     'page.platform.intro':     'Platform Services are shared backend capabilities — each does one cross-cutting job and exposes it over an API. A module may depend on several; a service never depends on a module. All ship MIT-licensed with full source code.',
     'page.platform.arch.h2':   'Business Modules → Platform Services → Infrastructure',
     'page.platform.arch.body': 'Dependencies point strictly downward. <a href="/modules">Business Modules</a> are customer-facing applications; Platform Services are the reusable backend capabilities they compose. Services may depend on each other and on infrastructure — never on a module.',
@@ -838,7 +838,7 @@ export const T: Record<Lang, Record<string, string>> = {
 
     'page.platform.eyebrow':   'DIN 0815/S · PLATTFORM-DIENSTE',
     'page.platform.heading':   'Worauf Module laufen.',
-    'page.platform.lead':      'Elf gemeinsame Backend-Dienste. Wiederverwendbare Fähigkeiten, die die Module über APIs nutzen — nie umgekehrt.',
+    'page.platform.lead':      'Zwölf gemeinsame Backend-Dienste. Wiederverwendbare Fähigkeiten, die die Module über APIs nutzen — nie umgekehrt.',
     'page.platform.intro':     'Plattform-Dienste sind gemeinsame Backend-Fähigkeiten — jeder erledigt eine übergreifende Aufgabe und stellt sie über eine API bereit. Ein Modul darf von mehreren abhängen; ein Dienst hängt nie von einem Modul ab. Alle sind MIT-lizenziert und kommen mit vollem Quellcode.',
     'page.platform.arch.h2':   'Business-Module → Plattform-Dienste → Infrastruktur',
     'page.platform.arch.body': 'Abhängigkeiten zeigen strikt nach unten. <a href="/modules">Business-Module</a> sind die Anwendungen für Kunden; Plattform-Dienste sind die wiederverwendbaren Backend-Fähigkeiten, aus denen sie sich zusammensetzen. Dienste dürfen voneinander und von der Infrastruktur abhängen — nie von einem Modul.',
