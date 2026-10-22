@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AccessProvider, type AccessLevel } from './access';
 import type { AppConfig } from '../shared/types';
 import { api, ApiError } from './api';
 import { ApplicationDetail } from './components/ApplicationDetail';
@@ -27,6 +28,7 @@ const NAV: { view: View; label: string; active: View['name'] }[] = [
 export function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [loggedOut, setLoggedOut] = useState(false);
+  const [access, setAccess] = useState<AccessLevel>('view');
   const [view, setView] = useState<View>({ name: 'deadlines' });
 
   const load = useCallback(async () => {
@@ -34,6 +36,7 @@ export function App() {
       // /api/config doubles as the session probe and is the ONE source of
       // the workflow + categories for the whole console.
       setConfig(await api.config());
+      setAccess((await api.me()).access);
       setLoggedOut(false);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) setLoggedOut(true);
@@ -62,67 +65,69 @@ export function App() {
     view.name === 'program' ? 'programs' : view.name === 'application' ? 'applications' : view.name;
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="sidebar__brand mono">
-          <span className="sidebar__num">MOD-14</span>
-          <span>SUBSIDIES &amp; FUNDS</span>
-        </div>
-        <nav className="sidebar__nav">
-          {NAV.map(({ view: target, label, active }) => (
+    <AccessProvider level={access}>
+      <div className="shell">
+        <aside className="sidebar">
+          <div className="sidebar__brand mono">
+            <span className="sidebar__num">MOD-14</span>
+            <span>SUBSIDIES &amp; FUNDS</span>
+          </div>
+          <nav className="sidebar__nav">
+            {NAV.map(({ view: target, label, active }) => (
+              <button
+                key={active}
+                className={`sidebar__item mono ${active === activeNav ? 'is-active' : ''}`}
+                onClick={() => setView(target)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar__foot mono">
+            <span>SIGNED IN · {config.admin.toUpperCase()}</span>
+            <span>0815SOFTWARE · MIT</span>
             <button
-              key={active}
-              className={`sidebar__item mono ${active === activeNav ? 'is-active' : ''}`}
-              onClick={() => setView(target)}
+              className="sidebar__logout mono"
+              onClick={() => {
+                void api.logout().then(onAuthLost);
+              }}
             >
-              {label}
+              LOG OUT ↗
             </button>
-          ))}
-        </nav>
-        <div className="sidebar__foot mono">
-          <span>SIGNED IN · {config.admin.toUpperCase()}</span>
-          <span>0815SOFTWARE · MIT</span>
-          <button
-            className="sidebar__logout mono"
-            onClick={() => {
-              void api.logout().then(onAuthLost);
-            }}
-          >
-            LOG OUT ↗
-          </button>
-        </div>
-      </aside>
-      <main className="main">
-        {view.name === 'deadlines' && (
-          <DeadlinesDashboard
-            config={config}
-            onAuthLost={onAuthLost}
-            onOpenApplication={(id) => setView({ name: 'application', id })}
-          />
-        )}
-        {view.name === 'programs' && (
-          <ProgramsView config={config} onOpen={(id) => setView({ name: 'program', id })} onAuthLost={onAuthLost} />
-        )}
-        {view.name === 'program' && (
-          <ProgramDetail
-            programId={view.id}
-            onBack={() => setView({ name: 'programs' })}
-            onOpenApplication={(id) => setView({ name: 'application', id })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'applications' && (
-          <ApplicationsView config={config} onOpen={(id) => setView({ name: 'application', id })} onAuthLost={onAuthLost} />
-        )}
-        {view.name === 'application' && (
-          <ApplicationDetail
-            applicationId={view.id}
-            onBack={() => setView({ name: 'applications' })}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'portfolio' && <PortfolioView config={config} onAuthLost={onAuthLost} />}
-      </main>
-    </div>
+          </div>
+        </aside>
+        <main className="main">
+          {view.name === 'deadlines' && (
+            <DeadlinesDashboard
+              config={config}
+              onAuthLost={onAuthLost}
+              onOpenApplication={(id) => setView({ name: 'application', id })}
+            />
+          )}
+          {view.name === 'programs' && (
+            <ProgramsView config={config} onOpen={(id) => setView({ name: 'program', id })} onAuthLost={onAuthLost} />
+          )}
+          {view.name === 'program' && (
+            <ProgramDetail
+              programId={view.id}
+              onBack={() => setView({ name: 'programs' })}
+              onOpenApplication={(id) => setView({ name: 'application', id })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'applications' && (
+            <ApplicationsView config={config} onOpen={(id) => setView({ name: 'application', id })} onAuthLost={onAuthLost} />
+          )}
+          {view.name === 'application' && (
+            <ApplicationDetail
+              applicationId={view.id}
+              onBack={() => setView({ name: 'applications' })}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'portfolio' && <PortfolioView config={config} onAuthLost={onAuthLost} />}
+        </main>
+      </div>
+    </AccessProvider>
   );
 }

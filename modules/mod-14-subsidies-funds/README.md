@@ -317,8 +317,9 @@ volume at `DATABASE_PATH`. Put it behind TLS and set `COOKIE_SECURE=true`.
 
 - **Grantor / administrator features.** No third-party payouts, no applicant
   scoring, no funding-budget management — this is the applicant's side only.
-- **Multi-user accounts & permissions.** One shared admin login (the
-  MOD-03/04 pattern).
+- **Per-application permissions.** Standalone one shared admin login;
+  people with their own levels come from PS-01 (see
+  [Users and access levels](#users-and-access-levels)).
 - **VAT / gross-net handling.** Eligible costs and grants are plain net
   amounts; there is no tax engine.
 - **Business hours / calendars.** Deadline maths is plain calendar days —
@@ -341,6 +342,24 @@ state changes on [PS-07 Audit Log](../../platform/ps-07-audit-log) via the
 shared [`@0815software/platform-clients`](../../platform/clients) package
 (it can also send via PS-03 when `NOTIFICATION_URL` is set). Best-effort and
 opt-in — unset, the module runs standalone. See `server/platform.ts`.
+
+## Users and access levels
+
+Standalone, this module has one login — the local admin — and it manages
+everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), every
+person signs in as themselves and gets the level PS-01 grants them here:
+
+| PS-01 permission | Level | May |
+| --- | --- | --- |
+| `module:subsidies-funds:view` | `view` | read everything, change nothing |
+| `module:subsidies-funds:edit` | `edit` | the day-to-day work: create, update, delete |
+| `module:subsidies-funds:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
+
+`module:*:<level>` grants a level in every module. Reads need `view`, any other
+method needs `edit`. This module needs no rule beyond the method default and sign-out; the policy is still one file, [`server/access.ts`](./server/access.ts). A refused request answers **403**
+`{ error, required, access }`; `GET /api/me` reports the caller's `access`.
+Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
+manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## The shell contract — appearing on a dashboard
 

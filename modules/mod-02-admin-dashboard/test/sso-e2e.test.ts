@@ -92,3 +92,45 @@ describe('mod-02 login via real PS-01 identity', () => {
     expect(res.headers['set-cookie']).toBeUndefined();
   });
 });
+
+describe('mod-02 access levels from real PS-01 module permissions', () => {
+  // No IDENTITY_PERMISSION: the level comes from the user's `module:` grants.
+  let derived: Express;
+  let identity: string;
+
+  const ps01 = () => request(identityUrl);
+  const as = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+  beforeAll(async () => {
+    const db: Database.Database = openDb(':memory:');
+    seed(db);
+    derived = createApp({ db, auth, verifyLogin: buildLoginVerifier({ identityUrl, identityOrg: 'acme' }) });
+
+    identity = (await ps01().post('/api/login').send({ org_slug: 'acme', email: 'owner@acme.test', password: 'demo-owner' })).body
+      .token as string;
+    const role = await ps01()
+      .post('/api/roles')
+      .set(as(identity))
+      .send({ key: 'admin-dashboard-reader', name: 'Admin dashboard reader', permissions: ['module:admin-dashboard:view'] })
+      .expect(201);
+    const users = await ps01().get('/api/users').set(as(identity)).expect(200);
+    const member = users.body.users.find((u: { email: string }) => u.email === 'member@acme.test');
+    await ps01().post(`/api/users/${member.id}/roles`).set(as(identity)).send({ role_id: role.body.role.id }).expect(200);
+  });
+
+  it('a member granted view signs in as a viewer: reads pass, writes are refused', async () => {
+    const res = await request(derived).post('/api/login').send({ username: 'member@acme.test', password: 'demo-member' }).expect(200);
+    expect(res.body.access).toBe('view');
+    const cookie = res.headers['set-cookie'] as unknown as string[];
+
+    const config = await request(derived).get('/api/config').set('Cookie', cookie).expect(200);
+    expect(config.body.access).toBe('view');
+    const write = await request(derived).post('/api/customers').set('Cookie', cookie).send({});
+    expect(write.status).toBe(403);
+  });
+
+  it('the owner still manages, through platform:admin', async () => {
+    const res = await request(derived).post('/api/login').send({ username: 'owner@acme.test', password: 'demo-owner' }).expect(200);
+    expect(res.body.access).toBe('manage');
+  });
+});

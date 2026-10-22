@@ -3,6 +3,7 @@ import type { InvoiceDetail as Detail } from '../../shared/types';
 import { api, ApiError, invoicePdfUrl } from '../api';
 import { fmtDate, fmtEur, fmtQty } from '../format';
 import { PaymentBadge, StatusBadge } from './StatusBadge';
+import { Can } from '../access';
 
 interface Props {
   id: number;
@@ -105,29 +106,37 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
           </a>
           {isDraft && (
             <>
-              <button className="btn btn--ghost" onClick={() => onEdit(invoice.id)}>
-                EDIT
-              </button>
-              <button
-                className="btn btn--ghost"
-                disabled={busy}
-                onClick={() => {
-                  if (window.confirm('Delete this draft? Drafts have no number, so nothing is lost.')) {
-                    void run(() => api.deleteDraft(invoice.id), onBack);
-                  }
-                }}
-              >
-                DELETE
-              </button>
-              <button className="btn btn--primary" disabled={busy} onClick={() => void run(() => api.finalize(invoice.id))}>
-                SEND — ASSIGN NUMBER →
-              </button>
+              <Can>
+                <button className="btn btn--ghost" onClick={() => onEdit(invoice.id)}>
+                  EDIT
+                </button>
+              </Can>
+              <Can>
+                <button
+                  className="btn btn--ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    if (window.confirm('Delete this draft? Drafts have no number, so nothing is lost.')) {
+                      void run(() => api.deleteDraft(invoice.id), onBack);
+                    }
+                  }}
+                >
+                  DELETE
+                </button>
+              </Can>
+              <Can>
+                <button className="btn btn--primary" disabled={busy} onClick={() => void run(() => api.finalize(invoice.id))}>
+                  SEND — ASSIGN NUMBER →
+                </button>
+              </Can>
             </>
           )}
           {canCancel && (
-            <button className="btn btn--ghost" disabled={busy} onClick={() => setCancelling(true)}>
-              CANCEL INVOICE
-            </button>
+            <Can>
+              <button className="btn btn--ghost" disabled={busy} onClick={() => setCancelling(true)}>
+                CANCEL INVOICE
+              </button>
+            </Can>
           )}
         </div>
       </div>
@@ -251,36 +260,38 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
           </div>
 
           {canPay && (
-            <form className="receive-bar" onSubmit={submitPayment}>
-              <label className="field">
-                <span className="field__label mono">
-                  AMOUNT € <span className="field__req">*</span>
-                </span>
-                <input
-                  className="field__input receive-input"
-                  placeholder="0,00"
-                  value={payAmount}
-                  onChange={(e) => setPayAmount(e.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span className="field__label mono">DATE</span>
-                <input
-                  className="field__input"
-                  type="date"
-                  value={payDate}
-                  onChange={(e) => setPayDate(e.target.value)}
-                />
-              </label>
-              <label className="field" style={{ minWidth: 220 }}>
-                <span className="field__label mono">NOTE</span>
-                <input className="field__input" value={payNote} onChange={(e) => setPayNote(e.target.value)} />
-              </label>
-              <button className="btn btn--primary" type="submit" disabled={busy || !payAmount}>
-                RECORD PAYMENT →
-              </button>
-              <span className="receive-bar__hint mono">OVERPAYMENT IS REJECTED — {fmtEur(invoice.open_cents)} OPEN</span>
-            </form>
+            <Can>
+              <form className="receive-bar" onSubmit={submitPayment}>
+                <label className="field">
+                  <span className="field__label mono">
+                    AMOUNT € <span className="field__req">*</span>
+                  </span>
+                  <input
+                    className="field__input receive-input"
+                    placeholder="0,00"
+                    value={payAmount}
+                    onChange={(e) => setPayAmount(e.target.value)}
+                  />
+                </label>
+                <label className="field">
+                  <span className="field__label mono">DATE</span>
+                  <input
+                    className="field__input"
+                    type="date"
+                    value={payDate}
+                    onChange={(e) => setPayDate(e.target.value)}
+                  />
+                </label>
+                <label className="field" style={{ minWidth: 220 }}>
+                  <span className="field__label mono">NOTE</span>
+                  <input className="field__input" value={payNote} onChange={(e) => setPayNote(e.target.value)} />
+                </label>
+                <button className="btn btn--primary" type="submit" disabled={busy || !payAmount}>
+                  RECORD PAYMENT →
+                </button>
+                <span className="receive-bar__hint mono">OVERPAYMENT IS REJECTED — {fmtEur(invoice.open_cents)} OPEN</span>
+              </form>
+            </Can>
           )}
         </>
       )}

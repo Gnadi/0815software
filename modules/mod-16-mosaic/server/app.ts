@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import type Database from 'better-sqlite3';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import {
+  accessOf,
   actorOf,
   checkCredentials,
   clearedCookie,
@@ -25,6 +26,7 @@ import {
 } from './boards.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import type { PeerClient } from './peers.js';
+import { createGrants, type Grants } from './grants.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import { CATALOGUE } from '../shared/catalogue.js';
 import type { PanePlacement } from '../shared/types.js';
@@ -64,6 +66,11 @@ export interface AppOptions {
    * says so. Both facts come from `loginMode` because they are the same fact.
    */
   loginMode?: LoginMode;
+  /**
+   * What each signed-in person may do in the OTHER modules (`grants.ts`).
+   * Defaults to an in-memory store sized to this shell's session lifetime.
+   */
+  grants?: Grants;
 }
 
 export function createApp({
@@ -75,6 +82,7 @@ export function createApp({
   platform = noopPlatform,
   verifyLogin = nullVerifier,
   loginMode = LOCAL_LOGIN,
+  grants = createGrants({ sso: loginMode.sso, ttlMs: auth.ttlHours * 3600_000 }),
 }: AppOptions): express.Express {
   const app = express();
 
@@ -136,23 +144,32 @@ export function createApp({
     // behind a principal, so the activity feed is read AS this person, with
     // their authority rather than a borrowed admin account. Standalone there is
     // no such token and the feed is simply empty.
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
-    res.json({ ok: true, username: actor });
+
+    // The level rides in the token next to the actor: the local admin manages,
+    // a PS-01 identity gets what its module permissions grant.
+    const access = verdict !== null && verdict.ok ? verdict.access : 'manage';
+    // And what they may do everywhere else, for the panes and actions that sign
+    // them into other modules (grants.ts).
+    if (verdict?.ok) grants.remember(actor, verdict.permissions);
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
+    res.json({ ok: true, username: actor, access });
   });
 
   // ── Everything below requires a valid session ────────────────────────
   app.use('/api', requireAuth(auth));
 
   app.post('/api/logout', (_req, res) => {
-    // Nothing to forget here. This module holds no credential for anybody: a
-    // pane's frame carries the module's OWN cookie, minted by that module from
-    // a single-use ticket and never seen by this one.
+    // This module holds no credential for anybody — a pane's frame carries the
+    // module's OWN cookie, minted by that module from a single-use ticket and
+    // never seen by this one. What it does hold is what the person may do in
+    // each module (grants.ts), and that goes with them.
+    grants.forget(actorOf(res, auth));
     res.setHeader('Set-Cookie', clearedCookie());
     res.json({ ok: true });
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: actorOf(res, auth) });
+    res.json({ username: actorOf(res, auth), access: accessOf(res) });
   });
 
   // ── The catalogue: what this stack contains ──────────────────────────
@@ -224,7 +241,10 @@ export function createApp({
     // (docs/SHELL-CONTRACT.md), so a path would be honoured by four of them and
     // silently ignored by the rest — a setting that works sometimes is worse
     // than one that is not offered.
-    const result = await peers.handoff(moduleId, actorOf(res, auth), '/');
+    // The level PS-01 grants this person on THAT module, never this shell's own.
+    const level = grants.levelFor(actorOf(res, auth), moduleId);
+    if (!level.ok) throw new DomainError(409, level.problem);
+    const result = await peers.handoff(moduleId, actorOf(res, auth), '/', level.access);
     if (!result.ok) throw new DomainError(409, result.problem);
     res.json({ url: result.url });
   });

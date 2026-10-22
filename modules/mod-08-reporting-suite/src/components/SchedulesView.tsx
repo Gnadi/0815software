@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Report, RunRow, ScheduleRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { ts } from '../format';
+import { Can, useCan } from '../access';
 
 interface Props {
   onAuthLost: () => void;
@@ -11,6 +12,7 @@ export function SchedulesView({ onAuthLost }: Props) {
   const [reports, setReports] = useState<Report[]>([]);
   const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
   const [runs, setRuns] = useState<RunRow[]>([]);
+  const canEdit = useCan();
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -110,6 +112,7 @@ export function SchedulesView({ onAuthLost }: Props) {
                         className="field__input"
                         style={{ width: 120 }}
                         value={s?.interval ?? 'daily'}
+                        disabled={!canEdit}
                         onChange={(e) => void save(r.id, e.target.value, s ? !!s.enabled : true)}
                       >
                         <option value="hourly">hourly</option>
@@ -118,12 +121,14 @@ export function SchedulesView({ onAuthLost }: Props) {
                     </td>
                     <td>
                       {s ? (
-                        <button
-                          className="rowbtn"
-                          onClick={() => void save(r.id, s.interval, !s.enabled)}
-                        >
-                          {s.enabled ? 'ON' : 'OFF'}
-                        </button>
+                        <Can>
+                          <button
+                            className="rowbtn"
+                            onClick={() => void save(r.id, s.interval, !s.enabled)}
+                          >
+                            {s.enabled ? 'ON' : 'OFF'}
+                          </button>
+                        </Can>
                       ) : (
                         <span className="mono" style={{ color: 'var(--fg-mute)' }}>
                           —
@@ -135,20 +140,26 @@ export function SchedulesView({ onAuthLost }: Props) {
                     <td className="table__rowactions">
                       {s ? (
                         <>
-                          <button className="rowbtn" onClick={() => void runNow(s.id)}>
-                            RUN NOW
-                          </button>
-                          <button
-                            className="rowbtn rowbtn--danger"
-                            onClick={() => void removeSchedule(s.id)}
-                          >
-                            UNSCHEDULE
-                          </button>
+                          <Can>
+                            <button className="rowbtn" onClick={() => void runNow(s.id)}>
+                              RUN NOW
+                            </button>
+                          </Can>
+                          <Can>
+                            <button
+                              className="rowbtn rowbtn--danger"
+                              onClick={() => void removeSchedule(s.id)}
+                            >
+                              UNSCHEDULE
+                            </button>
+                          </Can>
                         </>
                       ) : (
-                        <button className="rowbtn" onClick={() => void save(r.id, 'daily', true)}>
-                          SCHEDULE
-                        </button>
+                        <Can>
+                          <button className="rowbtn" onClick={() => void save(r.id, 'daily', true)}>
+                            SCHEDULE
+                          </button>
+                        </Can>
                       )}
                     </td>
                   </tr>

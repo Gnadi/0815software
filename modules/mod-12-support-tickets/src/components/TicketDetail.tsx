@@ -10,6 +10,7 @@ import type {
 import { api, ApiError } from '../api';
 import { fmtDateTime, fmtRelative } from '../format';
 import { PriorityBadge, SlaBadge, StatusBadge } from './Badges';
+import { Can, useCan } from '../access';
 
 interface Props {
   ticketRef: string;
@@ -73,6 +74,9 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
   const [reply, setReply] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'internal'>('public');
   const [busy, setBusy] = useState(false);
+  // Status, priority and assignment stay visible as state; only an agent who
+  // can edit may change them.
+  const canEdit = useCan();
 
   const load = useCallback(async () => {
     try {
@@ -152,37 +156,39 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
             ))}
           </div>
 
-          <div className="composer">
-            <div className="composer__tabs">
-              <button
-                className={`chooser__btn ${visibility === 'public' ? 'is-active' : ''}`}
-                onClick={() => setVisibility('public')}
-              >
-                PUBLIC REPLY
-              </button>
-              <button
-                className={`chooser__btn ${visibility === 'internal' ? 'is-active' : ''}`}
-                onClick={() => setVisibility('internal')}
-              >
-                INTERNAL NOTE
-              </button>
+          <Can>
+            <div className="composer">
+              <div className="composer__tabs">
+                <button
+                  className={`chooser__btn ${visibility === 'public' ? 'is-active' : ''}`}
+                  onClick={() => setVisibility('public')}
+                >
+                  PUBLIC REPLY
+                </button>
+                <button
+                  className={`chooser__btn ${visibility === 'internal' ? 'is-active' : ''}`}
+                  onClick={() => setVisibility('internal')}
+                >
+                  INTERNAL NOTE
+                </button>
+              </div>
+              <textarea
+                className="field__input"
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                placeholder={
+                  visibility === 'public'
+                    ? 'Reply to the requester — visible on their status page…'
+                    : 'Internal note — never shown to the requester…'
+                }
+              />
+              <div className="composer__actions">
+                <button className="btn btn--primary" onClick={() => void sendComment()} disabled={busy || reply.trim() === ''}>
+                  {visibility === 'public' ? 'POST REPLY →' : 'ADD NOTE →'}
+                </button>
+              </div>
             </div>
-            <textarea
-              className="field__input"
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              placeholder={
-                visibility === 'public'
-                  ? 'Reply to the requester — visible on their status page…'
-                  : 'Internal note — never shown to the requester…'
-              }
-            />
-            <div className="composer__actions">
-              <button className="btn btn--primary" onClick={() => void sendComment()} disabled={busy || reply.trim() === ''}>
-                {visibility === 'public' ? 'POST REPLY →' : 'ADD NOTE →'}
-              </button>
-            </div>
-          </div>
+          </Can>
         </div>
 
         <aside className="detail__side">
@@ -231,7 +237,7 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
                   <button
                     key={s}
                     className={`chooser__btn ${s === ticket.status ? 'is-active' : ''}`}
-                    disabled={busy || s === ticket.status || !allowed}
+                    disabled={busy || s === ticket.status || !allowed || !canEdit}
                     onClick={() => void act(() => api.setStatus(ticketRef, s))}
                   >
                     {s.toUpperCase()}
@@ -248,7 +254,7 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
                 <button
                   key={p}
                   className={`chooser__btn ${p === ticket.priority ? 'is-active' : ''}`}
-                  disabled={busy || p === ticket.priority}
+                  disabled={busy || p === ticket.priority || !canEdit}
                   onClick={() => void act(() => api.setPriority(ticketRef, p))}
                 >
                   {p.toUpperCase()}
@@ -262,7 +268,7 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
             <div className="chooser">
               <button
                 className={`chooser__btn ${ticket.assignee_id === null ? 'is-active' : ''}`}
-                disabled={busy || ticket.assignee_id === null}
+                disabled={busy || ticket.assignee_id === null || !canEdit}
                 onClick={() => void act(() => api.assign(ticketRef, null))}
               >
                 UNASSIGNED
@@ -271,7 +277,7 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
                 <button
                   key={a.id}
                   className={`chooser__btn ${ticket.assignee_id === a.id ? 'is-active' : ''}`}
-                  disabled={busy || ticket.assignee_id === a.id}
+                  disabled={busy || ticket.assignee_id === a.id || !canEdit}
                   onClick={() => void act(() => api.assign(ticketRef, a.id))}
                 >
                   {a.name}

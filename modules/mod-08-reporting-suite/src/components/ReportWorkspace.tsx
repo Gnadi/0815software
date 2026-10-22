@@ -3,6 +3,7 @@ import type { PivotResult, QueryResult, Report } from '../../shared/types';
 import { api, ApiError, exportCsvUrl } from '../api';
 import { pivotCell } from '../format';
 import { ResultTable } from './ReportEditor';
+import { Can } from '../access';
 
 type Tab = 'preview' | 'pivot' | 'chart';
 
@@ -66,15 +67,19 @@ export function ReportWorkspace({ id, onBack, onEdit, onAuthLost }: Props) {
           {report.description && <p className="resource__desc">{report.description}</p>}
         </div>
         <div className="resource__actions">
-          <button className="btn btn--ghost" onClick={() => onEdit(report.id)}>
-            EDIT SQL
-          </button>
+          <Can level="manage">
+            <button className="btn btn--ghost" onClick={() => onEdit(report.id)}>
+              EDIT SQL
+            </button>
+          </Can>
           <a className="btn btn--ghost" href={exportCsvUrl(report.id)}>
             DOWNLOAD CSV
           </a>
-          <button className="btn btn--primary" onClick={() => void runNow()}>
-            RUN EXPORT NOW
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => void runNow()}>
+              RUN EXPORT NOW
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -324,9 +329,11 @@ function ChartBuilder({
         <button className="btn btn--ghost" onClick={() => void preview()}>
           PREVIEW
         </button>
-        <button className="btn btn--primary" onClick={() => void save()} disabled={!svg}>
-          SAVE + EMBED
-        </button>
+        <Can>
+          <button className="btn btn--primary" onClick={() => void save()} disabled={!svg}>
+            SAVE + EMBED
+          </button>
+        </Can>
       </div>
 
       {error && <div className="resource__error mono">{error}</div>}

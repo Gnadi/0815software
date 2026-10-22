@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AccessProvider, type AccessLevel } from './access';
 import { api, ApiError } from './api';
 import { DepartmentsView } from './components/DepartmentsView';
 import { DirectoryView } from './components/DirectoryView';
@@ -24,11 +25,12 @@ const NAV: { view: View; label: string }[] = [
 export function App() {
   const [ready, setReady] = useState(false);
   const [loggedOut, setLoggedOut] = useState(false);
+  const [access, setAccess] = useState<AccessLevel>('view');
   const [view, setView] = useState<View>({ name: 'directory' });
 
   const load = useCallback(async () => {
     try {
-      await api.me();
+      setAccess((await api.me()).access);
       setReady(true);
       setLoggedOut(false);
     } catch (err) {
@@ -58,49 +60,51 @@ export function App() {
   const openEmployee = (id: number) => setView({ name: 'employee', id });
 
   return (
-    <div className="shell">
-      <aside className="sidebar">
-        <div className="sidebar__brand mono">
-          <span className="sidebar__num">MOD-05</span>
-          <span>EMPLOYEE DIRECTORY</span>
-        </div>
-        <nav className="sidebar__nav">
-          {NAV.map(({ view: target, label }) => (
+    <AccessProvider level={access}>
+      <div className="shell">
+        <aside className="sidebar">
+          <div className="sidebar__brand mono">
+            <span className="sidebar__num">MOD-05</span>
+            <span>EMPLOYEE DIRECTORY</span>
+          </div>
+          <nav className="sidebar__nav">
+            {NAV.map(({ view: target, label }) => (
+              <button
+                key={target.name}
+                className={`sidebar__item mono ${target.name === activeNav ? 'is-active' : ''}`}
+                onClick={() => setView(target)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar__foot mono">
+            <span>0815SOFTWARE · MIT</span>
             <button
-              key={target.name}
-              className={`sidebar__item mono ${target.name === activeNav ? 'is-active' : ''}`}
-              onClick={() => setView(target)}
+              className="sidebar__logout mono"
+              onClick={() => {
+                void api.logout().then(onAuthLost);
+              }}
             >
-              {label}
+              LOG OUT ↗
             </button>
-          ))}
-        </nav>
-        <div className="sidebar__foot mono">
-          <span>0815SOFTWARE · MIT</span>
-          <button
-            className="sidebar__logout mono"
-            onClick={() => {
-              void api.logout().then(onAuthLost);
-            }}
-          >
-            LOG OUT ↗
-          </button>
-        </div>
-      </aside>
-      <main className="main">
-        {view.name === 'directory' && <DirectoryView onOpen={openEmployee} onAuthLost={onAuthLost} />}
-        {view.name === 'employee' && (
-          <EmployeeDetailView
-            id={view.id}
-            onBack={() => setView({ name: 'directory' })}
-            onOpen={openEmployee}
-            onAuthLost={onAuthLost}
-          />
-        )}
-        {view.name === 'orgchart' && <OrgChartView onOpen={openEmployee} onAuthLost={onAuthLost} />}
-        {view.name === 'departments' && <DepartmentsView onAuthLost={onAuthLost} />}
-        {view.name === 'onboarding' && <OnboardingView onOpen={openEmployee} onAuthLost={onAuthLost} />}
-      </main>
-    </div>
+          </div>
+        </aside>
+        <main className="main">
+          {view.name === 'directory' && <DirectoryView onOpen={openEmployee} onAuthLost={onAuthLost} />}
+          {view.name === 'employee' && (
+            <EmployeeDetailView
+              id={view.id}
+              onBack={() => setView({ name: 'directory' })}
+              onOpen={openEmployee}
+              onAuthLost={onAuthLost}
+            />
+          )}
+          {view.name === 'orgchart' && <OrgChartView onOpen={openEmployee} onAuthLost={onAuthLost} />}
+          {view.name === 'departments' && <DepartmentsView onAuthLost={onAuthLost} />}
+          {view.name === 'onboarding' && <OnboardingView onOpen={openEmployee} onAuthLost={onAuthLost} />}
+        </main>
+      </div>
+    </AccessProvider>
   );
 }

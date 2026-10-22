@@ -108,6 +108,18 @@ foreign tenant) · **409** (conflict).
 | `POST /api/api-keys` | `apikey:write` | Mint a key — secret returned **once**. |
 | `DELETE /api/api-keys/:id` | `apikey:write` | Revoke a key. |
 
+## Module permissions
+
+Besides its own closed catalogue (`GET /api/permissions`), a role may carry
+**module permissions** — `module:<slug>:<level>` with `<level>` one of `view`,
+`edit`, `manage`, and `<slug>` a module's registry slug or `*`. PS-01 never
+enforces them and knows no module by name; it stores them, returns them on
+`tokens/verify`, and applies its grant caps to them with the modules'
+implication (`manage` ⊃ `edit` ⊃ `view`, `*` covers every slug,
+`platform:admin` covers everything). The grammar is
+[`shared/module-access.ts`](./shared/module-access.ts); the contract the modules
+build on it is [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
+
 ## Consumed by
 
 Business Modules, over this API. Identity depends on no Business Module.

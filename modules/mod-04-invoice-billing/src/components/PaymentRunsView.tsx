@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { PaymentRunDetail, PaymentRunRow, RunStatus } from '../../shared/types';
 import { api, ApiError, paymentRunXmlUrl } from '../api';
 import { fmtDateTime, fmtEur } from '../format';
+import { Can } from '../access';
 
 /**
  * PAYMENT RUNS — the files, and what happened to each of them.
@@ -209,60 +210,68 @@ export function PaymentRunDetailView({ id, onBack, onAuthLost }: DetailProps) {
             DOWNLOAD XML ↓
           </a>
           {run.status === 'created' && run.banking_configured && (
-            <button
-              className="btn btn--primary"
-              disabled={busy}
-              title="Send this file to the bank over EBICS, signed"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Send ${run.message_id} to the bank? ${run.item_count} transfer(s), ` +
-                      `${fmtEur(run.total_cents)}. This authorises the payment — it cannot be taken back here.`,
-                  )
-                ) {
-                  void act(() => api.submitRun(run.id), 'Could not send the run to the bank');
-                }
-              }}
-            >
-              SEND VIA EBICS →
-            </button>
+            <Can level="manage">
+              <button
+                className="btn btn--primary"
+                disabled={busy}
+                title="Send this file to the bank over EBICS, signed"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Send ${run.message_id} to the bank? ${run.item_count} transfer(s), ` +
+                        `${fmtEur(run.total_cents)}. This authorises the payment — it cannot be taken back here.`,
+                    )
+                  ) {
+                    void act(() => api.submitRun(run.id), 'Could not send the run to the bank');
+                  }
+                }}
+              >
+                SEND VIA EBICS →
+              </button>
+            </Can>
           )}
           {run.status === 'submitted' && (
-            <button
-              className="btn"
-              disabled={busy}
-              title="Ask the bank service for this order’s current status"
-              onClick={() => void act(() => api.refreshRun(run.id), 'Could not refresh the bank status')}
-            >
-              REFRESH STATUS
-            </button>
-          )}
-          {(run.status === 'created' || run.status === 'submitted') && (
-            <>
+            <Can>
               <button
                 className="btn"
                 disabled={busy}
-                title="The bank has executed this file — settle every bill in it"
-                onClick={() => void act(() => api.markRunExecuted(run.id), 'Could not confirm the run')}
+                title="Ask the bank service for this order’s current status"
+                onClick={() => void act(() => api.refreshRun(run.id), 'Could not refresh the bank status')}
               >
-                MARK EXECUTED
+                REFRESH STATUS
               </button>
-              {run.status === 'created' && (
+            </Can>
+          )}
+          {(run.status === 'created' || run.status === 'submitted') && (
+            <>
+              <Can level="manage">
                 <button
-                  className="btn btn--ghost"
+                  className="btn"
                   disabled={busy}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        'Discard this run? Its bills go back to open, and the file must not be uploaded.',
-                      )
-                    ) {
-                      void act(() => api.discardRun(run.id), 'Could not discard the run');
-                    }
-                  }}
+                  title="The bank has executed this file — settle every bill in it"
+                  onClick={() => void act(() => api.markRunExecuted(run.id), 'Could not confirm the run')}
                 >
-                  DISCARD
+                  MARK EXECUTED
                 </button>
+              </Can>
+              {run.status === 'created' && (
+                <Can level="manage">
+                  <button
+                    className="btn btn--ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          'Discard this run? Its bills go back to open, and the file must not be uploaded.',
+                        )
+                      ) {
+                        void act(() => api.discardRun(run.id), 'Could not discard the run');
+                      }
+                    }}
+                  >
+                    DISCARD
+                  </button>
+                </Can>
               )}
             </>
           )}

@@ -13,6 +13,7 @@ import {
   type Schedule,
 } from '../shared/types.js';
 import {
+  accessOf,
   actorOf,
   checkCredentials,
   clearedCookie,
@@ -23,7 +24,7 @@ import {
   verifyEmbedToken,
   type AuthConfig,
 } from './auth.js';
-import { createHandoff, isRedeemPath, safeServiceTokenEqual } from './handoff.js';
+import { createHandoff, isRedeemPath, requestedAccess, safeServiceTokenEqual } from './handoff.js';
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { renderChartSvg } from './charts.js';
@@ -275,8 +276,11 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
-    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor)));
-    res.json({ ok: true, username: actor });
+    // The level rides in the token next to the actor: the local admin manages,
+    // a PS-01 identity gets what its module permissions grant.
+    const access = viaSso !== null && viaSso.ok ? viaSso.access : 'manage';
+    res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
+    res.json({ ok: true, username: actor, access });
   });
 
   // ── Public chart embed: HMAC-signed per chart id, NO session ─────────
@@ -358,18 +362,22 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   if (handoff) {
     app.post('/api/session/handoff', (req, res) => {
       requireServiceToken(req);
-      const { actor, path } = body(req);
+      const { actor, path, access } = body(req);
+      const level = requestedAccess(access);
       if (typeof actor !== 'string' || actor.trim() === '') throw new DomainError(422, 'actor is required');
       const target = path === undefined ? '/' : path;
       if (!isRedeemPath(target)) throw new DomainError(422, 'path must be module-relative');
-      res.json(handoff.issue(actor.trim(), target));
+      if (level === null) throw new DomainError(422, 'access must be view, edit or manage');
+      res.json(handoff.issue(actor.trim(), target, Date.now(), level));
     });
 
     app.post('/api/session/issue', (req, res) => {
       requireServiceToken(req);
-      const { actor } = body(req);
+      const { actor, access } = body(req);
+      const level = requestedAccess(access);
       if (typeof actor !== 'string' || actor.trim() === '') throw new DomainError(422, 'actor is required');
-      res.json(handoff.issueSession(actor.trim()));
+      if (level === null) throw new DomainError(422, 'access must be view, edit or manage');
+      res.json(handoff.issueSession(actor.trim(), Date.now(), level));
     });
 
     // The browser lands here from an iframe `src`. Deliberately NOT under
@@ -397,7 +405,7 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: actorOf(res, auth) });
+    res.json({ username: actorOf(res, auth), access: accessOf(res) });
   });
 
   // ── Source schema + policy (what authors write queries against) ──────

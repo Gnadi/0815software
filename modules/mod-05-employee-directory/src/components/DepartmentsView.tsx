@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { DepartmentRow } from '../../shared/types';
 import { api, ApiError } from '../api';
+import { Can } from '../access';
 
 interface Props {
   onAuthLost: () => void;
@@ -52,9 +53,11 @@ export function DepartmentsView({ onAuthLost }: Props) {
           <p className="resource__desc">The department tree — deletable only while empty.</p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={() => setModal({ editing: null })}>
-            + ADD DEPARTMENT
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setModal({ editing: null })}>
+              + ADD DEPARTMENT
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -84,16 +87,20 @@ export function DepartmentsView({ onAuthLost }: Props) {
                 <td className="mono table__id">{dept.child_count}</td>
                 <td>
                   <div className="table__rowactions">
-                    <button className="rowbtn mono" onClick={() => setModal({ editing: dept })}>
-                      EDIT
-                    </button>
-                    <button
-                      className="rowbtn rowbtn--danger mono"
-                      disabled={dept.employee_count > 0 || dept.child_count > 0}
-                      onClick={() => void remove(dept)}
-                    >
-                      DELETE
-                    </button>
+                    <Can>
+                      <button className="rowbtn mono" onClick={() => setModal({ editing: dept })}>
+                        EDIT
+                      </button>
+                    </Can>
+                    <Can>
+                      <button
+                        className="rowbtn rowbtn--danger mono"
+                        disabled={dept.employee_count > 0 || dept.child_count > 0}
+                        onClick={() => void remove(dept)}
+                      >
+                        DELETE
+                      </button>
+                    </Can>
                   </div>
                 </td>
               </tr>

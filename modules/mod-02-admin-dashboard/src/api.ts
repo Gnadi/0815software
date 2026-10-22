@@ -1,3 +1,4 @@
+import type { AccessLevel } from './access';
 import type { ResourceDef } from '../shared/resources';
 
 export type Row = { id: number } & Record<string, string | number | null>;
@@ -12,6 +13,8 @@ export interface ListResponse {
 export interface ConfigResponse {
   resources: ResourceDef[];
   username: string;
+  /** What the signed-in person may do here (`view` / `edit` / `manage`). */
+  access: AccessLevel;
 }
 
 export interface FieldError {

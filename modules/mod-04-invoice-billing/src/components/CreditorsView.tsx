@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { CreditorRow, FieldError } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtEur } from '../format';
+import { Can } from '../access';
 
 /**
  * CREDITORS — the people we pay, and the accounts we pay them into.
@@ -103,9 +104,11 @@ export function CreditorsView({ onAuthLost }: Props) {
           </p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={() => setForm({ ...EMPTY })}>
-            + NEW CREDITOR
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setForm({ ...EMPTY })}>
+              + NEW CREDITOR
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -143,28 +146,32 @@ export function CreditorsView({ onAuthLost }: Props) {
                 <td className="table__num">{fmtEur(c.open_cents)}</td>
                 <td>
                   <div className="table__rowactions">
-                    <button
-                      className="rowbtn mono"
-                      onClick={() =>
-                        setForm({
-                          id: c.id,
-                          name: c.name,
-                          iban: c.iban,
-                          bic: c.bic ?? '',
-                          note: c.note ?? '',
-                        })
-                      }
-                    >
-                      EDIT
-                    </button>
-                    <button
-                      className="rowbtn rowbtn--danger mono"
-                      disabled={c.bill_count > 0}
-                      title={c.bill_count > 0 ? 'Creditors with bills cannot be deleted' : undefined}
-                      onClick={() => void remove(c)}
-                    >
-                      DELETE
-                    </button>
+                    <Can>
+                      <button
+                        className="rowbtn mono"
+                        onClick={() =>
+                          setForm({
+                            id: c.id,
+                            name: c.name,
+                            iban: c.iban,
+                            bic: c.bic ?? '',
+                            note: c.note ?? '',
+                          })
+                        }
+                      >
+                        EDIT
+                      </button>
+                    </Can>
+                    <Can>
+                      <button
+                        className="rowbtn rowbtn--danger mono"
+                        disabled={c.bill_count > 0}
+                        title={c.bill_count > 0 ? 'Creditors with bills cannot be deleted' : undefined}
+                        onClick={() => void remove(c)}
+                      >
+                        DELETE
+                      </button>
+                    </Can>
                   </div>
                 </td>
               </tr>

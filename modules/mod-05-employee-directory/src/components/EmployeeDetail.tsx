@@ -3,6 +3,7 @@ import type { EmployeeDetail } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDate } from '../format';
 import { EmployeeModal } from './EmployeeModal';
+import { Can } from '../access';
 
 interface Props {
   id: number;
@@ -70,24 +71,30 @@ export function EmployeeDetailView({ id, onBack, onOpen, onAuthLost }: Props) {
           </p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--ghost" onClick={() => setEditing(true)}>
-            EDIT
-          </button>
+          <Can>
+            <button className="btn btn--ghost" onClick={() => setEditing(true)}>
+              EDIT
+            </button>
+          </Can>
           {offboarded ? (
-            <button className="btn btn--primary" onClick={() => void run(() => api.reactivate(employee.id))}>
-              REACTIVATE
-            </button>
+            <Can>
+              <button className="btn btn--primary" onClick={() => void run(() => api.reactivate(employee.id))}>
+                REACTIVATE
+              </button>
+            </Can>
           ) : (
-            <button
-              className="btn btn--ghost"
-              onClick={() => {
-                if (window.confirm(`Offboard ${employee.name}? The record is kept; they leave the org chart.`)) {
-                  void run(() => api.offboard(employee.id));
-                }
-              }}
-            >
-              OFFBOARD
-            </button>
+            <Can>
+              <button
+                className="btn btn--ghost"
+                onClick={() => {
+                  if (window.confirm(`Offboard ${employee.name}? The record is kept; they leave the org chart.`)) {
+                    void run(() => api.offboard(employee.id));
+                  }
+                }}
+              >
+                OFFBOARD
+              </button>
+            </Can>
           )}
         </div>
       </div>

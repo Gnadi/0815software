@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { OnboardingEntry, OnboardingFlags, OnboardingLists } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDate, fmtRelativeDays } from '../format';
+import { useCan } from '../access';
 
 interface Props {
   onOpen: (id: number) => void;
@@ -17,6 +18,8 @@ const FLAGS: { key: keyof OnboardingFlags; label: string }[] = [
 export function OnboardingView({ onOpen, onAuthLost }: Props) {
   const [lists, setLists] = useState<OnboardingLists | null>(null);
   const [error, setError] = useState('');
+  // Ticking a step is a write; someone who can only view sees the checklist read-only.
+  const canEdit = useCan();
 
   const load = useCallback(async () => {
     try {
@@ -76,6 +79,7 @@ export function OnboardingView({ onOpen, onAuthLost }: Props) {
                       <input
                         type="checkbox"
                         checked={entry.onboarding[key]}
+                        disabled={!canEdit}
                         onChange={() => void toggle(entry, key)}
                       />
                       {label}

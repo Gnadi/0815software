@@ -484,7 +484,7 @@ describe('opening a module inside the Workspace', () => {
     });
     const cookie = await signIn(app);
     await request(app).get('/api/embed/mod-13-offers').set('Cookie', cookie).expect(200);
-    expect(bodies).toEqual([{ actor: 'admin', path: '/' }]);
+    expect(bodies).toEqual([{ actor: 'admin', path: '/', access: 'manage' }]);
   });
 
   it('refuses to frame a module that is not embeddable, or has no public URL', async () => {
@@ -883,7 +883,13 @@ describe('the activity feed', () => {
             : [];
         },
       },
-      verifyLogin: async () => ({ ok: true as const, actor: 'ada@example', identityToken: 'ps01-token' }),
+      verifyLogin: async () => ({
+        ok: true as const,
+        actor: 'ada@example',
+        access: 'manage' as const,
+        identityToken: 'ps01-token',
+        permissions: ['platform:admin'],
+      }),
     });
 
     const login = await request(app).post('/api/login').send({ username: 'ada@example', password: 'x' }).expect(200);
@@ -938,5 +944,77 @@ describe('peer timeouts are bounded', () => {
     // Two hung peers, fetched concurrently: the board waits one timeout, not
     // two. This is why `summaries` fans out rather than looping.
     expect(Date.now() - started).toBeLessThan(600);
+  });
+});
+
+describe('signing someone into another module at the level PS-01 grants there', () => {
+  /** A shell with SSO on, where PS-01 said this person holds `permissions`. */
+  function asPerson(permissions: string[], fetchImpl: FetchLike) {
+    const client = createPeerClient({ peers: PEERS, serviceToken: TOKEN, timeoutMs: 200, fetch: fetchImpl });
+    return createApp({
+      db,
+      auth,
+      peers: client,
+      sessions: createModuleSessions(client),
+      loginMode: { sso: true, org: 'acme' },
+      verifyLogin: async () => ({
+        ok: true as const,
+        actor: 'ada@example',
+        access: 'view' as const,
+        identityToken: 'ps01-token',
+        permissions,
+      }),
+    });
+  }
+
+  const recording = (bodies: unknown[]): FetchLike => async (input, init) => {
+    const path = new URL(input).pathname;
+    if (path === '/api/session/handoff' || path === '/api/session/issue') {
+      bodies.push({ route: path, ...(JSON.parse(String(init?.body)) as object) });
+      return new Response(
+        JSON.stringify({ redeem_path: '/session/handoff?ticket=abc', cookie_name: 'mod04_session', token: 't' }),
+        { status: 200 },
+      );
+    }
+    if (path === '/api/invoices/import-offer') return new Response(JSON.stringify({ id: 1 }), { status: 201 });
+    return new Response('{}', { status: 404 });
+  };
+
+  async function login(app: Express): Promise<string> {
+    const res = await request(app).post('/api/login').send({ username: 'ada@example', password: 'x' }).expect(200);
+    return res.headers['set-cookie']![0]!.split(';')[0]!;
+  }
+
+  it('a viewer of the board gets edit in Offers when PS-01 grants edit there', async () => {
+    const bodies: unknown[] = [];
+    const app = asPerson(['module:workspace:view', 'module:offers:edit'], recording(bodies));
+    const cookie = await login(app);
+    await request(app).get('/api/embed/mod-13-offers').set('Cookie', cookie).expect(200);
+    expect(bodies).toEqual([{ route: '/api/session/handoff', actor: 'ada@example', path: '/', access: 'edit' }]);
+  });
+
+  it('a module PS-01 grants nothing on is refused, not opened at a default', async () => {
+    const bodies: unknown[] = [];
+    const app = asPerson(['module:workspace:view', 'module:offers:edit'], recording(bodies));
+    const cookie = await login(app);
+    const res = await request(app).get('/api/embed/mod-04-invoice-billing').set('Cookie', cookie).expect(409);
+    expect(res.body.error).toMatch(/no access to this module/);
+    expect(bodies).toEqual([]);
+  });
+
+  it('an action runs in the target at the target’s level, never the shell’s', async () => {
+    const bodies: unknown[] = [];
+    const app = asPerson(['module:workspace:view', 'module:invoice-billing:edit'], recording(bodies));
+    const cookie = await login(app);
+    await request(app).post('/api/actions/bill-offer').set('Cookie', cookie).send({ item_id: 'AN-1' });
+    expect(bodies).toContainEqual({ route: '/api/session/issue', actor: 'ada@example', access: 'edit' });
+  });
+
+  it('platform:admin still opens every module at manage', async () => {
+    const bodies: unknown[] = [];
+    const app = asPerson(['platform:admin'], recording(bodies));
+    const cookie = await login(app);
+    await request(app).get('/api/embed/mod-04-invoice-billing').set('Cookie', cookie).expect(200);
+    expect(bodies).toEqual([{ route: '/api/session/handoff', actor: 'ada@example', path: '/', access: 'manage' }]);
   });
 });

@@ -3,6 +3,7 @@ import type { OfferDetail as Detail } from '../../shared/types';
 import { api, ApiError, offerPdfUrl } from '../api';
 import { fmtDate, fmtDateTime, fmtEur, fmtQty } from '../format';
 import { StatusBadge } from './StatusBadge';
+import { Can } from '../access';
 
 interface Props {
   id: number;
@@ -106,66 +107,80 @@ export function OfferDetail({ id, onBack, onEdit, onOpen, onAuthLost }: Props) {
           </a>
           {isDraft && (
             <>
-              <button className="btn btn--ghost" onClick={() => onEdit(offer.id)}>
-                EDIT
+              <Can>
+                <button className="btn btn--ghost" onClick={() => onEdit(offer.id)}>
+                  EDIT
+                </button>
+              </Can>
+              <Can>
+                <button
+                  className="btn btn--ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    if (window.confirm('Delete this draft? Drafts have no number, so nothing is lost.')) {
+                      void run(() => api.deleteDraft(offer.id), onBack);
+                    }
+                  }}
+                >
+                  DELETE
+                </button>
+              </Can>
+              <Can>
+                <button className="btn btn--primary" disabled={busy} onClick={() => void run(() => api.send(offer.id))}>
+                  SEND — ASSIGN NUMBER →
+                </button>
+              </Can>
+            </>
+          )}
+          {canWithdraw && (
+            <Can>
+              <button className="btn btn--ghost" disabled={busy} onClick={() => setWithdrawing(true)}>
+                WITHDRAW
               </button>
+            </Can>
+          )}
+          {canRevise && (
+            <Can>
               <button
                 className="btn btn--ghost"
                 disabled={busy}
                 onClick={() => {
-                  if (window.confirm('Delete this draft? Drafts have no number, so nothing is lost.')) {
-                    void run(() => api.deleteDraft(offer.id), onBack);
-                  }
+                  setBusy(true);
+                  setActionError('');
+                  api
+                    .revise(offer.id)
+                    .then((rev) => onOpen(rev.id))
+                    .catch((err: unknown) => {
+                      if (err instanceof ApiError && err.status === 401) onAuthLost();
+                      else setActionError(err instanceof Error ? err.message : 'Request failed');
+                    })
+                    .finally(() => setBusy(false));
                 }}
               >
-                DELETE
+                CREATE REVISION
               </button>
-              <button className="btn btn--primary" disabled={busy} onClick={() => void run(() => api.send(offer.id))}>
-                SEND — ASSIGN NUMBER →
-              </button>
-            </>
-          )}
-          {canWithdraw && (
-            <button className="btn btn--ghost" disabled={busy} onClick={() => setWithdrawing(true)}>
-              WITHDRAW
-            </button>
-          )}
-          {canRevise && (
-            <button
-              className="btn btn--ghost"
-              disabled={busy}
-              onClick={() => {
-                setBusy(true);
-                setActionError('');
-                api
-                  .revise(offer.id)
-                  .then((rev) => onOpen(rev.id))
-                  .catch((err: unknown) => {
-                    if (err instanceof ApiError && err.status === 401) onAuthLost();
-                    else setActionError(err instanceof Error ? err.message : 'Request failed');
-                  })
-                  .finally(() => setBusy(false));
-              }}
-            >
-              CREATE REVISION
-            </button>
+            </Can>
           )}
           {canDecide && (
             <>
-              <button
-                className="btn btn--danger"
-                disabled={busy}
-                onClick={() => void run(() => api.reject(offer.id, 'Recorded by staff'))}
-              >
-                MARK REJECTED
-              </button>
-              <button
-                className="btn btn--primary"
-                disabled={busy}
-                onClick={() => void run(() => api.accept(offer.id, 'Recorded by staff'))}
-              >
-                MARK ACCEPTED
-              </button>
+              <Can>
+                <button
+                  className="btn btn--danger"
+                  disabled={busy}
+                  onClick={() => void run(() => api.reject(offer.id, 'Recorded by staff'))}
+                >
+                  MARK REJECTED
+                </button>
+              </Can>
+              <Can>
+                <button
+                  className="btn btn--primary"
+                  disabled={busy}
+                  onClick={() => void run(() => api.accept(offer.id, 'Recorded by staff'))}
+                >
+                  MARK ACCEPTED
+                </button>
+              </Can>
             </>
           )}
         </div>

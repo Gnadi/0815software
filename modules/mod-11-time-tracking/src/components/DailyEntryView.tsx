@@ -2,8 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DaySheet, Employee, Project } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { addDays, fmtEur, fmtHm } from '../format';
+import { Can, useCan } from '../access';
 
 interface Props {
+  /**
+   * The employee the signed-in identity is (`GET /api/me`), or null. Below
+   * `manage` the server lets a person write only their own time
+   * (server/ownership.ts), so the sheet is locked to it.
+   */
+  ownEmployeeId: number | null;
   onAuthLost: () => void;
 }
 
@@ -52,7 +59,10 @@ function parseMinutes(raw: string): number | null {
 
 const DRAFT_KEY = 'mod11.dailyDraft';
 
-export function DailyEntryView({ onAuthLost }: Props) {
+export function DailyEntryView({ ownEmployeeId, onAuthLost }: Props) {
+  const canEdit = useCan('edit');
+  const canManage = useCan('manage');
+  const lockedToSelf = canEdit && !canManage;
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [employeeId, setEmployeeId] = useState<number | null>(null);
@@ -72,13 +82,14 @@ export function DailyEntryView({ onAuthLost }: Props) {
         ]);
         setEmployees(emps);
         setProjects(projs);
-        if (emps.length > 0) setEmployeeId((cur) => cur ?? emps[0]!.id);
+        if (lockedToSelf) setEmployeeId(ownEmployeeId);
+        else if (emps.length > 0) setEmployeeId((cur) => cur ?? ownEmployeeId ?? emps[0]!.id);
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) onAuthLost();
         else setError(err instanceof Error ? err.message : 'Failed to load');
       }
     })();
-  }, [onAuthLost]);
+  }, [onAuthLost, lockedToSelf, ownEmployeeId]);
 
   // OFFLINE TOUCH: restore an in-progress row draft from localStorage so
   // an accidental reload never loses what you were typing.
@@ -88,7 +99,7 @@ export function DailyEntryView({ onAuthLost }: Props) {
       if (saved) {
         const parsed = JSON.parse(saved) as { employeeId?: number; date?: string; row?: RowDraft };
         if (parsed.row) setRow(parsed.row);
-        if (parsed.employeeId) setEmployeeId(parsed.employeeId);
+        if (parsed.employeeId && !lockedToSelf) setEmployeeId(parsed.employeeId);
         if (parsed.date) setDate(parsed.date);
       }
     } catch {
@@ -177,11 +188,15 @@ export function DailyEntryView({ onAuthLost }: Props) {
       </div>
 
       {error && <div className="resource__error mono">{error}</div>}
+      {lockedToSelf && ownEmployeeId === null && (
+        <div className="resource__error mono">NO EMPLOYEE RECORD CARRIES YOUR EMAIL — ASK A MANAGER TO ADD IT</div>
+      )}
 
       <div className="toolbar">
         <select
           className="field__input toolbar__filter"
           value={employeeId ?? ''}
+          disabled={lockedToSelf}
           onChange={(e) => setEmployeeId(Number(e.target.value))}
         >
           {employees.map((emp) => (
@@ -247,14 +262,16 @@ export function DailyEntryView({ onAuthLost }: Props) {
                 <td className="mono">{entry.billable ? fmtEur(entry.billable_cents) : '—'}</td>
                 <td className="cell-note">{entry.note ?? ''}</td>
                 <td>
-                  <button
-                    className="rowbtn rowbtn--danger"
-                    onClick={() => void deleteRow(entry.id)}
-                    disabled={entry.locked}
-                    title={entry.locked ? 'Approved week — locked' : ''}
-                  >
-                    DEL
-                  </button>
+                  <Can>
+                    <button
+                      className="rowbtn rowbtn--danger"
+                      onClick={() => void deleteRow(entry.id)}
+                      disabled={entry.locked}
+                      title={entry.locked ? 'Approved week — locked' : ''}
+                    >
+                      DEL
+                    </button>
+                  </Can>
                 </td>
               </tr>
             ))}
@@ -266,79 +283,81 @@ export function DailyEntryView({ onAuthLost }: Props) {
               </tr>
             )}
             {sheet && !sheet.locked && (
-              <tr className="addrow">
-                <td>
-                  <select
-                    className="field__input"
-                    value={row.project_id}
-                    onChange={(e) => setRow({ ...row, project_id: e.target.value, task_id: '' })}
-                  >
-                    <option value="">— project —</option>
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td>
-                  <select
-                    className="field__input"
-                    value={row.task_id}
-                    onChange={(e) => setRow({ ...row, task_id: e.target.value })}
-                    disabled={!selectedProject || selectedProject.tasks.length === 0}
-                  >
-                    <option value="">— none —</option>
-                    {selectedProject?.tasks
-                      .filter((t) => t.active)
-                      .map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
+              <Can>
+                <tr className="addrow">
+                  <td>
+                    <select
+                      className="field__input"
+                      value={row.project_id}
+                      onChange={(e) => setRow({ ...row, project_id: e.target.value, task_id: '' })}
+                    >
+                      <option value="">— project —</option>
+                      {projects.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
                         </option>
                       ))}
-                  </select>
-                </td>
-                <td>
-                  <input
-                    className="field__input field__input--narrow mono"
-                    placeholder="1:30"
-                    value={row.hours}
-                    onChange={(e) => setRow({ ...row, hours: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void addRow();
-                    }}
-                  />
-                </td>
-                <td>
-                  <button
-                    className={`toggle mono ${effectiveBillable ? 'is-on' : ''}`}
-                    onClick={() => setRow({ ...row, billable: !effectiveBillable })}
-                  >
-                    {effectiveBillable ? 'BILLABLE' : 'NON-BILL'}
-                  </button>
-                </td>
-                <td className="mono">
-                  {parsedMinutes !== null && effectiveBillable && selectedProject
-                    ? fmtEur(Math.round((parsedMinutes * selectedProject.rate_cents) / 60))
-                    : '—'}
-                </td>
-                <td>
-                  <input
-                    className="field__input"
-                    placeholder="note"
-                    value={row.note}
-                    onChange={(e) => setRow({ ...row, note: e.target.value })}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void addRow();
-                    }}
-                  />
-                </td>
-                <td>
-                  <button className="btn btn--primary btn--sm" onClick={() => void addRow()} disabled={!canAdd}>
-                    ADD
-                  </button>
-                </td>
-              </tr>
+                    </select>
+                  </td>
+                  <td>
+                    <select
+                      className="field__input"
+                      value={row.task_id}
+                      onChange={(e) => setRow({ ...row, task_id: e.target.value })}
+                      disabled={!selectedProject || selectedProject.tasks.length === 0}
+                    >
+                      <option value="">— none —</option>
+                      {selectedProject?.tasks
+                        .filter((t) => t.active)
+                        .map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                    </select>
+                  </td>
+                  <td>
+                    <input
+                      className="field__input field__input--narrow mono"
+                      placeholder="1:30"
+                      value={row.hours}
+                      onChange={(e) => setRow({ ...row, hours: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void addRow();
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <button
+                      className={`toggle mono ${effectiveBillable ? 'is-on' : ''}`}
+                      onClick={() => setRow({ ...row, billable: !effectiveBillable })}
+                    >
+                      {effectiveBillable ? 'BILLABLE' : 'NON-BILL'}
+                    </button>
+                  </td>
+                  <td className="mono">
+                    {parsedMinutes !== null && effectiveBillable && selectedProject
+                      ? fmtEur(Math.round((parsedMinutes * selectedProject.rate_cents) / 60))
+                      : '—'}
+                  </td>
+                  <td>
+                    <input
+                      className="field__input"
+                      placeholder="note"
+                      value={row.note}
+                      onChange={(e) => setRow({ ...row, note: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void addRow();
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <button className="btn btn--primary btn--sm" onClick={() => void addRow()} disabled={!canAdd}>
+                      ADD
+                    </button>
+                  </td>
+                </tr>
+              </Can>
             )}
           </tbody>
         </table>

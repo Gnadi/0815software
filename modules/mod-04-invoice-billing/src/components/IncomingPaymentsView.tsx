@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ReceivableProposal, ReceivableSuggestions, UnmatchedReceivable } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtEur } from '../format';
+import { Can } from '../access';
 
 /**
  * INCOMING PAYMENTS — money that arrived, against invoices that are open.
@@ -204,9 +205,11 @@ export function IncomingPaymentsView({ onAuthLost }: { onAuthLost: () => void })
               ))}
             </tbody>
           </table>
-          <button type="button" onClick={() => void confirm()} disabled={busy || chosen.size === 0}>
-            {busy ? 'Recording…' : `Record ${chosen.size} payment${chosen.size === 1 ? '' : 's'}`}
-          </button>
+          <Can>
+            <button type="button" onClick={() => void confirm()} disabled={busy || chosen.size === 0}>
+              {busy ? 'Recording…' : `Record ${chosen.size} payment${chosen.size === 1 ? '' : 's'}`}
+            </button>
+          </Can>
         </>
       )}
 

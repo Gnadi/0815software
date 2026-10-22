@@ -1,3 +1,4 @@
+import type { AccessLevel } from '@0815software/platform-clients';
 import type { PeerClient } from './peers.js';
 
 /**
@@ -72,7 +73,7 @@ export interface ModuleSessions {
    * A session cookie for this person at this module, minting one if needed.
    * Never throws — a peer that will not issue one is a problem string.
    */
-  cookieFor(actor: string, moduleId: string): Promise<{ ok: true; cookie: string } | { ok: false; problem: string }>;
+  cookieFor(actor: string, moduleId: string, access: AccessLevel): Promise<{ ok: true; cookie: string } | { ok: false; problem: string }>;
   /** Forget everything held for one person (used on logout). */
   forget(actor: string): void;
   /** Held session count, for tests and for the prune assertions. */
@@ -97,8 +98,12 @@ export function createModuleSessions(peers: PeerClient, now: () => number = Date
    * module `b c` would produce the same key, and `forget('ada')` would then
    * also drop the other person's sessions. NUL cannot occur in an email or a
    * module id, so the join is unambiguous.
+   *
+   * The level is part of the key: a session minted at `view` must never be
+   * replayed for someone who now holds `edit`, or the other way round.
    */
-  const key = (actor: string, moduleId: string): string => `${actor}\u0000${moduleId}`;
+  const key = (actor: string, moduleId: string, access: AccessLevel): string =>
+    `${actor}\u0000${moduleId}\u0000${access}`;
 
   const prune = (at: number): void => {
     for (const [k, session] of held) if (session.expiresAt <= at) held.delete(k);
@@ -125,19 +130,19 @@ export function createModuleSessions(peers: PeerClient, now: () => number = Date
       return identity.token;
     },
 
-    async cookieFor(actor: string, moduleId: string) {
+    async cookieFor(actor: string, moduleId: string, access: AccessLevel) {
       const at = now();
       prune(at);
 
-      const existing = held.get(key(actor, moduleId));
+      const existing = held.get(key(actor, moduleId, access));
       if (existing && existing.expiresAt > at + REFRESH_MARGIN_MS) {
         return { ok: true as const, cookie: existing.cookie };
       }
 
-      const issued = await peers.issueSession(moduleId, actor);
+      const issued = await peers.issueSession(moduleId, actor, access);
       if (!issued.ok) return issued;
 
-      held.set(key(actor, moduleId), { cookie: issued.cookie, expiresAt: at + MAX_IDLE_MS });
+      held.set(key(actor, moduleId, access), { cookie: issued.cookie, expiresAt: at + MAX_IDLE_MS });
       return { ok: true as const, cookie: issued.cookie };
     },
 

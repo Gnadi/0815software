@@ -3,6 +3,7 @@ import type { StockRow, Warehouse } from '../../shared/types';
 import { api, ApiError, stockExportUrl } from '../api';
 import { fmtQty } from '../format';
 import { MovementModal, type MovementMode } from './MovementModal';
+import { Can } from '../access';
 
 interface Props {
   warehouses: Warehouse[];
@@ -52,15 +53,21 @@ export function StockOverview({ warehouses, onOpenProduct, onAuthLost }: Props) 
           </p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--ghost" onClick={() => setModal('adjustment')}>
-            ADJUST
-          </button>
-          <button className="btn btn--ghost" onClick={() => setModal('transfer')}>
-            TRANSFER
-          </button>
-          <button className="btn btn--primary" onClick={() => setModal('receipt')}>
-            + RECEIPT
-          </button>
+          <Can>
+            <button className="btn btn--ghost" onClick={() => setModal('adjustment')}>
+              ADJUST
+            </button>
+          </Can>
+          <Can>
+            <button className="btn btn--ghost" onClick={() => setModal('transfer')}>
+              TRANSFER
+            </button>
+          </Can>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setModal('receipt')}>
+              + RECEIPT
+            </button>
+          </Can>
         </div>
       </div>
 

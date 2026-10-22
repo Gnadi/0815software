@@ -241,8 +241,9 @@ exactly the kind 0815software does:
   webhooks, no SCIM. "Integrates with HR onboarding" means the built-in
   starting-soon list and checklist; the clean REST API is the hook for
   anything deeper.
-- **Multi-user accounts and roles** — one staff admin by design (same
-  auth pattern as MOD-02 … MOD-04). No employee self-service login.
+- **Employee self-service** — staff get their own logins and levels from
+  PS-01 (see [Users and access levels](#users-and-access-levels)), but there
+  is no "edit only my own entry" rule: `edit` edits the directory.
 - **Photos and file uploads** — contact data is text; an avatar/photo
   pipeline (storage, resizing) is an extension.
 - **Leave, payroll, and performance** — this is a directory, not an
@@ -263,6 +264,24 @@ state changes on [PS-07 Audit Log](../../platform/ps-07-audit-log) via the
 shared [`@0815software/platform-clients`](../../platform/clients) package.
 Calls are best-effort and opt-in — unset, the module runs standalone with no
 outbound calls. See `server/platform.ts`.
+
+## Users and access levels
+
+Standalone, this module has one login — the local admin — and it manages
+everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), every
+person signs in as themselves and gets the level PS-01 grants them here:
+
+| PS-01 permission | Level | May |
+| --- | --- | --- |
+| `module:employee-directory:view` | `view` | read everything, change nothing |
+| `module:employee-directory:edit` | `edit` | the day-to-day work: create, update, delete |
+| `module:employee-directory:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
+
+`module:*:<level>` grants a level in every module. Reads need `view`, any other
+method needs `edit`. This module needs no rule beyond the method default and sign-out; the policy is still one file, [`server/access.ts`](./server/access.ts). A refused request answers **403**
+`{ error, required, access }`; `GET /api/me` reports the caller's `access`.
+Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
+manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## The shell contract — appearing on a dashboard
 

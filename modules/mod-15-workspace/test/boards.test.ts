@@ -61,7 +61,7 @@ beforeEach(async () => {
     sessions: createModuleSessions(peers),
     verifyLogin: async (username, password) =>
       password === 'test-password' && typeof username === 'string' && username !== ''
-        ? { ok: true, actor: username }
+        ? { ok: true, actor: username, access: 'manage', identityToken: 'ps01-token', permissions: ['platform:admin'] }
         : { ok: false, reason: 'rejected' },
   });
   cookie = await signIn();

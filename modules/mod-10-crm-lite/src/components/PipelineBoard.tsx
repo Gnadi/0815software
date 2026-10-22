@@ -3,6 +3,7 @@ import type { AppConfig, DealRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtEur } from '../format';
 import { DealEditor } from './DealEditor';
+import { Can } from '../access';
 
 export function PipelineBoard({
   config,
@@ -56,9 +57,11 @@ export function PipelineBoard({
           </p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={() => setCreating(true)}>
-            + NEW DEAL
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setCreating(true)}>
+              + NEW DEAL
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -97,18 +100,20 @@ export function PipelineBoard({
                       <span className="card__expected mono">exp {fmtEur(deal.expected_value_cents)}</span>
                     </div>
                     {!stage.terminal && targets.length > 0 && (
-                      <div className="card__move">
-                        {targets.map((t) => (
-                          <button
-                            key={t.key}
-                            className="card__movebtn"
-                            onClick={() => void move(deal, t.key)}
-                            title={`Move to ${t.label}`}
-                          >
-                            → {t.label}
-                          </button>
-                        ))}
-                      </div>
+                      <Can>
+                        <div className="card__move">
+                          {targets.map((t) => (
+                            <button
+                              key={t.key}
+                              className="card__movebtn"
+                              onClick={() => void move(deal, t.key)}
+                              title={`Move to ${t.label}`}
+                            >
+                              → {t.label}
+                            </button>
+                          ))}
+                        </div>
+                      </Can>
                     )}
                   </div>
                 ))}

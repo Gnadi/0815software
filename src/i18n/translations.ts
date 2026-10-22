@@ -481,7 +481,7 @@ export const T: Record<Lang, Record<string, string>> = {
     'mod.support-tickets.feat.3':                    'Web-form and email intake in one app',
     'mod.support-tickets.scope':                     '3–4 WKS',
     'mod.offers.body':                               'Write, send, and track sales offers. Line-item quotes with discounts, validity dates, PDF export, and a customer acceptance link.',
-    'mod.offers.overview':                           'A single-admin tool for composing line-item offers (quotes / Angebote) with per-line discounts and VAT, sending them to customers via a signed acceptance link, and tracking the outcome — accepted, rejected, expired, withdrawn or superseded by a revision. Self-contained: one package.json, no external services, MIT.',
+    'mod.offers.overview':                           'A back-office tool for composing line-item offers (quotes / Angebote) with per-line discounts and VAT, sending them to customers via a signed acceptance link, and tracking the outcome — accepted, rejected, expired, withdrawn or superseded by a revision. Self-contained: one package.json, no external services, MIT.',
     'mod.offers.feat.0':                             'Line-item offers with per-line discounts and VAT',
     'mod.offers.feat.1':                             'Validity dates and PDF export',
     'mod.offers.feat.2':                             'Signed customer acceptance link',

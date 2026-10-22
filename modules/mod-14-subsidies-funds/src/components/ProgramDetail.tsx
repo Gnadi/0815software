@@ -3,6 +3,7 @@ import type { ProgramDetail as ProgramDetailData } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDate, fmtEur } from '../format';
 import { ProgramStatusBadge, StatusBadge } from './Badges';
+import { Can } from '../access';
 
 interface Props {
   programId: number;
@@ -94,12 +95,16 @@ export function ProgramDetail({ programId, onBack, onOpenApplication, onAuthLost
           {program.description && <p className="resource__desc">{program.description}</p>}
         </div>
         <div className="resource__actions">
-          <button className="btn btn--ghost" onClick={() => void toggleStatus()} disabled={busy}>
-            {program.status === 'open' ? 'CLOSE PROGRAM' : 'REOPEN PROGRAM'}
-          </button>
-          <button className="btn btn--danger" onClick={() => void remove()} disabled={busy}>
-            DELETE
-          </button>
+          <Can>
+            <button className="btn btn--ghost" onClick={() => void toggleStatus()} disabled={busy}>
+              {program.status === 'open' ? 'CLOSE PROGRAM' : 'REOPEN PROGRAM'}
+            </button>
+          </Can>
+          <Can>
+            <button className="btn btn--danger" onClick={() => void remove()} disabled={busy}>
+              DELETE
+            </button>
+          </Can>
         </div>
       </div>
 

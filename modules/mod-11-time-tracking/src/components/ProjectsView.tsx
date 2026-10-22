@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Project } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtEur } from '../format';
+import { Can } from '../access';
 
 interface Props {
   onAuthLost: () => void;
@@ -128,48 +129,50 @@ export function ProjectsView({ onAuthLost }: Props) {
 
       {error && <div className="resource__error mono">{error}</div>}
 
-      <div className="editbar editbar--wrap">
-        <input
-          className="field__input"
-          placeholder="Project name"
-          value={draft.name}
-          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-        />
-        <input
-          className="field__input"
-          placeholder="Client (optional)"
-          value={draft.client}
-          onChange={(e) => setDraft({ ...draft, client: e.target.value })}
-        />
-        <label className="inline-check mono">
+      <Can level="manage">
+        <div className="editbar editbar--wrap">
           <input
-            type="checkbox"
-            checked={draft.billable_default}
-            onChange={(e) => setDraft({ ...draft, billable_default: e.target.checked })}
+            className="field__input"
+            placeholder="Project name"
+            value={draft.name}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
           />
-          BILLABLE
-        </label>
-        <input
-          className="field__input field__input--narrow"
-          placeholder="Rate €/h"
-          value={draft.rate_eur}
-          onChange={(e) => setDraft({ ...draft, rate_eur: e.target.value })}
-        />
-        <button className="btn btn--primary" onClick={() => void save()} disabled={!draft.name.trim()}>
-          {editing ? 'SAVE' : 'ADD'}
-        </button>
-        {editing && (
-          <button
-            className="btn btn--ghost"
-            onClick={() => {
-              setEditing(null);
-              setDraft(EMPTY);
-            }}
-          >
-            CANCEL
+          <input
+            className="field__input"
+            placeholder="Client (optional)"
+            value={draft.client}
+            onChange={(e) => setDraft({ ...draft, client: e.target.value })}
+          />
+          <label className="inline-check mono">
+            <input
+              type="checkbox"
+              checked={draft.billable_default}
+              onChange={(e) => setDraft({ ...draft, billable_default: e.target.checked })}
+            />
+            BILLABLE
+          </label>
+          <input
+            className="field__input field__input--narrow"
+            placeholder="Rate €/h"
+            value={draft.rate_eur}
+            onChange={(e) => setDraft({ ...draft, rate_eur: e.target.value })}
+          />
+          <button className="btn btn--primary" onClick={() => void save()} disabled={!draft.name.trim()}>
+            {editing ? 'SAVE' : 'ADD'}
           </button>
-        )}
-      </div>
+          {editing && (
+            <button
+              className="btn btn--ghost"
+              onClick={() => {
+                setEditing(null);
+                setDraft(EMPTY);
+              }}
+            >
+              CANCEL
+            </button>
+          )}
+        </div>
+      </Can>
 
       <div className="cards">
         {projects?.map((p) => (
@@ -185,59 +188,69 @@ export function ProjectsView({ onAuthLost }: Props) {
                 </div>
               </div>
               <div className="table__rowactions">
-                <button
-                  className="rowbtn"
-                  onClick={() => {
-                    setEditing(p.id);
-                    setDraft({
-                      name: p.name,
-                      client: p.client ?? '',
-                      billable_default: p.billable_default,
-                      rate_eur: (p.rate_cents / 100).toFixed(2),
-                      active: p.active,
-                    });
-                  }}
-                >
-                  EDIT
-                </button>
-                <button className="rowbtn" onClick={() => void toggleArchive(p)}>
-                  {p.active ? 'ARCHIVE' : 'RESTORE'}
-                </button>
-                <button
-                  className="rowbtn rowbtn--danger"
-                  onClick={() => void remove(p)}
-                  disabled={p.entry_count > 0}
-                  title={p.entry_count > 0 ? 'Has entries — archive instead' : ''}
-                >
-                  DELETE
-                </button>
+                <Can level="manage">
+                  <button
+                    className="rowbtn"
+                    onClick={() => {
+                      setEditing(p.id);
+                      setDraft({
+                        name: p.name,
+                        client: p.client ?? '',
+                        billable_default: p.billable_default,
+                        rate_eur: (p.rate_cents / 100).toFixed(2),
+                        active: p.active,
+                      });
+                    }}
+                  >
+                    EDIT
+                  </button>
+                </Can>
+                <Can level="manage">
+                  <button className="rowbtn" onClick={() => void toggleArchive(p)}>
+                    {p.active ? 'ARCHIVE' : 'RESTORE'}
+                  </button>
+                </Can>
+                <Can level="manage">
+                  <button
+                    className="rowbtn rowbtn--danger"
+                    onClick={() => void remove(p)}
+                    disabled={p.entry_count > 0}
+                    title={p.entry_count > 0 ? 'Has entries — archive instead' : ''}
+                  >
+                    DELETE
+                  </button>
+                </Can>
               </div>
             </div>
             <div className="pcard__tasks">
               {p.tasks.map((t) => (
                 <span key={t.id} className="taskchip mono">
                   {t.name}
-                  <button
-                    className="taskchip__x"
-                    onClick={() => void removeTask(t.id)}
-                    disabled={t.entry_count > 0}
-                    title={t.entry_count > 0 ? 'Has entries' : 'Remove task'}
-                  >
-                    ×
-                  </button>
+                  <Can level="manage">
+                    <button
+                      className="taskchip__x"
+                      onClick={() => void removeTask(t.id)}
+                      disabled={t.entry_count > 0}
+                      title={t.entry_count > 0 ? 'Has entries' : 'Remove task'}
+                    >
+                      ×
+                    </button>
+                  </Can>
                 </span>
               ))}
-              <span className="taskchip taskchip--add">
-                <input
-                  className="taskchip__input mono"
-                  placeholder="+ task"
-                  value={taskName[p.id] ?? ''}
-                  onChange={(e) => setTaskName((m) => ({ ...m, [p.id]: e.target.value }))}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') void addTask(p.id);
-                  }}
-                />
-              </span>
+              <Can level="manage">
+                <span className="taskchip taskchip--add">
+                  <input
+                    className="taskchip__input mono"
+                    placeholder="+ task"
+                    value={taskName[p.id] ?? ''}
+                    onChange={(e) => setTaskName((m) => ({ ...m, [p.id]: e.target.value }))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void addTask(p.id);
+                    }}
+                  />
+                </span>
+              </Can>
             </div>
           </div>
         ))}

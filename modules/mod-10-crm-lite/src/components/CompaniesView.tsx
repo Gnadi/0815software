@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Company, CompanyRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { Field, Modal } from './ui';
+import { Can } from '../access';
 
 export function CompaniesView({
   onOpen,
@@ -37,9 +38,11 @@ export function CompaniesView({
           <h1 className="resource__title">Accounts</h1>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={() => setCreating(true)}>
-            + NEW COMPANY
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setCreating(true)}>
+              + NEW COMPANY
+            </button>
+          </Can>
         </div>
       </div>
 

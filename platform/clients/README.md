@@ -15,6 +15,8 @@ wrapper over the built-in `fetch`, matching the services' own "no SDKs" rule.
   (PS-05), `FilesClient` (PS-06), `AuditClient` (PS-07), `PaymentsClient`
   (PS-08), `SearchClient` (PS-09), `NumberClient` (PS-10), `CustomersClient`
   (PS-11).
+- Module access levels (`accessLevelFor`, `compileAccessPolicy`, `permits`) — the
+  module side of the multi-user contract, see `docs/ACCESS-LEVELS.md`.
 - Every client extends a shared `BaseClient` that presents `X-Service-Token`
   for machine calls and forwards an end-user's PS-01 session token as
   `Authorization: Bearer` when supplied — the identity-propagation path.

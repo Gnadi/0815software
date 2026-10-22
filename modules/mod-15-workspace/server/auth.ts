@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
+import { isAccessLevel, permits, type AccessLevel } from '@0815software/platform-clients';
+import { accessPolicy } from './access.js';
 
 export interface AuthConfig {
   username: string;
@@ -30,14 +32,24 @@ export function safeEqual(a: string, b: string): boolean {
  * configured the actor is the identity PS-01 itself validated; standalone it is
  * the local admin, exactly as before.
  */
-export function createToken(config: AuthConfig, actor: string = config.username, now = Date.now()): string {
-  const payload = `${now + config.ttlHours * 3600_000}.${Buffer.from(actor, 'utf8').toString('base64url')}`;
+export function createToken(
+  config: AuthConfig,
+  actor: string = config.username,
+  now = Date.now(),
+  access: AccessLevel = 'manage',
+): string {
+  const payload = `${now + config.ttlHours * 3600_000}.${Buffer.from(actor, 'utf8').toString('base64url')}.${access}`;
   return `${payload}.${sign(`session.${payload}`, config.secret)}`;
 }
 
 export interface Session {
   /** Who this session belongs to — a PS-01 identity, or the local admin. */
   actor: string;
+  /**
+   * What they may do here (`server/access.ts`). The local admin always
+   * manages; a PS-01 identity gets what its `module:` permissions grant.
+   */
+  access: AccessLevel;
 }
 
 /** Verify a token and return whose it is, or null. */
@@ -51,15 +63,25 @@ export function readToken(config: AuthConfig, token: string, now = Date.now()): 
   if (parts.length === 2) {
     const [expiry, mac] = parts as [string, string];
     if (!/^\d+$/.test(expiry) || Number(expiry) < now) return null;
-    return safeEqual(mac, sign(`session.${expiry}`, config.secret)) ? { actor: config.username } : null;
+    return safeEqual(mac, sign(`session.${expiry}`, config.secret)) ? { actor: config.username, access: 'manage' } : null;
   }
 
-  if (parts.length !== 3) return null;
-  const [expiry, actorPart, mac] = parts as [string, string, string];
+  // Three parts is the format from before the access level was carried. Like
+  // the two-part one above it stays valid until it expires, and it too can
+  // only have been minted for someone who managed this module: before access
+  // levels existed every session, local or SSO, was an administrator's. Drop
+  // it together with the two-part branch.
+  if (parts.length !== 3 && parts.length !== 4) return null;
+  const [expiry, actorPart] = parts as [string, string];
+  const accessPart = parts.length === 4 ? (parts[2] as string) : null;
+  const mac = parts[parts.length - 1] as string;
   if (!/^\d+$/.test(expiry) || Number(expiry) < now) return null;
-  if (!safeEqual(mac, sign(`session.${expiry}.${actorPart}`, config.secret))) return null;
+  const signed = accessPart === null ? `session.${expiry}.${actorPart}` : `session.${expiry}.${actorPart}.${accessPart}`;
+  if (!safeEqual(mac, sign(signed, config.secret))) return null;
+  const access = accessPart ?? 'manage';
+  if (!isAccessLevel(access)) return null;
   const actor = Buffer.from(actorPart, 'base64url').toString('utf8');
-  return actor === '' ? null : { actor };
+  return actor === '' ? null : { actor, access };
 }
 
 export function verifyToken(config: AuthConfig, token: string, now = Date.now()): boolean {
@@ -125,14 +147,27 @@ export function clearedCookie(): string {
 
 /**
  * Session gate. Publishes the caller on `res.locals.actor`, which is what the
- * routes stamp onto audit events and the module's own history rows.
+ * routes stamp onto audit events and the module's own history rows, and their
+ * level on `res.locals.access`.
+ *
+ * It is also the ONLY place access is enforced: every request is held against
+ * `server/access.ts` before any route sees it — reads need `view`, writes need
+ * `edit`, and the actions that file names need what it says. Enforcing it here
+ * rather than route by route is the point: a route added later is protected by
+ * the default without anyone remembering to protect it.
  */
-export function requireAuth(config: AuthConfig) {
+export function requireAuth(config: AuthConfig, policy: (method: string, path: string) => AccessLevel = accessPolicy) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const token = parseCookies(req.headers.cookie)[COOKIE_NAME];
     const session = token ? readToken(config, token) : null;
     if (session) {
+      const required = policy(req.method, req.baseUrl + req.path);
+      if (!permits(session.access, required)) {
+        res.status(403).json({ error: 'Insufficient access', required, access: session.access });
+        return;
+      }
       res.locals.actor = session.actor;
+      res.locals.access = session.access;
       next();
       return;
     }
@@ -144,4 +179,10 @@ export function requireAuth(config: AuthConfig) {
 export function actorOf(res: Response, config: AuthConfig): string {
   const actor = res.locals.actor as unknown;
   return typeof actor === 'string' && actor !== '' ? actor : config.username;
+}
+
+/** What the current request may do; the local admin's level when nothing said. */
+export function accessOf(res: Response): AccessLevel {
+  const access = res.locals.access as unknown;
+  return isAccessLevel(access) ? access : 'manage';
 }

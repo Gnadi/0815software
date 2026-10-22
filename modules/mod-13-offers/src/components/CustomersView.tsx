@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { FieldError } from '../../shared/types';
 import { api, ApiError, type CustomerRow } from '../api';
 import { fmtDate } from '../format';
+import { Can } from '../access';
 
 interface Props {
   onAuthLost: () => void;
@@ -97,9 +98,11 @@ export function CustomersView({ onAuthLost }: Props) {
           <p className="resource__desc">Name, contact person, address, email, VAT id. Customers with offers are archived, never deleted.</p>
         </div>
         <div className="resource__actions">
-          <button className="btn btn--primary" onClick={() => setForm({ ...EMPTY })}>
-            + NEW CUSTOMER
-          </button>
+          <Can>
+            <button className="btn btn--primary" onClick={() => setForm({ ...EMPTY })}>
+              + NEW CUSTOMER
+            </button>
+          </Can>
         </div>
       </div>
 
@@ -149,38 +152,46 @@ export function CustomersView({ onAuthLost }: Props) {
                 <td className="mono table__id">{fmtDate(c.created_at)}</td>
                 <td>
                   <div className="table__rowactions">
-                    <button
-                      className="rowbtn mono"
-                      onClick={() =>
-                        setForm({
-                          id: c.id,
-                          name: c.name,
-                          contact_person: c.contact_person ?? '',
-                          email: c.email ?? '',
-                          vat_id: c.vat_id ?? '',
-                          address: c.address ?? '',
-                        })
-                      }
-                    >
-                      EDIT
-                    </button>
-                    {c.archived_at ? (
-                      <button className="rowbtn mono" onClick={() => void act(() => api.unarchiveCustomer(c.id))}>
-                        UNARCHIVE
-                      </button>
-                    ) : c.offer_count > 0 ? (
-                      <button className="rowbtn mono" onClick={() => void act(() => api.archiveCustomer(c.id))}>
-                        ARCHIVE
-                      </button>
-                    ) : (
+                    <Can>
                       <button
-                        className="rowbtn rowbtn--danger mono"
-                        onClick={() => {
-                          if (window.confirm(`Delete ${c.name}?`)) void act(() => api.deleteCustomer(c.id));
-                        }}
+                        className="rowbtn mono"
+                        onClick={() =>
+                          setForm({
+                            id: c.id,
+                            name: c.name,
+                            contact_person: c.contact_person ?? '',
+                            email: c.email ?? '',
+                            vat_id: c.vat_id ?? '',
+                            address: c.address ?? '',
+                          })
+                        }
                       >
-                        DELETE
+                        EDIT
                       </button>
+                    </Can>
+                    {c.archived_at ? (
+                      <Can>
+                        <button className="rowbtn mono" onClick={() => void act(() => api.unarchiveCustomer(c.id))}>
+                          UNARCHIVE
+                        </button>
+                      </Can>
+                    ) : c.offer_count > 0 ? (
+                      <Can>
+                        <button className="rowbtn mono" onClick={() => void act(() => api.archiveCustomer(c.id))}>
+                          ARCHIVE
+                        </button>
+                      </Can>
+                    ) : (
+                      <Can>
+                        <button
+                          className="rowbtn rowbtn--danger mono"
+                          onClick={() => {
+                            if (window.confirm(`Delete ${c.name}?`)) void act(() => api.deleteCustomer(c.id));
+                          }}
+                        >
+                          DELETE
+                        </button>
+                      </Can>
                     )}
                   </div>
                 </td>

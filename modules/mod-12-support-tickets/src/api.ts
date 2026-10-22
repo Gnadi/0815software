@@ -1,3 +1,4 @@
+import type { AccessLevel } from './access';
 import type {
   Agent,
   AppConfig,
@@ -76,6 +77,8 @@ export const api = {
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
   /** Which credentials this deployment accepts — readable before signing in. */
   authMode: () => request<AuthMode>('/api/auth-mode'),
+  /** Who is signed in, and what they may do here (`view` / `edit` / `manage`). */
+  me: () => request<{ access: AccessLevel }>('/api/me'),
   config: () => request<AppConfig>('/api/config'),
   agents: () => request<{ agents: Agent[] }>('/api/agents'),
   dashboard: () => request<Dashboard>('/api/dashboard'),

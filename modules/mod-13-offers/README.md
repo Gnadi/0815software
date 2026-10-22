@@ -39,8 +39,10 @@ Self-contained: one `package.json`, no external services, no SaaS, MIT.
 
 - No email / SMS delivery — the app produces the acceptance link; sending
   it is your job.
-- No multi-user accounts, roles or per-user audit — a single admin login
-  guards the back office; the customer side is token-authenticated.
+- No local user table — standalone a single admin login guards the back
+  office, and people with their own levels come from PS-01 (see
+  [Users and access levels](#users-and-access-levels)); the customer side is
+  token-authenticated.
 - No conversion to invoices, order management, payments or dunning (that
   is MOD-04 Invoice & Billing).
 - No product catalogue / price book — line items are typed per offer.
@@ -353,6 +355,24 @@ still the quoting person's job.
 
 With `CRM_URL` unset — the standalone default — the route answers `501` and says
 which variable is missing.
+
+## Users and access levels
+
+Standalone, this module has one login — the local admin — and it manages
+everything. With PS-01 Identity wired (`IDENTITY_URL` + `IDENTITY_ORG`), every
+person signs in as themselves and gets the level PS-01 grants them here:
+
+| PS-01 permission | Level | May |
+| --- | --- | --- |
+| `module:offers:view` | `view` | read everything, change nothing |
+| `module:offers:edit` | `edit` | the day-to-day work: create, update, delete |
+| `module:offers:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
+
+`module:*:<level>` grants a level in every module. Reads need `view`, any other
+method needs `edit`. This module needs no rule beyond the method default and sign-out; the policy is still one file, [`server/access.ts`](./server/access.ts). A refused request answers **403**
+`{ error, required, access }`; `GET /api/me` reports the caller's `access`.
+Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
+manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## The shell contract — appearing on a dashboard
 

@@ -5,6 +5,7 @@ import { fmtDateTime, fmtEur } from '../format';
 import { ActivityBadge, StageBadge, activeStages } from './ui';
 import { ActivityForm } from './ActivityForm';
 import { DealEditor } from './DealEditor';
+import { Can } from '../access';
 
 export function DealDetailView({
   id,
@@ -94,22 +95,24 @@ export function DealDetailView({
             )}
           </p>
         </div>
-        <div className="resource__actions">
-          <button className="btn btn--ghost" onClick={() => setEditing(true)}>
-            EDIT
-          </button>
-          {deal.terminal ? (
-            <button className="btn btn--primary" onClick={reopen}>
-              REOPEN
+        <Can>
+          <div className="resource__actions">
+            <button className="btn btn--ghost" onClick={() => setEditing(true)}>
+              EDIT
             </button>
-          ) : (
-            targets.map((t) => (
-              <button key={t.key} className="btn btn--ghost" onClick={() => move(t.key, t.label)}>
-                → {t.label.toUpperCase()}
+            {deal.terminal ? (
+              <button className="btn btn--primary" onClick={reopen}>
+                REOPEN
               </button>
-            ))
-          )}
-        </div>
+            ) : (
+              targets.map((t) => (
+                <button key={t.key} className="btn btn--ghost" onClick={() => move(t.key, t.label)}>
+                  → {t.label.toUpperCase()}
+                </button>
+              ))
+            )}
+          </div>
+        </Can>
       </div>
 
       {error && <div className="resource__error mono">{error}</div>}
@@ -139,12 +142,14 @@ export function DealDetailView({
           </div>
 
           <div className="section-title mono">ACTIVITY TIMELINE</div>
-          <ActivityForm
-            config={config}
-            dealId={deal.id}
-            onLogged={() => void load()}
-            onAuthLost={onAuthLost}
-          />
+          <Can>
+            <ActivityForm
+              config={config}
+              dealId={deal.id}
+              onLogged={() => void load()}
+              onAuthLost={onAuthLost}
+            />
+          </Can>
           <div className="timeline" style={{ marginTop: 14 }}>
             {deal.activities.length === 0 && <div className="board__empty mono">NO ACTIVITY YET</div>}
             {deal.activities.map((a) => (
