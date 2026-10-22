@@ -16,6 +16,7 @@ import { createHandoff, isRedeemPath, requestedAccess, safeServiceTokenEqual } f
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
+import type { PlatformSeller } from './seller.js';
 import { effectiveSeller, readSettings, settingsStamp, validateSettings, writeSettings } from './settings.js';
 import { bookStock } from './stock.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
@@ -133,6 +134,8 @@ export interface AppOptions {
   platform?: PlatformHooks;
   /** The letterhead from the environment; Settings override it field by field. */
   seller?: SellerConfig;
+  /** PS-11's `self` party, kept current by index.ts; omitted standalone. */
+  platformSeller?: PlatformSeller;
   /** Injectable "today", so tests can pin dates. */
   today?: () => string;
   verifyLogin?: LoginVerifier;
@@ -159,7 +162,7 @@ export interface AppOptions {
 
 const DEFAULT_SELLER: SellerConfig = { name: '0815software GmbH', addressLines: ['Beispielgasse 8/15', '1010 Wien', 'Austria'], vatId: 'ATU00000000' };
 
-export function createApp({ db, hardening, auth, staticDir, platform = noopPlatform, seller = DEFAULT_SELLER, today = todayIso, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [] }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, staticDir, platform = noopPlatform, seller = DEFAULT_SELLER, platformSeller, today = todayIso, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [] }: AppOptions): express.Express {
   const app = express();
   const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
 
@@ -385,7 +388,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const order = orderDetail(db, idParam(req));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${order.number}.pdf"`);
-    res.send(renderOrderPdf(order, effectiveSeller(db, seller).seller));
+    res.send(renderOrderPdf(order, effectiveSeller(db, seller, platformSeller?.current ?? null).seller));
   });
 
   app.post('/api/orders/:id/cancel', (req, res) => {
@@ -444,7 +447,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   // ── Settings (server/settings.ts) ────────────────────────────────────
   // Anyone may read them; changing them is the admin's (server/access.ts).
   const settingsResponse = async () => {
-    const { seller: effective, source } = effectiveSeller(db, seller);
+    const { seller: effective, source } = effectiveSeller(db, seller, platformSeller?.current ?? null);
     let warehouses: { code: string; name: string }[] | null = null;
     let error: string | null = null;
     if (platform.inventoryConfigured) {
@@ -492,7 +495,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const note = getDeliveryNote(db, idParam(req, 'Delivery note'));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${note.number}.pdf"`);
-    res.send(renderDeliveryNotePdf(note, orderDetail(db, note.order_id), effectiveSeller(db, seller).seller));
+    res.send(renderDeliveryNotePdf(note, orderDetail(db, note.order_id), effectiveSeller(db, seller, platformSeller?.current ?? null).seller));
   });
 
   // ── Static client (production build) ─────────────────────────────────

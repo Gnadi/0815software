@@ -1,4 +1,5 @@
-import { AuditClient } from '@0815software/platform-clients';
+import { AuditClient, CustomersClient } from '@0815software/platform-clients';
+import type { SelfParty } from './seller.js';
 
 /**
  * Optional integrations, each best-effort and each off when its URL is unset:
@@ -8,6 +9,8 @@ import { AuditClient } from '@0815software/platform-clients';
  * - MOD-13 Offers (OFFERS_URL): fetch an accepted offer, as the neutral
  *   document transfer, to confirm it as an order. Unset, orders are entered
  *   by hand and the import says so (501).
+ * - PS-11 Customers (CUSTOMERS_URL): the stack's `self` party as the
+ *   letterhead (server/seller.ts). Unset, the letterhead is Settings and env.
  * - MOD-03 Inventory (INVENTORY_URL): issue the goods of a delivery note.
  *   Unset, delivery notes book no stock; a failed booking is recorded on the
  *   delivery note and retried, never a reason to refuse the delivery.
@@ -17,6 +20,7 @@ export interface PlatformConfig {
   auditUrl?: string;
   offersUrl?: string;
   inventoryUrl?: string;
+  customersUrl?: string;
   serviceToken?: string;
 }
 
@@ -51,6 +55,8 @@ export interface PlatformHooks {
   audit(info: AuditInfo): Promise<void>;
   /** The offer as a document transfer, or null when no offer source is configured. */
   fetchOffer(offerNumber: string): Promise<unknown | null>;
+  /** PS-11's `self` party: null when PS-11 is unset or has none; THROWS when unreachable. */
+  fetchSelf(): Promise<SelfParty | null>;
   /** Whether MOD-03 is wired at all — decided by configuration, not by asking it. */
   inventoryConfigured: boolean;
   /** MOD-03's warehouses. Throws `OfferFetchError`-style `PeerError` when it does not answer. */
@@ -79,6 +85,9 @@ export const noopPlatform: PlatformHooks = {
     /* standalone: nothing to do */
   },
   async fetchOffer() {
+    return null;
+  },
+  async fetchSelf() {
     return null;
   },
   inventoryConfigured: false,
@@ -124,7 +133,19 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
     return parsed;
   }
 
+  const customers = cfg.customersUrl ? new CustomersClient({ baseUrl: cfg.customersUrl, serviceToken: cfg.serviceToken }) : null;
+
   return {
+    async fetchSelf(): Promise<SelfParty | null> {
+      if (!customers) return null;
+      try {
+        const { party } = await customers.self();
+        return party ? { name: party.name, vat_id: party.vat_id, address_lines: party.address_lines } : null;
+      } catch (err) {
+        console.warn('[mod-17] seller lookup failed, keeping the last known seller:', err);
+        throw err;
+      }
+    },
     inventoryConfigured: Boolean(inventoryUrl),
     async inventoryWarehouses() {
       return ((await inventory('/api/goods-issues/warehouses')) as { warehouses: { code: string; name: string }[] }).warehouses;

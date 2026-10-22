@@ -950,7 +950,8 @@
         "required": [],
         "optional": [
           "ps-01-identity",
-          "ps-07-audit-log"
+          "ps-07-audit-log",
+          "ps-11-customers"
         ]
       },
       "env": {
@@ -958,6 +959,7 @@
         "optional": [
           "SELLER_ADDRESS",
           "SELLER_NAME",
+          "SELLER_REFRESH_MS",
           "SELLER_VAT_ID",
           "SHELL_ORIGIN"
         ],

@@ -25,6 +25,8 @@ export interface ServerConfig {
   platform: PlatformConfig;
   sso: SsoConfig;
   seller: SellerConfig;
+  /** How often PS-11's `self` party is re-read (ms); only with CUSTOMERS_URL. */
+  sellerRefreshMs: number;
 }
 
 /**
@@ -63,6 +65,7 @@ function numberFromEnv(
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
     port: numberFromEnv('PORT', env.PORT, 3017, 1, 65535),
+    sellerRefreshMs: numberFromEnv('SELLER_REFRESH_MS', env.SELLER_REFRESH_MS, 300_000, 1000, 86_400_000),
     databasePath: env.DATABASE_PATH ?? './data.db',
     shellOrigins: shellOriginsFromEnv(env.SHELL_ORIGIN),
     auth: {
@@ -81,6 +84,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       auditUrl: env.AUDIT_URL || undefined,
       offersUrl: env.OFFERS_URL || undefined,
       inventoryUrl: env.INVENTORY_URL || undefined,
+      // PS-11 Customers — the stack's `self` party becomes the letterhead
+      // (below Settings, above SELLER_*). Unset, no call is ever made.
+      customersUrl: env.CUSTOMERS_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
     // Same variables and placeholders as MOD-04 and MOD-13, so a stack sets

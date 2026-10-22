@@ -110,6 +110,9 @@ export interface DeliveryNote {
   stock_error: string | null;
 }
 
+/** Where a letterhead field comes from: this screen, PS-11's `self` party, or the environment. */
+export type SellerSource = 'settings' | 'ps-11' | 'env';
+
 /** What the admin sets on the Settings screen. Empty = fall back (see `source`). */
 export interface Settings {
   seller_name: string | null;
@@ -126,7 +129,7 @@ export interface SettingsResponse {
   settings: Settings;
   /** The letterhead as the PDFs print it, and where each field comes from. */
   seller: { name: string; address_lines: string[]; vat_id: string };
-  seller_source: { name: 'settings' | 'env'; address_lines: 'settings' | 'env'; vat_id: 'settings' | 'env' };
+  seller_source: { name: SellerSource; address_lines: SellerSource; vat_id: SellerSource };
   /** Whether MOD-03 is wired (INVENTORY_URL), and its warehouses when it answered. */
   inventory: { configured: boolean; warehouses: { code: string; name: string }[] | null; error: string | null };
   updated_at: string | null;

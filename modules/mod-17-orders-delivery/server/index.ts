@@ -9,6 +9,7 @@ import { buildLoginVerifier, loginModeOf } from './sso.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
+import { PlatformSeller } from './seller.js';
 
 const config = configFromEnv();
 assertProductionConfig([
@@ -28,11 +29,20 @@ const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
-const app = createApp({ db, hardening: hardeningFromEnv(), auth: config.auth, staticDir, platform: buildPlatform(config.platform), seller: config.seller, verifyLogin: buildLoginVerifier(config.sso), loginMode: loginModeOf(config.sso), serviceToken: config.platform.serviceToken, shellOrigins: config.shellOrigins });
+const platform = buildPlatform(config.platform);
+
+// The letterhead's PS-11 layer, read before the first request and then kept
+// current. Standalone (no CUSTOMERS_URL) fetchSelf answers null without a call.
+const platformSeller = new PlatformSeller();
+const usingPlatformSeller = await platformSeller.refresh(() => platform.fetchSelf());
+platformSeller.start(() => platform.fetchSelf(), config.sellerRefreshMs);
+
+const app = createApp({ db, hardening: hardeningFromEnv(), auth: config.auth, staticDir, platform, seller: config.seller, platformSeller, verifyLogin: buildLoginVerifier(config.sso), loginMode: loginModeOf(config.sso), serviceToken: config.platform.serviceToken, shellOrigins: config.shellOrigins });
 
 app.listen(config.port, () => {
   console.log(`[mod-17] orders & delivery notes API on http://localhost:${config.port}`);
   if (staticDir) console.log(`[mod-17] serving client from ${staticDir}`);
+  console.log(usingPlatformSeller ? '[mod-17] letterhead from PS-11 Customers (Settings override it)' : '[mod-17] letterhead from SELLER_* env (Settings override it)');
   if (config.auth.password === 'admin') {
     console.warn('[mod-17] WARNING: using default credentials (admin/admin) — set ADMIN_USERNAME/ADMIN_PASSWORD');
   }

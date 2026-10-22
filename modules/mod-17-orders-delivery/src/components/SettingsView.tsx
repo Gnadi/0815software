@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { FieldError, SettingsResponse } from '../../shared/types';
+import type { FieldError, SellerSource, SettingsResponse } from '../../shared/types';
 import { useCan } from '../access';
 import { api, ApiError } from '../api';
 
 /**
  * SETTINGS — what the admin configures here instead of in the environment:
  * the letterhead on order confirmations and delivery notes (an empty field
- * falls back to SELLER_*), and whether delivery notes book stock in MOD-03,
+ * falls back to PS-11's `self` party, then SELLER_*), and whether delivery notes book stock in MOD-03,
  * from which warehouse. Read-only below `manage`.
  */
 export function SettingsView({ onAuthLost }: { onAuthLost: () => void }) {
@@ -66,7 +66,8 @@ export function SettingsView({ onAuthLost }: { onAuthLost: () => void }) {
   }
 
   if (!data) return error ? <div className="resource__error mono">{error}</div> : <div className="boot mono">LOADING…</div>;
-  const from = (source: 'settings' | 'env') => (source === 'settings' ? 'SET HERE' : 'FROM ENVIRONMENT');
+  const from = (source: SellerSource) =>
+    source === 'settings' ? 'SET HERE' : source === 'ps-11' ? 'FROM PS-11 CUSTOMERS' : 'FROM ENVIRONMENT';
 
   return (
     <div>
@@ -75,7 +76,8 @@ export function SettingsView({ onAuthLost }: { onAuthLost: () => void }) {
           <div className="resource__eyebrow mono">§ ORD.02 · ADMIN</div>
           <h1 className="resource__title">Settings</h1>
           <p className="resource__desc">
-            The letterhead and stock booking. An empty field falls back to what the stack was set up with. Changing
+            The letterhead and stock booking. An empty field falls back to the stack&apos;s seller in PS-11 Customers, or
+            to what the installation was set up with. Changing
             them is the admin&apos;s; {data.updated_by ? `last saved by ${data.updated_by} on ${data.updated_at?.slice(0, 10)}` : 'nothing saved here yet'}.
           </p>
         </div>

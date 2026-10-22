@@ -2,15 +2,17 @@ import type Database from 'better-sqlite3';
 import type { FieldError, Settings } from '../shared/types.js';
 import type { SellerConfig } from './config.js';
 import { DomainError } from './orders.js';
+import type { SelfParty } from './seller.js';
 
 /**
  * What the admin configures on the Settings screen, instead of only the
  * environment: the letterhead on order confirmations and delivery notes, and
  * whether (and from which warehouse) delivery notes book stock in MOD-03.
  *
- * Precedence is per field and one way: a value set here wins; an empty one
- * falls back to the `SELLER_*` environment the stack was provisioned with,
- * so clearing a field restores the default rather than blanking a letterhead.
+ * Precedence is per field and one way (server/seller.ts): a value set here
+ * wins; an empty one falls back to PS-11's `self` party when the stack has
+ * one, then to the `SELLER_*` environment — so clearing a field restores the
+ * stack's seller rather than blanking a letterhead.
  * Connection URLs stay in the environment: they are deployment wiring that
  * comes with the machine token, not something to retype on a screen.
  */
@@ -35,20 +37,25 @@ export function settingsStamp(db: Database.Database): { updated_at: string | nul
   return { updated_at: row?.updated_at ?? null, updated_by: row?.updated_by ?? null };
 }
 
-/** The letterhead as printed: each field from Settings when set, the environment otherwise. */
-export function effectiveSeller(db: Database.Database, env: SellerConfig) {
+type Source = 'settings' | 'ps-11' | 'env';
+
+/** The letterhead as printed: each field from Settings, else PS-11, else the environment. */
+export function effectiveSeller(db: Database.Database, env: SellerConfig, self: SelfParty | null = null) {
   const s = readSettings(db);
+  // A blank field in PS-11 does not blank the letterhead: it falls through.
+  const ps11 = {
+    name: self && self.name.trim() !== '' ? self.name.trim() : null,
+    addressLines: self && self.address_lines.length > 0 ? self.address_lines : null,
+    vatId: self?.vat_id ? self.vat_id : null,
+  };
+  const pick = <T>(settings: T | null, platform: T | null, fallback: T): [T, Source] =>
+    settings !== null ? [settings, 'settings'] : platform !== null ? [platform, 'ps-11'] : [fallback, 'env'];
+  const [name, nameSource] = pick(s.seller_name, ps11.name, env.name);
+  const [addressLines, addressSource] = pick(s.seller_address, ps11.addressLines, env.addressLines);
+  const [vatId, vatSource] = pick(s.seller_vat_id, ps11.vatId, env.vatId);
   return {
-    seller: {
-      name: s.seller_name ?? env.name,
-      addressLines: s.seller_address ?? env.addressLines,
-      vatId: s.seller_vat_id ?? env.vatId,
-    } satisfies SellerConfig,
-    source: {
-      name: s.seller_name ? 'settings' : 'env',
-      address_lines: s.seller_address ? 'settings' : 'env',
-      vat_id: s.seller_vat_id ? 'settings' : 'env',
-    } as const,
+    seller: { name, addressLines, vatId } satisfies SellerConfig,
+    source: { name: nameSource, address_lines: addressSource, vat_id: vatSource },
   };
 }
 

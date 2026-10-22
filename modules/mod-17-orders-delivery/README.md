@@ -81,8 +81,12 @@ Local dev login: `admin` / `admin`.
   does not refuse the delivery — it happened — but marks the note *failed*
   with MOD-03's reason; *Book stock* retries, and MOD-03 books each note once.
   An article number set on a line later reaches the deliveries from then on.
-- **Settings beat the environment, field by field.** The letterhead set by the
-  admin is what the PDFs print; a cleared field falls back to `SELLER_*`. A
+- **The letterhead: Settings > PS-11 > environment, field by field**
+  (`test/seller.test.ts`). What the admin sets wins; otherwise the stack's
+  `self` party in PS-11 Customers (as in MOD-04); otherwise `SELLER_*`. A
+  blank field in PS-11 falls through rather than blanking the letterhead; an
+  unreachable PS-11 keeps the last party it gave, while "no party" restores
+  the environment. Without `CUSTOMERS_URL` no call is ever made. A
   warehouse MOD-03 does not have is refused, and so is saving one while
   MOD-03 cannot be asked.
 - Who may do what is decided in one file (see below), proven on the real routes.
@@ -118,6 +122,8 @@ do. The contract is [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 | `IDENTITY_PERMISSION` | — | legacy: one permission that admits as `manage` |
 | `AUDIT_URL` / `PLATFORM_SERVICE_TOKEN` | — | record changes on PS-07 Audit Log; the token also guards the transfer routes |
 | `OFFERS_URL` | — | MOD-13 Offers, to confirm an accepted offer as an order |
+| `CUSTOMERS_URL` | — | PS-11 Customers: its `self` party is the letterhead (below Settings) |
+| `SELLER_REFRESH_MS` | `300000` | how often that party is re-read |
 | `INVENTORY_URL` | — | MOD-03 Inventory, to book delivery notes as goods issues (switched on, and the warehouse chosen, in Settings) |
 | `SELLER_NAME` / `SELLER_ADDRESS` / `SELLER_VAT_ID` | placeholders | the default letterhead (`\|`-separated address), shared with MOD-04 and MOD-13 — the admin overrides it in Settings |
 | `SHELL_ORIGIN` | — | MOD-15/16 shells allowed to embed this module |
@@ -160,17 +166,29 @@ do. The contract is [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
   ordered; surcharges or freight are added on the MOD-04 draft before it is
   sent.
 - **Shipping carriers, tracking numbers, pick lists.** Commissioned work.
-- **The seller from PS-11.** The letterhead is Settings, then `SELLER_*`;
-  MOD-04 and MOD-13 also follow PS-11's `self` party, this module not yet.
 
 ## Platform integration (optional)
 
 Every integration is opt-in and best-effort: unset, the module runs
 standalone with no outbound calls. PS-01 Identity for sign-in and access
-levels, PS-07 Audit Log for the activity trail. Peers: MOD-13 Offers
+levels, PS-07 Audit Log for the activity trail, PS-11 Customers for the
+letterhead. Peers: MOD-13 Offers
 (`OFFERS_URL`) for the import; MOD-03 Inventory (`INVENTORY_URL`) for goods
 issues; MOD-04 Invoice & Billing calls this module
 with `ORDERS_URL` set on its side.
+
+What each one missing means — the module itself never needs any of them:
+
+| Not wired | What happens |
+| --- | --- |
+| MOD-13 (`OFFERS_URL`) | orders are entered by hand; *Confirm offer* answers 501 |
+| MOD-03 (`INVENTORY_URL`) | delivery notes are written, no stock is booked; *Book stock* answers 501 |
+| MOD-04 (no `ORDERS_URL` there) | delivery notes are printed and billed by hand; they show *not yet invoiced* |
+| PS-11 (`CUSTOMERS_URL`) | the letterhead is Settings, then `SELLER_*` |
+| PS-01 / PS-07 | the local admin signs in; no audit trail |
+
+`test/seller.test.ts` and `test/settings-stock.test.ts` run these cases with
+nothing wired, and the stack smoke test boots the module with no URLs at all.
 
 ## The shell contract — appearing on a dashboard
 
