@@ -42,7 +42,7 @@ export function openDb(path: string): Database.Database {
       product_id   INTEGER NOT NULL REFERENCES products(id),
       warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
       type         TEXT NOT NULL CHECK (type IN
-                     ('receipt', 'transfer_out', 'transfer_in', 'adjustment', 'po_receipt')),
+                     ('receipt', 'transfer_out', 'transfer_in', 'adjustment', 'po_receipt', 'goods_issue')),
       quantity     REAL NOT NULL CHECK (quantity != 0),
       reference    TEXT,
       note         TEXT,
@@ -68,7 +68,49 @@ export function openDb(path: string): Database.Database {
       qty_received REAL NOT NULL DEFAULT 0 CHECK (qty_received >= 0 AND qty_received <= qty_ordered)
     );
     CREATE INDEX IF NOT EXISTS idx_po_lines_po ON purchase_order_lines (po_id);
+
+    -- Goods issued for a delivery in another module (MOD-17), one row per
+    -- delivery. UNIQUE (source, reference) makes the booking idempotent: a
+    -- retried call books nothing twice. The movements carry the reference.
+    CREATE TABLE IF NOT EXISTS goods_issues (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      source       TEXT NOT NULL,
+      reference    TEXT NOT NULL,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+      actor        TEXT NOT NULL,
+      created_at   TEXT NOT NULL,
+      UNIQUE (source, reference)
+    );
   `);
+
+  // A database from before goods issues has the old CHECK on movements.type.
+  // SQLite cannot alter a CHECK, so the table is rebuilt once, in one
+  // transaction, rows and ids unchanged — the ledger is copied, not rewritten.
+  const movements = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'movements'").get() as { sql: string };
+  if (!movements.sql.includes("'goods_issue'")) {
+    db.pragma('foreign_keys = OFF');
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE movements_next (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          product_id   INTEGER NOT NULL REFERENCES products(id),
+          warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+          type         TEXT NOT NULL CHECK (type IN
+                         ('receipt', 'transfer_out', 'transfer_in', 'adjustment', 'po_receipt', 'goods_issue')),
+          quantity     REAL NOT NULL CHECK (quantity != 0),
+          reference    TEXT,
+          note         TEXT,
+          created_at   TEXT NOT NULL
+        );
+        INSERT INTO movements_next (id, product_id, warehouse_id, type, quantity, reference, note, created_at)
+          SELECT id, product_id, warehouse_id, type, quantity, reference, note, created_at FROM movements;
+        DROP TABLE movements;
+        ALTER TABLE movements_next RENAME TO movements;
+        CREATE INDEX IF NOT EXISTS idx_movements_product ON movements (product_id, warehouse_id);
+      `);
+    })();
+    db.pragma('foreign_keys = ON');
+  }
 
   return db;
 }

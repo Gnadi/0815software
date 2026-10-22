@@ -177,6 +177,7 @@ export function OrdersView({ onOpen, onAuthLost }: Props) {
 }
 
 interface EditableLine {
+  sku: string;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -184,7 +185,7 @@ interface EditableLine {
   vatRate: string;
 }
 
-const EMPTY: EditableLine = { description: '', quantity: '1', unitPrice: '', discount: '0', vatRate: '20' };
+const EMPTY: EditableLine = { sku: '', description: '', quantity: '1', unitPrice: '', discount: '0', vatRate: '20' };
 
 /** An order entered by hand — confirmed and numbered on save, its lines fixed after. */
 function NewOrderForm({ onDone, onAuthLost }: { onDone: (id: number | null) => void; onAuthLost: () => void }) {
@@ -218,6 +219,7 @@ function NewOrderForm({ onDone, onAuthLost }: { onDone: (id: number | null) => v
           unit_price_cents: parseEurToCents(l.unitPrice) ?? -1,
           discount_percent: Number(l.discount.replace(',', '.')) || 0,
           vat_rate: Number(l.vatRate),
+          sku: l.sku.trim() || undefined,
         })),
       });
       onDone(order.id);
@@ -277,6 +279,10 @@ function NewOrderForm({ onDone, onAuthLost }: { onDone: (id: number | null) => v
                 {i + 1} · DESCRIPTION <span className="field__req">*</span>
               </span>
               <input className="field__input" value={line.description} onChange={(e) => setLine(i, { description: e.target.value })} />
+            </label>
+            <label className="field">
+              <span className="field__label mono">SKU</span>
+              <input className="field__input" value={line.sku} placeholder="—" title="MOD-03 article number — empty for a service" onChange={(e) => setLine(i, { sku: e.target.value })} />
             </label>
             <label className="field">
               <span className="field__label mono">QTY</span>

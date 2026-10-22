@@ -79,6 +79,7 @@ interface LineStored {
   unit_price_cents: number;
   discount_percent: number;
   vat_rate: number;
+  sku: string | null;
 }
 
 interface NoteStored {
@@ -91,6 +92,10 @@ interface NoteStored {
   created_by: string;
   invoiced_at: string | null;
   invoice_reference: string | null;
+  stock_status: 'booked' | 'failed' | null;
+  stock_warehouse: string | null;
+  stock_at: string | null;
+  stock_error: string | null;
 }
 
 export function getOrderStored(db: Database.Database, id: number): OrderStored {
@@ -124,6 +129,7 @@ function linesOf(db: Database.Database, order: OrderStored): OrderLine[] {
       unit_price_cents: row.unit_price_cents,
       discount_percent: row.discount_percent,
       vat_rate: row.vat_rate,
+      sku: row.sku,
       net_cents: lineNetCents(row),
       delivered_quantity: milli(done) / QTY_SCALE,
       remaining_quantity: order.status === 'cancelled' ? 0 : left,
@@ -141,7 +147,7 @@ function statusOf(stored: StoredOrderStatus, lines: OrderLine[]): OrderStatus {
 function noteLines(db: Database.Database, noteId: number): DeliveryNoteLine[] {
   return db
     .prepare(
-      `SELECT dl.order_line_id, ol.position, ol.description, dl.quantity
+      `SELECT dl.order_line_id, ol.position, ol.description, ol.sku, dl.quantity
          FROM delivery_note_lines dl JOIN order_lines ol ON ol.id = dl.order_line_id
         WHERE dl.delivery_note_id = ? ORDER BY ol.position`,
     )
@@ -233,6 +239,7 @@ export interface OrderLineInput {
   unitPriceCents: number;
   discountPercent: number;
   vatRate: number;
+  sku?: string | null;
 }
 
 export interface OrderInput {
@@ -291,10 +298,10 @@ export function createOrder(db: Database.Database, input: OrderInput, actor: str
       );
     const id = Number(info.lastInsertRowid);
     const insert = db.prepare(
-      `INSERT INTO order_lines (order_id, position, description, quantity, unit_price_cents, discount_percent, vat_rate)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO order_lines (order_id, position, description, quantity, unit_price_cents, discount_percent, vat_rate, sku)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    input.lines.forEach((l, i) => insert.run(id, i + 1, l.description, l.quantity, l.unitPriceCents, l.discountPercent, l.vatRate));
+    input.lines.forEach((l, i) => insert.run(id, i + 1, l.description, l.quantity, l.unitPriceCents, l.discountPercent, l.vatRate, l.sku ?? null));
     record(db, id, 'confirmed', input.sourceReference ? `from ${input.sourceReference}` : null, actor);
     return id;
   })();
@@ -383,4 +390,49 @@ export function markInvoiced(db: Database.Database, number: string, reference: s
     }
     return getDeliveryNote(db, note.id);
   })();
+}
+
+/**
+ * Map an order line to a MOD-03 article — or unmap it (null). Not a change
+ * to what was ordered: the article number only decides which stock a
+ * delivery issues, so it may be set after confirmation (an offer carries
+ * none) and affects the delivery notes written from then on.
+ */
+export function setLineSku(db: Database.Database, orderId: number, lineId: number, sku: string | null, actor: string): void {
+  db.transaction(() => {
+    const order = getOrderStored(db, orderId);
+    const line = db.prepare('SELECT * FROM order_lines WHERE id = ? AND order_id = ?').get(lineId, orderId) as LineStored | undefined;
+    if (!line) throw new DomainError(404, 'Order line not found');
+    if (order.status === 'cancelled') throw new DomainError(409, `${order.number} is cancelled — nothing more is delivered on it`);
+    if (line.sku === sku) return;
+    db.prepare('UPDATE order_lines SET sku = ? WHERE id = ?').run(sku, lineId);
+    record(db, orderId, 'sku', `line ${line.position}: ${line.sku ?? '—'} → ${sku ?? '—'}`, actor);
+  })();
+}
+
+/** What MOD-03 answered for a delivery note's goods issue. */
+export function recordStock(
+  db: Database.Database,
+  noteId: number,
+  outcome: { status: 'booked'; warehouse: string } | { status: 'failed'; warehouse: string | null; error: string },
+  actor: string,
+): DeliveryNote {
+  const note = getDeliveryNote(db, noteId);
+  db.transaction(() => {
+    db.prepare('UPDATE delivery_notes SET stock_status = ?, stock_warehouse = ?, stock_at = ?, stock_error = ? WHERE id = ?').run(
+      outcome.status,
+      outcome.warehouse,
+      nowIso(),
+      outcome.status === 'failed' ? outcome.error : null,
+      noteId,
+    );
+    record(
+      db,
+      note.order_id,
+      outcome.status === 'booked' ? 'stock_booked' : 'stock_failed',
+      outcome.status === 'booked' ? `${note.number} from ${outcome.warehouse}` : `${note.number}: ${outcome.error}`,
+      actor,
+    );
+  })();
+  return getDeliveryNote(db, noteId);
 }

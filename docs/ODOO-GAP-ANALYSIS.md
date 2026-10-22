@@ -54,7 +54,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
 | CRM | ✅ MOD-10 (Pipeline, Aktivitäten, Übergabe an MOD-13) | Mehrbenutzer, Web-Lead-Formular, CSV-Import fehlen; Philosophie „no AI“ ist ein Verkaufsargument, beibehalten |
-| Sales (Angebot → Auftrag) | ✅ MOD-13 Angebote → MOD-17 Auftrag/Lieferschein → MOD-04 Rechnung | Teillieferung und Rechnung je Lieferung umgesetzt; Lagerbuchung (MOD-03) offen |
+| Sales (Angebot → Auftrag) | ✅ MOD-13 Angebote → MOD-17 Auftrag/Lieferschein → MOD-04 Rechnung | Teillieferung, Warenausgang in MOD-03 und Rechnung je Lieferung umgesetzt; Reservierung offen |
 | Point of Sale | ❌ | ⛔ in AT RKSV-pflichtig (Signatureinheit, DEP, FinanzOnline) — Haftungsrisiko ohne Lizenzertrag |
 | Subscriptions (E) | 🟡 MOD-04 wiederkehrende Rechnungen (Vorlagen → Entwürfe je Periode) | ✅ als Erweiterung von MOD-04 umgesetzt; nutzungsbasierte Abrechnung und Proration bleiben offen |
 | Rental (E) | ❌ | ⛔ Nische; über Terminbuchung + MOD-03 abbildbar |
@@ -154,8 +154,8 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 5. ✅ **Auftrag/Lieferschein** als eigenes Modul **MOD-17 Orders & Delivery
    Notes**: angenommenes Angebot → Auftragsbestätigung, Teillieferungen mit
    Lieferscheinen (nie über den Auftrag hinaus), jeder Lieferschein einzeln in
-   MOD-04 verrechnet (Transfer-Art `delivery`). Offen: Reservierung und
-   Warenausgang in MOD-03.
+   MOD-04 verrechnet (Transfer-Art `delivery`), Warenausgang je Lieferschein
+   in MOD-03. Offen: Reservierung bei Auftragsbestätigung.
 6. **MOD-03: Barcode, Lagerplätze, Reservierungen, Bewertung.**
 7. **MOD-11: Timer + Mitarbeiter-Self-Service.**
 8. **MOD-12: Anhänge (PS-06), Textbausteine, Geschäftszeiten, CSAT,

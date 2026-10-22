@@ -42,9 +42,12 @@ Local dev login: `admin` / `admin`.
 - `orders` — the confirmation: number, date, the customer as they ordered
   (a frozen copy, plus the identity they came with for PS-11), their own
   order number, the offer it came from, and `open` / `cancelled`.
-- `order_lines` — what was ordered: quantity, unit price, line discount, VAT.
+- `order_lines` — what was ordered: quantity, unit price, line discount, VAT,
+  and the MOD-03 article number (`sku`, null for a service).
+- `settings` — what the admin set on the Settings screen, and who.
 - `delivery_notes` · `delivery_note_lines` — what left on which day; set once
-  by MOD-04 when it takes a delivery over (`invoiced_at`, `invoice_reference`).
+  by MOD-04 when it takes a delivery over (`invoiced_at`, `invoice_reference`),
+  and what MOD-03 answered to its goods issue (`stock_status`, `stock_error`).
 - `order_events` — append-only history: confirmed, delivered, invoiced,
   cancelled — each with the person.
 - `counters` — the gapless numbers, per kind (`AB`, `LS`) and year.
@@ -71,6 +74,17 @@ Local dev login: `admin` / `admin`.
   at the order's prices and discounts, the customer with the identity it
   arrived with. MOD-04 bills it once; the hand-back is recorded once, naming
   the person who billed it.
+- **Stock follows the delivery note, never the other way round**
+  (`test/settings-stock.test.ts`). With booking on and MOD-03 wired, writing a
+  delivery note issues its article lines (services are skipped) from the
+  warehouse set, in the name of whoever wrote it. Short stock or MOD-03 down
+  does not refuse the delivery — it happened — but marks the note *failed*
+  with MOD-03's reason; *Book stock* retries, and MOD-03 books each note once.
+  An article number set on a line later reaches the deliveries from then on.
+- **Settings beat the environment, field by field.** The letterhead set by the
+  admin is what the PDFs print; a cleared field falls back to `SELLER_*`. A
+  warehouse MOD-03 does not have is refused, and so is saving one while
+  MOD-03 cannot be asked.
 - Who may do what is decided in one file (see below), proven on the real routes.
 
 ## Users and access levels
@@ -87,7 +101,7 @@ person signs in as themselves and gets the level PS-01 grants them here:
 
 Reads need `view`, any other method needs `edit`, and
 [`server/access.ts`](./server/access.ts) names the exceptions
-(`POST /api/orders/:id/cancel` → `manage`). A refused request answers **403**;
+(`POST /api/orders/:id/cancel` and `PUT /api/settings` → `manage`). A refused request answers **403**;
 `GET /api/me` reports the caller's `access`, and the UI hides what they cannot
 do. The contract is [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
@@ -104,7 +118,8 @@ do. The contract is [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 | `IDENTITY_PERMISSION` | — | legacy: one permission that admits as `manage` |
 | `AUDIT_URL` / `PLATFORM_SERVICE_TOKEN` | — | record changes on PS-07 Audit Log; the token also guards the transfer routes |
 | `OFFERS_URL` | — | MOD-13 Offers, to confirm an accepted offer as an order |
-| `SELLER_NAME` / `SELLER_ADDRESS` / `SELLER_VAT_ID` | placeholders | the letterhead (`\|`-separated address), shared with MOD-04 and MOD-13 |
+| `INVENTORY_URL` | — | MOD-03 Inventory, to book delivery notes as goods issues (switched on, and the warehouse chosen, in Settings) |
+| `SELLER_NAME` / `SELLER_ADDRESS` / `SELLER_VAT_ID` | placeholders | the default letterhead (`\|`-separated address), shared with MOD-04 and MOD-13 — the admin overrides it in Settings |
 | `SHELL_ORIGIN` | — | MOD-15/16 shells allowed to embed this module |
 
 ## API
@@ -119,6 +134,10 @@ do. The contract is [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 | `POST /api/orders/import-offer` | edit | `{offer_number}` — confirm an accepted MOD-13 offer (501 without `OFFERS_URL`) |
 | `POST /api/orders/:id/delivery-notes` | edit | `{lines:[{order_line_id, quantity}], delivered_on?, note?}` |
 | `GET /api/delivery-notes/:id/pdf` | view | the delivery note, without prices |
+| `POST /api/delivery-notes/:id/book-stock` | edit | book (again) its goods issue in MOD-03 (501 without `INVENTORY_URL`) |
+| `PUT /api/orders/:id/lines/:lineId/sku` | edit | `{sku}` — map a line to a MOD-03 article (empty = service) |
+| `GET /api/settings` | view | letterhead (with each field's source), stock booking, MOD-03's warehouses |
+| `PUT /api/settings` | manage | `{seller_name, seller_address[], seller_vat_id, stock_booking, stock_warehouse}` |
 | `POST /api/orders/:id/cancel` | manage | `{reason}` — cancel what is still open |
 | `GET /api/delivery-notes/:number/transfer` | machine token | the delivery as a `delivery` document transfer |
 | `POST /api/delivery-notes/:number/invoiced` | machine token | `{reference, actor}` — MOD-04 took it over (idempotent) |
@@ -130,8 +149,9 @@ do. The contract is [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 ## Out of scope
 
-- **Stock.** A delivery note does not book a goods issue in MOD-03; reserving
-  and issuing stock is the next bridge, and belongs to MOD-03's API.
+- **Reservations.** Stock is issued when goods leave, not reserved when the
+  order is confirmed; MOD-03 tracks physical stock only. One warehouse per
+  installation issues the goods.
 - **Returns and corrections of a delivery.** A delivery note is a fact; goods
   coming back are a credit note in MOD-04 (and, later, a return document).
 - **Changing an order.** Lines are fixed once confirmed. A different order is
@@ -140,15 +160,16 @@ do. The contract is [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
   ordered; surcharges or freight are added on the MOD-04 draft before it is
   sent.
 - **Shipping carriers, tracking numbers, pick lists.** Commissioned work.
-- **The seller from PS-11.** The letterhead is read from `SELLER_*`; MOD-04
-  and MOD-13 already follow PS-11's `self` party, this module not yet.
+- **The seller from PS-11.** The letterhead is Settings, then `SELLER_*`;
+  MOD-04 and MOD-13 also follow PS-11's `self` party, this module not yet.
 
 ## Platform integration (optional)
 
 Every integration is opt-in and best-effort: unset, the module runs
 standalone with no outbound calls. PS-01 Identity for sign-in and access
 levels, PS-07 Audit Log for the activity trail. Peers: MOD-13 Offers
-(`OFFERS_URL`) for the import; MOD-04 Invoice & Billing calls this module
+(`OFFERS_URL`) for the import; MOD-03 Inventory (`INVENTORY_URL`) for goods
+issues; MOD-04 Invoice & Billing calls this module
 with `ORDERS_URL` set on its side.
 
 ## The shell contract — appearing on a dashboard

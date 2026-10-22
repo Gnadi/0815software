@@ -58,7 +58,7 @@ The server seeds an empty database automatically on first start, so
 
 ## Data model
 
-Six tables, one invariant:
+Seven tables, one invariant:
 
 ```
 warehouses            code, name                       (seeded, a few locations)
@@ -67,10 +67,11 @@ suppliers             name, email                      (seeded, simple lookup)
 movements             product, warehouse, type, signed qty, reference, note, timestamp
 purchase_orders       po_number, supplier, status, created_at
 purchase_order_lines  po, product, qty_ordered, qty_received
+goods_issues          source, reference, warehouse, actor  UNIQUE (source, reference)
 ```
 
 **The ledger.** `movements` is append-only. Quantities are signed and
-each entry has one of five types:
+each entry has one of six types:
 
 | Type           | Sign | Meaning                                          |
 | -------------- | ---- | ------------------------------------------------ |
@@ -79,6 +80,7 @@ each entry has one of five types:
 | `transfer_in`  | +    | The other leg — written in the same transaction  |
 | `adjustment`   | ±    | Stocktake correction — **note required**         |
 | `po_receipt`   | +    | Goods received against a purchase order line     |
+| `goods_issue`  | −    | Goods out for another module's delivery note     |
 
 Current stock per (product, warehouse) = `SUM(quantity)` over that pair's
 movements. Transfers conserve total stock by construction (two legs that
@@ -168,6 +170,10 @@ GET    /api/purchase-orders/:id
 POST   /api/purchase-orders/:id/order    draft → ordered
 POST   /api/purchase-orders/:id/receive  {warehouse_id, lines: [{line_id, quantity}]}
 DELETE /api/purchase-orders/:id          drafts only (otherwise 409)
+
+POST   /api/goods-issues                 machine token — {source, reference, warehouse_code,
+                                         actor, lines: [{sku, quantity}]}; 201, or 200 on replay
+GET    /api/goods-issues/warehouses      machine token — codes to issue from
 ```
 
 Validation failures return `422` with `{error, details: [{field,
@@ -214,13 +220,31 @@ these, that's commissioned work — exactly the kind 0815software does:
 - **Warehouse/supplier management UI** — both are simple seeded tables;
   edit them in SQLite or extend the seed.
 - **Sales-side stock reservation** — no allocations, backorders or
-  pick/pack flows; the ledger tracks physical stock only.
+  pick/pack flows; the ledger tracks physical stock only. Goods leave
+  through a delivery note in MOD-17, booked here as a goods issue (below).
 - **Bin/shelf locations within a warehouse** — granularity is the
   warehouse, not the rack.
 - **Costing and valuation** — no purchase prices, FIFO/moving average or
   stock value reports.
 - **Barcode scanning, label printing, ERP/webshop integrations** — the
   clean REST API is the integration point.
+
+## Goods issue for a delivery note (MOD-17)
+
+`POST /api/goods-issues` (machine token) books the stock side of a delivery
+note written in MOD-17 Orders & Delivery Notes (`server/goods-issues.ts`,
+pinned by `test/goods-issues.test.ts`):
+
+- **All or nothing.** Every SKU must exist and every line must be covered in
+  the warehouse; otherwise nothing is booked and the 422 names each line.
+  Stock never goes below zero here, as with an adjustment.
+- **Once per delivery.** UNIQUE (source, reference) — a retry returns the
+  first booking (200) instead of issuing the goods twice.
+- **Names the person** who wrote the delivery note, on the issue, the
+  movement note and the audit trail — never a service account.
+- One negative `goods_issue` movement per product, with the delivery note
+  number as reference. A database from before this rebuilds `movements` once
+  on start (SQLite cannot alter a CHECK), rows and ids unchanged.
 
 ## License
 

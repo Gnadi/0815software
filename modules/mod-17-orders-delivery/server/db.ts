@@ -96,7 +96,35 @@ export function openDb(path: string): Database.Database {
       at        TEXT    NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_order_events_order ON order_events(order_id);
+
+    -- What the admin configures on the Settings screen (server/settings.ts):
+    -- one row, only the fields actually set, and who set them.
+    CREATE TABLE IF NOT EXISTS settings (
+      id          INTEGER PRIMARY KEY CHECK (id = 1),
+      settings    TEXT    NOT NULL,
+      updated_at  TEXT    NOT NULL,
+      updated_by  TEXT    NOT NULL
+    );
   `);
+
+  const columns = (table: string): string[] =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+
+  // The article number that ties an order line to stock in MOD-03. Null for
+  // a service, or a line nobody has mapped yet — it is then not booked.
+  if (!columns('order_lines').includes('sku')) db.exec('ALTER TABLE order_lines ADD COLUMN sku TEXT');
+
+  // The stock side of a delivery note, as MOD-03 answered (server/stock.ts).
+  // A record of what happened elsewhere, not a derivable fact: booked when,
+  // from which warehouse, or why it failed — so it can be retried.
+  if (!columns('delivery_notes').includes('stock_status')) {
+    db.exec(`
+      ALTER TABLE delivery_notes ADD COLUMN stock_status TEXT CHECK (stock_status IN ('booked', 'failed'));
+      ALTER TABLE delivery_notes ADD COLUMN stock_warehouse TEXT;
+      ALTER TABLE delivery_notes ADD COLUMN stock_at TEXT;
+      ALTER TABLE delivery_notes ADD COLUMN stock_error TEXT;
+    `);
+  }
 
   return db;
 }

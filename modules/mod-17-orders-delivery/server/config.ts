@@ -80,6 +80,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     platform: {
       auditUrl: env.AUDIT_URL || undefined,
       offersUrl: env.OFFERS_URL || undefined,
+      inventoryUrl: env.INVENTORY_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
     // Same variables and placeholders as MOD-04 and MOD-13, so a stack sets

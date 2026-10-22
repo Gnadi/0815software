@@ -26,6 +26,8 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   // Cancelling the rest of an order is a decision with the customer, not
   // warehouse routine: confirming and delivering are `edit`, this is `manage`.
   { method: 'POST', path: '/api/orders/:id/cancel', access: 'manage' },
+  // The letterhead and where stock is issued from are the admin's settings.
+  { method: 'PUT', path: '/api/settings', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { OrderDetail as Detail } from '../../shared/types';
-import { Can } from '../access';
+import { Can, useCan } from '../access';
 import { api, ApiError, deliveryNotePdfUrl, fmtEur, fmtQty, orderPdfUrl } from '../api';
 import { STATUS_BADGE, STATUS_LABEL } from './OrdersView';
 
@@ -25,6 +25,7 @@ export function OrderDetail({ id, onBack, onAuthLost }: Props) {
   const [note, setNote] = useState('');
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState('');
+  const canEdit = useCan('edit');
 
   const handle = useCallback(
     (err: unknown) => {
@@ -137,6 +138,7 @@ export function OrderDetail({ id, onBack, onAuthLost }: Props) {
             <thead>
               <tr>
                 <th>#</th>
+                <th>SKU</th>
                 <th>Description</th>
                 <th className="table__num">Ordered</th>
                 <th className="table__num">Delivered</th>
@@ -149,6 +151,23 @@ export function OrderDetail({ id, onBack, onAuthLost }: Props) {
               {order.lines.map((l) => (
                 <tr key={l.id}>
                   <td className="mono table__id">{l.position}</td>
+                  <td className="mono">
+                    {canEdit && order.status !== 'cancelled' ? (
+                      <button
+                        type="button"
+                        className="linklike mono"
+                        title="MOD-03 article number — decides which stock a delivery issues"
+                        onClick={() => {
+                          const next = window.prompt(`Article number (SKU) for line ${l.position} — empty for a service:`, l.sku ?? '');
+                          if (next !== null) void run(() => api.setSku(order.id, l.id, next.trim()));
+                        }}
+                      >
+                        {l.sku ?? 'set…'}
+                      </button>
+                    ) : (
+                      (l.sku ?? '—')
+                    )}
+                  </td>
                   <td>{l.description}</td>
                   <td className="table__num mono">{fmtQty(l.quantity)}</td>
                   <td className="table__num mono">{fmtQty(l.delivered_quantity)}</td>
@@ -199,6 +218,7 @@ export function OrderDetail({ id, onBack, onAuthLost }: Props) {
               <th>Delivered</th>
               <th>Lines</th>
               <th>By</th>
+              <th>Stock</th>
               <th>Invoicing</th>
               <th />
             </tr>
@@ -206,7 +226,7 @@ export function OrderDetail({ id, onBack, onAuthLost }: Props) {
           <tbody>
             {order.delivery_notes.length === 0 && (
               <tr>
-                <td className="table__empty mono" colSpan={6}>
+                <td className="table__empty mono" colSpan={7}>
                   NOTHING DELIVERED YET
                 </td>
               </tr>
@@ -217,6 +237,19 @@ export function OrderDetail({ id, onBack, onAuthLost }: Props) {
                 <td className="mono table__id">{n.delivered_on}</td>
                 <td className="note-cell">{n.lines.map((l) => `${fmtQty(l.quantity)} × ${l.description}`).join(' · ')}</td>
                 <td className="table__id">{n.created_by}</td>
+                <td className="mono">
+                  {n.stock_status === 'booked' && `BOOKED · ${n.stock_warehouse}`}
+                  {n.stock_status === 'failed' && <span className="qty-neg" title={n.stock_error ?? ''}>FAILED — {n.stock_error}</span>}
+                  {n.stock_status === null && (n.lines.some((l) => l.sku) ? 'NOT BOOKED' : '—')}
+                  {n.stock_status !== 'booked' && n.lines.some((l) => l.sku) && (
+                    <Can>
+                      {' '}
+                      <button type="button" className="rowbtn mono" disabled={busy} onClick={() => void run(() => api.bookStock(n.id))}>
+                        BOOK STOCK
+                      </button>
+                    </Can>
+                  )}
+                </td>
                 <td className="mono">{n.invoiced_at ? `${n.invoice_reference} · ${n.invoiced_at.slice(0, 10)}` : 'NOT YET — bill it in MOD-04 by its number'}</td>
                 <td className="table__rowactions">
                   <a className="rowbtn mono" href={deliveryNotePdfUrl(n.id)} target="_blank" rel="noreferrer">

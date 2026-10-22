@@ -1,4 +1,4 @@
-import type { DeliveryNote, FieldError, Me, OrderDetail, OrderRow, OrderStatus } from '../shared/types';
+import type { DeliveryNote, FieldError, Me, OrderDetail, OrderRow, OrderStatus, Settings, SettingsResponse } from '../shared/types';
 
 export class ApiError extends Error {
   status: number;
@@ -63,6 +63,12 @@ export const api = {
   cancelOrder: (id: number, reason: string) => request<OrderDetail>(`/api/orders/${id}/cancel`, send('POST', { reason })),
   deliver: (id: number, values: { delivered_on?: string; note?: string; lines: { order_line_id: number; quantity: number }[] }) =>
     request<DeliveryNote>(`/api/orders/${id}/delivery-notes`, send('POST', values)),
+  setSku: (orderId: number, lineId: number, sku: string) =>
+    request<OrderDetail>(`/api/orders/${orderId}/lines/${lineId}/sku`, send('PUT', { sku })),
+  /** Book (again) the goods issue of a delivery note in MOD-03. */
+  bookStock: (noteId: number) => request<DeliveryNote>(`/api/delivery-notes/${noteId}/book-stock`, send('POST')),
+  settings: () => request<SettingsResponse>('/api/settings'),
+  saveSettings: (values: Settings) => request<SettingsResponse>('/api/settings', send('PUT', values as unknown as Record<string, unknown>)),
 };
 
 export interface NewOrder {
@@ -70,7 +76,7 @@ export interface NewOrder {
   customer_reference?: string;
   order_date?: string;
   note?: string;
-  lines: { description: string; quantity: number; unit_price_cents: number; discount_percent: number; vat_rate: number }[];
+  lines: { description: string; quantity: number; unit_price_cents: number; discount_percent: number; vat_rate: number; sku?: string }[];
 }
 
 export const orderPdfUrl = (id: number): string => `/api/orders/${id}/pdf`;

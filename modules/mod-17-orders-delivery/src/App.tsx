@@ -5,8 +5,9 @@ import { api, ApiError } from './api';
 import { Login } from './components/Login';
 import { OrderDetail } from './components/OrderDetail';
 import { OrdersView } from './components/OrdersView';
+import { SettingsView } from './components/SettingsView';
 
-type View = { name: 'orders' } | { name: 'order'; id: number };
+type View = { name: 'orders' } | { name: 'order'; id: number } | { name: 'settings' };
 
 /**
  * The view a path asks for — the destinations server/summary.ts links to and
@@ -14,7 +15,8 @@ type View = { name: 'orders' } | { name: 'order'; id: number };
  */
 export function initialView(path: string): View {
   const order = /^\/orders\/(\d+)$/.exec(path);
-  return order ? { name: 'order', id: Number(order[1]) } : { name: 'orders' };
+  if (order) return { name: 'order', id: Number(order[1]) };
+  return path === '/settings' ? { name: 'settings' } : { name: 'orders' };
 }
 
 export function App() {
@@ -56,6 +58,9 @@ export function App() {
             <button className={`sidebar__item mono ${view.name === 'orders' || view.name === 'order' ? 'is-active' : ''}`} onClick={() => setView({ name: 'orders' })}>
               Orders
             </button>
+            <button className={`sidebar__item mono ${view.name === 'settings' ? 'is-active' : ''}`} onClick={() => setView({ name: 'settings' })}>
+              Settings
+            </button>
           </nav>
           <div className="sidebar__foot mono">
             <span>
@@ -68,6 +73,7 @@ export function App() {
         </aside>
         <main className="main">
           {view.name === 'orders' && <OrdersView onOpen={(id) => setView({ name: 'order', id })} onAuthLost={onAuthLost} />}
+          {view.name === 'settings' && <SettingsView onAuthLost={onAuthLost} />}
           {view.name === 'order' && <OrderDetail id={view.id} onBack={() => setView({ name: 'orders' })} onAuthLost={onAuthLost} />}
         </main>
       </div>

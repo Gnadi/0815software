@@ -8,12 +8,23 @@ import { AuditClient } from '@0815software/platform-clients';
  * - MOD-13 Offers (OFFERS_URL): fetch an accepted offer, as the neutral
  *   document transfer, to confirm it as an order. Unset, orders are entered
  *   by hand and the import says so (501).
+ * - MOD-03 Inventory (INVENTORY_URL): issue the goods of a delivery note.
+ *   Unset, delivery notes book no stock; a failed booking is recorded on the
+ *   delivery note and retried, never a reason to refuse the delivery.
  */
 
 export interface PlatformConfig {
   auditUrl?: string;
   offersUrl?: string;
+  inventoryUrl?: string;
   serviceToken?: string;
+}
+
+export interface GoodsIssueRequest {
+  reference: string;
+  warehouseCode: string;
+  actor: string;
+  lines: { sku: string; quantity: number }[];
 }
 
 export interface AuditInfo {
@@ -40,7 +51,28 @@ export interface PlatformHooks {
   audit(info: AuditInfo): Promise<void>;
   /** The offer as a document transfer, or null when no offer source is configured. */
   fetchOffer(offerNumber: string): Promise<unknown | null>;
+  /** Whether MOD-03 is wired at all — decided by configuration, not by asking it. */
+  inventoryConfigured: boolean;
+  /** MOD-03's warehouses. Throws `OfferFetchError`-style `PeerError` when it does not answer. */
+  inventoryWarehouses(): Promise<{ code: string; name: string }[]>;
+  /** Book a goods issue in MOD-03; throws `PeerError` with MOD-03's own reason when refused. */
+  issueGoods(request: GoodsIssueRequest): Promise<void>;
 }
+
+/** A peer module refused or failed; the message is the peer's own reason. */
+export class PeerError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'PeerError';
+  }
+}
+
+const NO_INVENTORY = (): never => {
+  throw new PeerError(501, 'No inventory is configured — set INVENTORY_URL to book stock in MOD-03');
+};
 
 export const noopPlatform: PlatformHooks = {
   async audit() {
@@ -48,6 +80,13 @@ export const noopPlatform: PlatformHooks = {
   },
   async fetchOffer() {
     return null;
+  },
+  inventoryConfigured: false,
+  async inventoryWarehouses() {
+    return NO_INVENTORY();
+  },
+  async issueGoods() {
+    NO_INVENTORY();
   },
 };
 
@@ -57,7 +96,52 @@ const OFFER_FETCH_TIMEOUT_MS = 10_000;
 export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const client = cfg.auditUrl ? new AuditClient({ baseUrl: cfg.auditUrl, serviceToken: cfg.serviceToken }) : null;
   const offersUrl = cfg.offersUrl?.replace(/\/+$/, '');
+  const inventoryUrl = cfg.inventoryUrl?.replace(/\/+$/, '');
+  const headers = { 'Content-Type': 'application/json', ...(cfg.serviceToken ? { 'X-Service-Token': cfg.serviceToken } : {}) };
+
+  /** Call MOD-03; its refusals come back as PeerError carrying its message and field details. */
+  async function inventory(path: string, init: RequestInit = {}): Promise<unknown> {
+    if (!inventoryUrl) NO_INVENTORY();
+    let res: Response;
+    try {
+      res = await fetch(`${inventoryUrl}${path}`, { ...init, headers, signal: AbortSignal.timeout(OFFER_FETCH_TIMEOUT_MS) });
+    } catch (err) {
+      throw new PeerError(502, `The inventory is unreachable: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const text = await res.text();
+    let parsed: unknown;
+    try {
+      parsed = text ? JSON.parse(text) : undefined;
+    } catch {
+      parsed = text;
+    }
+    if (!res.ok) {
+      const body = (parsed ?? {}) as { error?: unknown; details?: { message?: unknown }[] };
+      const details = Array.isArray(body.details) ? body.details.map((d) => String(d.message)).join('; ') : '';
+      const message = typeof body.error === 'string' ? body.error : `The inventory answered ${res.status}`;
+      throw new PeerError(res.status, details ? `${message}: ${details}` : message);
+    }
+    return parsed;
+  }
+
   return {
+    inventoryConfigured: Boolean(inventoryUrl),
+    async inventoryWarehouses() {
+      return ((await inventory('/api/goods-issues/warehouses')) as { warehouses: { code: string; name: string }[] }).warehouses;
+    },
+    async issueGoods(request: GoodsIssueRequest) {
+      await inventory('/api/goods-issues', {
+        method: 'POST',
+        body: JSON.stringify({
+          source: 'mod-17-orders-delivery',
+          reference: request.reference,
+          warehouse_code: request.warehouseCode,
+          actor: request.actor,
+          lines: request.lines,
+        }),
+      });
+    },
+
     async audit(info: AuditInfo): Promise<void> {
       if (!client) return;
       try {

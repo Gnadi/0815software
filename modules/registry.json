@@ -976,6 +976,10 @@
       "peers": {
         "optional": [
           {
+            "id": "mod-03-inventory-management",
+            "urlEnv": "INVENTORY_URL"
+          },
+          {
             "id": "mod-13-offers",
             "urlEnv": "OFFERS_URL"
           }

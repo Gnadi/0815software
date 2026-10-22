@@ -16,6 +16,8 @@ import { createHandoff, isRedeemPath, requestedAccess, safeServiceTokenEqual } f
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
+import { effectiveSeller, readSettings, settingsStamp, validateSettings, writeSettings } from './settings.js';
+import { bookStock } from './stock.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import {
   cancelOrder,
@@ -26,6 +28,7 @@ import {
   listOrders,
   markInvoiced,
   orderDetail,
+  setLineSku,
   todayIso,
   type OrderInput,
   type OrderLineInput,
@@ -112,7 +115,8 @@ function validateOrder(input: Record<string, unknown>, today: string): OrderInpu
     if (!Number.isFinite(discount) || discount < 0 || discount > 100) errors.push({ field: `lines[${i}].discount_percent`, message: 'Discount must be between 0 and 100 %' });
     const vat = Number(line.vat_rate);
     if (![0, 7, 10, 13, 19, 20].includes(vat)) errors.push({ field: `lines[${i}].vat_rate`, message: 'VAT rate must be one of: 0, 7, 10, 13, 19, 20' });
-    return { description, quantity: q, unitPriceCents: price, discountPercent: discount, vatRate: vat };
+    const sku = optText(line.sku, `lines[${i}].sku`, errors, 60);
+    return { description, quantity: q, unitPriceCents: price, discountPercent: discount, vatRate: vat, sku };
   });
   if (errors.length > 0) fail(errors);
   return { orderDate, customer, customerReference, note, lines };
@@ -127,7 +131,7 @@ export interface AppOptions {
   staticDir?: string;
   /** Optional PS-07 Audit and MOD-13 Offers integration; defaults to standalone. */
   platform?: PlatformHooks;
-  /** The letterhead on the PDFs. */
+  /** The letterhead from the environment; Settings override it field by field. */
   seller?: SellerConfig;
   /** Injectable "today", so tests can pin dates. */
   today?: () => string;
@@ -381,7 +385,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const order = orderDetail(db, idParam(req));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${order.number}.pdf"`);
-    res.send(renderOrderPdf(order, seller));
+    res.send(renderOrderPdf(order, effectiveSeller(db, seller).seller));
   });
 
   app.post('/api/orders/:id/cancel', (req, res) => {
@@ -398,7 +402,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   // ── Delivery notes ───────────────────────────────────────────────────
-  app.post('/api/orders/:id/delivery-notes', (req, res) => {
+  app.post('/api/orders/:id/delivery-notes', async (req, res) => {
     const id = idParam(req);
     const input = body(req);
     const errors: FieldError[] = [];
@@ -414,14 +418,81 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const actor = actorOf(res, auth);
     const delivery = createDeliveryNote(db, id, { deliveredOn, note, lines }, actor, today());
     void platform.audit({ actor, action: 'order.delivered', resource: `order:${delivery.order_number}`, metadata: { delivery_note: delivery.number } });
-    res.status(201).json(delivery);
+    // The delivery note stands whatever MOD-03 answers; the outcome is on it.
+    res.status(201).json(await bookStock(db, platform, delivery.id, actor));
+  });
+
+  // Book (again) what failed or was not booked yet — e.g. after stock arrived
+  // in MOD-03 or an article number was added.
+  app.post('/api/delivery-notes/:id/book-stock', async (req, res) => {
+    const id = idParam(req, 'Delivery note');
+    getDeliveryNote(db, id);
+    if (!platform.inventoryConfigured) throw new DomainError(501, 'No inventory is configured — set INVENTORY_URL to book stock in MOD-03');
+    res.json(await bookStock(db, platform, id, actorOf(res, auth), { force: true }));
+  });
+
+  // The article number of an order line, for the stock it issues.
+  app.put('/api/orders/:id/lines/:lineId/sku', (req, res) => {
+    const id = idParam(req);
+    const errors: FieldError[] = [];
+    const sku = optText(body(req).sku, 'sku', errors, 60);
+    if (errors.length > 0) fail(errors);
+    setLineSku(db, id, Number(req.params.lineId), sku, actorOf(res, auth));
+    res.json(orderDetail(db, id));
+  });
+
+  // ── Settings (server/settings.ts) ────────────────────────────────────
+  // Anyone may read them; changing them is the admin's (server/access.ts).
+  const settingsResponse = async () => {
+    const { seller: effective, source } = effectiveSeller(db, seller);
+    let warehouses: { code: string; name: string }[] | null = null;
+    let error: string | null = null;
+    if (platform.inventoryConfigured) {
+      try {
+        warehouses = await platform.inventoryWarehouses();
+      } catch (err) {
+        error = err instanceof Error ? err.message : String(err);
+      }
+    }
+    return {
+      settings: readSettings(db),
+      seller: { name: effective.name, address_lines: effective.addressLines, vat_id: effective.vatId },
+      seller_source: source,
+      inventory: { configured: platform.inventoryConfigured, warehouses, error },
+      ...settingsStamp(db),
+    };
+  };
+
+  app.get('/api/settings', async (_req, res) => {
+    res.json(await settingsResponse());
+  });
+
+  app.put('/api/settings', async (req, res) => {
+    const next = validateSettings(body(req));
+    // A warehouse MOD-03 does not have would fail every booking; refuse it
+    // now. When MOD-03 cannot be asked, saying so beats saving blind.
+    if (next.stock_warehouse !== null && platform.inventoryConfigured) {
+      let codes: string[];
+      try {
+        codes = (await platform.inventoryWarehouses()).map((w) => w.code);
+      } catch (err) {
+        throw new DomainError(502, `The warehouse cannot be checked: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (!codes.includes(next.stock_warehouse)) {
+        fail([{ field: 'stock_warehouse', message: `MOD-03 has no warehouse ${next.stock_warehouse} — one of: ${codes.join(', ')}` }]);
+      }
+    }
+    const actor = actorOf(res, auth);
+    const changed = writeSettings(db, next, actor);
+    if (changed.length > 0) void platform.audit({ actor, action: 'settings.changed', resource: 'settings', metadata: { fields: changed } });
+    res.json(await settingsResponse());
   });
 
   app.get('/api/delivery-notes/:id/pdf', (req, res) => {
     const note = getDeliveryNote(db, idParam(req, 'Delivery note'));
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${note.number}.pdf"`);
-    res.send(renderDeliveryNotePdf(note, orderDetail(db, note.order_id), seller));
+    res.send(renderDeliveryNotePdf(note, orderDetail(db, note.order_id), effectiveSeller(db, seller).seller));
   });
 
   // ── Static client (production build) ─────────────────────────────────

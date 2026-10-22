@@ -25,6 +25,8 @@ export interface OrderLine {
   unit_price_cents: number;
   discount_percent: number;
   vat_rate: number;
+  /** MOD-03 article number; null for a service or an unmapped line (not booked). */
+  sku: string | null;
   /** round(quantity × unit price × (1 − discount/100)) — derived, never stored. */
   net_cents: number;
   /** Sum over the delivery notes — derived. */
@@ -78,6 +80,7 @@ export interface DeliveryNoteLine {
   order_line_id: number;
   position: number;
   description: string;
+  sku: string | null;
   quantity: number;
 }
 
@@ -96,6 +99,38 @@ export interface DeliveryNote {
   /** When a billing module took this delivery over, and as what. Null until then. */
   invoiced_at: string | null;
   invoice_reference: string | null;
+  /**
+   * The goods issue in MOD-03: null while nothing has been booked (booking
+   * off, no article numbers, or no inventory wired), `booked`, or `failed`
+   * with the reason — which a retry clears.
+   */
+  stock_status: 'booked' | 'failed' | null;
+  stock_warehouse: string | null;
+  stock_at: string | null;
+  stock_error: string | null;
+}
+
+/** What the admin sets on the Settings screen. Empty = fall back (see `source`). */
+export interface Settings {
+  seller_name: string | null;
+  /** One line per entry. */
+  seller_address: string[] | null;
+  seller_vat_id: string | null;
+  /** Book a goods issue in MOD-03 for every delivery note with article numbers. */
+  stock_booking: boolean;
+  /** The MOD-03 warehouse code goods are issued from. */
+  stock_warehouse: string | null;
+}
+
+export interface SettingsResponse {
+  settings: Settings;
+  /** The letterhead as the PDFs print it, and where each field comes from. */
+  seller: { name: string; address_lines: string[]; vat_id: string };
+  seller_source: { name: 'settings' | 'env'; address_lines: 'settings' | 'env'; vat_id: 'settings' | 'env' };
+  /** Whether MOD-03 is wired (INVENTORY_URL), and its warehouses when it answered. */
+  inventory: { configured: boolean; warehouses: { code: string; name: string }[] | null; error: string | null };
+  updated_at: string | null;
+  updated_by: string | null;
 }
 
 export interface FieldError {
