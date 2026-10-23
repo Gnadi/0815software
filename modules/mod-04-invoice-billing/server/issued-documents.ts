@@ -31,7 +31,7 @@ import { nowIso } from './invoices.js';
  * writer); test/issued-documents.test.ts pins it to the golden files, so
  * regenerating them without a bump fails.
  */
-export const RENDERER_VERSION = 'mod-04-einvoice-4';
+export const RENDERER_VERSION = 'mod-04-einvoice-5';
 
 /** A freshly rendered file, before it is stored. */
 export interface RenderedFile {

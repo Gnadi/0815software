@@ -42,7 +42,7 @@ interface TemplateRow {
 }
 
 /** The draft a template produces, minus customer and dates (those come from the template and period). */
-export type TemplateDraft = Omit<DraftInput, 'customerId' | 'createdAt' | 'deliveryDate'>;
+export type TemplateDraft = Omit<DraftInput, 'customerId' | 'createdAt' | 'deliveryDate' | 'periodStart' | 'periodEnd'>;
 
 /** "2026-01-31" + 1 month → "2026-02-28": the start day, clamped to the target month. */
 export function addMonths(date: string, months: number): string {
@@ -58,10 +58,6 @@ export function addMonths(date: string, months: number): string {
 export function periodOf(startDate: string, interval: RecurringInterval, n: number): { start: string; end: string } {
   const step = INTERVAL_MONTHS[interval];
   return { start: addMonths(startDate, n * step), end: addDays(addMonths(startDate, (n + 1) * step), -1) };
-}
-
-function deDate(iso: string): string {
-  return `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`;
 }
 
 function generatedPeriods(db: Database.Database, templateId: number): Set<string> {
@@ -211,12 +207,14 @@ export function generateDrafts(db: Database.Database, id: number, actor: string,
         )
         .run(id, period.start, period.end, nowIso(), actor);
       if (claim.changes === 0) return;
-      const servicePeriod = `Leistungszeitraum ${deDate(period.start)} – ${deDate(period.end)}`;
+      // The period this run bills is the service period (BG-14). It used to
+      // go in as a delivery date on its first day plus a line of free text,
+      // which no recipient's software could read as a period.
       const invoiceId = createDraft(db, {
         ...draft,
         customerId: row.customer_id,
-        deliveryDate: period.start,
-        note: draft.note ? `${draft.note}\n${servicePeriod}` : servicePeriod,
+        periodStart: period.start,
+        periodEnd: period.end,
       });
       db.prepare('UPDATE recurring_runs SET invoice_id = ? WHERE template_id = ? AND period_start = ?').run(invoiceId, id, period.start);
       created.push({ template_id: id, period_start: period.start, period_end: period.end, invoice_id: invoiceId });

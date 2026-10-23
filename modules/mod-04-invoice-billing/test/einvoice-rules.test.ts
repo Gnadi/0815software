@@ -11,7 +11,7 @@ import { openDb } from '../server/db.js';
 import type { AuthConfig } from '../server/auth.js';
 import type { SellerConfig } from '../server/config.js';
 import { hasVatPrefix, isCountryCode } from '../shared/countries.js';
-import { ebInterfaceProblems } from '../shared/ebinterface.js';
+import { ebInterfaceProblems, renderEbInterface } from '../shared/ebinterface.js';
 import {
   EINVOICE_PROFILES,
   eInvoiceProblems,
@@ -195,6 +195,28 @@ describe('a seller with neither VAT id nor register number can still be identifi
   });
 });
 
+describe('a service period is the time of supply (M7)', () => {
+  const period = CASES.period!;
+
+  it('is written as BG-14 in CII, beside its last day as the delivery date', () => {
+    for (const profile of EINVOICE_PROFILES) expect(eInvoiceProblems(period, profile)).toEqual([]);
+    const xml = renderCii(period, 'xrechnung');
+    expect(xml).toMatch(/<ram:BillingSpecifiedPeriod>\s*<ram:StartDateTime>\s*<udt:DateTimeString format="102">20261001<\/udt:DateTimeString>\s*<\/ram:StartDateTime>\s*<ram:EndDateTime>\s*<udt:DateTimeString format="102">20261031<\/udt:DateTimeString>/);
+    expect(xml).toMatch(/<ram:ActualDeliverySupplyChainEvent>\s*<ram:OccurrenceDateTime>\s*<udt:DateTimeString format="102">20261031</);
+  });
+
+  it('is a Period in ebInterface, which takes a date or a period', () => {
+    const xml = renderEbInterface(period);
+    expect(xml).toMatch(/<Delivery>\s*<Period>\s*<FromDate>2026-10-01<\/FromDate>\s*<ToDate>2026-10-31<\/ToDate>\s*<\/Period>\s*<\/Delivery>/);
+  });
+
+  it('refuses a period that ends before it starts, and an impossible day', () => {
+    expect(terms({ ...period, period: { start: '2026-10-31', end: '2026-10-01' } }, 'zugferd')).toEqual(['BT-74']);
+    expect(terms({ ...period, period: { start: '2026-09-31', end: '2026-10-31' } }, 'zugferd')).toEqual(['BT-73']);
+    expect(ebInterfaceProblems({ ...period, period: { start: '2026-10-31', end: '2026-10-01' } }).map((p) => p.term)).toContain('BT-74');
+  });
+});
+
 describe('the matrix', () => {
   const accepted = Object.entries(MATRIX).flatMap(([name, model]) =>
     EINVOICE_PROFILES.filter((p) => eInvoiceProblems(model, p).length === 0).map((p) => ({ name, profile: p, model })),
@@ -324,6 +346,32 @@ describe('the API refuses what used to reach the file', () => {
     expect(unlisted.status).toBe(422);
     expect(field(unlisted)).toEqual(['identifier']);
     expect((await call('put', '/api/settings/seller', { identifier: '0088:4000001000005' })).status).toBe(200);
+  });
+
+  it('M7: a draft bills a service period, which the XRechnung and the PDF state', async () => {
+    const c = await call('post', '/api/customers', { ...customer, vat_id: 'DE987654321' });
+    const half = await call('post', '/api/invoices', { customer_id: c.body.id, period_start: '2026-10-01', lines });
+    expect(half.status).toBe(422);
+    expect(half.body.details.map((d: { field: string }) => d.field)).toEqual(['period_end']);
+    const backwards = await call('post', '/api/invoices', { customer_id: c.body.id, period_start: '2026-10-31', period_end: '2026-10-01', lines });
+    expect(backwards.body.details.map((d: { field: string }) => d.field)).toEqual(['period_end']);
+
+    const d = await call('post', '/api/invoices', { customer_id: c.body.id, period_start: '2026-10-01', period_end: '2026-10-31', lines });
+    expect(d.status).toBe(201);
+    expect(d.body).toMatchObject({ period_start: '2026-10-01', period_end: '2026-10-31', delivery_date: null });
+    expect((await call('post', `/api/invoices/${d.body.id}/finalize`, { issue_date: '2026-11-02' })).status).toBe(200);
+    const xml = (await call('get', `/api/invoices/${d.body.id}/xrechnung.xml`)).text;
+    expect(xml).toContain('<ram:BillingSpecifiedPeriod>');
+    // No date was entered: the period's last day stands in, not the issue date (2 November).
+    expect(xml).toMatch(/<ram:OccurrenceDateTime>\s*<udt:DateTimeString format="102">20261031</);
+    const pdf = await call('get', `/api/invoices/${d.body.id}/pdf`).buffer(true).parse((r, cb) => {
+      const chunks: Buffer[] = [];
+      r.on('data', (chunk: Buffer) => chunks.push(chunk));
+      r.on('end', () => cb(null, Buffer.concat(chunks)));
+    });
+    const text = (pdf.body as Buffer).toString('latin1');
+    for (const shown of ['(SERVICE FROM)', '(2026-10-01)', '(SERVICE TO)', '(2026-10-31)']) expect(text).toContain(shown);
+    expect(text).not.toContain('(SERVICE DATE)');
   });
 
   it('O: impossible calendar dates are refused on the draft, at issue and on a credit note', async () => {

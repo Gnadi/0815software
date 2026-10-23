@@ -179,6 +179,8 @@ const FINGERPRINTS: Record<string, string> = {
   'mod-04-einvoice-3': '6a7738bf0fedcc8d000191b4bc7194a4b8864566c9bb327b0e52270fd052d83c',
   // Electronic addresses with their own scheme, seller IDs as BT-29, both in the PDF too (M4, M8).
   'mod-04-einvoice-4': '6a7738bf0fedcc8d000191b4bc7194a4b8864566c9bb327b0e52270fd052d83c',
+  // The service period as BG-14, ebInterface Period and PDF rows (M7); golden case `period`.
+  'mod-04-einvoice-5': '1fd7021f4fb42788c8abe9c331301ff54ccf28bfedb1f342ec0484ad4f03ed13',
 };
 
 describe('the renderer version', () => {

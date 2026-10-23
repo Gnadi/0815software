@@ -328,9 +328,16 @@ export function layoutInvoice(
         ['TERMS', `${invoice.payment_terms_days} DAYS NET`],
       ];
   // The date of supply is a mandatory invoice field (§ 14 Abs. 4 Nr. 6 UStG,
-  // § 11 Abs. 1 Z 3 lit. d UStG-AT). Without its own, it is the issue date.
+  // § 11 Abs. 1 Z 3 lit. d UStG-AT): the service period when there is one,
+  // the service date beside it only when one was entered, and without either
+  // the issue date — as in the XML.
   if (invoice.issue_date !== null) {
-    meta.splice(2, 0, ['SERVICE DATE', invoice.delivery_date ?? invoice.issue_date]);
+    const period = invoice.period_start !== null && invoice.period_end !== null;
+    const rows: [string, string][] = [];
+    // One day per row like every other date here; as one value it would wrap.
+    if (period) rows.push(['SERVICE FROM', invoice.period_start!], ['SERVICE TO', invoice.period_end!]);
+    if (invoice.delivery_date !== null || !period) rows.push(['SERVICE DATE', invoice.delivery_date ?? invoice.issue_date]);
+    meta.splice(2, 0, ...rows);
   }
   if (invoice.buyer_reference) meta.push(['YOUR REF', invoice.buyer_reference]);
   if (customer.supplier_number) meta.push(['SUPPLIER NO', customer.supplier_number]);

@@ -93,13 +93,16 @@ describe('periods are derived from the start date', () => {
 });
 
 describe('generating', () => {
-  it('turns each begun period into a draft dated to the period, with the period in the note', () => {
+  it('turns each begun period into a draft for that service period (BG-14)', () => {
     const id = template();
     const created = generateDrafts(db, id, 'ada', '2026-03-31');
     expect(created.map((c) => c.period_start)).toEqual(['2026-01-31', '2026-02-28', '2026-03-31']);
     const first = invoiceDetail(db, created[0]!.invoice_id);
-    expect(first).toMatchObject({ status: 'draft', number: null, delivery_date: '2026-01-31', payment_terms_days: 14 });
-    expect(first.note).toBe('Wartungsvertrag\nLeistungszeitraum 31.01.2026 – 27.02.2026');
+    // The period is data now, not a made-up delivery date and a line of text.
+    expect(first).toMatchObject({
+      status: 'draft', number: null, delivery_date: null, period_start: '2026-01-31', period_end: '2026-02-27', payment_terms_days: 14,
+    });
+    expect(first.note).toBe('Wartungsvertrag');
     expect(first.lines).toEqual([expect.objectContaining({ description: 'Wartungspauschale', unit_price_cents: 10000 })]);
   });
 

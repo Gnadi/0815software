@@ -146,8 +146,11 @@ export interface InvoiceDetail extends InvoiceRow {
   note: string | null;
   /** BT-10: Leitweg-ID or the customer's reference. Null → the customer's default at issue. */
   buyer_reference: string | null;
-  /** Leistungsdatum (BT-72). Null → the issue date, and the PDF says so. */
+  /** Leistungsdatum (BT-72). Null → the issue date, and the PDF says so — unless there is a period. */
   delivery_date: string | null;
+  /** Leistungszeitraum (BG-14, BT-73/74), both days inclusive; both null without one. */
+  period_start: string | null;
+  period_end: string | null;
   /** Why the 0 % lines carry no VAT — see TAX_EXEMPTION_CATEGORIES. */
   tax_exemption_category: TaxExemptionCategory | null;
   tax_exemption_reason: string | null;

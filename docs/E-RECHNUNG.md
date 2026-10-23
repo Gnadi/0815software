@@ -178,8 +178,15 @@ and the country falls back to the VAT id's prefix.
 
 ### Per invoice (editor)
 
-Service date (Leistungsdatum, BT-72; empty means the issue date), buyer
-reference, and, for 0 % lines, the VAT category and exemption text.
+Service date (Leistungsdatum, BT-72; empty means the issue date), service
+period (Leistungszeitraum, BG-14: first and last day, both or neither — a
+monthly fee, a maintenance contract), buyer reference, and, for 0 % lines,
+the VAT category and exemption text. With a period and no service date of its
+own, BT-72 is the period's last day — EN 16931 has it as the day the supply was
+"made or completed", and an empty delivery block draws ZUGFeRD 2.5's
+PEPPOL-EN16931-R008 (a warning there for now). The PDF shows the period as
+*SERVICE FROM* / *SERVICE TO*, ebInterface as *Delivery/Period*. Recurring
+invoices fill the period of each run.
 
 ### Before the first one goes out
 

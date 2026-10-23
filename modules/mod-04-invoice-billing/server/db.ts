@@ -473,6 +473,14 @@ export function openDb(path: string): Database.Database {
     })();
   }
 
+  // The service period (BG-14) of an invoice billed for a span of time — a
+  // monthly fee — instead of the made-up delivery date and free-text note it
+  // used to get. Both or neither; checked by the API (server/app.ts).
+  if (!columns('invoices').includes('period_start')) {
+    db.exec('ALTER TABLE invoices ADD COLUMN period_start TEXT');
+    db.exec('ALTER TABLE invoices ADD COLUMN period_end TEXT');
+  }
+
   ensureReportViews(db);
 
   return db;

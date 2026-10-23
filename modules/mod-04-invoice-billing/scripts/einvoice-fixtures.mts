@@ -40,7 +40,10 @@ function zugferdPdf(model: EInvoiceModel): Buffer {
     payment_status: 'unpaid', issue_date: model.preceding?.issue_date ?? model.issue_date, due_date: model.due_date, overdue: false,
     net_cents: totals.net_cents, vat_cents: totals.vat_cents, gross_cents: totals.gross_cents, paid_cents: 0,
     created_at: model.issue_date, payment_terms_days: model.payment_terms_days, note: cancels || model.type_code === '380' ? model.note : null,
-    buyer_reference: model.buyer_reference, delivery_date: model.delivery_date,
+    // A period's last day as the delivery date is what the API derives when
+    // none was entered — and then the invoice row holds none.
+    buyer_reference: model.buyer_reference, delivery_date: model.period?.end === model.delivery_date ? null : model.delivery_date,
+    period_start: model.period?.start ?? null, period_end: model.period?.end ?? null,
     tax_exemption_category: model.exemption?.category ?? null, tax_exemption_reason: model.exemption?.reason ?? null,
     parties_frozen: true, line_rounding: model.line_rounding, cancelled_at: cancels ? `${model.issue_date}T00:00:00Z` : null,
     cancellation_reason: cancels ? 'Doppelt fakturiert' : null,

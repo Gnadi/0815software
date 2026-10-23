@@ -180,6 +180,11 @@ function modelLines(
   }));
 }
 
+/** The service period of an invoice, when it has one (BG-14). */
+function periodOf(invoice: { period_start: string | null; period_end: string | null }): EInvoiceModel['period'] {
+  return invoice.period_start !== null && invoice.period_end !== null ? { start: invoice.period_start, end: invoice.period_end } : null;
+}
+
 function exemptionOf(invoice: {
   tax_exemption_category: TaxExemptionCategory | null;
   tax_exemption_reason: string | null;
@@ -214,7 +219,12 @@ export function eInvoiceModel(
   const lines = modelLines(invoiceLines(db, invoiceId));
   const exemption = exemptionOf(invoice);
   const base = {
-    delivery_date: invoice.delivery_date ?? invoice.issue_date,
+    // Without a service date of its own: the last day of the service period —
+    // the day the supply was completed — and only without one the issue date.
+    // An empty delivery block instead would fail ZUGFeRD 2.5's PEPPOL-EN16931-
+    // R008 (still a warning there; XRechnung exempts the element).
+    delivery_date: invoice.delivery_date ?? periodOf(invoice)?.end ?? invoice.issue_date,
+    period: periodOf(invoice),
     payment_terms_days: invoice.payment_terms_days,
     // Frozen at finalize — NULL included: a Leitweg-ID added to the customer
     // later must not appear in an invoice that was issued without one. Only an
@@ -287,7 +297,8 @@ export function pendingEInvoiceModel(
     number: invoice.number ?? `DRAFT-${invoice.id}`,
     issue_date: issue,
     due_date: addDays(issue, invoice.payment_terms_days),
-    delivery_date: invoice.delivery_date ?? issue,
+    delivery_date: invoice.delivery_date ?? periodOf(invoice)?.end ?? issue,
+    period: periodOf(invoice),
     payment_terms_days: invoice.payment_terms_days,
     buyer_reference: invoice.buyer_reference ?? customer.buyer_reference ?? null,
     note: invoice.note,

@@ -14,7 +14,7 @@ import type { EInvoiceModel } from '../shared/einvoice.js';
  */
 
 export const BASE: EInvoiceModel = {
-  type_code: '380', number: 'INV-2026-0042', issue_date: '2026-10-21', due_date: '2026-11-04', delivery_date: '2026-10-15',
+  type_code: '380', number: 'INV-2026-0042', issue_date: '2026-10-21', due_date: '2026-11-04', delivery_date: '2026-10-15', period: null,
   payment_terms_days: 14, buyer_reference: 'PO-7781', note: null, preceding: null, exemption: null,
   seller: { name: 'Beispiel GmbH', address_lines: [], street: 'Hauptstraße 1', postcode: '80331', city: 'München', country: 'DE',
     vat_id: 'DE123456789', tax_number: null, iban: 'DE02120300000000202051', bic: null, contact_name: 'Erika Mustermann', phone: '+49 89 123456', email: 'rechnung@beispiel.de', einvoice_address: null },
@@ -65,6 +65,16 @@ export const CASES: Record<string, EInvoiceModel> = {
       { position: 1, description: 'Wartung der Heizungsanlage gemäß Wartungsvertrag Nr. 2026-117, inkl. Abgasmessung, Austausch der Zündelektrode und Prüfung des Ausdehnungsgefäßes', quantity: 0.3333, unit_price_cents: 99999, vat_rate: 19 },
       { position: 2, description: 'Heilbehandlung', quantity: 1, unit_price_cents: 5000, vat_rate: 0 },
     ],
+  },
+  // Review finding M7: a monthly fee billed for its service period (BG-14).
+  // Its delivery date is the period's last day, as the API derives it when
+  // none was entered.
+  period: {
+    ...BASE,
+    delivery_date: '2026-10-31',
+    period: { start: '2026-10-01', end: '2026-10-31' },
+    buyer: { ...BASE.buyer, name: 'Kunde AG', street: 'Kundenweg 5', postcode: '10115', city: 'Berlin', country: 'DE', vat_id: 'DE987654321', email: 'ap@kunde.de' },
+    lines: [{ position: 1, description: 'Wartungspauschale Oktober 2026', quantity: 1, unit_price_cents: 25000, vat_rate: 19 }],
   },
   leitweg: { ...BASE, buyer_reference: '991-12345-73', buyer: { ...BASE.buyer, country: 'DE', einvoice_address: '991-12345-73' }, lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: 7 }] },
 };

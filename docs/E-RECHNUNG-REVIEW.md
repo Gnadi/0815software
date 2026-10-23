@@ -13,8 +13,8 @@ Ergebnis aufgeführt. Zeilenangaben beziehen sich auf den Stand des Reviews.
 ## Stand der Umsetzung
 
 Nachgetragen am 22.10.2026, nachdem `main` (ebInterface 6.1, Teilgutschriften,
-wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1 bis M5
-und M8 am 23.10.2026:
+wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1 bis M8
+am 23.10.2026:
 
 | Befund | Stand | Belegt durch |
 | --- | --- | --- |
@@ -27,8 +27,9 @@ und M8 am 23.10.2026:
 | **M4** | **Behoben.** Eine elektronische Adresse ist eine E-Mail-Adresse (`EM`), eine Leitweg-ID (`0204`) oder eine Peppol-ID in der Form `Schema:Kennung` (`0088:…`, `9930:DE…`), das Schema aus der EAS-Codeliste des CEN-Schematrons (BR-CL-25). Freitext wird beim Speichern von Kunde und Verkäufer und vor jeder Datei abgelehnt (Fälle C und M). ebInterface erhält dort nur eine E-Mail-Adresse. | `test/einvoice-rules.test.ts` (Fälle R, S), Matrix-Käufer `peppol` |
 | **M5** | **Behoben.** Die Prüfziffer einer Leitweg-ID wird geprüft, nach der Formatspezifikation 2.0.2 (Kap. 2.4, deren Beispiel ist Testfall): beim Speichern von Kunde und Verkäufer und vor jeder Datei, in der elektronischen Adresse und in der Käuferreferenz eines so adressierten Käufers. Eine Bestellnummer gleicher Form (`4711-01`) bei anderen Käufern bleibt unberührt. Die Testdaten tragen gültige IDs. | `test/einvoice-rules.test.ts` (Fall F) |
 | **M6** | **Behoben** mit H2: Die API nimmt nur noch echte Kalenderdaten an. | `test/einvoice-rules.test.ts` |
+| **M7** | **Behoben.** Entwürfe haben einen Leistungszeitraum (BG-14: erster und letzter Tag, beide oder keiner; BR-29). Er steht im XML, in ebInterface als `Delivery/Period` und im PDF. Ohne eigenes Leistungsdatum ist BT-72 der letzte Tag des Zeitraums, so bleibt der Lieferblock nicht leer (ZUGFeRD 2.5 warnt sonst nach PEPPOL-EN16931-R008). Wiederkehrende Rechnungen tragen den Zeitraum ihres Laufs ein, statt des fiktiven Datums mit Freitext. | `test/einvoice-rules.test.ts` (M7), `test/recurring.test.ts`, Golden-Fall `period` |
 | **M8** | **Behoben.** BR-CO-26 lässt sich ohne USt-IdNr. und Registernummer auf zwei Wegen erfüllen: mit einer Verkäuferkennung (BT-29) mit ISO-6523-Schema aus den Einstellungen, etwa einer GLN (`0088:…`, `GlobalID`), oder mit der Lieferantennummer, die der Kunde vergeben hat (`ram:ID` ohne Schema). EN 16931 nennt Letztere ausdrücklich als Beispiel für BT-29. Beide stehen auch im PDF. | `test/einvoice-rules.test.ts` (Fälle T, U), Matrix-Verkäufer `taxno_gln` |
-| M7, N1–N8 | Offen. | – |
+| N1–N8 | Offen. | – |
 
 Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
 Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
@@ -440,6 +441,11 @@ berechnet), im XML stehen `20260231` und `20260230`. Mustang meldet
 
 ### M7 · Kein Leistungszeitraum (BG-14)
 
+*Status: behoben* (siehe Tabelle oben). Beim Umsetzen fiel auf, dass ZUGFeRD
+2.5 einen leeren Lieferblock nach PEPPOL-EN16931-R008 als Warnung meldet,
+während das XRechnung-Schematron genau dieses Element ausnimmt. Ein Zeitraum
+ohne BT-72 ist damit als XRechnung sauber, als ZUGFeRD nicht ganz.
+
 **Wo:** Das Datenmodell kennt nur `delivery_date` (BT-72), keinen
 Abrechnungszeitraum (BG-14, BT-73/74) und keinen Zeitraum je Position
 (BG-26).
@@ -622,6 +628,13 @@ MOD-04 heute damit umgeht und was zu tun ist.
     ZUGFeRD ungültig sein.
   - BT-7 (Steuerentstehung) neben BT-72 wird in Deutschland kaum genutzt;
     das Verhältnis zum „Zeitpunkt der Leistung“ ist nicht beschrieben.
+  - Nachgetragen mit M7: Eine Rechnung, die nur einen Zeitraum (BG-14) und
+    kein BT-72 nennt, hat in CII einen leeren Lieferblock
+    (`ApplicableHeaderTradeDelivery`). Das XRechnung-Schematron nimmt genau
+    dieses Element von PEPPOL-EN16931-R008 („keine leeren Elemente“) aus, das
+    ZUGFeRD-2.5-Schematron nicht: Es meldet eine Warnung, ausdrücklich „still
+    status warning“. Dieselbe Rechnung ist so als XRechnung einwandfrei, als
+    ZUGFeRD nur mit Warnung.
 - **MOD-04:** schreibt immer BT-72 (gut), prüft Daten aber nicht richtig
   (M6) und kennt keinen Zeitraum (M7).
 

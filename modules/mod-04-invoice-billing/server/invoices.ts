@@ -89,6 +89,9 @@ interface InvoiceStoredRow {
   buyer_snapshot: string | null;
   /** Fixed at finalize; NULL on a draft. See `roundingOf`. */
   line_rounding: LineRounding | null;
+  /** The service period (BG-14), both days inclusive, or both NULL. */
+  period_start: string | null;
+  period_end: string | null;
 }
 
 export function getInvoice(db: Database.Database, id: number): InvoiceStoredRow {
@@ -313,6 +316,8 @@ export function invoiceDetail(
     note: invoice.note,
     buyer_reference: invoice.buyer_reference,
     delivery_date: invoice.delivery_date,
+    period_start: invoice.period_start,
+    period_end: invoice.period_end,
     tax_exemption_category: invoice.tax_exemption_category,
     tax_exemption_reason: invoice.tax_exemption_reason,
     parties_frozen: invoice.seller_snapshot !== null && invoice.buyer_snapshot !== null,
@@ -343,6 +348,9 @@ export interface DraftInput {
   /** E-invoice fields — optional so every existing caller keeps working. */
   buyerReference?: string | null;
   deliveryDate?: string | null;
+  /** The service period, both or neither — a recurring run fills it with its own. */
+  periodStart?: string | null;
+  periodEnd?: string | null;
   taxExemptionCategory?: TaxExemptionCategory | null;
   taxExemptionReason?: string | null;
 }
@@ -364,8 +372,9 @@ export function createDraft(db: Database.Database, input: DraftInput): number {
     const info = db
       .prepare(
         `INSERT INTO invoices (customer_id, status, payment_terms_days, note, created_at,
-                               buyer_reference, delivery_date, tax_exemption_category, tax_exemption_reason)
-         VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
+                               buyer_reference, delivery_date, period_start, period_end,
+                               tax_exemption_category, tax_exemption_reason)
+         VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.customerId,
@@ -374,6 +383,8 @@ export function createDraft(db: Database.Database, input: DraftInput): number {
         input.createdAt ?? nowIso(),
         input.buyerReference ?? null,
         input.deliveryDate ?? null,
+        input.periodStart ?? null,
+        input.periodEnd ?? null,
         input.taxExemptionCategory ?? null,
         input.taxExemptionReason ?? null,
       );
@@ -396,13 +407,16 @@ export function updateDraft(db: Database.Database, id: number, input: DraftInput
   db.transaction(() => {
     db.prepare(
       `UPDATE invoices SET customer_id = ?, payment_terms_days = ?, note = ?, buyer_reference = ?,
-         delivery_date = ?, tax_exemption_category = ?, tax_exemption_reason = ? WHERE id = ?`,
+         delivery_date = ?, period_start = ?, period_end = ?, tax_exemption_category = ?, tax_exemption_reason = ?
+       WHERE id = ?`,
     ).run(
       input.customerId,
       input.paymentTermsDays,
       input.note,
       input.buyerReference ?? null,
       input.deliveryDate ?? null,
+      input.periodStart ?? null,
+      input.periodEnd ?? null,
       input.taxExemptionCategory ?? null,
       input.taxExemptionReason ?? null,
       id,

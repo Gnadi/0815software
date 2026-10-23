@@ -100,7 +100,8 @@ customers          name, email, vat_id, address              (CRUD via UI/API)
 invoices           number (NULL for drafts), customer, status,
                    issue_date, due_date, payment_terms_days,
                    note, cancellation audit trail,
-                   buyer_reference, delivery_date, tax_exemption_category
+                   buyer_reference, delivery_date, period_start / _end
+                   (the service period, both or neither), tax_exemption_category
                    / _reason, seller_snapshot / buyer_snapshot (JSON,
                    frozen at finalize — see E-invoices), line_rounding
                    (decimal | float, fixed at finalize — see Money)
@@ -365,6 +366,7 @@ GET    /api/customers/:id/ledger       statement with running balance
 GET    /api/invoices                   ?search=&status=&overdue=1
                                        (status: draft|sent|paid|cancelled — derived)
 POST   /api/invoices                   {customer_id, payment_terms_days?, note?,
+                                        delivery_date?, period_start?, period_end?,
                                         lines: [{description, quantity,
                                                  unit_price_cents, vat_rate}]}
 GET    /api/invoices/:id               lines, VAT breakdown, payments, derived state
@@ -754,9 +756,11 @@ The same invoice every month, quarter or year (`server/recurring.ts`, the
 
 - **Drafts, never issued.** A template holds a customer, lines and terms plus
   a rhythm (first period start, interval, optional last start). Generating
-  turns every period that has begun into a DRAFT — dated to the period's
-  first day (Leistungsdatum), with *Leistungszeitraum dd.mm.yyyy – dd.mm.yyyy*
-  in its note. A person checks and sends it; numbering stays gapless.
+  turns every period that has begun into a DRAFT for that **service period**
+  (Leistungszeitraum, BG-14 in the e-invoice, *Delivery/Period* in
+  ebInterface). It used to be dated to the period's first day with the
+  period as a line of text in the note, which no recipient's software reads
+  as a period. A person checks and sends it; numbering stays gapless.
 - **At most once per period, by construction.** `recurring_runs` records
   which period produced which draft, UNIQUE (template, period). Generating
   twice, or two people at once, yields no doubles. A draft deleted by hand

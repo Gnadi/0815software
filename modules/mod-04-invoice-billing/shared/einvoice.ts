@@ -119,7 +119,18 @@ export interface EInvoiceModel {
   number: string;
   issue_date: string;
   due_date: string | null;
+  /**
+   * BT-72 — for an invoice billed by period without a date of its own, the
+   * period's last day: EN 16931 has BT-72 as the day the supply "was made or
+   * completed".
+   */
   delivery_date: string;
+  /**
+   * BG-14 — the service period, both days inclusive: a monthly fee, a
+   * maintenance contract. § 14 Abs. 4 Nr. 6 UStG takes a period as the time
+   * of supply, and the BMF wants it in the structured part.
+   */
+  period: { start: string; end: string } | null;
   payment_terms_days: number;
   buyer_reference: string | null;
   note: string | null;
@@ -424,11 +435,14 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
     ['BT-2', 'issue_date', model.issue_date],
     ['BT-9', 'due_date', model.due_date],
     ['BT-72', 'delivery_date', model.delivery_date],
+    ['BT-73', 'period_start', model.period?.start ?? null],
+    ['BT-74', 'period_end', model.period?.end ?? null],
     ['BT-26', 'preceding.issue_date', model.preceding?.issue_date ?? null],
   ];
   for (const [term, field, value] of dates) {
     if (value !== null && !isCalendarDate(value)) add(term, field, `"${value}" is not a calendar date`);
   }
+  if (model.period && model.period.end < model.period.start) add('BT-74', 'period_end', 'The service period ends before it starts (BR-29)');
   return problems;
 }
 
@@ -730,6 +744,14 @@ export function renderCii(model: EInvoiceModel, profile: EInvoiceProfile): strin
     // (BR-DE-14); EN 16931 forbids a rate only on the line (BR-O-05).
     xml.leaf('ram:RateApplicablePercent', percent(row.rate));
     xml.close('ram:ApplicableTradeTax');
+  }
+
+  if (model.period) {
+    xml
+      .open('ram:BillingSpecifiedPeriod')
+      .date('ram:StartDateTime', model.period.start)
+      .date('ram:EndDateTime', model.period.end)
+      .close('ram:BillingSpecifiedPeriod');
   }
 
   xml.open('ram:SpecifiedTradePaymentTerms');

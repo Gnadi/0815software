@@ -140,10 +140,13 @@ export function ebInterfaceProblems(model: EInvoiceModel): EInvoiceProblem[] {
     ['BT-2', 'issue_date', model.issue_date],
     ['BT-9', 'due_date', model.due_date],
     ['BT-72', 'delivery_date', model.delivery_date],
+    ['BT-73', 'period_start', model.period?.start ?? null],
+    ['BT-74', 'period_end', model.period?.end ?? null],
     ['BT-26', 'preceding.issue_date', model.preceding?.issue_date ?? null],
   ] as const) {
     if (value !== null && !isCalendarDate(value)) add(term, field, `"${value}" is not a calendar date`);
   }
+  if (model.period && model.period.end < model.period.start) add('BT-74', 'period_end', 'The service period ends before it starts');
   return problems;
 }
 
@@ -209,8 +212,13 @@ export function renderEbInterface(model: EInvoiceModel): string {
       .leaf('Comment', `Storniert die Rechnung ${model.preceding.number} vom ${deDate(model.preceding.issue_date)}`)
       .close('CancelledOriginalDocument');
   }
-  // Tag der Lieferung / Leistung — § 11 UStG wants it on every invoice.
-  xml.open('Delivery').leaf('Date', model.delivery_date).close('Delivery');
+  // Tag der Lieferung / Leistung — § 11 UStG wants it on every invoice: the
+  // day, or the period for a supply over time. ebInterface takes one of the
+  // two, so a period stands for both when there is one.
+  xml.open('Delivery');
+  if (model.period) xml.open('Period').leaf('FromDate', model.period.start).leaf('ToDate', model.period.end).close('Period');
+  else xml.leaf('Date', model.delivery_date);
+  xml.close('Delivery');
 
   // ── Biller ──
   xml.open('Biller');

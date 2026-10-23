@@ -47,6 +47,8 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
   const [lines, setLines] = useState<EditableLine[]>([{ ...EMPTY_LINE }]);
   const [buyerReference, setBuyerReference] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
+  const [periodStart, setPeriodStart] = useState('');
+  const [periodEnd, setPeriodEnd] = useState('');
   const [exemption, setExemption] = useState('');
   const [exemptionReason, setExemptionReason] = useState('');
   // The rates the seller's country charges; all of them until it is known.
@@ -75,6 +77,8 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
         setNote(detail.note ?? '');
         setBuyerReference(detail.buyer_reference ?? '');
         setDeliveryDate(detail.delivery_date ?? '');
+        setPeriodStart(detail.period_start ?? '');
+        setPeriodEnd(detail.period_end ?? '');
         setExemption(detail.tax_exemption_category ?? '');
         setExemptionReason(detail.tax_exemption_reason ?? '');
         setLines(
@@ -115,6 +119,8 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
         note: note.trim() || null,
         buyer_reference: buyerReference.trim() || null,
         delivery_date: deliveryDate || null,
+        period_start: periodStart || null,
+        period_end: periodEnd || null,
         tax_exemption_category: exemption || null,
         tax_exemption_reason: exemptionReason.trim() || null,
         lines: lines.map((l) => ({
@@ -199,8 +205,28 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
               className="field__input"
               type="date"
               value={deliveryDate}
-              title="Leistungsdatum — empty means the issue date"
+              title="Leistungsdatum — empty means the issue date, or the service period when there is one"
               onChange={(e) => setDeliveryDate(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span className="field__label mono">SERVICE PERIOD FROM</span>
+            <input
+              className="field__input"
+              type="date"
+              value={periodStart}
+              title="Leistungszeitraum — a monthly fee, a maintenance contract: the first day billed"
+              onChange={(e) => setPeriodStart(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span className="field__label mono">SERVICE PERIOD TO</span>
+            <input
+              className="field__input"
+              type="date"
+              value={periodEnd}
+              title="Leistungszeitraum — the last day billed, inclusive"
+              onChange={(e) => setPeriodEnd(e.target.value)}
             />
           </label>
           <label className="field editor__note">

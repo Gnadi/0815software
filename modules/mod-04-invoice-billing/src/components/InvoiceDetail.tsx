@@ -248,8 +248,11 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
         </>
       )}
 
-      {(invoice.delivery_date || invoice.buyer_reference || invoice.tax_exemption_category) && (
+      {(invoice.delivery_date || invoice.period_start || invoice.buyer_reference || invoice.tax_exemption_category) && (
         <p className="resource__desc mono">
+          {invoice.period_start && invoice.period_end && (
+            <>SERVICE PERIOD {fmtDate(invoice.period_start)} – {fmtDate(invoice.period_end)} · </>
+          )}
           {invoice.delivery_date && <>SERVICE DATE {fmtDate(invoice.delivery_date)} · </>}
           {invoice.buyer_reference && <>BUYER REF {invoice.buyer_reference} · </>}
           {invoice.tax_exemption_category && (

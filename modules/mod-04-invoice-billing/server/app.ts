@@ -335,6 +335,15 @@ function validateDraft(input: Record<string, unknown>): DraftInput {
   const note = optText(input.note, 'note', errors, 500);
   const buyerReference = optText(input.buyer_reference, 'buyer_reference', errors, 200);
   const deliveryDate = optDate(input.delivery_date, 'delivery_date', errors);
+  // The service period (BG-14): both days or neither. EN 16931 would take one
+  // end alone (BR-CO-19), but an invoice bills a span that has both.
+  const periodStart = optDate(input.period_start, 'period_start', errors);
+  const periodEnd = optDate(input.period_end, 'period_end', errors);
+  if ((periodStart === null) !== (periodEnd === null)) {
+    errors.push({ field: periodStart === null ? 'period_start' : 'period_end', message: 'A service period needs its first and its last day' });
+  } else if (periodStart !== null && periodEnd! < periodStart) {
+    errors.push({ field: 'period_end', message: 'The service period ends before it starts' });
+  }
   let taxExemptionCategory: TaxExemptionCategory | null = null;
   if (input.tax_exemption_category !== undefined && input.tax_exemption_category !== null && input.tax_exemption_category !== '') {
     if ((TAX_EXEMPTION_CATEGORIES as readonly unknown[]).includes(input.tax_exemption_category)) {
@@ -350,7 +359,7 @@ function validateDraft(input: Record<string, unknown>): DraftInput {
 
   const lines = validateLines(input.lines, errors);
   if (errors.length > 0) fail(errors);
-  return { customerId, paymentTermsDays, note, lines, buyerReference, deliveryDate, taxExemptionCategory, taxExemptionReason };
+  return { customerId, paymentTermsDays, note, lines, buyerReference, deliveryDate, periodStart, periodEnd, taxExemptionCategory, taxExemptionReason };
 }
 
 /** Line items as a draft and a credit note take them — every error into `errors`. */
@@ -414,7 +423,8 @@ function validateTemplate(input: Record<string, unknown>): TemplateInput {
     errors.push(...err.details);
   }
   if (errors.length > 0 || draft === null) fail(errors);
-  const { customerId, createdAt: _createdAt, deliveryDate: _deliveryDate, ...rest } = draft;
+  // Dates come from each run's period, not from the template.
+  const { customerId, createdAt: _createdAt, deliveryDate: _deliveryDate, periodStart: _start, periodEnd: _end, ...rest } = draft;
   return { name, customerId, interval, startDate: startDate!, endDate, active, draft: rest };
 }
 
@@ -1272,7 +1282,7 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
   const sellerReadiness = () => {
     const party = sellerParty(seller);
     const probe: EInvoiceModel = {
-      type_code: '380', number: 'PROBE', issue_date: todayIso(), due_date: todayIso(), delivery_date: todayIso(),
+      type_code: '380', number: 'PROBE', issue_date: todayIso(), due_date: todayIso(), delivery_date: todayIso(), period: null,
       payment_terms_days: 14, buyer_reference: 'PROBE', note: null, preceding: null, exemption: null, seller: party,
       buyer: { name: 'PROBE', address: null, street: 'x', postcode: '1', city: 'x', country: 'DE', vat_id: null, email: 'probe@example.com', einvoice_address: null },
       lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: party.country === 'AT' ? 20 : 19 }],
