@@ -126,5 +126,15 @@ export function openDb(path: string): Database.Database {
     `);
   }
 
+  // The order's reservation in MOD-03, as MOD-03 last answered: what is still
+  // reserved is MOD-03's to derive; this records only whether asking worked.
+  if (!columns('orders').includes('reservation_status')) {
+    db.exec(`
+      ALTER TABLE orders ADD COLUMN reservation_status TEXT CHECK (reservation_status IN ('reserved', 'short', 'failed', 'released'));
+      ALTER TABLE orders ADD COLUMN reservation_note TEXT;
+      ALTER TABLE orders ADD COLUMN reservation_at TEXT;
+    `);
+  }
+
   return db;
 }

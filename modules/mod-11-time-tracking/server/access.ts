@@ -40,6 +40,26 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'POST', path: '/api/projects/:id/tasks', access: 'manage' },
   { method: 'PUT', path: '/api/tasks/:id', access: 'manage' },
   { method: 'DELETE', path: '/api/tasks/:id', access: 'manage' },
+  // Leave: deciding, the entitlement ledger and the holiday calendar are the
+  // office's. Requesting and withdrawing one's own is `edit`; whose leave an
+  // editor may touch is server/leave.ts (mayActFor), and nobody decides their
+  // own request even with `manage` (mayDecide).
+  { method: 'POST', path: '/api/leave/requests/:id/approve', access: 'manage' },
+  { method: 'POST', path: '/api/leave/requests/:id/reject', access: 'manage' },
+  { method: 'POST', path: '/api/employees/:id/entitlements', access: 'manage' },
+  { method: 'PUT', path: '/api/leave/settings', access: 'manage' },
+  // Working time: the schedule is the contract, and what enters or leaves a
+  // flexitime account besides the days themselves (opening balance,
+  // corrections, overtime paid out) is the office's decision.
+  { method: 'POST', path: '/api/employees/:id/schedules', access: 'manage' },
+  { method: 'POST', path: '/api/employees/:id/flex-entries', access: 'manage' },
+  // Planning: who does what by when, estimates and milestones are the office's.
+  // Moving a task across the board is `edit` — and only one's own task, which
+  // depends on the row: server/ownership.ts (mayMoveTask).
+  { method: 'PUT', path: '/api/tasks/:id/plan', access: 'manage' },
+  { method: 'POST', path: '/api/projects/:id/milestones', access: 'manage' },
+  { method: 'PUT', path: '/api/milestones/:id', access: 'manage' },
+  { method: 'DELETE', path: '/api/milestones/:id', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

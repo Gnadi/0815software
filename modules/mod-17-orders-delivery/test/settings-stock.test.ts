@@ -27,6 +27,9 @@ let server: Server | null;
 let inventoryUrl: string;
 let stock: Record<string, number>;
 let issues: { reference: string; actor: string; warehouse_code: string; lines: { sku: string; quantity: number }[]; token: unknown }[];
+/** What the stand-in holds reserved, per order: the last PUT, or null once released. */
+let reservations: Record<string, { actor: string; lines: { sku: string; quantity: number }[] } | null>;
+let inventoryDown: boolean;
 
 function startInventory(): Promise<void> {
   server = createServer((req, res) => {
@@ -34,7 +37,25 @@ function startInventory(): Promise<void> {
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(body));
     };
+    if (inventoryDown) return reply(503, { error: 'Inventory is down' });
     if (req.headers['x-service-token'] !== TOKEN) return reply(401, { error: 'Service token required' });
+    if ((req.method === 'PUT' && req.url === '/api/reservations') || (req.method === 'POST' && req.url === '/api/reservations/release')) {
+      let raw = '';
+      req.on('data', (c) => (raw += c));
+      req.on('end', () => {
+        const body = JSON.parse(raw);
+        if (req.method === 'POST') {
+          reservations[body.reference] = null;
+          return reply(200, { released: 1 });
+        }
+        reservations[body.reference] = { actor: body.actor, lines: body.lines };
+        const short = body.lines
+          .filter((l: { sku: string; quantity: number }) => (stock[l.sku] ?? 0) < l.quantity)
+          .map((l: { sku: string; quantity: number }) => ({ sku: l.sku, open: l.quantity, available: stock[l.sku] ?? 0, missing: l.quantity - (stock[l.sku] ?? 0) }));
+        reply(200, { reservations: [], short });
+      });
+      return;
+    }
     if (req.method === 'GET' && req.url === '/api/goods-issues/warehouses') {
       return reply(200, { warehouses: [{ code: 'MUC-1', name: 'Main' }, { code: 'HH-1', name: 'Hamburg' }] });
     }
@@ -77,6 +98,8 @@ function boot(url: string | undefined): void {
 beforeEach(async () => {
   stock = { 'CH-100': 20, 'DK-200': 1 };
   issues = [];
+  reservations = {};
+  inventoryDown = false;
   await startInventory();
   inventoryUrl = `http://127.0.0.1:${(server!.address() as AddressInfo).port}`;
   boot(inventoryUrl);
@@ -164,7 +187,7 @@ describe('a delivery note books its stock in MOD-03', () => {
       .expect(201);
     expect(note.body).toMatchObject({ stock_status: 'booked', stock_warehouse: 'MUC-1', stock_error: null });
     expect(issues).toEqual([
-      { source: 'mod-17-orders-delivery', reference: note.body.number, warehouse_code: 'MUC-1', actor: 'lager@example', lines: [{ sku: 'CH-100', quantity: 8 }], token: TOKEN },
+      { source: 'mod-17-orders-delivery', reference: note.body.number, order_reference: o.number, warehouse_code: 'MUC-1', actor: 'lager@example', lines: [{ sku: 'CH-100', quantity: 8 }], token: TOKEN },
     ]);
     expect(stock['CH-100']).toBe(12);
   });
@@ -222,5 +245,55 @@ describe('without an inventory', () => {
     expect((await request(app).get('/api/settings').set('Cookie', as('view'))).body.inventory).toEqual({ configured: false, warehouses: null, error: null });
     const standalone = createApp({ db, auth, platform: noopPlatform });
     await request(standalone).get('/api/settings').set('Cookie', as('view')).expect(200);
+  });
+});
+
+describe('an order reserves its stock in MOD-03', () => {
+  const enableReserving = () =>
+    request(app).put('/api/settings').set('Cookie', as('manage')).send({ stock_reservation: true, stock_warehouse: 'MUC-1' }).expect(200);
+
+  it('reserves the ordered article quantities on confirmation, naming the person', async () => {
+    await enableReserving();
+    const o = (await request(app).post('/api/orders').set('Cookie', as('edit', 'vertrieb@example')).send(ORDER).expect(201)).body;
+    expect(reservations[o.number]).toEqual({ actor: 'vertrieb@example', lines: [{ sku: 'CH-100', quantity: 12 }, { sku: 'DK-200', quantity: 2 }] });
+    // DK-200: 1 in stock, 2 ordered — the order stands, the shortage is named.
+    expect(o.reservation).toMatchObject({ status: 'short', note: 'missing 1 × DK-200 in MUC-1' });
+    expect(o.events.map((e: { type: string }) => e.type)).toEqual(['confirmed', 'stock_short']);
+  });
+
+  it('reserves again when an article number changes, and releases on cancellation', async () => {
+    await enableReserving();
+    const o = (await request(app).post('/api/orders').set('Cookie', as('edit')).send({ ...ORDER, lines: [ORDER.lines[1]] }).expect(201)).body;
+    // A service only: nothing to reserve, nothing recorded.
+    expect(o.reservation).toBeNull();
+    expect(reservations).toEqual({});
+    const mapped = (await request(app).put(`/api/orders/${o.id}/lines/${o.lines[0].id}/sku`).set('Cookie', as('edit')).send({ sku: 'CH-100' }).expect(200)).body;
+    expect(mapped.reservation).toMatchObject({ status: 'reserved', note: 'in MUC-1' });
+    expect(reservations[o.number]!.lines).toEqual([{ sku: 'CH-100', quantity: 1 }]);
+    const cancelled = (await request(app).post(`/api/orders/${o.id}/cancel`).set('Cookie', as('manage', 'chef@example')).send({ reason: 'storniert' }).expect(200)).body;
+    expect(cancelled.reservation).toMatchObject({ status: 'released' });
+    expect(reservations[o.number]).toBeNull();
+    expect(cancelled.events.at(-1)).toMatchObject({ type: 'stock_released', actor: 'chef@example' });
+  });
+
+  it('MOD-03 down: the order is confirmed, the failure is on it, and a retry reserves', async () => {
+    await enableReserving();
+    inventoryDown = true;
+    const o = (await request(app).post('/api/orders').set('Cookie', as('edit')).send(ORDER).expect(201)).body;
+    expect(o.reservation).toMatchObject({ status: 'failed', note: 'Inventory is down' });
+    inventoryDown = false;
+    stock['DK-200'] = 5;
+    await request(app).post(`/api/orders/${o.id}/reserve-stock`).set('Cookie', as('view')).expect(403);
+    const retried = (await request(app).post(`/api/orders/${o.id}/reserve-stock`).set('Cookie', as('edit')).expect(200)).body;
+    expect(retried.reservation).toMatchObject({ status: 'reserved' });
+  });
+
+  it('reserves nothing while switched off; deliveries name their order so MOD-03 draws its reservation down', async () => {
+    await request(app).put('/api/settings').set('Cookie', as('manage')).send({ stock_booking: true, stock_warehouse: 'MUC-1' }).expect(200);
+    const o = await order();
+    expect(o.reservation).toBeNull();
+    expect(reservations).toEqual({});
+    await request(app).post(`/api/orders/${o.id}/delivery-notes`).set('Cookie', as('edit')).send({ lines: [{ order_line_id: o.lines[0].id, quantity: 2 }] }).expect(201);
+    expect(issues[0]).toMatchObject({ order_reference: o.number });
   });
 });

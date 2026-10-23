@@ -18,7 +18,7 @@ import { moduleSummary } from './summary.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
 import type { PlatformSeller } from './seller.js';
 import { effectiveSeller, readSettings, settingsStamp, validateSettings, writeSettings } from './settings.js';
-import { bookStock } from './stock.js';
+import { bookStock, releaseForOrder, reserveForOrder } from './stock.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import {
   cancelOrder,
@@ -28,6 +28,7 @@ import {
   getDeliveryNote,
   listOrders,
   markInvoiced,
+  getOrderStored,
   orderDetail,
   setLineSku,
   todayIso,
@@ -351,9 +352,11 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     res.json({ orders: listOrders(db, { status, search: typeof req.query.search === 'string' ? req.query.search : undefined }) });
   });
 
-  app.post('/api/orders', (req, res) => {
+  app.post('/api/orders', async (req, res) => {
     const actor = actorOf(res, auth);
     const id = createOrder(db, validateOrder(body(req), today()), actor);
+    // The order stands whatever MOD-03 answers; the reservation's outcome is on it.
+    await reserveForOrder(db, platform, id, actor);
     const order = orderDetail(db, id);
     void platform.audit({ actor, action: 'order.confirmed', resource: `order:${order.number}`, after: order.totals });
     res.status(201).json(order);
@@ -373,6 +376,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     if (transfer === null) throw new DomainError(501, 'No offer source is configured — set OFFERS_URL to confirm offers from MOD-13');
     const actor = actorOf(res, auth);
     const result = importOffer(db, transfer, actor, today());
+    if (!result.replayed) await reserveForOrder(db, platform, result.orderId, actor);
     const order = orderDetail(db, result.orderId);
     if (!result.replayed) {
       void platform.audit({ actor, action: 'order.confirmed', resource: `order:${order.number}`, metadata: { from: order.source_reference } });
@@ -391,7 +395,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     res.send(renderOrderPdf(order, effectiveSeller(db, seller, platformSeller?.current ?? null).seller));
   });
 
-  app.post('/api/orders/:id/cancel', (req, res) => {
+  app.post('/api/orders/:id/cancel', async (req, res) => {
     const id = idParam(req);
     const errors: FieldError[] = [];
     const reason = optText(body(req).reason, 'reason', errors, 300);
@@ -399,6 +403,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     if (errors.length > 0) fail(errors);
     const actor = actorOf(res, auth);
     cancelOrder(db, id, reason!, actor);
+    await releaseForOrder(db, platform, id, actor);
     const order = orderDetail(db, id);
     void platform.audit({ actor, action: 'order.cancelled', resource: `order:${order.number}`, metadata: { reason } });
     res.json(order);
@@ -435,12 +440,22 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   // The article number of an order line, for the stock it issues.
-  app.put('/api/orders/:id/lines/:lineId/sku', (req, res) => {
+  // Reserve (again) — after stock arrived, or with automatic reserving off.
+  app.post('/api/orders/:id/reserve-stock', async (req, res) => {
+    const id = idParam(req);
+    getOrderStored(db, id);
+    if (!platform.inventoryConfigured) throw new DomainError(501, 'No inventory is configured — set INVENTORY_URL to reserve stock in MOD-03');
+    await reserveForOrder(db, platform, id, actorOf(res, auth), { force: true });
+    res.json(orderDetail(db, id));
+  });
+
+  app.put('/api/orders/:id/lines/:lineId/sku', async (req, res) => {
     const id = idParam(req);
     const errors: FieldError[] = [];
     const sku = optText(body(req).sku, 'sku', errors, 60);
     if (errors.length > 0) fail(errors);
     setLineSku(db, id, Number(req.params.lineId), sku, actorOf(res, auth));
+    await reserveForOrder(db, platform, id, actorOf(res, auth));
     res.json(orderDetail(db, id));
   });
 

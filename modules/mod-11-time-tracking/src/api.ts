@@ -1,13 +1,28 @@
 import type { AccessLevel } from './access';
 import type {
+  BoardTask,
+  CalendarDay,
+  CalendarRow,
   DaySheet,
   Employee,
   ExportProfileInfo,
   FieldError,
+  FlexAccount,
+  FlexDay,
+  FlexEntry,
+  LeaveBalance,
+  LeaveEntitlement,
+  LeaveRequest,
+  LeaveSettings,
+  Milestone,
   Project,
+  ProjectProgress,
+  TaskEvent,
+  TaskStatus,
   TimeEntry,
   TimesheetDetail,
   TimesheetRow,
+  WorkSchedule,
 } from '../shared/types';
 
 export class ApiError extends Error {
@@ -108,7 +123,64 @@ export const api = {
   summary: (from: string, to: string) =>
     request<SummaryResponse>(`/api/summary?from=${from}&to=${to}`),
   exportProfiles: () => request<{ profiles: ExportProfileInfo[] }>('/api/export/profiles'),
+
+  leaveRequests: (query: { year?: number; employee_id?: number; to_decide?: boolean }) => {
+    const params = new URLSearchParams();
+    if (query.year) params.set('year', String(query.year));
+    if (query.employee_id) params.set('employee_id', String(query.employee_id));
+    if (query.to_decide) params.set('to_decide', '1');
+    return request<{ requests: LeaveRequest[] }>(`/api/leave/requests?${params.toString()}`);
+  },
+  requestLeave: (v: Record<string, unknown>) => request<LeaveRequest>('/api/leave/requests', post(v)),
+  approveLeave: (id: number, note: string | null) => request<LeaveRequest>(`/api/leave/requests/${id}/approve`, post({ note })),
+  rejectLeave: (id: number, note: string) => request<LeaveRequest>(`/api/leave/requests/${id}/reject`, post({ note })),
+  withdrawLeave: (id: number) => request<LeaveRequest>(`/api/leave/requests/${id}/withdraw`, post()),
+  leaveBalance: (employeeId: number, year: number) =>
+    request<LeaveBalance>(`/api/leave/balance?employee_id=${employeeId}&year=${year}`),
+  entitlements: (employeeId: number, year: number) =>
+    request<{ entitlements: LeaveEntitlement[] }>(`/api/employees/${employeeId}/entitlements?year=${year}`),
+  addEntitlement: (employeeId: number, v: Record<string, unknown>) =>
+    request<LeaveEntitlement>(`/api/employees/${employeeId}/entitlements`, post(v)),
+  leaveCalendar: (month: string) =>
+    request<{ month: string; days: CalendarDay[]; rows: CalendarRow[] }>(`/api/leave/calendar?month=${month}`),
+  holidays: (year: number) => request<{ year: number; holidays: { date: string; name: string }[] }>(`/api/leave/holidays?year=${year}`),
+  leaveSettings: () =>
+    request<{ settings: LeaveSettings; updated_at: string | null; updated_by: string | null }>('/api/leave/settings'),
+  saveLeaveSettings: (v: LeaveSettings) =>
+    request<{ settings: LeaveSettings; updated_at: string | null; updated_by: string | null }>('/api/leave/settings', put({ ...v })),
+
+  schedules: (employeeId: number) => request<{ schedules: WorkSchedule[] }>(`/api/employees/${employeeId}/schedules`),
+  addSchedule: (employeeId: number, v: Record<string, unknown>) =>
+    request<WorkSchedule>(`/api/employees/${employeeId}/schedules`, post(v)),
+  flexAccount: (employeeId: number) => request<FlexAccount>(`/api/flex/account?employee_id=${employeeId}`),
+  flexDays: (employeeId: number, month: string) =>
+    request<{ month: string; days: FlexDay[] }>(`/api/flex/days?employee_id=${employeeId}&month=${month}`),
+  flexOverview: () =>
+    request<{
+      as_of: string;
+      rows: { employee_id: number; employee_name: string; balance: number; over_cap: number; under_floor: number; days_over_max: number }[];
+    }>('/api/flex/overview'),
+  flexEntries: (employeeId: number) => request<{ entries: FlexEntry[] }>(`/api/employees/${employeeId}/flex-entries`),
+  addFlexEntry: (employeeId: number, v: Record<string, unknown>) =>
+    request<FlexEntry>(`/api/employees/${employeeId}/flex-entries`, post(v)),
 };
+
+export const planning = {
+  portfolio: (archived = false) => request<{ projects: ProjectProgress[] }>(`/api/portfolio${archived ? '?archived=1' : ''}`),
+  board: (projectId: number) =>
+    request<{ progress: ProjectProgress; milestones: Milestone[]; tasks: BoardTask[] }>(`/api/projects/${projectId}/board`),
+  myTasks: (done = false) => request<{ tasks: BoardTask[] }>(`/api/my-tasks${done ? '?done=1' : ''}`),
+  task: (id: number) => request<{ task: BoardTask; events: TaskEvent[] }>(`/api/tasks/${id}`),
+  plan: (id: number, v: Record<string, unknown>) => request<BoardTask>(`/api/tasks/${id}/plan`, put(v)),
+  move: (id: number, status: TaskStatus, note?: string) => request<BoardTask>(`/api/tasks/${id}/status`, post({ status, note })),
+  addMilestone: (projectId: number, v: Record<string, unknown>) => request<Milestone>(`/api/projects/${projectId}/milestones`, post(v)),
+  deleteMilestone: (id: number) => request<{ ok: true }>(`/api/milestones/${id}`, { method: 'DELETE' }),
+};
+
+/** URL of the month's flexitime CSV for payroll. */
+export function flexCsvUrl(month: string): string {
+  return `/api/export/flex.csv?month=${month}`;
+}
 
 /** URL of the CSV export for a profile over a date range. */
 export function exportCsvUrl(profile: string, from: string, to: string): string {

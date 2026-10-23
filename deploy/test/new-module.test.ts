@@ -9,12 +9,13 @@
  * writes, and that the shared files have not drifted apart between modules.
  * Offline by construction: it writes into a temp directory and installs nothing.
  */
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, it } from 'vitest';
-import { COPY_IN, registryEntry, renumber, scaffold, tokensFor } from '../../scripts/new-module.mjs';
+import { COPY_IN, overlapCandidates, readCatalogue, registryEntry, renumber, scaffold, tokensFor } from '../../scripts/new-module.mjs';
 import { modules } from '../../modules/registry.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -127,5 +128,57 @@ describe('the copy-in files are still shared', () => {
   it('lists only files the reference module has', () => {
     const files = walk(join(root, 'modules/mod-03-inventory-management')).filter((p) => !p.includes('node_modules'));
     for (const rel of COPY_IN) expect(files).toContain(join(root, 'modules/mod-03-inventory-management', rel));
+  });
+});
+
+describe('is it a module at all? — the overlap check before anything is written', () => {
+  const catalogue = readCatalogue();
+  const homes = (title: string, slug: string, description: string) =>
+    (overlapCandidates({ title, slug, description }, catalogue) as { id: string }[]).map((c) => c.id);
+
+  // Each of these was once proposed as a module and belongs in an existing one.
+  it.each([
+    ['Time Off', 'time-off', 'Vacation requests, sick leave and holiday calendars.', 'mod-11-time-tracking'],
+    ['Abwesenheiten', 'abwesenheiten', 'Urlaub und Krankenstand beantragen und freigeben.', 'mod-11-time-tracking'],
+    ['Dunning', 'dunning', 'Payment reminders for overdue invoices.', 'mod-04-invoice-billing'],
+    ['Delivery Notes', 'delivery-notes', 'Delivery notes for shipped goods.', 'mod-17-orders-delivery'],
+    ['Stock Count', 'stock-count', 'Inventory counts per warehouse.', 'mod-03-inventory-management'],
+    ['Projects & Tasks', 'project-tasks', 'Projects, tasks, milestones and a kanban board.', 'mod-11-time-tracking'],
+  ])('%s → points at %s', (title, slug, description, home) => {
+    expect(homes(title, slug, description)[0]).toBe(home);
+  });
+
+  it('lets a topic no module covers through', () => {
+    expect(homes('Fleet', 'fleet', 'Vehicles, mileage logs and inspection due dates.')).toEqual([]);
+    expect(homes('Knowledge', 'knowledge', 'Wiki articles and a knowledge base.')).toEqual([]);
+  });
+
+  it('says what a candidate covers, and what it lists as out of scope', () => {
+    const [mod11] = (overlapCandidates({ title: 'Time Off', slug: 'time-off', description: 'Vacation and sick leave.' }, catalogue) as {
+      id: string;
+      covers: string[];
+    }[]);
+    expect(mod11!.covers).toContain('absence');
+    const fake = [{ id: 'mod-99-x', title: 'X', label: 'X', readme: '# X\n\n## Out of scope\n\n- Vacation, sick leave.\n' }];
+    expect(overlapCandidates({ title: 'Time Off', slug: 'time-off', description: '' }, fake)).toEqual([]);
+  });
+
+  const cli = (...args: string[]) => spawnSync(process.execPath, [join(root, 'scripts/new-module.mjs'), ...args], { encoding: 'utf8' });
+
+  it('refuses without --justify when a module already covers the topic, and writes nothing', () => {
+    const target = join(scratch, 'refused');
+    const run = cli('--n', '43', '--slug', 'time-off', '--title', 'Time Off', '--label', 'Leave', '--description', 'Vacation and sick leave.', '--out', target);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('mod-11-time-tracking');
+    expect(run.stderr).toContain('--justify');
+    expect(existsSync(target)).toBe(false);
+  });
+
+  it('goes ahead with --justify and writes the reason into the README', () => {
+    const target = join(scratch, 'justified');
+    const reason = 'Shift rosters for shop staff, not recorded time — MOD-11 has no rosters.';
+    const run = cli('--n', '43', '--slug', 'time-off', '--title', 'Time Off', '--label', 'Leave', '--description', 'Vacation and sick leave.', '--out', target, '--justify', reason);
+    expect(run.status, run.stderr).toBe(0);
+    expect(readFileSync(join(target, 'README.md'), 'utf8')).toContain(`## Why a module of its own\n\n${reason}`);
   });
 });

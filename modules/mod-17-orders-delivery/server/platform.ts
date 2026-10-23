@@ -24,7 +24,17 @@ export interface PlatformConfig {
   serviceToken?: string;
 }
 
+export interface ReservationRequest {
+  /** The order number. */
+  reference: string;
+  warehouseCode: string;
+  actor: string;
+  lines: { sku: string; quantity: number }[];
+}
+
 export interface GoodsIssueRequest {
+  /** The order the delivery belongs to — its reservation is what the issue uses. */
+  orderReference?: string;
   reference: string;
   warehouseCode: string;
   actor: string;
@@ -63,6 +73,10 @@ export interface PlatformHooks {
   inventoryWarehouses(): Promise<{ code: string; name: string }[]>;
   /** Book a goods issue in MOD-03; throws `PeerError` with MOD-03's own reason when refused. */
   issueGoods(request: GoodsIssueRequest): Promise<void>;
+  /** Set what an order reserves in MOD-03; answers what the warehouse cannot cover. */
+  reserveStock(request: ReservationRequest): Promise<{ short: { sku: string; missing: number }[] }>;
+  /** Release an order's reservation (it was cancelled). Idempotent in MOD-03. */
+  releaseStock(request: { reference: string; actor: string }): Promise<void>;
 }
 
 /** A peer module refused or failed; the message is the peer's own reason. */
@@ -95,6 +109,12 @@ export const noopPlatform: PlatformHooks = {
     return NO_INVENTORY();
   },
   async issueGoods() {
+    NO_INVENTORY();
+  },
+  async reserveStock() {
+    return NO_INVENTORY();
+  },
+  async releaseStock() {
     NO_INVENTORY();
   },
 };
@@ -159,7 +179,27 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
           warehouse_code: request.warehouseCode,
           actor: request.actor,
           lines: request.lines,
+          order_reference: request.orderReference,
         }),
+      });
+    },
+    async reserveStock(request: ReservationRequest) {
+      const outcome = (await inventory('/api/reservations', {
+        method: 'PUT',
+        body: JSON.stringify({
+          source: 'mod-17-orders-delivery',
+          reference: request.reference,
+          warehouse_code: request.warehouseCode,
+          actor: request.actor,
+          lines: request.lines,
+        }),
+      })) as { short: { sku: string; missing: number }[] };
+      return { short: outcome.short ?? [] };
+    },
+    async releaseStock(request: { reference: string; actor: string }) {
+      await inventory('/api/reservations/release', {
+        method: 'POST',
+        body: JSON.stringify({ source: 'mod-17-orders-delivery', reference: request.reference, actor: request.actor }),
       });
     },
 

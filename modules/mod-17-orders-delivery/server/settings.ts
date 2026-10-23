@@ -23,6 +23,7 @@ export const EMPTY_SETTINGS: Settings = {
   seller_vat_id: null,
   stock_booking: false,
   stock_warehouse: null,
+  stock_reservation: false,
 };
 
 export function readSettings(db: Database.Database): Settings {
@@ -89,13 +90,24 @@ export function validateSettings(input: Record<string, unknown>): Settings {
   if (input.stock_booking !== undefined && typeof input.stock_booking !== 'boolean') {
     errors.push({ field: 'stock_booking', message: 'stock_booking is true or false' });
   }
+  if (input.stock_reservation !== undefined && typeof input.stock_reservation !== 'boolean') {
+    errors.push({ field: 'stock_reservation', message: 'stock_reservation is true or false' });
+  }
   const stockBooking = input.stock_booking === true;
+  const stockReservation = input.stock_reservation === true;
   const warehouse = text('stock_warehouse', 30);
-  if (stockBooking && warehouse === null) {
-    errors.push({ field: 'stock_warehouse', message: 'Booking stock needs the warehouse goods are issued from' });
+  if ((stockBooking || stockReservation) && warehouse === null) {
+    errors.push({ field: 'stock_warehouse', message: 'Booking or reserving stock needs the warehouse goods are issued from' });
   }
   if (errors.length > 0) throw new DomainError(422, 'Validation failed', errors);
-  return { seller_name: name, seller_address: address, seller_vat_id: vatId, stock_booking: stockBooking, stock_warehouse: warehouse };
+  return {
+    seller_name: name,
+    seller_address: address,
+    seller_vat_id: vatId,
+    stock_booking: stockBooking,
+    stock_warehouse: warehouse,
+    stock_reservation: stockReservation,
+  };
 }
 
 /** Save, and say which fields actually changed (for the audit trail). */

@@ -7,6 +7,7 @@ import type {
   Project,
   ProjectRollup,
   Task,
+  TaskStatus,
   TimeEntry,
   TimesheetAction,
   TimesheetDetail,
@@ -51,21 +52,40 @@ interface ProjectStored {
   rate_cents: number;
   active: number;
   created_at: string;
+  budget_minutes: number | null;
+}
+
+export interface TaskStored {
+  id: number;
+  project_id: number;
+  name: string;
+  active: number;
+  status: TaskStatus;
+  assignee_id: number | null;
+  assignee_name: string | null;
+  due_date: string | null;
+  estimate_minutes: number | null;
+  milestone_id: number | null;
+  description: string | null;
+  entry_count: number;
+  spent_minutes: number;
+}
+
+/** Tasks with what they cost so far — the one query every task view reads. */
+export const TASK_SELECT = `
+  SELECT t.id, t.project_id, t.name, t.active, t.status, t.assignee_id, e.name AS assignee_name, t.due_date,
+         t.estimate_minutes, t.milestone_id, t.description,
+         (SELECT COUNT(*) FROM time_entries x WHERE x.task_id = t.id) AS entry_count,
+         (SELECT COALESCE(SUM(minutes), 0) FROM time_entries x WHERE x.task_id = t.id) AS spent_minutes
+    FROM tasks t LEFT JOIN employees e ON e.id = t.assignee_id`;
+
+export function toTask(row: TaskStored): Task {
+  return { ...row, active: row.active === 1 };
 }
 
 function tasksOf(db: Database.Database, projectId: number): Task[] {
-  const rows = db
-    .prepare('SELECT id, project_id, name, active FROM tasks WHERE project_id = ? ORDER BY name')
-    .all(projectId) as { id: number; project_id: number; name: string; active: number }[];
-  return rows.map((t) => ({
-    id: t.id,
-    project_id: t.project_id,
-    name: t.name,
-    active: t.active === 1,
-    entry_count: (
-      db.prepare('SELECT COUNT(*) AS n FROM time_entries WHERE task_id = ?').get(t.id) as { n: number }
-    ).n,
-  }));
+  const rows = db.prepare(`${TASK_SELECT} WHERE t.project_id = ? ORDER BY t.name`).all(projectId) as TaskStored[];
+  return rows.map(toTask);
 }
 
 function toProject(db: Database.Database, row: ProjectStored): Project {
@@ -77,6 +97,7 @@ function toProject(db: Database.Database, row: ProjectStored): Project {
     rate_cents: row.rate_cents,
     active: row.active === 1,
     created_at: row.created_at,
+    budget_minutes: row.budget_minutes,
     entry_count: (
       db.prepare('SELECT COUNT(*) AS n FROM time_entries WHERE project_id = ?').get(row.id) as {
         n: number;
@@ -107,6 +128,8 @@ export interface ProjectInput {
   billableDefault: boolean;
   rateCents: number;
   active: boolean;
+  /** Planned hours for the project in minutes; null clears it, omitted keeps it. */
+  budgetMinutes?: number | null;
   /** Injectable creation stamp. Defaults to now; the API never supplies it. */
   createdAt?: string;
 }
@@ -114,8 +137,8 @@ export interface ProjectInput {
 export function createProject(db: Database.Database, input: ProjectInput): number {
   const info = db
     .prepare(
-      `INSERT INTO projects (name, client, billable_default, rate_cents, active, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO projects (name, client, billable_default, rate_cents, active, budget_minutes, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.name,
@@ -123,16 +146,25 @@ export function createProject(db: Database.Database, input: ProjectInput): numbe
       input.billableDefault ? 1 : 0,
       input.rateCents,
       input.active ? 1 : 0,
+      input.budgetMinutes ?? null,
       input.createdAt ?? nowIso(),
     );
   return Number(info.lastInsertRowid);
 }
 
 export function updateProject(db: Database.Database, id: number, input: ProjectInput): void {
-  getProject(db, id);
+  const current = getProject(db, id);
   db.prepare(
-    'UPDATE projects SET name = ?, client = ?, billable_default = ?, rate_cents = ?, active = ? WHERE id = ?',
-  ).run(input.name, input.client, input.billableDefault ? 1 : 0, input.rateCents, input.active ? 1 : 0, id);
+    'UPDATE projects SET name = ?, client = ?, billable_default = ?, rate_cents = ?, active = ?, budget_minutes = ? WHERE id = ?',
+  ).run(
+    input.name,
+    input.client,
+    input.billableDefault ? 1 : 0,
+    input.rateCents,
+    input.active ? 1 : 0,
+    input.budgetMinutes === undefined ? current.budget_minutes : input.budgetMinutes,
+    id,
+  );
 }
 
 /** Delete a project. One with time entries cannot be deleted → 409 (archive instead). */
@@ -144,6 +176,10 @@ export function deleteProject(db: Database.Database, id: number): void {
   if (used.n > 0) {
     throw new DomainError(409, 'Project has time entries and cannot be deleted — archive it instead');
   }
+  const moved = db
+    .prepare('SELECT COUNT(*) AS n FROM task_events e JOIN tasks t ON t.id = e.task_id WHERE t.project_id = ?')
+    .get(id) as { n: number };
+  if (moved.n > 0) throw new DomainError(409, 'Project has a history on the board and cannot be deleted — archive it instead');
   db.prepare('DELETE FROM projects WHERE id = ?').run(id); // cascades to tasks (all unused)
 }
 
@@ -170,6 +206,9 @@ export function deleteTask(db: Database.Database, id: number): void {
   if (used.n > 0) {
     throw new DomainError(409, 'Task has time entries and cannot be deleted — deactivate it instead');
   }
+  // Its moves across the board are history; a task that has moved stays.
+  const moved = db.prepare('SELECT COUNT(*) AS n FROM task_events WHERE task_id = ?').get(id) as { n: number };
+  if (moved.n > 0) throw new DomainError(409, 'Task has a history on the board and cannot be deleted — deactivate it instead');
   db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
 }
 
@@ -183,8 +222,15 @@ interface EmployeeStored {
 }
 
 function toEmployee(db: Database.Database, row: EmployeeStored): Employee {
+  // Today's working-time model (server/schedules.ts); Monday to Friday and no
+  // flexitime account for someone who has none yet.
+  const schedule = db
+    .prepare('SELECT work_days, weekly_minutes FROM work_schedules WHERE employee_id = ? AND valid_from <= ? ORDER BY valid_from DESC LIMIT 1')
+    .get(row.id, todayIso()) as { work_days: string; weekly_minutes: number | null } | undefined;
   return {
     ...row,
+    work_days: schedule?.work_days ?? '12345',
+    weekly_minutes: schedule?.weekly_minutes ?? null,
     entry_count: (
       db.prepare('SELECT COUNT(*) AS n FROM time_entries WHERE employee_id = ?').get(row.id) as {
         n: number;
@@ -231,6 +277,13 @@ export function deleteEmployee(db: Database.Database, id: number): void {
   if (used.n > 0) {
     throw new DomainError(409, 'Employee has time entries and cannot be deleted');
   }
+  const leave = db
+    .prepare(
+      `SELECT (SELECT COUNT(*) FROM leave_requests WHERE employee_id = ?) + (SELECT COUNT(*) FROM leave_entitlements WHERE employee_id = ?)
+            + (SELECT COUNT(*) FROM work_schedules WHERE employee_id = ?) + (SELECT COUNT(*) FROM flex_entries WHERE employee_id = ?) AS n`,
+    )
+    .get(id, id, id, id) as { n: number };
+  if (leave.n > 0) throw new DomainError(409, 'Employee has leave or working-time records and cannot be deleted');
   db.prepare('DELETE FROM employees WHERE id = ?').run(id);
 }
 

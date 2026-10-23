@@ -45,6 +45,16 @@ requires the issuer to keep for eight years, so erasing the customer clears
 the master record and leaves these; for them the lever is the end of the
 retention period (Art. 17(3)(b) GDPR), not deletion.
 
+**Health data in MOD-11.** Sick leave is special-category data (GDPR Art. 9).
+MOD-11 stores only the type and the dates of a sick day (no diagnosis, no
+sick-note upload), shows the type only to the person and to `manage`, and
+masks it as `absent` for everyone else — in lists, the team calendar and the
+shell summary, which counts absences without saying why. The audit event says
+`leave.recorded`, not the reason. Leave rows, working-time models and flexitime
+bookings block deleting the employee, since working-time and leave records have statutory retention (AT: AZG § 26; DE:
+§ 16 ArbZG); erase the person's name and email on the employee row instead
+once that period has passed.
+
 ## Subject access & portability (Art. 15 / 20)
 
 "Send me everything you hold about me" arrives with a one-month deadline, and

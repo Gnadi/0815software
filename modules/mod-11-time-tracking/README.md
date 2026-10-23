@@ -1,7 +1,8 @@
 # MOD-11 · Time Tracking
 
-Project allocation, daily entry, weekly approval, and export to payroll
-or billing. Works offline. Part of the
+Project allocation and planning (board, milestones, estimates), daily
+entry, weekly approval, absences (vacation, sick leave, holidays),
+flexitime and overtime, and export to payroll or billing. Works offline. Part of the
 [0815software](https://0815software.com) module catalogue — standard
 business software, MIT-licensed, always free.
 
@@ -26,6 +27,21 @@ suite proves each of them:
    rejecting a submitted week returns it to draft and records the reason.
    Every transition writes an append-only status event (who / when /
    note).
+4. **Leave days and balances are derived, never stored.** What a request
+   costs is counted from its dates, the person's work days and the
+   holiday calendar; the vacation balance is the entitlement ledger minus
+   approved vacation. Change the calendar or a part-timer's days and every
+   figure follows. See [Absences](#absences).
+5. **The flexitime balance is derived, never stored.** Each day asks for
+   its share of the person's weekly hours, the balance is worked minus due
+   plus an append-only ledger (opening balance, corrections, overtime paid
+   out). Working-time models are dated, so a change of contract never
+   re-prices the past. See [Flexitime and overtime](#flexitime-and-overtime).
+6. **Planning stores decisions, derives the rest.** Where a task stands,
+   who does it, by when and its estimate are stored; spent, remaining,
+   overdue, a milestone reached and a project's hours against its budget
+   are derived from the time booked and the date. Every move on the board
+   is an append-only event. See [Planning](#planning).
 
 ## Stack
 
@@ -75,17 +91,29 @@ The server seeds an empty database automatically on first start, so
 
 ## Data model
 
-Six tables, no stored derived state:
+Fourteen tables, no stored derived state:
 
 ```
-projects          name, client, billable_default, rate_cents, active   (CRUD via UI/API)
-tasks             project, name, active                                (optional, per project)
-employees         name, email                                          (a simple list; no login)
+projects          name, client, billable_default, rate_cents, active,
+                  budget_minutes?                                      (CRUD via UI/API)
+tasks             project, name, active, status, assignee?, due_date?,
+                  estimate_minutes?, milestone?, description?          (optional, per project)
+milestones        project, name, due_date                              (reached is derived)
+task_events       task, from/to status, actor, note                    (append-only history)
+employees         name, email                                          (email = the person's login)
+work_schedules    employee, valid_from, weekly_minutes?, work_days     (append-only, one row per change)
+flex_entries      employee, kind, minutes, effective_date, note, actor (append-only ledger)
 time_entries      employee, project, task?, entry_date, minutes,
                   billable, note                                       (minutes = positive integer)
 timesheets        employee, week_start (Monday), status                (one row per touched week)
 timesheet_events  employee, week_start, action, from/to status,
                   actor, note                                          (append-only history)
+leave_requests    employee, type, start/end, half_day, status,
+                  created_by, decided_by, decision_note                (no day count stored)
+leave_events      request, type, actor, note                           (append-only history)
+leave_entitlements employee, year, kind, days, note, actor             (append-only ledger)
+leave_settings    country, extra holidays, flexitime cap/floor,
+                  daily maximum                                        (one row, admin-maintained)
 ```
 
 **Minutes** are integer everywhere; hours only exist at the rendering
@@ -199,12 +227,23 @@ is intentionally out of scope.
   range, all derived by query.
 - **Export** — range + profile → CSV download (payroll / billing /
   detail).
-- **Projects & Tasks** — CRUD with billable default and hourly rate;
-  optional tasks; archive instead of delete once entries exist.
-- **Employees** — a simple name/email list.
-- **Auth** — single staff login from env vars; stateless HMAC-signed
-  session cookie (HttpOnly, SameSite=Lax, optional Secure), exactly as in
-  MOD-02/03/04.
+- **Projects & Tasks** — CRUD with billable default, hourly rate and an
+  optional budget in hours; optional tasks; archive instead of delete once
+  entries exist. Each project has a **board** (to do → in progress →
+  review → done) with assignees, due dates, estimates and milestones.
+- **My Tasks** — what is assigned to the signed-in person, soonest due
+  first, moved from the same list.
+- **Absences** — request vacation and other leave, record sick leave,
+  approve or reject (manage), the year's balance, a team calendar per
+  month, and the holiday calendar (AT or DE plus company days).
+- **Flexitime** — the balance, overtime above the cap, month by month
+  and day by day, the bookings (opening balance, corrections, overtime
+  paid out), the team overview and a monthly CSV for payroll.
+- **Employees** — name, login email, the working-time model from a date
+  on, and the vacation entitlement ledger per year.
+- **Auth** — a local admin login from env vars, or sign-in through PS-01
+  with per-person access levels; stateless HMAC-signed session cookie
+  (HttpOnly, SameSite=Lax, optional Secure).
 
 ## Configuration
 
@@ -243,13 +282,28 @@ PUT    /api/projects/:id
 DELETE /api/projects/:id                409 if the project has entries (archive instead)
 POST   /api/projects/:id/tasks          {name}
 PUT    /api/tasks/:id                    {name, active?}
-DELETE /api/tasks/:id                    409 if the task has entries
+DELETE /api/tasks/:id                    409 if the task has entries or has moved on the board
+GET    /api/tasks/:id                    task + its moves
+PUT    /api/tasks/:id/plan               {assignee_id?, due_date?, estimate_minutes?, milestone_id?, description?}  (manage)
+POST   /api/tasks/:id/status             {status: todo|in_progress|review|done, note?}  assignee or manage
+GET    /api/projects/:id/board           progress, milestones, active tasks with derived figures
+POST   /api/projects/:id/milestones      {name, due_date}  (manage)
+PUT    /api/milestones/:id               {name, due_date}  (manage)
+DELETE /api/milestones/:id               its tasks stay, without a milestone  (manage)
+GET    /api/portfolio                    ?archived=1 → every project: spent, budget, estimate, tasks per status
+GET    /api/my-tasks                     ?done=1 → the signed-in person's tasks
 
 GET    /api/employees
-POST   /api/employees                    {name, email?}
+POST   /api/employees                    {name, email?, work_days?}   work_days "12345" = Mon–Fri
 GET    /api/employees/:id
 PUT    /api/employees/:id
-DELETE /api/employees/:id                409 if the employee has entries
+DELETE /api/employees/:id                409 if the employee has entries or leave on record
+GET    /api/employees/:id/entitlements    ?year= → the ledger
+POST   /api/employees/:id/entitlements    {year, kind: allowance|carryover|adjustment, days, note?}  (manage)
+GET    /api/employees/:id/schedules       the working-time models, oldest first
+POST   /api/employees/:id/schedules       {valid_from, weekly_minutes|null, work_days, note?}  (manage)
+GET    /api/employees/:id/flex-entries    the flexitime ledger
+POST   /api/employees/:id/flex-entries    {kind: opening|adjustment|payout, minutes, effective_date?, note?}  (manage)
 
 GET    /api/day                          ?employee_id=&date= → day grid + totals
 POST   /api/entries                      {employee_id, project_id, task_id?, entry_date,
@@ -267,6 +321,25 @@ POST   /api/timesheets/reject             {employee_id, week_start, note?}  subm
 GET    /api/summary                       ?from=&to= → per-project & per-employee rollups
 GET    /api/export/profiles               the declared CSV profiles
 GET    /api/export/timesheets.csv         ?profile=&from=&to= → CSV download
+
+GET    /api/leave/requests                ?employee_id=&year=&status=&to_decide=1
+POST   /api/leave/requests                {employee_id?, type, start_date, end_date?,
+                                           half_day?, note?}  without employee_id: your own
+GET    /api/leave/requests/:id            request + its history
+POST   /api/leave/requests/:id/approve    {note?}   manage, never one's own
+POST   /api/leave/requests/:id/reject     {note}    manage, never one's own; says why
+POST   /api/leave/requests/:id/withdraw   own or manage; approved leave only before it begins
+GET    /api/leave/balance                 ?employee_id=&year= → entitled/taken/pending/remaining/free
+GET    /api/leave/calendar                ?month=YYYY-MM → days (with holidays) × people
+GET    /api/leave/holidays                ?year= → statutory + company days
+GET    /api/leave/settings
+PUT    /api/leave/settings                {country: AT|DE, extra_holidays: [{date, name}],
+                                           flex_cap_minutes, flex_floor_minutes, daily_max_minutes}  (manage)
+
+GET    /api/flex/account                  ?employee_id=&as_of= → balance, overtime, months  (own without employee_id)
+GET    /api/flex/days                     ?employee_id=&month=YYYY-MM → each day: target, due, worked, diff
+GET    /api/flex/overview                 everyone with an account, as of today
+GET    /api/export/flex.csv               ?month=YYYY-MM → per person: due, worked, paid out, balance, overtime
 ```
 
 Validation failures return `422` with `{error, details: [{field,
@@ -322,8 +395,23 @@ these, that's commissioned work — exactly the kind 0815software does:
 - **Reopening an approved week** — approval is a lock; corrections to an
   approved period are a policy decision left to you (delete the DB row or
   add a reopen endpoint).
-- **Overtime, leave, holidays, multi-currency, tax** — minutes and one
-  euro rate per project only.
+- **Multi-currency, tax** — minutes and one euro rate per project only.
+- **Overtime pay and labour-law checks** — overtime is counted and paid
+  out in hours; the surcharge (AZG § 10: 50 %) is payroll's. Nothing
+  forfeits or converts a balance at a period end on its own — that is the
+  office's booking. Breaks and rest periods are not checked; days above the
+  daily maximum are only flagged.
+- **Regional holidays by rule** — the calendar knows Austria's statutory
+  days and Germany's nine nationwide ones; a Land's own days (e.g.
+  Fronleichnam in Bavaria) or 24/31 December are entered as company days.
+- **Leave beyond the basics** — no expiry of carried-over days, no
+  accrual by month, no sick notes (Krankmeldung uploads), no notification
+  e-mails, no deputy rules.
+- **Planning beyond the basics** — no Gantt chart or task dependencies,
+  no resource levelling or capacity view against the working-time models,
+  no sub-tasks, checklists, comments or attachments on a task, and no
+  estimate taken from an offer: an offer's lines have no unit, so hours
+  would be invented (see the offer import below).
 - **Invoice / payroll generation** — this module *exports* CSV for those
   systems (feed BILLING into MOD-04, PAYROLL into your payroll); it does
   not produce invoices or payslips itself.
@@ -353,7 +441,7 @@ person signs in as themselves and gets the level PS-01 grants them here:
 | `module:time-tracking:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
 
 `module:*:<level>` grants a level in every module. Reads need `view`, any other
-method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) reserves approving and rejecting weeks, and maintaining employees, projects and tasks (including importing an offer as a project), for `manage`. A refused request answers **403**
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) reserves approving and rejecting weeks, deciding leave, granting entitlements, the holiday calendar, working-time models and flexitime bookings, planning tasks (assignee, due date, estimate, milestone) and milestones, and maintaining employees, projects and tasks (including importing an offer as a project), for `manage`. A refused request answers **403**
 `{ error, required, access }`; `GET /api/me` reports the caller's `access`.
 Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
 manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
@@ -371,6 +459,102 @@ employee carries is told so (**403**) rather than shown a colleague's sheet.
 `GET /api/me` reports `employee_id`, and the daily and weekly screens open on
 it and stay there for an editor. A manager records and corrects anyone's time.
 `test/ownership.test.ts` pins every case.
+
+## Absences
+
+Absences live here, next to the time they replace, not in a module of their
+own. Types: vacation, sick leave, special leave, unpaid leave, comp time.
+
+- **Requesting.** An editor requests leave for themselves (the same
+  ownership rule as time, `server/ownership.ts`); a manager for anyone. A
+  request covers whole days or one half day, stays within one calendar year
+  (each year has its own allowance), and may not overlap another open or
+  approved one.
+- **Deciding.** Only `manage` approves or rejects, and **never their own
+  request** — a manager's leave is decided by another manager. A rejection
+  says why. Approval re-checks the balance, since another request may have
+  been approved in between.
+- **Sick leave** is reported, not asked for: it stands approved as it is
+  recorded. Only the person and managers see that it is sickness; everyone
+  else sees `absent` in lists and the calendar. Health data is special
+  category data (GDPR Art. 9) — see `docs/PII-MAP.md`.
+- **Withdrawing.** A request can be withdrawn while open; approved leave
+  only before its first day. Leave that has begun was taken and stays.
+- **Days are derived.** `server/leave.ts:workingDays` counts the work days
+  of the schedule on each date in the range, minus holidays; nothing stores
+  a day count. The
+  holidays come from `shared/holidays.ts` (Austria: the 13 days of Feiertagsruhegesetz
+  § 7; Germany: the nine nationwide
+  days; Easter by the Gregorian computus) plus the company days a manager
+  enters.
+- **The balance is derived.** Entitled = the sum of the year's ledger
+  (allowance, carry-over, ± corrections — rows are added, never edited);
+  taken = approved vacation days; free = entitled − taken − pending.
+- **Nobody with leave on record is deleted** — the history would lose its
+  subject.
+
+Pinned by `test/leave.test.ts` (costs, part-time, calendar settings,
+balance and re-check, overlap and year split, who may do what, withdraw,
+delete guard, sick-leave masking, team calendar) and `test/holidays.test.ts`
+(Easter dates and the full AT/DE lists for 2025 and 2026).
+
+## Planning
+
+Projects and tasks were already here as what time is booked against; they are
+planned here too, so there is one project list, and the hours booked are the
+hours a plan is measured against. (A separate project module would have had to
+keep its list in step with this one.)
+
+- **The board.** A task is to do, in progress, in review or done. The
+  person it is assigned to moves it (`edit`); a manager moves any. Who does
+  it is the manager's decision, so a colleague cannot take over a task by
+  moving it (`mayMoveTask`, `server/ownership.ts`). Every move is a
+  `task_events` row with the person; a task or project that has moved is
+  never deleted — deactivate or archive it.
+- **The plan** — assignee, due date, estimate, milestone, description — is
+  set by `manage`. A milestone of another project is refused.
+- **Derived:** spent = the minutes booked against the task; remaining =
+  estimate − spent (never below zero); over estimate; overdue = past the due
+  date and not done. A milestone is **reached** when every active task on it
+  is done (one with no tasks is not), and **late** when its date passes
+  first. A project's spent counts every minute booked on it, with or without
+  a task, against its budget; its estimate is the sum of its tasks'.
+
+Pinned by `test/planning.test.ts` (planning and its refusals, the budget,
+who moves what and the event trail, deactivated tasks, spent and remaining,
+overdue, milestones reached and late, the portfolio figures, my tasks, kept
+history, and an existing database gaining the columns in place).
+
+## Flexitime and overtime
+
+- **Working-time models.** A manager gives a person a schedule from a date
+  on: weekly hours and work days. A change of contract is a new row from
+  its date — never an edit — so last year's leave and flexitime keep their
+  price. Without a schedule a person works Monday to Friday and has no
+  flexitime account; a schedule without weekly hours sets only the days.
+- **What a day asks for.** The weekly hours spread over the work days;
+  minutes that do not divide go one each to the first days, so a week adds
+  up exactly (37.5 h on four days: 9:23, 9:23, 9:22, 9:22). Holidays and
+  days off ask for nothing.
+- **Absences cover the day.** Approved vacation, sick, special and unpaid
+  leave credit the day's target (a half day half of it). **Comp time does
+  not** — it is a day off paid for with the balance.
+- **The balance is derived.** From the first day with a target:
+  Σ (worked − due) plus the ledger rows up to that date. Worked is every
+  entry, approved week or not. Saturday's work counts in full.
+- **Overtime** is the balance above the cap in the settings (default 40 h;
+  the floor −20 h; the daily maximum 10 h — the shape of a common
+  flexitime agreement, AZG § 4b / Betriebsvereinbarung, not law, so the
+  office sets them). A payout takes hours out of the account and is
+  refused beyond what is in it; the monthly CSV gives payroll the hours.
+- **Only the office books** what the days cannot say: an opening balance,
+  a correction (which says why), a payout. People see their own account;
+  sick days show as `absent` to colleagues here too.
+
+Pinned by `test/flextime.test.ts` (target distribution, balance, holidays,
+absence credit and comp time, schedule changes, daily maximum, cap and
+payout, floor, who may book, own account, payroll CSV, team overview) and
+the part-time case in `test/leave.test.ts`.
 
 ## The shell contract — appearing on a dashboard
 

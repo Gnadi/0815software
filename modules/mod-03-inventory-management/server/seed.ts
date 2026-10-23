@@ -63,6 +63,12 @@ export function seed(db: Database.Database): void {
       ['PK-6003', 'Packing Tape 50m', 'pcs', 30],
     ];
     for (const p of products) insertProduct.run(...p);
+    // Manufacturer GTINs on a few, so the scanner and both label kinds have
+    // something to show (GS1 prefix 426 = Germany; check digits are real).
+    const setBarcode = db.prepare('UPDATE products SET barcode = ? WHERE sku = ?');
+    setBarcode.run('4260123450007', 'HW-1001');
+    setBarcode.run('4260123450014', 'HW-1002');
+    setBarcode.run('4260123450021', 'AC-4001');
     const prod = (sku: string): number =>
       (db.prepare('SELECT id FROM products WHERE sku = ?').get(sku) as { id: number }).id;
 
