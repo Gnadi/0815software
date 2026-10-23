@@ -322,6 +322,7 @@
           "SELLER_EINVOICE_ADDRESS",
           "SELLER_EMAIL",
           "SELLER_IBAN",
+          "SELLER_IDENTIFIER",
           "SELLER_PHONE",
           "SELLER_POSTCODE",
           "SELLER_REFRESH_MS",

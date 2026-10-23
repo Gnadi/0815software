@@ -13,8 +13,8 @@ Ergebnis aufgeführt. Zeilenangaben beziehen sich auf den Stand des Reviews.
 ## Stand der Umsetzung
 
 Nachgetragen am 22.10.2026, nachdem `main` (ebInterface 6.1, Teilgutschriften,
-wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1, M2, M3
-und M5 am 23.10.2026:
+wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1 bis M5
+und M8 am 23.10.2026:
 
 | Befund | Stand | Belegt durch |
 | --- | --- | --- |
@@ -24,9 +24,11 @@ und M5 am 23.10.2026:
 | **M1** | **Weitgehend behoben.** Das PDF bricht Positionstext, Notiz, Befreiungsgrund, Gutschriftgrund, Käuferreferenz und Kundennamen nach gemessener Breite um (Metriken der Liberation-Schriften, die beide PDF-Varianten nutzen) und setzt auf der nächsten Seite fort, statt zu kürzen. Mengen stehen mit den vier Nachkommastellen des XML im deutschen Format (`1.234,5`). Offen: Zeichen außerhalb von WinAnsi werden weiter zu „?“ (N4), und beim Festschreiben geht weiter das einfache PDF hinaus, auch an Verkäufer in der Ausstellungspflicht (dafür fehlt eine Einstellung). | `test/einvoice-pdf.test.ts`, Golden-Fall `long` (Fall C) |
 | **M2** | **Behoben.** Die Fußzeile des PDF nennt alle Kennungen, die auch das XML trägt: USt-IdNr., Steuernummer, Registernummer. Ein leeres „VAT“ gibt es nicht mehr. Offen bleiben die Geschäftsbriefangaben nach § 35a GmbHG, dafür fehlen noch Felder. | `test/einvoice-pdf.test.ts` |
 | **M3** | **Behoben.** Zeilenbeträge werden ganzzahlig aus der Menge in Zehntausendsteln gerechnet und kaufmännisch gerundet (BT-131). Mengen haben höchstens vier Nachkommastellen (API und Festschreiben). Report-Views, DATEV/BMD-Export, Gutschriften und Client-Vorschau rechnen gleich. Jede Rechnung behält die Rundung, unter der sie festgeschrieben wurde (`line_rounding`): Bestehende Rechnungen bleiben bei der alten Gleitkomma-Rundung, ihre Beträge ändern sich nicht. Fall C ergibt jetzt 446,63 €, wie Mustang nachrechnet. Ein Import, dessen Zeilennetto die neue Rundung nicht trifft, wird centgenau übernommen. | `test/money.test.ts` (160.000 Kombinationen gegen BigInt, Upgrade-Fall), Golden-Fall `long` |
+| **M4** | **Behoben.** Eine elektronische Adresse ist eine E-Mail-Adresse (`EM`), eine Leitweg-ID (`0204`) oder eine Peppol-ID in der Form `Schema:Kennung` (`0088:…`, `9930:DE…`), das Schema aus der EAS-Codeliste des CEN-Schematrons (BR-CL-25). Freitext wird beim Speichern von Kunde und Verkäufer und vor jeder Datei abgelehnt (Fälle C und M). ebInterface erhält dort nur eine E-Mail-Adresse. | `test/einvoice-rules.test.ts` (Fälle R, S), Matrix-Käufer `peppol` |
 | **M5** | **Behoben.** Die Prüfziffer einer Leitweg-ID wird geprüft, nach der Formatspezifikation 2.0.2 (Kap. 2.4, deren Beispiel ist Testfall): beim Speichern von Kunde und Verkäufer und vor jeder Datei, in der elektronischen Adresse und in der Käuferreferenz eines so adressierten Käufers. Eine Bestellnummer gleicher Form (`4711-01`) bei anderen Käufern bleibt unberührt. Die Testdaten tragen gültige IDs. | `test/einvoice-rules.test.ts` (Fall F) |
 | **M6** | **Behoben** mit H2: Die API nimmt nur noch echte Kalenderdaten an. | `test/einvoice-rules.test.ts` |
-| M4, M7, M8, N1–N8 | Offen. | – |
+| **M8** | **Behoben.** BR-CO-26 lässt sich ohne USt-IdNr. und Registernummer auf zwei Wegen erfüllen: mit einer Verkäuferkennung (BT-29) mit ISO-6523-Schema aus den Einstellungen, etwa einer GLN (`0088:…`, `GlobalID`), oder mit der Lieferantennummer, die der Kunde vergeben hat (`ram:ID` ohne Schema). EN 16931 nennt Letztere ausdrücklich als Beispiel für BT-29. Beide stehen auch im PDF. | `test/einvoice-rules.test.ts` (Fälle T, U), Matrix-Verkäufer `taxno_gln` |
+| M7, N1–N8 | Offen. | – |
 
 Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
 Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
@@ -371,6 +373,10 @@ ausgestellten Bytes einführen.
 
 ### M4 · Elektronische Adressen: alles, was keine Leitweg-ID ist, wird „EM“
 
+*Status: behoben.* Schema und Wert stehen in einem Feld, in der Form, in der
+Peppol-Teilnehmer ihre Kennung weitergeben (`0088:4012345000009`); getrennte
+Felder hätten Stammdaten und Snapshots verdoppelt.
+
 **Wo:** `shared/einvoice.ts:162–167` (`addressScheme`: Leitweg-Muster →
 `0204`, alles andere → `EM`); `server/app.ts:183` (Kunden-Feld
 `einvoice_address` nur auf Länge geprüft); `server/seller-settings.ts:273`
@@ -449,6 +455,10 @@ BG-26 in jeder Position (BR-DE-TMP-32).
 **Vorschlag:** Abrechnungszeitraum im Entwurf, als BG-14 im XML und im PDF.
 
 ### M8 · Ohne USt-IdNr. und ohne Registereintrag keine E-Rechnung (BT-29 fehlt)
+
+*Status: behoben,* über eine Verkäuferkennung mit Schema und über die
+Lieferantennummer beim Kunden (siehe Tabelle oben). Eine Kennung „Steuernummer“
+gibt es weiterhin nicht (S5).
 
 **Wo:** `shared/einvoice.ts:202–211`; der Renderer schreibt für den
 Verkäufer weder `ram:ID` noch `ram:GlobalID`.

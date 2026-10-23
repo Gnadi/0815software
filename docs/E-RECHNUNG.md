@@ -153,9 +153,10 @@ they carry the seller frozen at issue.
 | VAT id | BT-31 | both. The shipped placeholder `ATU00000000` is refused | `SELLER_VAT_ID` |
 | Steuernummer | BT-32 | instead of / beside the VAT id. Printed in the PDF footer too (§ 14 Abs. 4 Nr. 2 UStG) | `SELLER_TAX_NUMBER` |
 | register number | BT-30 | when there is no VAT id (BR-CO-26), and for category `O`. Printed in the PDF footer | `SELLER_REGISTRATION` |
+| seller identifier | BT-29 | the third way to meet BR-CO-26 without a VAT id: `scheme:identifier` with an ISO 6523 scheme (BR-CL-10), e.g. `0088:4000001000005` for a GLN. Written as `GlobalID`, printed in the PDF footer. A Steuernummer alone does not count (review S5); a customer's supplier number does, see below | `SELLER_IDENTIFIER` |
 | IBAN, BIC | BT-84, BT-86 | both (payment means 58). The IBAN is also the debtor of every payment file and is check-digit validated on save | `SELLER_IBAN`, `SELLER_BIC` |
 | contact person, phone, email | BT-41, BT-42, BT-43 | **XRechnung** | `SELLER_CONTACT_NAME`, `SELLER_PHONE`, `SELLER_EMAIL` |
-| e-invoice address | BT-34 | **XRechnung**. Defaults to the contact email | `SELLER_EINVOICE_ADDRESS` |
+| e-invoice address | BT-34 | **XRechnung**. Defaults to the contact email. An email address, a Leitweg-ID, or a Peppol ID written `scheme:identifier`, the scheme from the EAS list (BR-CL-25); anything else is refused | `SELLER_EINVOICE_ADDRESS` |
 
 Below the fields, the screen shows whether XRechnung and ZUGFeRD are
 **READY**, or what is still missing. The API is `GET` / `PUT
@@ -171,8 +172,8 @@ and the country falls back to the VAT id's prefix.
 | street / postcode / city / country (ISO) | BT-50, BT-53, BT-52, BT-55 | country for both. City and postcode for XRechnung |
 | VAT id | BT-48 | reverse charge, intra-EU supply |
 | buyer reference | BT-10 | **XRechnung**. The **Leitweg-ID** for a public body, otherwise the reference the customer wants quoted (order number, contact). For ebInterface it is the order reference (`OrderID`) — the **Auftragsreferenz** the Austrian federal government requires. An invoice can carry its own |
-| our supplier number | — | **ebInterface** `InvoiceRecipientsBillerID` — the **Lieferantennummer** the Austrian federal government assigns and requires. Frozen at issue like every party field |
-| e-invoice address | BT-49 | **XRechnung**. Defaults to the email. A Leitweg-ID here is sent with scheme `0204`, an email with `EM`. A Leitweg-ID must carry its check digits (ISO/IEC 7064 MOD 97-10, Formatspezifikation Leitweg-ID 2.0.2): the customer is refused on save, and so is its buyer reference when that is a Leitweg-ID with the wrong digits. The message does not suggest the right ones — the typo may be anywhere |
+| our supplier number | BT-29 | **ebInterface** `InvoiceRecipientsBillerID` — the **Lieferantennummer** the Austrian federal government assigns and requires. In XRechnung and ZUGFeRD it is the seller identifier without a scheme, which EN 16931 describes as "a previously exchanged Buyer assigned identifier of the Seller" — so it also meets BR-CO-26. Printed on the PDF. Frozen at issue like every party field |
+| e-invoice address | BT-49 | **XRechnung**. Defaults to the email. One of three kinds, each sent with its scheme: an email address (`EM`), a Leitweg-ID (`0204`), or a Peppol ID written `scheme:identifier` such as `0088:4012345000009` or `9930:DE987654321`, the scheme from the EAS list (BR-CL-25). Free text ("Buchhaltung, Frau Meier") is refused on save and before every file — it used to go out as an `EM` address that reaches nobody, and no validator objects. ebInterface takes only an email here. A Leitweg-ID must carry its check digits (ISO/IEC 7064 MOD 97-10, Formatspezifikation Leitweg-ID 2.0.2): the customer is refused on save, and so is its buyer reference when that is a Leitweg-ID with the wrong digits. The message does not suggest the right ones — the typo may be anywhere |
 | e-invoice format | — | The format this customer receives: XRechnung, ZUGFeRD, ebInterface, or none. Set, a draft for the customer is **refused at finalize** until it renders in it (see below). Empty means nobody decided, and nothing is checked |
 
 ### Per invoice (editor)
@@ -207,8 +208,8 @@ Validation happens in three layers, and the first two run in every test run:
 2. **Schema.** Every case is checked against the Factur-X EN16931 XSD
    (`test/schema/cii-en16931/`) with `xmllint` — and so is every case of the
    **matrix** in `test/einvoice-matrix.ts` that the module does not refuse:
-   nine VAT situations × five ways the seller is identified × six buyers,
-   plus credit notes (279 models, about half of them accepted per profile).
+   nine VAT situations × six ways the seller is identified × seven buyers,
+   plus credit notes (387 models, about half of them accepted per profile).
    The review's probes that used to be served although invalid are pinned in
    `test/einvoice-rules.test.ts`.
 3. **External rules.** `npm run einvoice:validate`
@@ -219,7 +220,7 @@ Validation happens in three layers, and the first two run in every test run:
    1.3.16, the XRechnung schematron 2.4.0 (XRechnung 3.0.2, KoSIT rules
    BR-DE-*) and veraPDF for PDF/A-3b. All files go through one JVM
    (`scripts/MustangBatch.java`, Mustang's own validator class): about 20
-   seconds for the 330 files, where starting the CLI per file took minutes.
+   seconds for the 476 files, where starting the CLI per file took minutes.
    The rule is one-directional: what the module refuses is never served, so
    only what it accepts must be valid. The workflow
    `.github/workflows/einvoice-validation.yml` runs it on every MOD-04

@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { isCountryCode } from '../shared/countries.js';
-import { MISTYPED_LEITWEG, mistypedLeitweg } from '../shared/einvoice.js';
+import { MISTYPED_LEITWEG, mistypedLeitweg, parseElectronicAddress, parseSchemeIdentifier } from '../shared/einvoice.js';
 import { ibanProblem, isValidBic, normalizeBic, normalizeIban } from '../shared/sepa.js';
 import type { SellerConfig } from './config.js';
 import { DomainError, nowIso } from './invoices.js';
@@ -45,6 +45,7 @@ export const SELLER_KEYS = [
   'vatId',
   'taxNumber',
   'registration',
+  'identifier',
   'iban',
   'bic',
   'contactName',
@@ -68,6 +69,7 @@ export const SELLER_ENV_NAMES: Record<SellerKey, string> = {
   vatId: 'SELLER_VAT_ID',
   taxNumber: 'SELLER_TAX_NUMBER',
   registration: 'SELLER_REGISTRATION',
+  identifier: 'SELLER_IDENTIFIER',
   iban: 'SELLER_IBAN',
   bic: 'SELLER_BIC',
   contactName: 'SELLER_CONTACT_NAME',
@@ -207,6 +209,7 @@ const LIMITS: Record<Exclude<SellerKey, 'addressLines'>, number> = {
   vatId: 20,
   taxNumber: 32,
   registration: 80,
+  identifier: 80,
   iban: 42,
   bic: 16,
   contactName: 120,
@@ -271,11 +274,19 @@ export function writeSellerSettings(
       value = normalizeBic(value);
       if (!isValidBic(value)) problems.push({ field: key, message: 'BIC has 8 or 11 characters, e.g. BYLADEMMXXX' });
     }
-    if ((key === 'email' || (key === 'einvoiceAddress' && value.includes('@'))) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+    if (key === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
       problems.push({ field: key, message: 'not an email address' });
     }
-    if (key === 'einvoiceAddress' && mistypedLeitweg(value)) {
-      problems.push({ field: key, message: `Leitweg-ID ${MISTYPED_LEITWEG}` });
+    if (key === 'einvoiceAddress') {
+      const address = parseElectronicAddress(value);
+      if (address === null) {
+        problems.push({ field: key, message: 'an email address, a Leitweg-ID or a Peppol ID written scheme:identifier, e.g. 0088:4000001000005' });
+      } else if (address.scheme === '0204' && mistypedLeitweg(address.value)) {
+        problems.push({ field: key, message: `Leitweg-ID ${MISTYPED_LEITWEG}` });
+      }
+    }
+    if (key === 'identifier' && parseSchemeIdentifier(value) === null) {
+      problems.push({ field: key, message: 'scheme:identifier with an ISO 6523 scheme, e.g. 0088:4000001000005 for a GLN' });
     }
     overrides[key] = value;
   }

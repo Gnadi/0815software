@@ -40,6 +40,8 @@ const SELLERS: Record<string, Partial<EInvoiceModel['seller']>> = {
   taxno_reg: { vat_id: null, tax_number: '143/123/45678', registration: 'HRB 12345' },
   taxno: { vat_id: null, tax_number: '143/123/45678', registration: null },
   reg: { vat_id: null, tax_number: null, registration: 'HRB 12345' },
+  // Identified by a GLN (BT-29 with scheme 0088) instead of a register number (M8).
+  taxno_gln: { vat_id: null, tax_number: '143/123/45678', registration: null, identifier: '0088:4000001000005' },
 };
 
 const BUYERS: Record<string, { buyer: Partial<EInvoiceModel['buyer']>; buyer_reference?: string }> = {
@@ -51,6 +53,11 @@ const BUYERS: Record<string, { buyer: Partial<EInvoiceModel['buyer']>; buyer_ref
   public: {
     buyer: { street: 'Rathausplatz 1', postcode: '12345', city: 'Musterhausen', country: 'DE', vat_id: null, einvoice_address: '991-33333TEST-33' },
     buyer_reference: '991-33333TEST-33',
+  },
+  // Reached over Peppol by its VAT id (scheme 9930), and the one that assigned
+  // us a supplier number — which identifies the seller as BT-29 (M4, M8).
+  peppol: {
+    buyer: { street: 'Kundenweg 5', postcode: '10115', city: 'Berlin', country: 'DE', vat_id: 'DE987654321', einvoice_address: '9930:DE987654321', supplier_number: 'K-4711' },
   },
 };
 
@@ -101,6 +108,16 @@ export const REFUSED: Record<string, { model: EInvoiceModel; term: string }> = {
   P: { model: model('g', 'taxno_reg', 'ch'), term: 'BT-31' },
   // Q: exempt lines from a seller with neither VAT id nor Steuernummer (BR-E-02, BR-DE-16).
   Q: { model: model('e', 'reg', 'de'), term: 'BT-31' },
+  // C': the buyer's e-invoice address as free text, which went out as "EM" (M4).
+  R: { model: model('s19', 'vat', 'de_vat'), term: 'BT-49' },
+  // M: the seller's e-invoice address as free text (M4).
+  S: { model: model('s19', 'vat', 'de_vat'), term: 'BT-34' },
+  // A Steuernummer alone identifies no seller (BR-CO-26) — nor does a GLN without its scheme (M8).
+  T: { model: model('s19', 'taxno', 'de'), term: 'BT-30' },
+  U: { model: model('s19', 'taxno_gln', 'de'), term: 'BT-29' },
 };
 REFUSED.J!.model.buyer = { ...REFUSED.J!.model.buyer, vat_id: '123456789' };
 REFUSED.K!.model.buyer = { ...REFUSED.K!.model.buyer, country: 'UK' };
+REFUSED.R!.model.buyer = { ...REFUSED.R!.model.buyer, einvoice_address: 'Buchhaltung, Frau Meier' };
+REFUSED.S!.model.seller = { ...REFUSED.S!.model.seller, einvoice_address: 'Rechnungseingang Buchhaltung' };
+REFUSED.U!.model.seller = { ...REFUSED.U!.model.seller, identifier: '4000001000005' };

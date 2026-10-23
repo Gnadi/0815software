@@ -40,12 +40,13 @@ const SELLER_LABELS: Record<string, { label: string; hint?: string; multiline?: 
   vatId: { label: 'VAT ID (BT-31)' },
   taxNumber: { label: 'STEUERNUMMER (BT-32)' },
   registration: { label: 'REGISTER NUMBER (BT-30)', hint: 'HRB 12345 / FN 123456a — needed without a VAT id' },
+  identifier: { label: 'SELLER IDENTIFIER (BT-29)', hint: 'scheme:id, e.g. 0088:4000001000005 for a GLN — identifies you without VAT id or register number' },
   iban: { label: 'IBAN', hint: 'printed on invoices and the debtor of every payment file' },
   bic: { label: 'BIC' },
   contactName: { label: 'CONTACT PERSON (BT-41)', hint: 'required for XRechnung' },
   phone: { label: 'CONTACT PHONE (BT-42)', hint: 'required for XRechnung' },
   email: { label: 'CONTACT EMAIL (BT-43)', hint: 'required for XRechnung' },
-  einvoiceAddress: { label: 'E-INVOICE ADDRESS (BT-34)', hint: 'empty → contact email' },
+  einvoiceAddress: { label: 'E-INVOICE ADDRESS (BT-34)', hint: 'email, Leitweg-ID or Peppol ID like 0088:4000001000005 — empty → contact email' },
 };
 
 const SOURCE_LABEL: Record<SellerFieldState['source'], string> = {

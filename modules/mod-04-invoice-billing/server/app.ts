@@ -27,9 +27,9 @@ import type { EInvoiceFormat } from '../shared/ebinterface.js';
 import {
   eInvoiceProblems,
   isCalendarDate,
-  leitwegShaped,
   MISTYPED_LEITWEG,
   mistypedLeitweg,
+  parseElectronicAddress,
   type EInvoiceModel,
 } from '../shared/einvoice.js';
 import { ebInterfaceProblems } from '../shared/ebinterface.js';
@@ -227,11 +227,17 @@ function validateCustomer(input: Record<string, unknown>): CustomerInput {
   const buyer_reference = optText(input.buyer_reference, 'buyer_reference', errors, 200);
   const einvoice_address = optText(input.einvoice_address, 'einvoice_address', errors, 200);
   // Checked when it is saved, not when the first XRechnung is rendered: by
-  // then an invoice may have been sent and frozen with the typo in it.
-  if (mistypedLeitweg(einvoice_address)) {
+  // then an invoice may have been sent and frozen with the mistake in it.
+  const parsedAddress = einvoice_address === null ? null : parseElectronicAddress(einvoice_address);
+  if (einvoice_address !== null && parsedAddress === null) {
+    errors.push({
+      field: 'einvoice_address',
+      message: 'An e-invoice address is an email address, a Leitweg-ID or a Peppol ID written scheme:identifier, e.g. 0088:4000001000005',
+    });
+  } else if (parsedAddress?.scheme === '0204' && mistypedLeitweg(parsedAddress.value)) {
     errors.push({ field: 'einvoice_address', message: `Leitweg-ID ${MISTYPED_LEITWEG}` });
   }
-  if (leitwegShaped(einvoice_address) && mistypedLeitweg(buyer_reference)) {
+  if (parsedAddress?.scheme === '0204' && mistypedLeitweg(buyer_reference)) {
     errors.push({ field: 'buyer_reference', message: `Leitweg-ID ${MISTYPED_LEITWEG}` });
   }
   const supplier_number = optText(input.supplier_number, 'supplier_number', errors, 100);

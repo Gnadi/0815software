@@ -331,6 +331,7 @@ the Settings screen by whoever holds `manage`, and what is saved there wins (see
 | `SELLER_STREET` · `SELLER_POSTCODE` · `SELLER_CITY` · `SELLER_COUNTRY` | *(read from `SELLER_ADDRESS`)* | E-invoice: structured seller address (BT-35/38/37/40) |
 | `SELLER_TAX_NUMBER` | —                      | E-invoice: German Steuernummer (BT-32)   |
 | `SELLER_REGISTRATION` | —                    | E-invoice: register number, e.g. `HRB 12345` (BT-30) — needed without a VAT id |
+| `SELLER_IDENTIFIER` | —                      | E-invoice: seller identifier with its ISO 6523 scheme, e.g. `0088:4000001000005` (GLN, BT-29) — identifies a seller without VAT id or register number |
 | `SELLER_CONTACT_NAME` · `SELLER_PHONE` · `SELLER_EMAIL` | — | E-invoice: seller contact — mandatory for XRechnung (BT-41/42/43) |
 | `SELLER_EINVOICE_ADDRESS` | *(`SELLER_EMAIL`)* | E-invoice: seller electronic address (BT-34) |
 
@@ -639,8 +640,15 @@ recipient recomputing quantity × price arrives at them too (see Money).
   measured width (the metrics of the Liberation fonts both PDFs use) and
   continue on the next page, rather than being cut off; quantities show the
   XML's four decimals, written like the amounts (`1.234,5`). The footer names
-  the seller by VAT id, Steuernummer and register number
-  (`test/einvoice-pdf.test.ts`).
+  the seller by VAT id, Steuernummer, register number and seller identifier,
+  and the supplier number the customer assigned us stands beside the invoice
+  number (`test/einvoice-pdf.test.ts`).
+- **Addressed to someone.** An e-invoice address is an email address, a
+  Leitweg-ID (check digits verified) or a Peppol ID written `scheme:identifier`
+  from the EAS code list; free text is refused, on save and before every file.
+  A seller without VAT id or register number is identified by a seller
+  identifier such as a GLN, or by the supplier number its customer assigned —
+  both are BT-29, which BR-CO-26 accepts (`test/einvoice-rules.test.ts`).
 
 - **Refused rather than wrong.** A file is only produced when it would
   validate. Otherwise `422` lists every missing field with its business term

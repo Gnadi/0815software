@@ -12,7 +12,16 @@ import type { AuthConfig } from '../server/auth.js';
 import type { SellerConfig } from '../server/config.js';
 import { hasVatPrefix, isCountryCode } from '../shared/countries.js';
 import { ebInterfaceProblems } from '../shared/ebinterface.js';
-import { EINVOICE_PROFILES, eInvoiceProblems, mistypedLeitweg, renderCii, type EInvoiceModel } from '../shared/einvoice.js';
+import {
+  EINVOICE_PROFILES,
+  eInvoiceProblems,
+  mistypedLeitweg,
+  parseElectronicAddress,
+  parseSchemeIdentifier,
+  renderCii,
+  type EInvoiceModel,
+} from '../shared/einvoice.js';
+import { EAS_CODES, ICD_CODES } from '../shared/schemes.js';
 import { BASE, CASES } from './einvoice-cases.js';
 import { MATRIX, REFUSED } from './einvoice-matrix.js';
 
@@ -51,6 +60,9 @@ describe("the review's probes are refused, by business term", () => {
     expect(messages('O')).toContain('"2026-02-31" is not a calendar date');
     expect(messages('P')).toContain('BR-G-02');
     expect(messages('Q')).toContain('BR-E-02');
+    expect(messages('R')).toContain('"Buchhaltung, Frau Meier" is neither an email address, a Leitweg-ID nor a Peppol ID');
+    expect(messages('T')).toContain('BT-29');
+    expect(messages('U')).toContain('BR-CL-10');
   });
 
   it('refuses the same dates and countries in ebInterface', () => {
@@ -118,6 +130,68 @@ describe('Leitweg-IDs carry their check digits (M5)', () => {
   it("does not take another buyer's order reference of the same shape for one", () => {
     // 4711-01 fails the check digits, but this buyer is addressed by email.
     expect(fields({ ...CASES.standard!, buyer_reference: '4711-01' })).toEqual([]);
+  });
+});
+
+describe('electronic addresses are an email, a Leitweg-ID or a Peppol ID (M4)', () => {
+  it('reads each with its scheme', () => {
+    expect(parseElectronicAddress('ap@kunde.de')).toEqual({ scheme: 'EM', value: 'ap@kunde.de' });
+    expect(parseElectronicAddress('991-33333TEST-33')).toEqual({ scheme: '0204', value: '991-33333TEST-33' });
+    expect(parseElectronicAddress('0204:991-33333TEST-33')).toEqual({ scheme: '0204', value: '991-33333TEST-33' });
+    expect(parseElectronicAddress('0088:4012345000009')).toEqual({ scheme: '0088', value: '4012345000009' });
+    expect(parseElectronicAddress(' 9930:DE987654321 ')).toEqual({ scheme: '9930', value: 'DE987654321' });
+  });
+
+  it('refuses free text, a scheme not in the EAS list, and a value its scheme does not fit', () => {
+    for (const raw of ['Buchhaltung, Frau Meier', 'Rechnungseingang Buchhaltung', '1234:xyz', '0204:Buchhaltung', 'EM:niemand', '0088:', '']) {
+      expect(parseElectronicAddress(raw), raw).toBeNull();
+    }
+  });
+
+  it('takes the address schemes from BR-CL-25 and the identifier schemes from BR-CL-10', () => {
+    for (const code of ['EM', '0204', '0088', '9930', '9914']) expect(EAS_CODES.has(code)).toBe(true);
+    expect(EAS_CODES.has('0001')).toBe(false);
+    for (const code of ['0060', '0088', '0204']) expect(ICD_CODES.has(code)).toBe(true);
+    for (const code of ['0092', '0249', 'EM']) expect(ICD_CODES.has(code)).toBe(false);
+    expect(parseSchemeIdentifier('0088:4000001000005')).toEqual({ scheme: '0088', value: '4000001000005' });
+    expect(parseSchemeIdentifier('9930:DE123456789')).toBeNull(); // an address scheme, not ISO 6523
+  });
+
+  it('writes a Peppol ID with its own scheme, and checks a Leitweg-ID written with its scheme', () => {
+    const standard = CASES.standard!;
+    const peppol = { ...standard, buyer: { ...standard.buyer, einvoice_address: '9930:DE987654321' } };
+    expect(eInvoiceProblems(peppol, 'xrechnung')).toEqual([]);
+    expect(renderCii(peppol, 'xrechnung')).toContain('<ram:URIID schemeID="9930">DE987654321</ram:URIID>');
+    const mistyped = { ...standard, buyer: { ...standard.buyer, einvoice_address: '0204:991-12345-06' } };
+    expect(terms(mistyped, 'xrechnung')).toContain('BT-49');
+  });
+
+  it('refuses an email field that is not one when it stands in for the address', () => {
+    const standard = CASES.standard!;
+    const legacy = { ...standard, buyer: { ...standard.buyer, email: 'Frau Meier' } };
+    expect(eInvoiceProblems(legacy, 'zugferd').map((p) => p.field)).toEqual(['customer.email']);
+  });
+});
+
+describe('a seller with neither VAT id nor register number can still be identified (M8)', () => {
+  const taxOnly: EInvoiceModel = { ...CASES.taxno!, seller: { ...CASES.taxno!.seller, registration: null } };
+
+  it('is refused with only a Steuernummer, and the message names the ways out', () => {
+    const problem = eInvoiceProblems(taxOnly, 'zugferd').find((p) => p.term === 'BT-30');
+    expect(problem?.message).toContain('a seller identifier such as a GLN (Settings → Seller, BT-29)');
+    expect(problem?.message).toContain('the supplier number this customer assigned you');
+  });
+
+  it('takes a seller identifier with an ISO 6523 scheme, as GlobalID before the name', () => {
+    const gln = { ...taxOnly, seller: { ...taxOnly.seller, identifier: '0088:4000001000005' } };
+    for (const profile of EINVOICE_PROFILES) expect(eInvoiceProblems(gln, profile)).toEqual([]);
+    expect(renderCii(gln, 'xrechnung')).toMatch(/<ram:SellerTradeParty>\s*<ram:GlobalID schemeID="0088">4000001000005<\/ram:GlobalID>\s*<ram:Name>/);
+  });
+
+  it('takes the supplier number the customer assigned, as the seller ID without a scheme', () => {
+    const known = { ...taxOnly, buyer: { ...taxOnly.buyer, supplier_number: 'K-4711' } };
+    expect(eInvoiceProblems(known, 'zugferd')).toEqual([]);
+    expect(renderCii(known, 'zugferd')).toMatch(/<ram:SellerTradeParty>\s*<ram:ID>K-4711<\/ram:ID>\s*<ram:Name>/);
   });
 });
 
@@ -235,6 +309,21 @@ describe('the API refuses what used to reach the file', () => {
     const settings = await call('put', '/api/settings/seller', { einvoiceAddress: '991-12345-06' });
     expect(settings.status).toBe(422);
     expect(field(settings)).toEqual(['einvoiceAddress']);
+  });
+
+  it('C, M: free text is refused as an e-invoice address, a listed scheme is taken', async () => {
+    const field = (res: { body: { details: { field: string }[] } }) => res.body.details.map((d) => d.field);
+    const free = await call('post', '/api/customers', { ...customer, einvoice_address: 'Buchhaltung, Frau Meier' });
+    expect(free.status).toBe(422);
+    expect(field(free)).toEqual(['einvoice_address']);
+    expect((await call('post', '/api/customers', { ...customer, einvoice_address: '0088:4012345000009' })).status).toBe(201);
+    const settings = await call('put', '/api/settings/seller', { einvoiceAddress: 'Rechnungseingang Buchhaltung' });
+    expect(settings.status).toBe(422);
+    expect(field(settings)).toEqual(['einvoiceAddress']);
+    const unlisted = await call('put', '/api/settings/seller', { identifier: '1234:4000001000005' });
+    expect(unlisted.status).toBe(422);
+    expect(field(unlisted)).toEqual(['identifier']);
+    expect((await call('put', '/api/settings/seller', { identifier: '0088:4000001000005' })).status).toBe(200);
   });
 
   it('O: impossible calendar dates are refused on the draft, at issue and on a credit note', async () => {

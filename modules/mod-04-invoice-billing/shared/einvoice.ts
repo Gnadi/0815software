@@ -29,6 +29,7 @@
 
 import { hasVatPrefix, isCountryCode } from './countries.js';
 import { computeTotals, lineNetCents, type LineRounding } from './money.js';
+import { EAS_CODES, ICD_CODES } from './schemes.js';
 import type { TaxExemptionCategory } from './types.js';
 
 export const EINVOICE_PROFILES = ['xrechnung', 'zugferd'] as const;
@@ -67,6 +68,13 @@ export interface SellerParty {
    * (BR-CO-26) — so a seller with only a Steuernummer needs it.
    */
   registration?: string | null;
+  /**
+   * BT-29 — an identifier with its ISO 6523 scheme, `0088:4000001000005` for
+   * a GLN: the third way, beside VAT id and register number, by which the
+   * buyer can identify the seller (BR-CO-26). Absent in snapshots frozen
+   * before it existed.
+   */
+  identifier?: string | null;
   iban: string;
   bic: string | null;
   /** BG-6 seller contact — mandatory in XRechnung (BR-DE-2/5/6/7). */
@@ -171,7 +179,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const LEITWEG_RE = /^\d{2,12}(-[A-Za-z0-9]{1,30})?-\d{2}$/;
 
 /** Shaped like a Leitweg-ID: what an electronic address is written as, scheme 0204. */
-export function leitwegShaped(value: string | null | undefined): boolean {
+function leitwegShaped(value: string | null | undefined): boolean {
   return typeof value === 'string' && LEITWEG_RE.test(value.trim());
 }
 
@@ -198,10 +206,49 @@ export function mistypedLeitweg(value: string | null | undefined): boolean {
  */
 export const MISTYPED_LEITWEG = 'fails its check digits (ISO/IEC 7064 MOD 97-10) — compare it with the Leitweg-ID the public body gave you';
 
-/** The schemeID of an electronic address (BT-34-1 / BT-49-1). */
-function addressScheme(address: string): string {
-  return LEITWEG_RE.test(address) ? '0204' : 'EM';
+/** An identifier with the scheme it is written in: BT-34/BT-34-1, BT-49/BT-49-1, BT-29/BT-29-1. */
+export interface SchemeIdentifier {
+  scheme: string;
+  value: string;
 }
+
+/**
+ * What an electronic address (BT-34, BT-49) as typed is: a Leitweg-ID (scheme
+ * 0204), an email address (EM), or `<scheme>:<identifier>` the way Peppol
+ * writes a participant identifier (`0088:4000001000005`, `9930:DE123456789`),
+ * the scheme from the EAS code list (BR-CL-25). Null for anything else.
+ * Everything that was not a Leitweg-ID used to go out as `EM`, so
+ * "Buchhaltung, Frau Meier" became an email address that reaches nobody — and
+ * the artefacts let it pass, because they check only that an address is there
+ * (PEPPOL-EN16931-R010/R020) and that its scheme is listed.
+ */
+export function parseElectronicAddress(raw: string | null | undefined): SchemeIdentifier | null {
+  if (typeof raw !== 'string') return null;
+  const text = raw.trim();
+  const prefixed = /^([0-9]{4}|[A-Z]{2}):(\S+)$/.exec(text);
+  if (prefixed && EAS_CODES.has(prefixed[1]!)) {
+    const [, scheme, value] = prefixed as unknown as [string, string, string];
+    if (scheme === '0204' && !LEITWEG_RE.test(value)) return null;
+    if (scheme === 'EM' && !EMAIL_RE.test(value)) return null;
+    return { scheme, value };
+  }
+  if (LEITWEG_RE.test(text)) return { scheme: '0204', value: text };
+  if (EMAIL_RE.test(text)) return { scheme: 'EM', value: text };
+  return null;
+}
+
+/**
+ * A seller identifier (BT-29) as `<scheme>:<identifier>`, the scheme from ISO
+ * 6523 ICD (BR-CL-10) — `0088:4000001000005` for a GLN, `0060:…` for DUNS.
+ * Null when it is not written that way.
+ */
+export function parseSchemeIdentifier(raw: string | null | undefined): SchemeIdentifier | null {
+  const match = typeof raw === 'string' ? /^([0-9]{4}):(\S+)$/.exec(raw.trim()) : null;
+  return match && ICD_CODES.has(match[1]!) ? { scheme: match[1]!, value: match[2]! } : null;
+}
+
+const NOT_AN_ADDRESS =
+  'is neither an email address, a Leitweg-ID nor a Peppol ID written scheme:identifier (e.g. 0088:4000001000005) — the e-invoice would be addressed to nobody';
 
 export function blank(value: string | null | undefined): boolean {
   return value === null || value === undefined || value.trim() === '';
@@ -258,21 +305,30 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
   }
   if (missing(seller.iban)) add('BT-84', 'seller.iban', 'Seller IBAN is missing — the payment instructions need it');
   const notSubject = model.exemption?.category === 'O';
-  if ((missing(seller.vat_id) || notSubject) && missing(seller.registration)) {
+  // BR-CO-26 takes a VAT id, a register number or a seller identifier (BT-29),
+  // and EN 16931 names "a previously exchanged Buyer assigned identifier of the
+  // Seller" as one: the supplier number this customer gave us. A seller with
+  // only a Steuernummer — which BR-CO-26 does not count — has those two ways.
+  const identifiedOtherwise = !missing(seller.registration) || !missing(seller.identifier) || !missing(buyer.supplier_number);
+  if ((missing(seller.vat_id) || notSubject) && !identifiedOtherwise) {
     add(
       'BT-30',
       'seller.registration',
-      notSubject
-        ? 'A "not subject to VAT" invoice may not carry the VAT id, so the seller must be identified by its register number (BR-CO-26, BR-O-02)'
-        : 'Without a VAT id the seller must be identified by its register number, e.g. HRB 12345 (BR-CO-26)',
+      (notSubject
+        ? 'A "not subject to VAT" invoice may not carry the VAT id (BR-O-02), so the seller must be identified otherwise'
+        : 'Without a VAT id the seller must be identified otherwise') +
+        ': its register number (e.g. HRB 12345), a seller identifier such as a GLN (Settings → Seller, BT-29) or the supplier number this customer assigned you (BR-CO-26)',
     );
+  }
+  if (!missing(seller.identifier) && parseSchemeIdentifier(seller.identifier) === null) {
+    add('BT-29', 'seller.identifier', `Seller identifier "${seller.identifier!.trim()}" is not scheme:identifier with an ISO 6523 scheme (BR-CL-10), e.g. 0088:4000001000005 for a GLN`);
   }
 
   if (xr) {
     if (missing(seller.contact_name)) add('BT-41', 'seller.contactName', 'XRechnung requires a seller contact name');
     if (missing(seller.phone)) add('BT-42', 'seller.phone', 'XRechnung requires a seller contact phone number');
     if (missing(seller.email)) add('BT-43', 'seller.email', 'XRechnung requires a seller contact email');
-    if (missing(seller.einvoice_address ?? seller.email)) {
+    if (missing(seller.einvoice_address) && missing(seller.email)) {
       add('BT-34', 'seller.einvoiceAddress', 'XRechnung requires the seller electronic address (e-invoice address or contact email)');
     }
   }
@@ -291,25 +347,31 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
   if (xr) {
     if (missing(buyer.city)) add('BT-52', 'customer.city', 'XRechnung requires the buyer city');
     if (missing(buyer.postcode)) add('BT-53', 'customer.postcode', 'XRechnung requires the buyer postcode');
-    if (missing(buyer.einvoice_address ?? buyer.email)) {
+    if (missing(buyer.einvoice_address) && missing(buyer.email)) {
       add('BT-49', 'customer.einvoice_address', 'XRechnung requires the buyer electronic address (e-invoice address, Leitweg-ID or email)');
     }
     if (missing(model.buyer_reference)) {
       add('BT-10', 'buyer_reference', 'XRechnung requires a buyer reference — the Leitweg-ID for a public body, else the customer\'s order or contact reference');
     }
   }
-  // A Leitweg-ID is checked wherever this module treats a value as one: an
-  // electronic address of that shape, which it writes with scheme 0204, and
-  // the buyer reference of a buyer addressed that way — a public body, whose
-  // BT-10 is its Leitweg-ID. Any other buyer's order reference of the same
-  // shape (4711-01) is just a reference.
-  if (mistypedLeitweg(seller.einvoice_address)) {
-    add('BT-34', 'seller.einvoiceAddress', `Leitweg-ID "${seller.einvoice_address!.trim()}" ${MISTYPED_LEITWEG}`);
+  // The electronic addresses as they are written: each must be one of the
+  // three kinds an address is, and a Leitweg-ID must carry its check digits —
+  // as must the buyer reference of a buyer addressed by one: a public body,
+  // whose BT-10 is its Leitweg-ID. Any other buyer's order reference of the
+  // same shape (4711-01) is just a reference.
+  const addresses = [
+    { term: 'BT-34', own: seller.einvoice_address, fallback: seller.email, field: ['seller.einvoiceAddress', 'seller.email'] },
+    { term: 'BT-49', own: buyer.einvoice_address, fallback: buyer.email, field: ['customer.einvoice_address', 'customer.email'] },
+  ] as const;
+  for (const { term, own, fallback, field } of addresses) {
+    const raw = missing(own) ? fallback : own;
+    if (missing(raw)) continue;
+    const address = parseElectronicAddress(raw);
+    const where = missing(own) ? field[1] : field[0];
+    if (address === null) add(term, where, `Electronic address "${raw!.trim()}" ${NOT_AN_ADDRESS}`);
+    else if (address.scheme === '0204' && mistypedLeitweg(address.value)) add(term, where, `Leitweg-ID "${address.value}" ${MISTYPED_LEITWEG}`);
   }
-  if (mistypedLeitweg(buyer.einvoice_address)) {
-    add('BT-49', 'customer.einvoice_address', `Leitweg-ID "${buyer.einvoice_address!.trim()}" ${MISTYPED_LEITWEG}`);
-  }
-  if (leitwegShaped(buyer.einvoice_address) && mistypedLeitweg(model.buyer_reference)) {
+  if (parseElectronicAddress(missing(buyer.einvoice_address) ? buyer.email : buyer.einvoice_address)?.scheme === '0204' && mistypedLeitweg(model.buyer_reference)) {
     add('BT-10', 'buyer_reference', `Leitweg-ID "${model.buyer_reference!.trim()}" ${MISTYPED_LEITWEG}`);
   }
 
@@ -466,11 +528,13 @@ function postalAddress(xml: Xml, party: { street: string | null; postcode: strin
 }
 
 function electronicAddress(xml: Xml, address: string | null): void {
-  if (missing(address)) return;
-  const value = address!.trim();
+  // eInvoiceProblems refuses an address that does not parse, so none is
+  // written here that could not be delivered.
+  const parsed = missing(address) ? null : parseElectronicAddress(address);
+  if (parsed === null) return;
   xml
     .open('ram:URIUniversalCommunication')
-    .leaf('ram:URIID', value, ` schemeID="${addressScheme(value)}"`)
+    .leaf('ram:URIID', parsed.value, ` schemeID="${parsed.scheme}"`)
     .close('ram:URIUniversalCommunication');
 }
 
@@ -564,6 +628,11 @@ export function renderCii(model: EInvoiceModel, profile: EInvoiceProfile): strin
   xml.opt('ram:BuyerReference', model.buyer_reference);
 
   xml.open('ram:SellerTradeParty');
+  // BT-29, in the order CII wants them before the name: the number the buyer
+  // knows us by, without a scheme, then our own identifier with its scheme.
+  xml.opt('ram:ID', buyer.supplier_number);
+  const sellerId = parseSchemeIdentifier(seller.identifier);
+  if (sellerId) xml.leaf('ram:GlobalID', sellerId.value, ` schemeID="${sellerId.scheme}"`);
   xml.leaf('ram:Name', seller.name);
   if (!missing(seller.registration)) {
     xml
@@ -589,7 +658,7 @@ export function renderCii(model: EInvoiceModel, profile: EInvoiceProfile): strin
     xml.close('ram:DefinedTradeContact');
   }
   postalAddress(xml, seller);
-  electronicAddress(xml, seller.einvoice_address ?? seller.email);
+  electronicAddress(xml, missing(seller.einvoice_address) ? seller.email : seller.einvoice_address);
   if (!notSubject) taxRegistration(xml, 'VA', seller.vat_id);
   taxRegistration(xml, 'FC', seller.tax_number);
   xml.close('ram:SellerTradeParty');
@@ -597,7 +666,7 @@ export function renderCii(model: EInvoiceModel, profile: EInvoiceProfile): strin
   xml.open('ram:BuyerTradeParty');
   xml.leaf('ram:Name', buyer.name);
   postalAddress(xml, buyer);
-  electronicAddress(xml, buyer.einvoice_address ?? buyer.email);
+  electronicAddress(xml, missing(buyer.einvoice_address) ? buyer.email : buyer.einvoice_address);
   if (!notSubject) taxRegistration(xml, 'VA', buyer.vat_id);
   xml.close('ram:BuyerTradeParty');
   xml.close('ram:ApplicableHeaderTradeAgreement');

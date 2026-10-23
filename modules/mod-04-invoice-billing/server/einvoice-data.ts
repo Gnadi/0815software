@@ -27,7 +27,7 @@ import {
   todayIso,
 } from './invoices.js';
 import { issuedDocument, type IssuedDocument, type RenderedFile } from './issued-documents.js';
-import { creditNoteView, layoutInvoice } from './pdf.js';
+import { creditNoteView, layoutInvoice, type PdfCustomer } from './pdf.js';
 import { buildPdfA } from './pdfa.js';
 
 /**
@@ -66,6 +66,7 @@ export function sellerParty(seller: SellerConfig): SellerParty {
     vat_id: opt(seller.vatId),
     tax_number: opt(seller.taxNumber),
     registration: opt(seller.registration),
+    identifier: opt(seller.identifier),
     iban: seller.iban,
     bic: opt(seller.bic),
     contact_name: opt(seller.contactName),
@@ -126,11 +127,14 @@ export function invoiceParties(
 ): { seller: SellerParty; buyer: BuyerParty; frozen: boolean } {
   const invoice = getInvoice(db, invoiceId);
   if (invoice.seller_snapshot !== null && invoice.buyer_snapshot !== null) {
-    return {
-      seller: JSON.parse(invoice.seller_snapshot) as SellerParty,
-      buyer: JSON.parse(invoice.buyer_snapshot) as BuyerParty,
-      frozen: true,
-    };
+    const buyer = JSON.parse(invoice.buyer_snapshot) as BuyerParty;
+    // A snapshot frozen before the supplier number existed has no such key at
+    // all (undefined, not null): only then is today's value the best there is —
+    // for the XML and the PDF alike.
+    if (buyer.supplier_number === undefined) {
+      buyer.supplier_number = getCustomer(db, invoice.customer_id).supplier_number ?? null;
+    }
+    return { seller: JSON.parse(invoice.seller_snapshot) as SellerParty, buyer, frozen: true };
   }
   return { seller: sellerParty(liveSeller), buyer: buyerParty(getCustomer(db, invoice.customer_id)), frozen: false };
 }
@@ -138,7 +142,7 @@ export function invoiceParties(
 /** The shapes the PDF renderer has always taken, from the parties above. */
 export function pdfParties(parties: { seller: SellerParty; buyer: BuyerParty }): {
   seller: SellerConfig;
-  customer: Pick<Customer, 'name' | 'address' | 'vat_id'>;
+  customer: PdfCustomer;
 } {
   return {
     seller: {
@@ -149,8 +153,14 @@ export function pdfParties(parties: { seller: SellerParty; buyer: BuyerParty }):
       bic: parties.seller.bic ?? '',
       taxNumber: parties.seller.tax_number ?? undefined,
       registration: parties.seller.registration ?? undefined,
+      identifier: parties.seller.identifier ?? undefined,
     },
-    customer: { name: parties.buyer.name, address: parties.buyer.address, vat_id: parties.buyer.vat_id },
+    customer: {
+      name: parties.buyer.name,
+      address: parties.buyer.address,
+      vat_id: parties.buyer.vat_id,
+      supplier_number: parties.buyer.supplier_number ?? null,
+    },
   };
 }
 
@@ -199,15 +209,8 @@ export function eInvoiceModel(
   if (document === 'cancellation' && invoice.status !== 'cancelled') {
     throw new DomainError(409, `${invoice.number} is not cancelled, so it has no cancellation document`);
   }
-  const parties = invoiceParties(db, invoiceId, liveSeller);
-  const { seller, frozen } = parties;
+  const { seller, buyer, frozen } = invoiceParties(db, invoiceId, liveSeller);
   const customer = getCustomer(db, invoice.customer_id);
-  // A snapshot frozen before the supplier number existed has no such key at
-  // all (undefined, not null): only then is today's value the best there is.
-  const buyer =
-    parties.buyer.supplier_number === undefined
-      ? { ...parties.buyer, supplier_number: customer.supplier_number ?? null }
-      : parties.buyer;
   const lines = modelLines(invoiceLines(db, invoiceId));
   const exemption = exemptionOf(invoice);
   const base = {

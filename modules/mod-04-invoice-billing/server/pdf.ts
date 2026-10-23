@@ -210,8 +210,11 @@ function tableHead(page: Page, y: number): number {
   return y + 22;
 }
 
-/** The customer fields the letterhead prints. */
-export type PdfCustomer = Pick<Customer, 'name' | 'address' | 'vat_id'>;
+/**
+ * The customer fields the letterhead prints, and the number the customer knows
+ * us by — which the e-invoice carries as BT-29, so the picture names it too.
+ */
+export type PdfCustomer = Pick<Customer, 'name' | 'address' | 'vat_id'> & { supplier_number?: string | null };
 
 /** Render an invoice as a letterhead-style PDF. */
 export function renderInvoicePdf(invoice: InvoiceDetail, customer: PdfCustomer, seller: SellerConfig): Buffer {
@@ -330,6 +333,7 @@ export function layoutInvoice(
     meta.splice(2, 0, ['SERVICE DATE', invoice.delivery_date ?? invoice.issue_date]);
   }
   if (invoice.buyer_reference) meta.push(['YOUR REF', invoice.buyer_reference]);
+  if (customer.supplier_number) meta.push(['SUPPLIER NO', customer.supplier_number]);
   if (invoice.status === 'cancelled' && !cancellation) {
     meta.push(['CANCELLED', invoice.cancelled_at?.slice(0, 10) ?? '']);
   }
@@ -445,6 +449,7 @@ export function layoutInvoice(
     seller.vatId && `VAT ${seller.vatId}`,
     seller.taxNumber && `TAX NO ${seller.taxNumber}`,
     seller.registration,
+    seller.identifier && `ID ${seller.identifier}`,
   ].filter((id) => typeof id === 'string' && id.trim() !== '');
   const footer = [seller.name, ids.join(' · '), [`IBAN ${seller.iban}`, ...(seller.bic ? [`BIC ${seller.bic}`] : [])].join(' · ')];
   const fy = A4.height - 64;

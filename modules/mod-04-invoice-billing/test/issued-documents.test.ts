@@ -177,6 +177,8 @@ const FINGERPRINTS: Record<string, string> = {
   'mod-04-einvoice-2': '788a4b8c9e1bf791452b07c4f17cc92771c3cc665067e742e34a42f48966ab1f',
   // Decimal line rounding (M3); the PDF wraps texts and shows four decimals (M1); golden case `long`.
   'mod-04-einvoice-3': '6a7738bf0fedcc8d000191b4bc7194a4b8864566c9bb327b0e52270fd052d83c',
+  // Electronic addresses with their own scheme, seller IDs as BT-29, both in the PDF too (M4, M8).
+  'mod-04-einvoice-4': '6a7738bf0fedcc8d000191b4bc7194a4b8864566c9bb327b0e52270fd052d83c',
 };
 
 describe('the renderer version', () => {

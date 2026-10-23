@@ -51,8 +51,8 @@ const EINVOICE_FIELDS: { key: keyof FormState; label: string; placeholder?: stri
   { key: 'city', label: 'CITY', placeholder: 'from the address' },
   { key: 'country_code', label: 'COUNTRY (ISO)', placeholder: 'DE, AT … — else from the VAT id' },
   { key: 'buyer_reference', label: 'BUYER REFERENCE · LEITWEG-ID · AUFTRAGSREFERENZ', placeholder: 'required for XRechnung and the Austrian federal government' },
-  { key: 'supplier_number', label: 'OUR SUPPLIER NUMBER (LIEFERANTENNUMMER)', placeholder: 'assigned by the customer — required by the Austrian federal government' },
-  { key: 'einvoice_address', label: 'E-INVOICE ADDRESS', placeholder: 'empty → email' },
+  { key: 'supplier_number', label: 'OUR SUPPLIER NUMBER (LIEFERANTENNUMMER)', placeholder: 'assigned by the customer — required by the Austrian federal government; identifies us in XRechnung and ZUGFeRD too (BT-29)' },
+  { key: 'einvoice_address', label: 'E-INVOICE ADDRESS', placeholder: 'email, Leitweg-ID or Peppol ID like 0088:4000001000005 — empty → email' },
   { key: 'debtor_account', label: 'DEBTOR ACCOUNT (DATEV / BMD)', placeholder: 'empty → numbered' },
 ];
 

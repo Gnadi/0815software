@@ -32,6 +32,7 @@ import {
   EXEMPTION_DEFAULT_REASON,
   isCalendarDate,
   missing,
+  parseElectronicAddress,
   paymentTermsText,
   quantity,
   Xml,
@@ -235,7 +236,10 @@ export function renderEbInterface(model: EInvoiceModel): string {
     // The order reference — for the Republic the Auftragsreferenz.
     xml.open('OrderReference').leaf('OrderID', model.buyer_reference!.trim()).close('OrderReference');
   }
-  address(xml, buyer, { email: buyer.einvoice_address ?? buyer.email });
+  // ebInterface has an email here and nowhere to put a Leitweg-ID or a Peppol
+  // ID: those stay out, and the customer's email stands in.
+  const recipient = parseElectronicAddress(buyer.einvoice_address);
+  address(xml, buyer, { email: recipient?.scheme === 'EM' ? recipient.value : buyer.email });
   xml.close('InvoiceRecipient');
 
   // ── Lines ──

@@ -22,6 +22,11 @@ export interface SellerConfig {
   taxNumber?: string | undefined;
   /** BT-30 — Handelsregister / Firmenbuch number. Needed when there is no VAT id. */
   registration?: string | undefined;
+  /**
+   * BT-29 — an identifier with its ISO 6523 scheme, e.g. `0088:4000001000005`
+   * for a GLN. Identifies a seller that has neither VAT id nor register number.
+   */
+  identifier?: string | undefined;
   /** BG-6 — XRechnung makes name, phone and email of a contact mandatory. */
   contactName?: string | undefined;
   phone?: string | undefined;
@@ -139,6 +144,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       country: env.SELLER_COUNTRY ? env.SELLER_COUNTRY.trim().toUpperCase() : undefined,
       taxNumber: env.SELLER_TAX_NUMBER || undefined,
       registration: env.SELLER_REGISTRATION || undefined,
+      identifier: env.SELLER_IDENTIFIER || undefined,
       contactName: env.SELLER_CONTACT_NAME || undefined,
       phone: env.SELLER_PHONE || undefined,
       email: env.SELLER_EMAIL || undefined,
