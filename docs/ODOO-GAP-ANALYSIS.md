@@ -29,7 +29,7 @@ Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
     Gleitzeit hinaus (beides ist in MOD-11 umgesetzt).
   - **Lagertiefe:** Lagerplätze, Kommissionierung, Bewertung (Barcode und
     Reservierung sind umgesetzt).
-  - **Eingangsseite:** Belegerkennung (OCR), 3-Way-Match, PEPPOL.
+  - **Eingangsseite:** Belegerkennung (OCR), PEPPOL (3-Way-Match ist umgesetzt).
 - **Sinnvollste neue Module** (Abschnitt 3): Terminbuchung, Spesen, Formulare/Umfragen, Wissen.
   **Nicht bauen:** Finanzbuchhaltung, Lohnverrechnung, Kasse (RKSV), MRP,
   Website-Builder, VoIP, IoT, Social Marketing.
@@ -83,7 +83,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | --- | --- | --- |
 | Inventory | ✅ MOD-03 (Ledger, Lager, PO-Wareneingang, Inventur, Warenausgang je Lieferschein, Reservierung je Auftrag aus MOD-17) | Lagerplätze, Kommissionierung, Bewertung (gleitender Ø), mehrere Ausgangslager je Auftrag fehlen |
 | Barcode (E) | ✅ MOD-03: GTIN mit Prüfziffer, Scan per Handscanner oder Kamera (BarcodeDetector), Etiketten EAN/UPC bzw. Code 128 — gegen python-barcode geprüft | Etikettendrucker-Sprachen (ZPL), GS1-128 mit AIs offen |
-| Purchase | ✅ MOD-06 (RFQ, PO, Freigabestufen, ERP-CSV) | 3-Way-Match mit MOD-03/MOD-04, Lieferanten-Mail via PS-03 |
+| Purchase | ✅ MOD-06 (RFQ, PO, Freigabestufen, Wareneingang mit Lagerzugang in MOD-03, 3-Way-Match mit Zahlungssperre in MOD-04, ERP-CSV) | Lieferanten-Mail via PS-03; Abgleich auf Positionsebene (braucht Rechnungspositionen, z. B. aus PS-04) |
 | Manufacturing/MRP, PLM, Quality (E) | ❌ | ⛔ eigener Markt; höchstens ein schlankes Stücklisten-/Fertigungsauftragsmodul auf Anfrage |
 | Maintenance | ❌ | 🟡 **neues kleines Modul „Anlagen & Wartung“** (Geräte, Intervalle, Prüfprotokolle) — passt zum Ethos (Fälligkeit abgeleitet, nie gespeichert) |
 
@@ -168,8 +168,8 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 7. **MOD-11: Timer + Mitarbeiter-Self-Service.**
 8. **MOD-12: Anhänge (PS-06), Textbausteine, Geschäftszeiten, CSAT,
    IMAP-Brücke über PS-05.**
-9. **MOD-06: 3-Way-Match** Bestellung ↔ Wareneingang (MOD-03) ↔
-   Eingangsrechnung (MOD-04 Bills).
+9. ✅ **MOD-06: 3-Way-Match** Bestellung ↔ Wareneingang (in MOD-06, Lagerzugang
+   in MOD-03) ↔ Eingangsrechnung (MOD-04 Bills, Zahlungssperre mit Freigabe).
 10. **PS-04: Dokumentextraktion** (Rechnung/Beleg → strukturierte Felder),
     mit Mock-Provider wie die übrigen Fähigkeiten. Konsumenten: MOD-04 Bills,
     Spesen, MOD-09.
@@ -183,7 +183,9 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    zur Zeiterfassung).
 3. ✅ **Projekte & Aufgaben in MOD-11** (umgesetzt — die Projekte und Aufgaben
    lagen schon dort; Board, Meilensteine, Zuständige, Schätzungen, Budget).
-4. **PS-04 Dokumentextraktion** + **MOD-06 3-Way-Match** — die Eingangsseite.
+4. ✅ **3-Way-Match** (umgesetzt — Wareneingang in MOD-06, Prüfung in MOD-06,
+   Zahlungssperre in MOD-04). Offen: **PS-04 Dokumentextraktion** — die Rechnung
+   als Beleg einlesen statt abtippen.
 5. **MOD-11 Timer/Self-Service**, **MOD-12 Anhänge/CSAT** — Komfort in
    bestehenden Modulen.
 

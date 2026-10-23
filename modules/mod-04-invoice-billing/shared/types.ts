@@ -283,6 +283,10 @@ export interface Bill {
   paid_at: string | null;
   cancelled_at: string | null;
   created_at: string;
+  /** The MOD-06 purchase order this bill is for — matched before it is paid. */
+  po_number: string | null;
+  /** The net amount, needed to match: purchase orders are priced net. */
+  net_cents: number | null;
 }
 
 /** One row of the bills list — status, creditor and overdue are all derived. */
@@ -297,6 +301,62 @@ export interface BillRow extends Bill {
   payment_run_id: number | null;
   /** What the payment file will say — the remittance, or the reference. */
   payment_reference: string;
+  /** Derived: where the three-way match stands for this bill. */
+  match: BillMatch;
+}
+
+// ── The three-way match (server/bill-match.ts; the verdict is MOD-06's) ──
+
+/** MOD-06's answer, as it sends it. */
+export interface MatchVerdict {
+  po_number: string;
+  supplier_name: string;
+  po_status: string;
+  ordered_cents: number;
+  received_cents: number;
+  invoiced_cents: number;
+  tolerance_cents: number;
+  result: 'matched' | 'awaiting_receipt' | 'over_invoiced' | 'not_ordered';
+  difference_cents: number;
+  message: string;
+}
+
+/** One recorded check, append-only. `unknown_po` and `error` are this module's. */
+export interface BillMatchCheck {
+  id: number;
+  result: MatchVerdict['result'] | 'unknown_po' | 'error';
+  message: string;
+  ordered_cents: number | null;
+  received_cents: number | null;
+  invoiced_cents: number;
+  tolerance_cents: number | null;
+  actor: string;
+  checked_at: string;
+}
+
+export interface BillMatchRelease {
+  check_id: number;
+  reason: string;
+  actor: string;
+  at: string;
+}
+
+/**
+ * - `not_linked` — no purchase order named; nothing to match.
+ * - `not_checked` — named, but MOD-06 never answered (or is not wired).
+ * - `matched` — the latest answer says it may be paid.
+ * - `held` — the latest answer says it may not; a payment run refuses it.
+ * - `released` — held, and a manager released that verdict with a reason.
+ */
+export type BillMatchState = 'not_linked' | 'not_checked' | 'matched' | 'held' | 'released';
+
+export interface BillMatch {
+  state: BillMatchState;
+  /** The latest answer MOD-06 gave (errors aside — an outage keeps it). */
+  check: BillMatchCheck | null;
+  /** The latest failed attempt after it, if any — shown, never decisive. */
+  last_error: BillMatchCheck | null;
+  release: BillMatchRelease | null;
 }
 
 /**

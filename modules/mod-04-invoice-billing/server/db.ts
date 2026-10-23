@@ -169,6 +169,39 @@ export function openDb(path: string): Database.Database {
   const columns = (table: string): string[] =>
     (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
 
+  // ── The three-way match (server/bill-match.ts) ───────────────────────
+  // A bill may name the MOD-06 purchase order it is for, with its net amount
+  // (POs are priced net). Whether it may be paid is MOD-06's verdict, and
+  // every answer is kept — append-only, like everything a payment depends on.
+  if (!columns('bills').includes('po_number')) db.exec('ALTER TABLE bills ADD COLUMN po_number TEXT');
+  if (!columns('bills').includes('net_cents')) db.exec('ALTER TABLE bills ADD COLUMN net_cents INTEGER CHECK (net_cents IS NULL OR net_cents >= 0)');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_bills_po ON bills (po_number);
+    CREATE TABLE IF NOT EXISTS bill_match_checks (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      bill_id         INTEGER NOT NULL REFERENCES bills(id),
+      result          TEXT    NOT NULL CHECK (result IN ('matched', 'awaiting_receipt', 'over_invoiced', 'not_ordered', 'unknown_po', 'error')),
+      message         TEXT    NOT NULL,
+      ordered_cents   INTEGER,
+      received_cents  INTEGER,
+      invoiced_cents  INTEGER NOT NULL,
+      tolerance_cents INTEGER,
+      actor           TEXT    NOT NULL,
+      checked_at      TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_bill_match_checks_bill ON bill_match_checks (bill_id);
+    -- A manager's release of one held verdict, with the reason. It covers the
+    -- check it answered: a later check (an edit, new receipts) needs its own.
+    CREATE TABLE IF NOT EXISTS bill_match_releases (
+      id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      bill_id  INTEGER NOT NULL REFERENCES bills(id),
+      check_id INTEGER NOT NULL REFERENCES bill_match_checks(id),
+      reason   TEXT    NOT NULL,
+      actor    TEXT    NOT NULL,
+      at       TEXT    NOT NULL
+    );
+  `);
+
   // The PS-11 Customers party this customer is, when the master service is
   // wired. Null in a standalone deployment, which is why it is nullable.
   if (!columns('customers').includes('party_id')) {

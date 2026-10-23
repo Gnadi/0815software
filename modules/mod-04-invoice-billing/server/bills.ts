@@ -33,6 +33,7 @@ import { buildEactRemittance } from '../shared/eact.js';
 import { finanzamtFor } from '../shared/finanzamt.js';
 import { DomainError, likeTerm, nowIso, todayIso } from './invoices.js';
 import type { SellerConfig } from './config.js';
+import { billMatch } from './bill-match.js';
 
 /**
  * PAYABLES — the bills we owe, and the bank file that pays them.
@@ -127,13 +128,14 @@ export function paymentReference(bill: { remittance: string | null; reference: s
   return text.trim();
 }
 
-function toBillRow(row: BillJoinRow, today: string): BillRow {
+function toBillRow(db: Database.Database, row: BillJoinRow, today: string): BillRow {
   const status = billStatus(row, row.payment_run_id);
   return {
     ...row,
     status,
     overdue: status === 'open' && row.due_date < today,
     payment_reference: paymentReference(row),
+    match: billMatch(db, row),
   };
 }
 
@@ -168,7 +170,7 @@ export function listBills(
     )
     .all(...(search ? [likeTerm(search), likeTerm(search)] : [])) as BillJoinRow[];
 
-  let bills = rows.map((row) => toBillRow(row, today));
+  let bills = rows.map((row) => toBillRow(db, row, today));
   if (opts.status) bills = bills.filter((b) => b.status === opts.status);
   if (opts.overdueOnly) bills = bills.filter((b) => b.overdue);
   return bills;
@@ -177,7 +179,7 @@ export function listBills(
 export function getBill(db: Database.Database, id: number, today = todayIso()): BillRow {
   const row = db.prepare(`${BILL_SELECT} WHERE b.id = ?`).get(id) as BillJoinRow | undefined;
   if (row === undefined) throw new DomainError(404, 'Bill not found');
-  return toBillRow(row, today);
+  return toBillRow(db, row, today);
 }
 
 // ── Creditors ─────────────────────────────────────────────────────────
@@ -259,6 +261,9 @@ export interface BillInput {
   issueDate: string | null;
   dueDate: string;
   note: string | null;
+  /** The MOD-06 purchase order and the net amount it is matched with. */
+  poNumber?: string | null;
+  netCents?: number | null;
   createdAt?: string;
 }
 
@@ -293,8 +298,8 @@ export function createBill(db: Database.Database, input: BillInput): number {
     const info = db
       .prepare(
         `INSERT INTO bills
-           (creditor_id, reference, remittance, amount_cents, issue_date, due_date, note, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (creditor_id, reference, remittance, amount_cents, issue_date, due_date, note, created_at, po_number, net_cents)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.creditorId,
@@ -305,6 +310,8 @@ export function createBill(db: Database.Database, input: BillInput): number {
         input.dueDate,
         input.note,
         input.createdAt ?? nowIso(),
+        input.poNumber ?? null,
+        input.netCents ?? null,
       );
     return Number(info.lastInsertRowid);
   });
@@ -318,7 +325,7 @@ export function updateBill(db: Database.Database, id: number, input: BillInput):
   const write = (): void => {
     db.prepare(
       `UPDATE bills SET creditor_id = ?, reference = ?, remittance = ?, amount_cents = ?,
-                        issue_date = ?, due_date = ?, note = ?
+                        issue_date = ?, due_date = ?, note = ?, po_number = ?, net_cents = ?
        WHERE id = ?`,
     ).run(
       input.creditorId,
@@ -328,6 +335,8 @@ export function updateBill(db: Database.Database, id: number, input: BillInput):
       input.issueDate,
       input.dueDate,
       input.note,
+      input.poNumber ?? null,
+      input.netCents ?? null,
       id,
     );
   };
@@ -437,6 +446,11 @@ export interface RunInput {
    * Finanzamtszahlung, whose Ustrd has its own grammar.
    */
   structuredRemittance?: boolean;
+  /**
+   * MOD-06 is wired: a bill naming a purchase order is paid only when its
+   * match is `matched` or `released` (server/bill-match.ts).
+   */
+  matchRequired?: boolean;
   createdAt?: string;
   today?: string;
 }
@@ -552,6 +566,17 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
         .map((b) => `${b.reference} is ${b.status}`)
         .join(', ')}`,
     );
+  }
+  if (input.matchRequired) {
+    const held = bills.filter((b) => b.match.state === 'held' || b.match.state === 'not_checked');
+    if (held.length > 0) {
+      throw new DomainError(
+        409,
+        `Held by the three-way match — ${held
+          .map((b) => `${b.reference} (${b.po_number}): ${b.match.check?.message ?? b.match.last_error?.message ?? 'not checked yet'}`)
+          .join('; ')}. Wait for the goods, or release it with a reason.`,
+      );
+    }
   }
 
   const items = bills.map((bill, index) => ({

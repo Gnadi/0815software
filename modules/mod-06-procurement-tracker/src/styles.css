@@ -662,7 +662,7 @@ textarea.field__input {
 
 .line-row {
   display: grid;
-  grid-template-columns: 1fr 90px 90px 130px 32px;
+  grid-template-columns: 1fr 90px 90px 130px 120px 32px;
   gap: 10px;
   align-items: end;
 }

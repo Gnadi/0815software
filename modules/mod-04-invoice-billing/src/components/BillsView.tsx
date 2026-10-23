@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { BillRow, BillStatus, CreditorRow, FieldError, PaymentConfig } from '../../shared/types';
+import type { BillMatchState, BillRow, BillStatus, CreditorRow, FieldError, PaymentConfig } from '../../shared/types';
 import { api, ApiError, type PayablesTotals } from '../api';
 import { centsToInput, fmtEur, parseEurToCents } from '../format';
 import { Can } from '../access';
@@ -29,6 +29,8 @@ interface BillForm {
   issue_date: string;
   due_date: string;
   note: string;
+  po_number: string;
+  net: string;
 }
 
 const EMPTY_BILL: BillForm = {
@@ -40,6 +42,16 @@ const EMPTY_BILL: BillForm = {
   issue_date: '',
   due_date: '',
   note: '',
+  po_number: '',
+  net: '',
+};
+
+/** The three-way match, in one word; the reason is in the tooltip. */
+const MATCH_LABEL: Record<Exclude<BillMatchState, 'not_linked'>, { text: string; cls: string }> = {
+  not_checked: { text: 'NOT CHECKED', cls: 'badge--overdue' },
+  matched: { text: 'MATCHED', cls: 'badge--bill-paid' },
+  held: { text: 'HELD', cls: 'badge--overdue' },
+  released: { text: 'RELEASED', cls: 'badge--bill-scheduled' },
 };
 
 const STATUS_LABEL: Record<BillStatus, string> = {
@@ -139,7 +151,14 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
         setFormError('Amount must be a positive number, e.g. 384,20');
         return;
       }
+      const net = form.po_number.trim() === '' && form.net.trim() === '' ? null : parseEurToCents(form.net);
+      if (form.po_number.trim() !== '' && (net === null || net < 0)) {
+        setFormError('A bill for a purchase order needs its net amount, e.g. 320,17');
+        return;
+      }
       const values = {
+        po_number: form.po_number.trim() || null,
+        net_cents: net,
         creditor_id: Number(form.creditor_id),
         reference: form.reference.trim(),
         remittance: form.remittance.trim() || null,
@@ -317,6 +336,17 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                 <td>
                   <span className={`badge mono badge--bill-${b.status}`}>{STATUS_LABEL[b.status]}</span>
                   {b.overdue && <span className="badge mono badge--overdue">OVERDUE</span>}
+                  {b.match.state !== 'not_linked' && (b.status === 'open' || b.match.state !== 'matched') && (
+                    <div
+                      className="mono table__id"
+                      title={[b.match.check?.message, b.match.release ? `Released by ${b.match.release.actor}: ${b.match.release.reason}` : null, b.match.last_error ? `Last attempt failed: ${b.match.last_error.message}` : null]
+                        .filter(Boolean)
+                        .join('\n')}
+                    >
+                      {b.po_number} · <span className={`badge mono ${MATCH_LABEL[b.match.state].cls}`}>{MATCH_LABEL[b.match.state].text}</span>
+                      {b.match.state === 'held' && b.match.check && <div>{b.match.check.message}</div>}
+                    </div>
+                  )}
                 </td>
                 <td className="table__num">{fmtEur(b.amount_cents)}</td>
                 <td>
@@ -341,12 +371,41 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                                 issue_date: b.issue_date ?? '',
                                 due_date: b.due_date,
                                 note: b.note ?? '',
+                                po_number: b.po_number ?? '',
+                                net: b.net_cents === null ? '' : centsToInput(b.net_cents),
                               })
                             }
                           >
                             EDIT
                           </button>
                         </Can>
+                        {(b.match.state === 'held' || b.match.state === 'not_checked') && (
+                          <Can>
+                            <button
+                              className="rowbtn mono"
+                              disabled={busy}
+                              title="Ask MOD-06 again — after the goods arrived"
+                              onClick={() => void act(() => api.checkBillMatch(b.id), 'Could not check the match')}
+                            >
+                              CHECK AGAIN
+                            </button>
+                          </Can>
+                        )}
+                        {b.match.state === 'held' && (
+                          <Can level="manage">
+                            <button
+                              className="rowbtn mono"
+                              disabled={busy}
+                              title="Pay it anyway — with a reason that stays on record"
+                              onClick={() => {
+                                const reason = window.prompt(`Release ${b.reference} for payment although the match holds it? Why:`);
+                                if (reason && reason.trim()) void act(() => api.releaseBillMatch(b.id, reason.trim()), 'Could not release the bill');
+                              }}
+                            >
+                              RELEASE
+                            </button>
+                          </Can>
+                        )}
                         <Can>
                           <button
                             className="rowbtn mono"
@@ -485,6 +544,25 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                   type="date"
                   value={form.due_date}
                   onChange={(e) => setForm({ ...form, due_date: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span className="field__label mono">PURCHASE ORDER (MOD-06)</span>
+                <input
+                  className="field__input"
+                  placeholder="PO-2026-0007 — matched before payment"
+                  value={form.po_number}
+                  onChange={(e) => setForm({ ...form, po_number: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span className="field__label mono">NET AMOUNT {form.po_number.trim() !== '' && <span className="field__req">*</span>}</span>
+                <input
+                  className="field__input"
+                  inputMode="decimal"
+                  placeholder="POs are priced net"
+                  value={form.net}
+                  onChange={(e) => setForm({ ...form, net: e.target.value })}
                 />
               </label>
               <label className="field" style={{ gridColumn: '1 / -1' }}>

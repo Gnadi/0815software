@@ -1,3 +1,4 @@
+import type { MatchVerdict } from '../shared/types.js';
 import {
   AuditClient,
   BankingClient,
@@ -74,6 +75,7 @@ export interface PlatformConfig {
   offersUrl?: string;
   /** Base URL of MOD-17 Orders & Delivery Notes, for billing a delivery. */
   ordersUrl?: string;
+  procurementUrl?: string;
   serviceToken?: string;
   /** PS-03 channel name to send invoice emails through. */
   invoiceChannel?: string;
@@ -205,6 +207,15 @@ export interface PlatformHooks {
    * second invoice.
    */
   deliveryNoteBilled?(info: { number: string; invoiceId: number; actor: string }): Promise<void>;
+  /** Whether MOD-06 is wired — decided by configuration, not by asking it. */
+  procurementConfigured?: boolean;
+  /**
+   * Ask MOD-06 whether `invoicedNetCents` (everything invoiced against the PO
+   * so far, net) may be paid. THROWS an `OfferFetchError` with MOD-06's status
+   * (404 for an unknown PO) when it refuses or cannot be reached; the caller
+   * records that and keeps the last verdict it had.
+   */
+  matchInvoice?(poNumber: string, invoicedNetCents: number): Promise<MatchVerdict>;
   /**
    * The stack owner's own party from PS-11 — the seller letterhead. Null when
    * PS-11 is unset or has no `self` party yet: the module then uses Settings /
@@ -230,6 +241,8 @@ export interface PlatformHooks {
   dunningNoticeIssued?(info: DunningNoticeInfo): Promise<void>;
   /** A partial credit note was issued — recorded on the audit trail (PS-07). */
   creditNoteIssued?(info: CreditNoteInfo): Promise<void>;
+  /** A manager paid a held bill anyway — recorded on the audit trail (PS-07). */
+  matchReleased?(info: { actor: string; billId: number; poNumber: string; reason: string }): Promise<void>;
   /**
    * What arrived on the bank account, for matching against open invoices.
    *
@@ -358,7 +371,8 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const bankConnection = cfg.bankConnection ?? 'main';
   const offersUrl = cfg.offersUrl ? cfg.offersUrl.replace(/\/+$/, '') : null;
   const ordersUrl = cfg.ordersUrl ? cfg.ordersUrl.replace(/\/+$/, '') : null;
-  if (!notify && !files && !audit && !payments && !numbers && !customers && !banking && !offersUrl && !ordersUrl) {
+  const procurementUrl = cfg.procurementUrl ? cfg.procurementUrl.replace(/\/+$/, '') : null;
+  if (!notify && !files && !audit && !payments && !numbers && !customers && !banking && !offersUrl && !ordersUrl && !procurementUrl) {
     return noopPlatform;
   }
 
@@ -473,6 +487,26 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
       }
     },
 
+    procurementConfigured: Boolean(procurementUrl),
+
+    async matchInvoice(poNumber: string, invoicedNetCents: number): Promise<MatchVerdict> {
+      if (!procurementUrl) throw new OfferFetchError(501, 'No procurement is configured — set PROCUREMENT_URL to match bills against purchase orders');
+      let res: Response;
+      try {
+        res = await fetch(`${procurementUrl}/api/match`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(cfg.serviceToken ? { 'X-Service-Token': cfg.serviceToken } : {}) },
+          body: JSON.stringify({ po_number: poNumber, invoiced_net_cents: invoicedNetCents }),
+          signal: AbortSignal.timeout(OFFER_FETCH_TIMEOUT_MS),
+        });
+      } catch (err) {
+        throw new OfferFetchError(502, `The procurement module is unreachable: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      const parsed = (await res.json().catch(() => ({}))) as MatchVerdict & { error?: string };
+      if (!res.ok) throw new OfferFetchError(res.status, parsed.error ?? `The procurement module answered ${res.status}`);
+      return parsed;
+    },
+
     async fetchSelf(): Promise<SelfParty | null> {
       if (!customers) return null;
       try {
@@ -538,6 +572,15 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
           resource: `invoice:${info.invoiceNumber}`,
           metadata: { credit_note: info.number, total: info.totalFormatted, reason: info.reason },
         });
+      } catch (err) {
+        console.warn('[mod-04] audit failed:', err);
+      }
+    },
+
+    async matchReleased(info: { actor: string; billId: number; poNumber: string; reason: string }): Promise<void> {
+      if (!audit) return;
+      try {
+        await audit.record({ actor: info.actor, action: 'bill.match_released', resource: `bill:${info.billId}`, metadata: { po_number: info.poNumber, reason: info.reason } });
       } catch (err) {
         console.warn('[mod-04] audit failed:', err);
       }

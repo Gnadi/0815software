@@ -5,6 +5,19 @@ export const prerender = true;
 
 const releases = [
   {
+    version: 'v0.4.0',
+    date: '2026-10-22',
+    title: 'Many users, and the order chain',
+    changes: [
+      { type: 'Added',   text: 'Per-person access levels (view, edit, manage) in every module, through PS-01 sign-in' },
+      { type: 'Added',   text: 'Orders & Delivery Notes module — order confirmations, partial deliveries, one invoice per delivery' },
+      { type: 'Added',   text: 'Invoice & Billing: dunning in levels, recurring invoices, partial credit notes, billing a delivery note' },
+      { type: 'Added',   text: 'Inventory Management: barcodes and labels, reservations for confirmed orders' },
+      { type: 'Added',   text: 'Time Tracking: absences with approval, flexitime and overtime, a task board per project' },
+      { type: 'Changed', text: 'The module generator first checks whether a topic belongs in an existing module' },
+    ],
+  },
+  {
     version: 'v0.3.0',
     date: '2026-04-01',
     title: 'Spring clean',

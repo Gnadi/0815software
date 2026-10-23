@@ -1,7 +1,7 @@
 # MOD-06 · Procurement Tracker
 
-RFQ, purchase orders, multi-tier approval workflows. Export to any ERP
-CSV format. Part of the [0815software](https://0815software.com) module
+RFQ, purchase orders, multi-tier approval workflows, goods receipts and
+the three-way match. Export to any ERP CSV format. Part of the [0815software](https://0815software.com) module
 catalogue — standard business software, MIT-licensed, always free.
 
 Three correctness properties are the point of this module, and the test
@@ -26,6 +26,13 @@ suite proves each of them:
    then edit. RFQ lines freeze the same way once the first quote
    arrives, and awarding copies the winning quote 1:1 into a draft PO
    inside one transaction.
+4. **What arrived is derived and append-only — and decides what may be
+   paid.** Goods receipts are recorded against an ordered PO; how much of a
+   line has arrived is their sum, never more than was ordered, never below
+   nothing, and a miscount is corrected by a correction receipt with a
+   reason. The three-way match (`POST /api/match`) answers MOD-04 from what
+   was ordered and what arrived. See [Receiving and the three-way
+   match](#receiving-and-the-three-way-match).
 
 ## Stack
 
@@ -74,7 +81,7 @@ The server seeds an empty database automatically on first start, so
 
 ## Data model
 
-Ten tables, no stored derived state:
+Thirteen tables, no stored derived state:
 
 ```
 suppliers        name, contact, email, notes                  (CRUD via UI/API)
@@ -93,6 +100,11 @@ po_submissions   APPEND-ONLY: po × submission_no → frozen total_cents
 approvals        APPEND-ONLY: po, submission_no, tier, decision
                  (approved|rejected), approver, note, timestamp
 po_counters      year → last_seq                              (PO number source)
+po_lines.sku     the MOD-03 article number of a stock line    (null for services)
+goods_receipts   APPEND-ONLY: po, number (PO-…/WE-n), kind (receipt|correction),
+                 received_on, note, actor; MOD-03 booking outcome
+goods_receipt_lines  receipt × po_line → quantity              (received is their sum)
+procurement_settings tolerance %, tolerance cap, receiving warehouse (one row)
 ```
 
 **Money** is integer cents everywhere (MOD-04's discipline); euros exist
@@ -233,11 +245,15 @@ rejects unknown field paths or format/field mismatches.
   labelled.
 - **PO editor** — drafts only; live total and the approval bracket it
   falls into, rendered from the server config.
+- **Receiving** — on an ordered PO: what arrived per line, received of
+  ordered, corrections with a reason, the receipts with their MOD-03 stock
+  booking (and *Book again* when it failed); article numbers per line.
+- **Matching** — the tolerance and the receiving warehouse (`manage`).
 - **Export page** — profile cards (columns, delimiter, description) with
   CSV download, count and volume of ordered POs.
-- **Auth** — single staff login from env vars; stateless HMAC-signed
-  session cookie (`mod06_session`, HttpOnly, SameSite=Lax, optional
-  Secure), exactly as in MOD-02 … MOD-05.
+- **Auth** — a local admin login from env vars, or sign-in through PS-01
+  with per-person access levels; stateless HMAC-signed session cookie
+  (`mod06_session`, HttpOnly, SameSite=Lax, optional Secure).
 
 ## Configuration
 
@@ -253,6 +269,7 @@ All runtime settings via environment variables (see
 | `SESSION_SECRET`    | `dev-secret-change-me` | HMAC key for the session cookie     |
 | `SESSION_TTL_HOURS` | `12`                   | Session lifetime                    |
 | `COOKIE_SECURE`     | `false`                | Set `true` behind HTTPS             |
+| `INVENTORY_URL`     | —                      | MOD-03, to book received stock lines (warehouse chosen under Matching) |
 
 Approval tiers and export profiles are deliberately *code* config
 (`server/approval-config.ts`, `server/export-profiles.ts`), not env
@@ -309,6 +326,16 @@ POST   /api/pos/:id/reject               {tier, approver, note?} → back to dra
                                           approvals voided, history kept
 POST   /api/pos/:id/mark-ordered         fully approved only — pending tiers → 422
 POST   /api/pos/:id/close                ordered only
+POST   /api/pos/:id/receipts             {kind?: receipt|correction, received_on?, note?,
+                                          lines: [{po_line_id, quantity}]} — ordered POs only;
+                                          beyond ordered or below zero → 422; a correction says why
+POST   /api/receipts/:id/book-stock      book (again) in MOD-03 — 501 without INVENTORY_URL
+PUT    /api/pos/:id/lines/:lineId/sku    {sku} — until the PO is closed
+GET    /api/settings/matching            tolerance, receiving warehouse, MOD-03's warehouses
+PUT    /api/settings/matching            {tolerance_percent, tolerance_cap_cents,
+                                          receiving_warehouse}  (manage)
+POST   /api/match                        machine token: {po_number, invoiced_net_cents} →
+                                          matched | awaiting_receipt | over_invoiced | not_ordered
 
 GET    /api/export/profiles              the shipped profiles
 GET    /api/export/pos.csv?profile=NAME  ordered POs through a profile (CSV download)
@@ -367,9 +394,11 @@ these, that's commissioned work — exactly the kind 0815software does:
   module has zero external services.
 - **VAT and other currencies** — net EUR prices only. Procurement
   compares and approves net; tax lives in your ERP.
-- **Goods receipt & three-way match** — "closed" is a manual archive
-  step. Receiving against POs exists in MOD-03 (Inventory Management);
-  invoice matching would tie in MOD-04.
+- **Line-level invoice matching** — the match compares the net amounts
+  invoiced, received and ordered for the whole PO, not line by line or
+  price by price: MOD-04's bills carry no lines. Quality inspection,
+  returns to the supplier and their credit notes are not modelled; a
+  correction receipt takes goods back out of the count.
 - **Budgets, cost centers, projects** — the note field is free text; no
   ledger dimensions.
 - **Delegation, vacation rules, parallel approvals** — tiers approve
@@ -399,6 +428,42 @@ match each other there, so a company you both buy from and sell to stays two
 relationships with two sets of terms — a procurement import can never rewrite a
 customer's billing address. Unset, the local `suppliers` table is the only record.
 
+## Receiving and the three-way match
+
+**Receiving.** Goods are received against an *ordered* PO, line by line,
+as goods receipts numbered `PO-2026-0003/WE-1`, `/WE-2`, … — append-only,
+with the person and the date. What has arrived on a line is the sum of its
+receipt lines; a receipt never takes a line beyond what was ordered, and a
+miscount is corrected by a **correction** receipt (negative quantities, a
+reason required) that takes it back out — the first receipt stays.
+
+**Stock in MOD-03.** A line with an article number (`sku`) is stock. With
+`INVENTORY_URL` and a receiving warehouse set (*Matching*), each receipt's
+stock lines are booked into MOD-03 (`POST /api/goods-receipts`, idempotent
+on the receipt number). MOD-03's answer is recorded on the receipt: booked,
+or failed with its reason and booked again later — the goods arrived either
+way. Corrections are not booked; that stock is MOD-03's to adjust.
+
+**The match.** MOD-04 asks before it pays a bill naming a PO, sending the net
+amount invoiced against the PO so far. The answer:
+
+| result | when |
+| --- | --- |
+| `matched` | invoiced ≤ received value + tolerance |
+| `awaiting_receipt` | more than has arrived, not more than was ordered (+ tolerance) |
+| `over_invoiced` | more than was ordered (+ tolerance) |
+| `not_ordered` | the PO was never ordered |
+
+The received value is what arrived at the PO's prices; the tolerance is
+`min(value × percent, cap)` from *Matching* (default 2 %, at most 50 €).
+Nothing about invoices is stored here — MOD-04 keeps them and every answer.
+
+Pinned by `test/receiving.test.ts`: receipts and the derived figures,
+never beyond ordered, only on ordered POs, corrections, the MOD-03 booking
+(booked once, failure recorded and retried, nothing for services,
+corrections or without a warehouse), the article number on a frozen PO,
+every match result at its boundaries, the cap, and the machine token.
+
 ## Users and access levels
 
 Standalone, this module has one login — the local admin — and it manages
@@ -412,7 +477,7 @@ person signs in as themselves and gets the level PS-01 grants them here:
 | `module:procurement-tracker:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
 
 `module:*:<level>` grants a level in every module. Reads need `view`, any other
-method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/pos/:id/approvals` → `manage`; `POST /api/pos/:id/reject` → `manage`. A refused request answers **403**
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/pos/:id/approvals` → `manage`; `POST /api/pos/:id/reject` → `manage`; `PUT /api/settings/matching` → `manage`. A refused request answers **403**
 `{ error, required, access }`; `GET /api/me` reports the caller's `access`.
 Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
 manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).

@@ -4,6 +4,7 @@ import type { AppConfig } from '../shared/types';
 import { api, ApiError } from './api';
 import { ExportView } from './components/ExportView';
 import { Login } from './components/Login';
+import { MatchingSettingsView } from './components/MatchingSettings';
 import { PoDetailView } from './components/PoDetail';
 import { PoEditor } from './components/PoEditor';
 import { PosView } from './components/PosView';
@@ -20,13 +21,15 @@ export type View =
   | { name: 'po'; id: number }
   | { name: 'po-editor'; id: number | null }
   | { name: 'suppliers' }
-  | { name: 'export' };
+  | { name: 'export' }
+  | { name: 'matching' };
 
 const NAV: { view: View; label: string }[] = [
   { view: { name: 'rfqs' }, label: 'RFQs' },
   { view: { name: 'pos' }, label: 'Purchase Orders' },
   { view: { name: 'suppliers' }, label: 'Suppliers' },
   { view: { name: 'export' }, label: 'ERP Export' },
+  { view: { name: 'matching' }, label: 'Matching' },
 ];
 
 export function App() {
@@ -154,6 +157,7 @@ export function App() {
           )}
           {view.name === 'suppliers' && <SuppliersView onAuthLost={onAuthLost} />}
           {view.name === 'export' && <ExportView config={config} onAuthLost={onAuthLost} />}
+          {view.name === 'matching' && <MatchingSettingsView onAuthLost={onAuthLost} />}
         </main>
       </div>
     </AccessProvider>

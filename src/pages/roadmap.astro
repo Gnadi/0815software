@@ -6,17 +6,26 @@ export const prerender = true;
 type Status = 'shipped' | 'progress' | 'planned' | 'considering';
 
 const items: { status: Status; title: string; note: string; target: string }[] = [
-  { status: 'shipped',    title: 'Customer Portal v1',         note: 'Delivered with first client engagement',      target: 'Q1 2026' },
-  { status: 'shipped',    title: 'Admin Dashboard v1',         note: 'Generic CRUD interface, fully customisable',  target: 'Q1 2026' },
-  { status: 'shipped',    title: 'Inventory Management v1',    note: 'Stock, SKUs, warehouse locations',            target: 'Q1 2026' },
-  { status: 'progress',   title: 'Invoice & Billing v1',       note: 'PDF engine in review, payment hooks pending', target: 'Q2 2026' },
-  { status: 'progress',   title: 'Document Management v1',     note: 'Access control model being finalised',        target: 'Q2 2026' },
-  { status: 'planned',    title: 'CRM Lite v1',                note: 'Scope locked, build starts Q3',              target: 'Q3 2026' },
-  { status: 'planned',    title: 'Reporting Suite v1',         note: 'Charting library decision pending',           target: 'Q3 2026' },
-  { status: 'planned',    title: 'Procurement Tracker v1',     note: 'Approval workflow RFC in progress',           target: 'Q4 2026' },
-  { status: 'considering','title': 'Mobile companion apps',    note: 'Waiting on demonstrated client demand',       target: '—' },
-  { status: 'considering','title': 'Multi-tenant SaaS mode',   note: 'Architecture RFC open on GitHub',             target: '—' },
-  { status: 'considering','title': 'SSO / SAML integration',   note: 'Frequently requested, scoping effort',        target: '—' },
+  { status: 'shipped',    title: 'Customer Portal v1',         note: 'Order status, documents, history',                          target: 'Q1 2026' },
+  { status: 'shipped',    title: 'Admin Dashboard v1',         note: 'Generic CRUD interface, fully customisable',                target: 'Q1 2026' },
+  { status: 'shipped',    title: 'Inventory Management v1',    note: 'Stock, SKUs, warehouse locations',                          target: 'Q1 2026' },
+  { status: 'shipped',    title: 'Invoice & Billing v1',       note: 'Invoices, bills, SEPA files, e-invoices',                   target: 'Q2 2026' },
+  { status: 'shipped',    title: 'Document Management v1',     note: 'Upload, versions, access control',                          target: 'Q2 2026' },
+  { status: 'shipped',    title: 'CRM Lite v1',                note: 'Contacts, deals, pipeline',                                 target: 'Q3 2026' },
+  { status: 'shipped',    title: 'Reporting Suite v1',         note: 'Reports over every module’s reporting views',               target: 'Q3 2026' },
+  { status: 'shipped',    title: 'Procurement Tracker v1',     note: 'RFQs, purchase orders, multi-tier approvals',               target: 'Q4 2026' },
+  { status: 'shipped',    title: 'Per-person access levels',   note: 'View, edit, manage per module, through PS-01 sign-in',      target: 'Q4 2026' },
+  { status: 'shipped',    title: 'Orders & Delivery Notes v1', note: 'Offer → order → partial deliveries → one invoice each',     target: 'Q4 2026' },
+  { status: 'shipped',    title: 'Invoicing: dunning, recurring invoices, partial credit notes', note: 'In Invoice & Billing',  target: 'Q4 2026' },
+  { status: 'shipped',    title: 'Inventory: barcodes and reservations', note: 'Scan, print labels, reserve for orders',    target: 'Q4 2026' },
+  { status: 'shipped',    title: 'Time Tracking: absences, flexitime, project board', note: 'Leave, overtime and planning where the hours are', target: 'Q4 2026' },
+  { status: 'progress',   title: 'Three-way match',            note: 'Order ↔ goods receipt ↔ bill before it is paid — in review', target: 'Q4 2026' },
+  { status: 'planned',    title: 'Document extraction (PS-04)', note: 'Read a supplier invoice into a bill instead of typing it', target: '—' },
+  { status: 'considering','title': 'Appointment booking',      note: 'Public booking page, resources, iCal',                      target: '—' },
+  { status: 'considering','title': 'Expenses & travel costs',  note: 'Receipt → approval → payout via Invoice & Billing',          target: '—' },
+  { status: 'considering','title': 'Mobile companion apps',    note: 'Waiting on demonstrated client demand',                     target: '—' },
+  { status: 'considering','title': 'Multi-tenant SaaS mode',   note: 'Architecture RFC open on GitHub',                           target: '—' },
+  { status: 'considering','title': 'SAML integration',         note: 'Sign-in through PS-01 exists; SAML is the frequent ask',    target: '—' },
 ];
 
 const statusLabel: Record<Status, string> = {

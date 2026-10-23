@@ -9,6 +9,8 @@ import type {
   PoStoredStatus,
   Submission,
   Supplier,
+  GoodsReceipt,
+  ReceiptStatus,
 } from '../shared/types.js';
 import { requiredTiers, tierLabel } from './approval-config.js';
 
@@ -68,8 +70,9 @@ function getPo(db: Database.Database, id: number): PoStoredRow {
 export function poLines(db: Database.Database, poId: number): PoLine[] {
   const rows = db
     .prepare('SELECT * FROM po_lines WHERE po_id = ? ORDER BY position, id')
-    .all(poId) as Omit<PoLine, 'net_cents'>[];
-  return rows.map((row) => ({ ...row, net_cents: lineNetCents(row) }));
+    .all(poId) as Omit<PoLine, 'net_cents' | 'received_quantity'>[];
+  const received = receivedByLine(db, poId);
+  return rows.map((row) => ({ ...row, net_cents: lineNetCents(row), received_quantity: received.get(row.id) ?? 0 }));
 }
 
 interface SubmissionStoredRow {
@@ -188,7 +191,7 @@ export function poDetail(db: Database.Database, id: number): PoDetail {
   const po = getPo(db, id);
   const row = toRow(db, po);
   const pending = row.required_tiers.filter((t) => !row.approved_tiers.includes(t));
-  return {
+  const detail = {
     ...row,
     note: po.note,
     closed_at: po.closed_at,
@@ -198,6 +201,7 @@ export function poDetail(db: Database.Database, id: number): PoDetail {
     submissions: submissionsOf(db, po),
     approvals: approvalHistory(db, po),
   };
+  return { ...detail, ...receivingSummary(db, detail) };
 }
 
 export interface PoLineInput {
@@ -205,6 +209,8 @@ export interface PoLineInput {
   quantity: number;
   unit: string;
   unitPriceCents: number;
+  /** The MOD-03 article number, when the line is stock. */
+  sku?: string | null;
 }
 
 export interface PoInput {
@@ -217,11 +223,11 @@ export interface PoInput {
 
 function writeLines(db: Database.Database, poId: number, lines: PoLineInput[]): void {
   const insert = db.prepare(
-    `INSERT INTO po_lines (po_id, position, description, quantity, unit, unit_price_cents)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO po_lines (po_id, position, description, quantity, unit, unit_price_cents, sku)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   lines.forEach((line, i) => {
-    insert.run(poId, i + 1, line.description, line.quantity, line.unit, line.unitPriceCents);
+    insert.run(poId, i + 1, line.description, line.quantity, line.unit, line.unitPriceCents, line.sku ?? null);
   });
 }
 
@@ -460,4 +466,51 @@ export function closePo(db: Database.Database, id: number, at?: string): void {
     at ?? nowIso(),
     id,
   );
+}
+
+// ── Receiving (written in server/receiving.ts) ───────────────────────
+
+/** What has arrived per PO line, from the receipts. */
+export function receivedByLine(db: Database.Database, poId: number): Map<number, number> {
+  const rows = db
+    .prepare(
+      `SELECT l.po_line_id, SUM(l.quantity) AS q FROM goods_receipt_lines l JOIN goods_receipts r ON r.id = l.receipt_id
+        WHERE r.po_id = ? GROUP BY l.po_line_id`,
+    )
+    .all(poId) as { po_line_id: number; q: number }[];
+  // Quantities are REAL; keep three decimals so 0.1 + 0.2 compares as 0.3.
+  return new Map(rows.map((r) => [r.po_line_id, Math.round(r.q * 1000) / 1000]));
+}
+
+export function receiptsOf(db: Database.Database, poId: number): GoodsReceipt[] {
+  const receipts = db.prepare('SELECT * FROM goods_receipts WHERE po_id = ? ORDER BY id').all(poId) as Omit<GoodsReceipt, 'lines'>[];
+  const lines = db.prepare(
+    `SELECT l.po_line_id, p.position, p.description, p.sku, l.quantity
+       FROM goods_receipt_lines l JOIN po_lines p ON p.id = l.po_line_id WHERE l.receipt_id = ? ORDER BY p.position`,
+  );
+  return receipts.map((r) => ({ ...r, lines: lines.all(r.id) as GoodsReceipt['lines'] }));
+}
+
+/** The receiving figures a PO detail carries. */
+function receivingSummary(db: Database.Database, detail: Omit<PoDetail, 'receipts' | 'received_cents' | 'receipt_status'>) {
+  const received = detail.lines.reduce((sum, l) => sum + lineNetCents({ quantity: l.received_quantity, unit_price_cents: l.unit_price_cents }), 0);
+  const status: ReceiptStatus = detail.lines.every((l) => l.received_quantity === 0)
+    ? 'none'
+    : detail.lines.every((l) => l.received_quantity >= l.quantity)
+      ? 'complete'
+      : 'partial';
+  return { receipts: receiptsOf(db, detail.id), received_cents: received, receipt_status: status };
+}
+
+/**
+ * Set a line's MOD-03 article number after the PO is frozen. It changes no
+ * amount the approvers saw — only where received goods are booked — so it
+ * stays open until the PO is closed.
+ */
+export function setLineSku(db: Database.Database, poId: number, lineId: number, sku: string | null): void {
+  const po = getPo(db, poId);
+  if (po.status === 'closed') throw new DomainError(409, 'This PO is closed');
+  const line = db.prepare('SELECT id FROM po_lines WHERE id = ? AND po_id = ?').get(lineId, poId);
+  requireRow(line, 'PO line');
+  db.prepare('UPDATE po_lines SET sku = ? WHERE id = ?').run(sku, lineId);
 }

@@ -132,6 +132,10 @@ export interface PoLine {
   unit_price_cents: number;
   /** Derived: round(quantity × unit_price_cents). Never stored. */
   net_cents: number;
+  /** The MOD-03 article number, when the line is stock; null for services. */
+  sku: string | null;
+  /** Derived: the sum of its goods receipt lines. */
+  received_quantity: number;
 }
 
 /**
@@ -188,6 +192,59 @@ export interface PoDetail extends PoRow {
   lines: PoLine[];
   submissions: Submission[];
   approvals: Approval[];
+  receipts: GoodsReceipt[];
+  /** Derived: what has arrived, valued at the PO's prices. */
+  received_cents: number;
+  /** Derived: nothing, some or everything has arrived. */
+  receipt_status: ReceiptStatus;
+}
+
+// ── Receiving and matching (server/receiving.ts) ──────────────────────
+
+export const RECEIPT_STATUSES = ['none', 'partial', 'complete'] as const;
+export type ReceiptStatus = (typeof RECEIPT_STATUSES)[number];
+
+export interface GoodsReceipt {
+  id: number;
+  po_id: number;
+  /** "PO-2026-0003/WE-2" — the reference MOD-03 and the supplier's paperwork see. */
+  number: string;
+  kind: 'receipt' | 'correction';
+  received_on: string;
+  note: string | null;
+  actor: string;
+  created_at: string;
+  stock_status: 'booked' | 'failed' | 'not_booked' | null;
+  stock_error: string | null;
+  stock_warehouse: string | null;
+  lines: { po_line_id: number; position: number; description: string; sku: string | null; quantity: number }[];
+}
+
+export interface MatchSettings {
+  /** An invoice may exceed the value received by this share of it… */
+  tolerance_percent: number;
+  /** …but never by more than this many cents. */
+  tolerance_cap_cents: number;
+  /** The MOD-03 warehouse goods are received into; null: book no stock. */
+  receiving_warehouse: string | null;
+}
+
+export const MATCH_RESULTS = ['matched', 'awaiting_receipt', 'over_invoiced', 'not_ordered'] as const;
+export type MatchResult = (typeof MATCH_RESULTS)[number];
+
+/** The answer to "may this much be invoiced against this PO?" — every figure derived. */
+export interface MatchVerdict {
+  po_number: string;
+  supplier_name: string;
+  po_status: PoStatus;
+  ordered_cents: number;
+  received_cents: number;
+  invoiced_cents: number;
+  tolerance_cents: number;
+  result: MatchResult;
+  /** invoiced − received: what is billed beyond what arrived (negative: less). */
+  difference_cents: number;
+  message: string;
 }
 
 // ── Config as served to the client (single source: server config files) ──
