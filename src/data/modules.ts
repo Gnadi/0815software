@@ -159,6 +159,9 @@ const presentation: Record<string, ModulePresentation> = {
       'SKUs, warehouse locations and per-location stock',
       'Purchase-order tracking with goods-in receipts',
       'Stocktake corrections that reconcile without overwriting history',
+      'Barcodes: scan GTIN or SKU, print EAN and Code 128 labels',
+      'Reservations for confirmed orders — available stock derived',
+      'Goods issues and receipts booked from Orders and Procurement, exactly once',
     ],
     screen: {
       variant: 'table',
@@ -191,6 +194,11 @@ const presentation: Record<string, ModulePresentation> = {
       'Incoming payments matched to open invoices, when a bank connection is wired',
       'E-invoices: XRechnung 3.0 and ZUGFeRD (PDF/A-3, EN 16931), validated against the official rules',
       'DATEV Buchungsstapel and BMD NTCS export for the tax adviser',
+      'Dunning in levels, with fees and default interest stated on the letter',
+      'Recurring invoices from templates, as drafts once per period',
+      'Partial credit notes against an issued invoice',
+      'Bill an accepted offer, or each delivery note, with one action',
+      'Bills for a purchase order held until the goods have arrived (three-way match)',
     ],
     screen: {
       variant: 'detail',
@@ -233,7 +241,7 @@ const presentation: Record<string, ModulePresentation> = {
   'mod-06-procurement-tracker': {
     body: 'RFQ, purchase orders, multi-tier approvals, goods receipts and the three-way match. Export to any ERP CSV format.',
     overview:
-      'Approval tiers are derived from the order total and frozen at submit: the threshold brackets live in one server config file, and the approval chain a request must clear is computed when it is submitted and never shifts underneath it. Run RFQs, raise purchase orders, route multi-tier approvals and export to any ERP’s CSV format.',
+      'Approval tiers are derived from the order total and frozen at submit: the threshold brackets live in one server config file, and the approval chain a request must clear is computed when it is submitted and never shifts underneath it. Run RFQs, raise purchase orders, route multi-tier approvals and export to any ERP’s CSV format. Goods are received against the order — and booked into Inventory as stock — and a supplier’s bill for it is only paid once what arrived covers it: the three-way match of order, goods receipt and invoice.',
     features: [
       'RFQ → purchase-order workflow',
       'Multi-tier approvals derived from the total, frozen at submit',
@@ -583,6 +591,7 @@ const presentation: Record<string, ModulePresentation> = {
       'Partial deliveries — never past the order, open quantity derived',
       'Numbered, fixed delivery notes with their own PDF',
       'Each delivery billed on its own in Invoicing, exactly once',
+      'Stock reserved on confirmation and issued per delivery in Inventory',
     ],
     screen: {
       variant: 'table',
