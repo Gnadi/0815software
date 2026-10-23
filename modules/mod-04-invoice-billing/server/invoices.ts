@@ -1,5 +1,13 @@
 import type Database from 'better-sqlite3';
-import { computeTotals, lineNetCents } from '../shared/money.js';
+import {
+  computeTotals,
+  fitsQuantityDecimals,
+  LINE_ROUNDING,
+  lineNetCents,
+  QUANTITY_DECIMALS,
+  type LineRounding,
+  type Totals,
+} from '../shared/money.js';
 import type {
   CreditNote,
   Customer,
@@ -79,6 +87,8 @@ interface InvoiceStoredRow {
   tax_exemption_reason: string | null;
   seller_snapshot: string | null;
   buyer_snapshot: string | null;
+  /** Fixed at finalize; NULL on a draft. See `roundingOf`. */
+  line_rounding: LineRounding | null;
 }
 
 export function getInvoice(db: Database.Database, id: number): InvoiceStoredRow {
@@ -88,11 +98,27 @@ export function getInvoice(db: Database.Database, id: number): InvoiceStoredRow 
   );
 }
 
+/**
+ * The rounding an invoice's amounts are computed with (shared/money.ts,
+ * `LineRounding`): the one it was finalized under, and for a draft the
+ * current one. An invoice and its credit notes share it.
+ */
+export function roundingOf(invoice: { line_rounding: LineRounding | null }): LineRounding {
+  return invoice.line_rounding ?? LINE_ROUNDING;
+}
+
+/** The lines of an invoice, each with its net as the invoice rounds it. */
 export function invoiceLines(db: Database.Database, invoiceId: number): InvoiceLine[] {
+  const rounding = roundingOf(getInvoice(db, invoiceId));
   const rows = db
     .prepare('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY position, id')
     .all(invoiceId) as Omit<InvoiceLine, 'net_cents'>[];
-  return rows.map((row) => ({ ...row, net_cents: lineNetCents(row) }));
+  return rows.map((row) => ({ ...row, net_cents: lineNetCents(row, rounding) }));
+}
+
+/** An invoice's totals, rounded as the invoice is. */
+export function invoiceTotals(db: Database.Database, invoiceId: number): Totals {
+  return computeTotals(invoiceLines(db, invoiceId), roundingOf(getInvoice(db, invoiceId)));
 }
 
 function paidCents(db: Database.Database, invoiceId: number): number {
@@ -119,20 +145,20 @@ export function creditNotesOf(db: Database.Database, invoiceId: number): CreditN
     .prepare('SELECT * FROM credit_notes WHERE invoice_id = ? ORDER BY seq')
     .all(invoiceId) as CreditNoteStoredRow[];
   if (notes.length === 0) return [];
-  const invoiceNumber = (db.prepare('SELECT number FROM invoices WHERE id = ?').get(invoiceId) as { number: string }).number;
-  return notes.map((note) => toCreditNote(db, note, invoiceNumber));
+  const invoice = getInvoice(db, invoiceId);
+  return notes.map((note) => toCreditNote(db, note, invoice.number!, roundingOf(invoice)));
 }
 
-function toCreditNote(db: Database.Database, note: CreditNoteStoredRow, invoiceNumber: string): CreditNote {
+function toCreditNote(db: Database.Database, note: CreditNoteStoredRow, invoiceNumber: string, rounding: LineRounding): CreditNote {
   const rows = db
     .prepare('SELECT * FROM credit_note_lines WHERE credit_note_id = ? ORDER BY position, id')
     .all(note.id) as (Omit<InvoiceLine, 'net_cents' | 'invoice_id'> & { credit_note_id: number })[];
   const lines: InvoiceLine[] = rows.map(({ credit_note_id: _cn, ...row }) => ({
     ...row,
     invoice_id: note.invoice_id,
-    net_cents: lineNetCents(row),
+    net_cents: lineNetCents(row, rounding),
   }));
-  const totals = computeTotals(lines);
+  const totals = computeTotals(lines, rounding);
   return {
     id: note.id,
     invoice_id: note.invoice_id,
@@ -156,7 +182,7 @@ export function getCreditNote(db: Database.Database, id: number): CreditNote {
     'Credit note',
   );
   const invoice = getInvoice(db, note.invoice_id);
-  return toCreditNote(db, note, invoice.number!);
+  return toCreditNote(db, note, invoice.number!, roundingOf(invoice));
 }
 
 /**
@@ -166,7 +192,7 @@ export function getCreditNote(db: Database.Database, id: number): CreditNote {
  * otherwise return a cent more VAT than the invoice charged.
  */
 export function creditableByRate(db: Database.Database, invoiceId: number): VatBreakdownRow[] {
-  const invoiced = computeTotals(invoiceLines(db, invoiceId)).by_rate;
+  const invoiced = invoiceTotals(db, invoiceId).by_rate;
   const notes = creditNotesOf(db, invoiceId);
   return invoiced.map((row) => {
     const taken = notes.flatMap((n) => n.vat_breakdown).filter((r) => r.rate === row.rate);
@@ -212,7 +238,7 @@ function toRow(
   today: string,
 ): { row: InvoiceRow; lines: InvoiceLine[] } {
   const lines = invoiceLines(db, invoice.id);
-  const totals = computeTotals(lines);
+  const totals = computeTotals(lines, roundingOf(invoice));
   const paid = paidCents(db, invoice.id);
   const credited = invoice.status === 'draft' ? 0 : creditedCents(db, invoice.id);
   const owed = owedCents(totals.gross_cents, credited);
@@ -277,7 +303,7 @@ export function invoiceDetail(
 ): InvoiceDetail {
   const invoice = getInvoice(db, id);
   const { row, lines } = toRow(db, invoice, today);
-  const totals = computeTotals(lines);
+  const totals = computeTotals(lines, roundingOf(invoice));
   const payments = db
     .prepare('SELECT * FROM payments WHERE invoice_id = ? ORDER BY date, id')
     .all(id) as Payment[];
@@ -290,6 +316,7 @@ export function invoiceDetail(
     tax_exemption_category: invoice.tax_exemption_category,
     tax_exemption_reason: invoice.tax_exemption_reason,
     parties_frozen: invoice.seller_snapshot !== null && invoice.buyer_snapshot !== null,
+    line_rounding: roundingOf(invoice),
     cancelled_at: invoice.cancelled_at,
     cancellation_reason: invoice.cancellation_reason,
     lines,
@@ -429,6 +456,18 @@ export function finalizeInvoice(
       { field: 'lines', message: 'An invoice needs at least one line item before it can be sent' },
     ]);
   }
+  // The amounts are computed from the four decimals the e-invoice states; a
+  // draft saved before quantities were limited to them may hold more, and
+  // would otherwise be issued with figures nobody can recompute.
+  const quantities = db
+    .prepare('SELECT quantity FROM invoice_lines WHERE invoice_id = ? ORDER BY position, id')
+    .all(id) as { quantity: number }[];
+  const imprecise = quantities.flatMap((l, i) =>
+    fitsQuantityDecimals(l.quantity)
+      ? []
+      : [{ field: `lines[${i}].quantity`, message: `Quantity has more than ${QUANTITY_DECIMALS} decimal places` }],
+  );
+  if (imprecise.length > 0) throw new DomainError(422, 'Validation failed', imprecise);
 
   const issue = issueDate ?? todayIso();
   const year = Number(issue.slice(0, 4));
@@ -451,8 +490,8 @@ export function finalizeInvoice(
       number = `INV-${year}-${String(counter.last_seq).padStart(4, '0')}`;
     }
     db.prepare(
-      "UPDATE invoices SET number = ?, status = 'sent', issue_date = ?, due_date = ? WHERE id = ?",
-    ).run(number, issue, due, id);
+      "UPDATE invoices SET number = ?, status = 'sent', issue_date = ?, due_date = ?, line_rounding = ? WHERE id = ?",
+    ).run(number, issue, due, LINE_ROUNDING, id);
     freeze?.(id);
     return { number, issue_date: issue, due_date: due };
   })();
@@ -520,7 +559,7 @@ export function recordPayment(db: Database.Database, id: number, input: PaymentI
   }
 
   return db.transaction(() => {
-    const gross = owedCents(computeTotals(invoiceLines(db, id)).gross_cents, creditedCents(db, id));
+    const gross = owedCents(invoiceTotals(db, id).gross_cents, creditedCents(db, id));
     const open = gross - paidCents(db, id);
     if (input.amountCents > open) {
       throw new DomainError(422, 'Validation failed', [
@@ -558,7 +597,7 @@ export function customerLedger(db: Database.Database, customerId: number): Ledge
   let paid = 0;
 
   for (const invoice of invoices) {
-    const gross = computeTotals(invoiceLines(db, invoice.id)).gross_cents;
+    const gross = invoiceTotals(db, invoice.id).gross_cents;
     entries.push({
       date: invoice.issue_date!,
       type: 'invoice',

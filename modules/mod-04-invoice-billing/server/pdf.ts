@@ -13,6 +13,7 @@ import { EXEMPTION_DEFAULT_REASON } from '../shared/einvoice.js';
 import { fmtEur } from '../shared/money.js';
 import type { CreditNote, Customer, InvoiceDetail } from '../shared/types.js';
 import type { SellerConfig } from './config.js';
+import { fonts, unicodeOf } from './fonts.js';
 
 export const A4 = { width: 595.28, height: 841.89 };
 
@@ -65,6 +66,45 @@ function escapeCodes(codes: number[]): string {
 }
 
 const n = (value: number): string => String(Math.round(value * 100) / 100);
+
+/** Width of `text` set in `font` at `size`, in points — the metrics both PDFs share (server/fonts.ts). */
+export function textWidth(font: FontKey, size: number, text: string): number {
+  const ttf = fonts()[font];
+  let units = 0;
+  for (const code of winAnsiCodes(text)) units += ttf.width(ttf.glyphOf(unicodeOf(code) ?? 0x3f));
+  return (units * size) / 1000;
+}
+
+/**
+ * `text` as lines no wider than `width`: broken at spaces, inside a word only
+ * when the word alone is wider, and at the line breaks it already has. The
+ * PDF used to cut texts off ("Wartungsvert…") while the XML carried them in
+ * full — the picture of an e-invoice saying less than the invoice (review M1).
+ */
+export function wrapText(font: FontKey, size: number, text: string, width: number): string[] {
+  const fits = (line: string): boolean => textWidth(font, size, line) <= width;
+  const lines: string[] = [];
+  for (const paragraph of text.split(/\r?\n/)) {
+    let line = '';
+    for (let word of paragraph.split(/ +/).filter((w) => w !== '')) {
+      const longer = line === '' ? word : `${line} ${word}`;
+      if (fits(longer)) {
+        line = longer;
+        continue;
+      }
+      if (line !== '') lines.push(line);
+      while (!fits(word)) {
+        let cut = word.length - 1;
+        while (cut > 1 && !fits(word.slice(0, cut))) cut--;
+        lines.push(word.slice(0, cut));
+        word = word.slice(cut);
+      }
+      line = word;
+    }
+    lines.push(line);
+  }
+  return lines;
+}
 
 /** One page of drawing ops. y runs DOWN from the top edge (like CSS). */
 export class Page {
@@ -141,13 +181,22 @@ export function buildPdf(pages: Page[]): Buffer {
 const M = 56; // page margin
 const R = A4.width - M; // right edge
 const COL = { qty: 356, price: 432, vat: 466, net: R }; // right edges of number columns
+/** The description column ends where the widest quantity ("999.999,9999", 9 pt Courier) begins. */
+const DESCRIPTION_WIDTH = COL.qty - 12 * COURIER_EM * 9 - 6 - (M + 30);
+/** Where the page body ends: the footer's rule sits 78 pt above the bottom edge. */
+const BODY_END = A4.height - 90;
 
+/**
+ * A quantity as the XML states it — four decimals at most — and written the
+ * way the amounts beside it are: 1.234,5. It used to show three, so 0.33333
+ * read 0.333 here and 0.3333 in the XML, with a dot a German reader takes for
+ * a thousands separator.
+ */
 function fmtQty(quantity: number): string {
-  return String(Math.round(quantity * 1000) / 1000);
-}
-
-function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  const tenThousandths = Math.round(quantity * 10_000);
+  const whole = String(Math.floor(tenThousandths / 10_000)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const fraction = String(tenThousandths % 10_000).padStart(4, '0').replace(/0+$/, '');
+  return fraction === '' ? whole : `${whole},${fraction}`;
 }
 
 function tableHead(page: Page, y: number): number {
@@ -244,10 +293,16 @@ export function layoutInvoice(
   page.text('F1', 7, M, 122, sellerLine, 0.45);
 
   let y = 150;
+  const metaX = 356;
+  const billTo = metaX - 12 - M;
   page.text('F4', 7, M, y, 'BILL TO', 0.45);
-  page.text('F2', 10, M, y + 16, customer.name);
-  let addrY = y + 30;
-  for (const line of customer.address?.split('\n') ?? []) {
+  let addrY = y + 16;
+  for (const line of wrapText('F2', 10, customer.name, billTo)) {
+    page.text('F2', 10, M, addrY, line);
+    addrY += 13;
+  }
+  addrY += 1;
+  for (const line of wrapText('F1', 9, customer.address ?? '', billTo).filter((l) => l !== '')) {
     page.text('F1', 9, M, addrY, line, 0.25);
     addrY += 13;
   }
@@ -256,7 +311,6 @@ export function layoutInvoice(
     addrY += 15;
   }
 
-  const metaX = 356;
   const meta: [string, string][] = cancellation
     ? [
         ['CREDIT NOTE NO', cancellation.number],
@@ -275,15 +329,16 @@ export function layoutInvoice(
   if (invoice.issue_date !== null) {
     meta.splice(2, 0, ['SERVICE DATE', invoice.delivery_date ?? invoice.issue_date]);
   }
-  if (invoice.buyer_reference) meta.push(['YOUR REF', truncate(invoice.buyer_reference, 24)]);
+  if (invoice.buyer_reference) meta.push(['YOUR REF', invoice.buyer_reference]);
   if (invoice.status === 'cancelled' && !cancellation) {
     meta.push(['CANCELLED', invoice.cancelled_at?.slice(0, 10) ?? '']);
   }
   let metaY = y;
   for (const [label, value] of meta) {
     page.text('F4', 7, metaX, metaY, label, 0.45);
-    page.textRight('F3', 9, R, metaY, value);
-    metaY += 16;
+    const lines = wrapText('F3', 9, value, R - metaX - textWidth('F4', 7, label) - 8);
+    lines.forEach((line, i) => page.textRight('F3', 9, R, metaY + i * 11, line));
+    metaY += 16 + (lines.length - 1) * 11;
   }
 
   y = Math.max(addrY, metaY) + 24;
@@ -296,18 +351,20 @@ export function layoutInvoice(
   // ── Line items ──
   y = tableHead(page, y);
   for (const line of invoice.lines) {
-    if (y > A4.height - 200) {
+    const description = wrapText('F1', 9, line.description, DESCRIPTION_WIDTH);
+    const extra = (description.length - 1) * 11;
+    if (y + extra > A4.height - 200) {
       page = new Page();
       pages.push(page);
       y = tableHead(page, 78);
     }
     page.text('F3', 9, M, y, String(line.position), 0.45);
-    page.text('F1', 9, M + 30, y, truncate(line.description, 46));
+    description.forEach((text, i) => page.text('F1', 9, M + 30, y + i * 11, text));
     page.textRight('F3', 9, COL.qty, y, fmtQty(line.quantity));
     page.textRight('F3', 9, COL.price, y, fmtEur(line.unit_price_cents));
     page.textRight('F3', 9, COL.vat, y, `${line.vat_rate}%`);
     page.textRight('F3', 9, COL.net, y, fmtEur(line.net_cents));
-    y += 16;
+    y += 16 + extra;
   }
   page.line(M, y - 6, R, 0.5, 0.6);
 
@@ -337,37 +394,42 @@ export function layoutInvoice(
   }
 
   // ── Notes / cancellation ──
+  // Each in full, wrapped, and continued on a new page rather than run into
+  // the footer: the exemption reason and the description of the supply are
+  // mandatory content (§ 14 Abs. 4 Nr. 5 and 8 UStG), not decoration.
+  const paragraph = (font: FontKey, size: number, text: string, gray: number): void => {
+    for (const line of wrapText(font, size, text, R - M)) {
+      if (y > BODY_END) {
+        page = new Page();
+        pages.push(page);
+        y = 78;
+      }
+      page.text(font, size, M, y, line, gray);
+      y += 12;
+    }
+    y += 4;
+  };
   y += 12;
   if (partial) {
-    page.text('F2', 9, M, y, `Partial credit on invoice ${invoice.number} of ${invoice.issue_date}.`, 0.2);
-    y += 16;
-    page.text('F2', 9, M, y, `Reason: ${truncate(cancellation!.reason!, 90)}`, 0.2);
-    y += 16;
+    paragraph('F2', 9, `Partial credit on invoice ${invoice.number} of ${invoice.issue_date}.`, 0.2);
+    paragraph('F2', 9, `Reason: ${cancellation!.reason!}`, 0.2);
   } else if (cancellation) {
-    page.text('F2', 9, M, y, `Cancels invoice ${invoice.number} of ${invoice.issue_date} in full.`, 0.2);
-    y += 16;
+    paragraph('F2', 9, `Cancels invoice ${invoice.number} of ${invoice.issue_date} in full.`, 0.2);
   }
   if (invoice.status === 'cancelled' && invoice.cancellation_reason) {
-    page.text('F2', 9, M, y, `${cancellation ? 'Reason' : 'Cancelled'}: ${invoice.cancellation_reason}`, 0.2);
-    y += 16;
+    paragraph('F2', 9, `${cancellation ? 'Reason' : 'Cancelled'}: ${invoice.cancellation_reason}`, 0.2);
   }
-  if (invoice.note) {
-    page.text('F1', 8.5, M, y, truncate(invoice.note, 100), 0.3);
-    y += 16;
-  }
+  if (invoice.note) paragraph('F1', 8.5, invoice.note, 0.3);
   // Why the 0 % lines carry no VAT. Required on the document itself — e.g.
   // "Steuerschuldnerschaft des Leistungsempfängers" for reverse charge.
   if (invoice.tax_exemption_category && invoice.lines.some((l) => l.vat_rate === 0)) {
     const reason = invoice.tax_exemption_reason ?? EXEMPTION_DEFAULT_REASON[invoice.tax_exemption_category];
-    if (reason) {
-      page.text('F2', 8.5, M, y, truncate(reason, 100), 0.2);
-      y += 16;
-    }
+    if (reason) paragraph('F2', 8.5, reason, 0.2);
   }
   if (invoice.status !== 'cancelled' && !cancellation) {
     const due = invoice.due_date ?? '—';
-    page.text(
-      'F1', 8.5, M, y,
+    paragraph(
+      'F1', 8.5,
       `Payment within ${invoice.payment_terms_days} days of the invoice date (due ${due}). ` +
         `Please reference ${invoice.number ?? 'the invoice'} with your transfer.`,
       0.3,

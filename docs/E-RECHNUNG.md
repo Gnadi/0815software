@@ -201,8 +201,9 @@ Validation happens in three layers, and the first two run in every test run:
 1. **Golden files.** `test/fixtures/einvoice/` holds the XML of the cases
    in `test/einvoice-cases.ts` (standard DE, `AE`, `K`, `G`, `E`, `Z`, `O`,
    exempt mixed with taxed lines, seller with Steuernummer only,
-   cancellation, partial credit note, public buyer by Leitweg-ID), in both
-   profiles. The renderer must reproduce them byte for byte.
+   cancellation, partial credit note, public buyer by Leitweg-ID, a
+   four-decimal quantity with texts long enough to wrap), in both profiles.
+   The renderer must reproduce them byte for byte.
 2. **Schema.** Every case is checked against the Factur-X EN16931 XSD
    (`test/schema/cii-en16931/`) with `xmllint` — and so is every case of the
    **matrix** in `test/einvoice-matrix.ts` that the module does not refuse:
@@ -218,12 +219,19 @@ Validation happens in three layers, and the first two run in every test run:
    1.3.16, the XRechnung schematron 2.4.0 (XRechnung 3.0.2, KoSIT rules
    BR-DE-*) and veraPDF for PDF/A-3b. All files go through one JVM
    (`scripts/MustangBatch.java`, Mustang's own validator class): about 20
-   seconds for the 327 files, where starting the CLI per file took minutes.
+   seconds for the 330 files, where starting the CLI per file took minutes.
    The rule is one-directional: what the module refuses is never served, so
    only what it accepts must be valid. The workflow
    `.github/workflows/einvoice-validation.yml` runs it on every MOD-04
    change, with the Mustang jar pinned by SHA-256 — the only CI job that
    downloads anything.
+
+**Line amounts** are quantity × unit price, rounded half up to the cent, in
+integers from the quantity's four decimals — the definition of BT-131, and
+what Peppol checks (PEPPOL-EN16931-R120); the CEN and XRechnung artefacts do
+not. A quantity takes at most four decimals, the number the XML states.
+Invoices issued before this rule keep the floating-point rounding they were
+issued with (see the module README, Money).
 
 A change to `shared/einvoice.ts` breaks the golden test on purpose. Run the
 external check, then `npm run einvoice:fixtures`, then commit. Regenerated
@@ -277,7 +285,7 @@ same frozen parties and the same money:
 
 **Validation.** `test/schema/ebinterface-6p1/Invoice.xsd` is the official 6.1
 schema from AUSTRIAPRO's standards repository; every case (the four Austrian
-ones in `test/ebinterface-cases.ts` and all eleven EN 16931 cases) is checked
+ones in `test/ebinterface-cases.ts` and every EN 16931 case) is checked
 against it with `xmllint` on every test run. The schema's own sample passes
 and its deliberately broken sample fails, which proves the check looks. The
 Austrian cases have golden files (`npm run ebinterface:fixtures` regenerates

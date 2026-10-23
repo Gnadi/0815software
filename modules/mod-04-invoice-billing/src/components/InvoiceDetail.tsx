@@ -616,6 +616,8 @@ function CreditNoteForm({
       unit_price_cents: parseEurToCents(l.unitPrice) ?? 0,
       vat_rate: l.vatRate,
     })),
+    // The server rounds the credit note as its invoice; so does the preview.
+    invoice.line_rounding,
   );
 
   return (

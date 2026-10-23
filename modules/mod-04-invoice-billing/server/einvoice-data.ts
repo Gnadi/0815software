@@ -12,6 +12,7 @@ import {
   type SellerParty,
 } from '../shared/einvoice.js';
 import { ebInterfaceProblems, renderEbInterface, type EInvoiceFormat } from '../shared/ebinterface.js';
+import { LINE_ROUNDING } from '../shared/money.js';
 import type { Customer, TaxExemptionCategory } from '../shared/types.js';
 import type { SellerConfig } from './config.js';
 import {
@@ -22,6 +23,7 @@ import {
   getInvoice,
   invoiceDetail,
   invoiceLines,
+  roundingOf,
   todayIso,
 } from './invoices.js';
 import { issuedDocument, type IssuedDocument, type RenderedFile } from './issued-documents.js';
@@ -219,6 +221,9 @@ export function eInvoiceModel(
     seller,
     buyer,
     lines,
+    // The invoice's rule, for its credit notes too: a document states the
+    // amounts the invoice's books hold.
+    line_rounding: roundingOf(invoice),
   };
   if (typeof document === 'object') {
     const note = getCreditNote(db, document.creditNoteId);
@@ -288,6 +293,7 @@ export function pendingEInvoiceModel(
     seller: sellerParty(liveSeller),
     buyer: buyerParty(customer),
     lines: modelLines(invoiceLines(db, invoiceId)),
+    line_rounding: LINE_ROUNDING,
   };
 }
 

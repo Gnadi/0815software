@@ -29,7 +29,7 @@ mkdirSync(out, { recursive: true });
 
 /** The ZUGFeRD PDF/A of a model, laid out the way the API lays out an issued invoice. */
 function zugferdPdf(model: EInvoiceModel): Buffer {
-  const totals = computeTotals(model.lines);
+  const totals = computeTotals(model.lines, model.line_rounding);
   // A cancellation is laid out from the cancelled invoice; a partial credit
   // note (-GS) from a live one carrying the credit note's lines.
   const cancels = model.type_code === '381' && !model.number.includes('-GS');
@@ -42,9 +42,9 @@ function zugferdPdf(model: EInvoiceModel): Buffer {
     created_at: model.issue_date, payment_terms_days: model.payment_terms_days, note: cancels || model.type_code === '380' ? model.note : null,
     buyer_reference: model.buyer_reference, delivery_date: model.delivery_date,
     tax_exemption_category: model.exemption?.category ?? null, tax_exemption_reason: model.exemption?.reason ?? null,
-    parties_frozen: true, cancelled_at: cancels ? `${model.issue_date}T00:00:00Z` : null,
+    parties_frozen: true, line_rounding: model.line_rounding, cancelled_at: cancels ? `${model.issue_date}T00:00:00Z` : null,
     cancellation_reason: cancels ? 'Doppelt fakturiert' : null,
-    lines: model.lines.map((l, i) => ({ ...l, id: i + 1, invoice_id: 1, net_cents: lineNetCents(l) })),
+    lines: model.lines.map((l, i) => ({ ...l, id: i + 1, invoice_id: 1, net_cents: lineNetCents(l, model.line_rounding) })),
     vat_breakdown: totals.by_rate, payments: [], open_cents: totals.gross_cents,
     credited_cents: 0, credit_notes: [], creditable: [],
   };

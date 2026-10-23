@@ -102,9 +102,11 @@ invoices           number (NULL for drafts), customer, status,
                    note, cancellation audit trail,
                    buyer_reference, delivery_date, tax_exemption_category
                    / _reason, seller_snapshot / buyer_snapshot (JSON,
-                   frozen at finalize — see E-invoices)
-invoice_lines      invoice, position, description, quantity,
-                   unit_price_cents, vat_rate (0 | 7 | 10 | 13 | 19 | 20)
+                   frozen at finalize — see E-invoices), line_rounding
+                   (decimal | float, fixed at finalize — see Money)
+invoice_lines      invoice, position, description, quantity (at most four
+                   decimals), unit_price_cents, vat_rate (0 | 7 | 10 | 13 |
+                   19 | 20)
 payments           invoice, date, amount_cents, note
 invoice_counters   year → last_seq                           (the number source)
 accounting_settings  one row: DATEV / BMD export settings (JSON), who saved it
@@ -143,10 +145,23 @@ payment_run_items  run, bill, position, end_to_end_id, amount_cents,
 edge. Totals per invoice are derived as:
 
 - line net = `round(quantity × unit_price_cents)` — *per-line* rounding
-  (3 × €0.33 nets €0.99, not 3 × €0.33-rounded),
+  (3 × €0.33 nets €0.99, not 3 × €0.33-rounded), half up, computed in
+  integers from the quantity's four decimals: exactly what the e-invoice
+  states and a recipient recomputes (BT-131),
 - VAT = `round(sum of line nets at a rate × rate / 100)` — computed once
   per rate on the tax base,
 - gross = net + VAT.
+
+Quantities take **at most four decimals** (`422` otherwise, and a draft saved
+with more is refused at finalize): the e-invoice states four, so that is what
+the amount is computed from. Line nets used to be rounded in binary floating
+point, which put about one decimal quantity in a thousand a cent low
+(0.29 × €0.50 → €0.14). An invoice **keeps the rule it was finalized under**
+(`line_rounding`): everything issued before the switch stays `float`, because
+its amounts were sent, paid and booked, and an issued invoice does not change;
+its credit notes, exports and report rows follow it. `test/money.test.ts` holds
+the decimal rule to an independent BigInt computation over 160,000 quantities
+and prices, and pins that an upgrade leaves issued invoices as they were.
 
 **Stored status** is only ever `draft`, `sent` or `cancelled` (enforced
 by CHECKs). The API reports the *derived* status `paid` for a sent
@@ -609,7 +624,17 @@ practice:
 Both come from **one model and one renderer** (`shared/einvoice.ts`), fed by
 the invoice as issued (`server/einvoice-data.ts`). The money is this module's
 own — per-line rounding, VAT once per rate — which is exactly what the
-EN 16931 rules recompute, so the XML states the PDF's figures to the cent.
+EN 16931 rules recompute, so the XML states the PDF's figures to the cent; and
+the line amounts are rounded decimally from the quantity the XML states, so a
+recipient recomputing quantity × price arrives at them too (see Money).
+
+- **The PDF says what the XML says.** Descriptions, notes, the exemption
+  reason, the buyer reference and the customer's name are wrapped by their
+  measured width (the metrics of the Liberation fonts both PDFs use) and
+  continue on the next page, rather than being cut off; quantities show the
+  XML's four decimals, written like the amounts (`1.234,5`). The footer names
+  the seller by VAT id, Steuernummer and register number
+  (`test/einvoice-pdf.test.ts`).
 
 - **Refused rather than wrong.** A file is only produced when it would
   validate. Otherwise `422` lists every missing field with its business term
@@ -775,7 +800,10 @@ dependency, and it is deliberately narrow:
   recomputes both and **refuses the transfer if they disagree**, so a rounding
   difference between two modules can never become a wrong invoice. A per-line
   discount (which invoice lines cannot express) is folded into a single-quantity
-  line at its exact net, with the arithmetic spelled out in the description.
+  line at its exact net, with the arithmetic spelled out in the description —
+  and so is an undiscounted line whose source net this module's decimal
+  rounding would not reproduce (the transfer contract still rounds in floating
+  point), or whose quantity has more than four decimals.
 - **It produces a DRAFT.** The operator still reviews and finalizes; nothing is
   issued behind their back.
 - **It is idempotent on the offer number,** which is recorded on the invoice

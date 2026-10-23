@@ -4,7 +4,7 @@ import org.mustangproject.validator.ZUGFeRDValidator;
  * Validate many e-invoice files in one JVM with Mustang's own validator — the
  * class `java -jar Mustang-CLI.jar --action validate` runs, with the same
  * report, but without paying the JVM start and the schematron compilation for
- * every file: the 327 files of validate-einvoice.sh take under half a minute,
+ * every file: the 330 files of validate-einvoice.sh take under half a minute,
  * where one CLI run per file (four at a time) took twelve.
  *
  *   java -cp Mustang-CLI-2.26.0.jar scripts/MustangBatch.java <file>...

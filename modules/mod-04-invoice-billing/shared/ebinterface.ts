@@ -188,7 +188,7 @@ function address(
 export function renderEbInterface(model: EInvoiceModel): string {
   const xml = new Xml();
   const { seller, buyer, exemption } = model;
-  const totals = computeTotals(model.lines);
+  const totals = computeTotals(model.lines, model.line_rounding);
   const creditNote = model.type_code === '381';
   const exemptionComment = exemption ? (exemption.reason ?? EXEMPTION_DEFAULT_REASON[exemption.category]) : null;
 
@@ -242,7 +242,7 @@ export function renderEbInterface(model: EInvoiceModel): string {
   xml.open('Details');
   xml.open('ItemList');
   for (const line of model.lines) {
-    const net = lineNetCents(line);
+    const net = lineNetCents(line, model.line_rounding);
     xml.open('ListLineItem');
     xml.leaf('PositionNumber', String(line.position));
     xml.leaf('Description', line.description);

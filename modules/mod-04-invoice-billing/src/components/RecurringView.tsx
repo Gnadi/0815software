@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { computeTotals, VAT_RATES, vatRatesFor } from '../../shared/money';
+import { computeTotals, LINE_ROUNDING, VAT_RATES, vatRatesFor } from '../../shared/money';
 import {
   RECURRING_INTERVALS,
   TAX_EXEMPTION_CATEGORIES,
@@ -172,7 +172,7 @@ export function RecurringView({ onOpenInvoice, onAuthLost }: Props) {
                   {t.end_date && ` to ${fmtDate(t.end_date)}`}
                 </td>
                 <td className="table__num mono">
-                  {fmtEur(computeTotals(t.lines).net_cents)}
+                  {fmtEur(computeTotals(t.lines, LINE_ROUNDING).net_cents)}
                 </td>
                 <td className="mono">
                   {t.next_period_start === null ? '—' : fmtDate(t.next_period_start)}

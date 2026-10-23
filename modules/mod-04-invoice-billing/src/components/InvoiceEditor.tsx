@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EXEMPTION_DEFAULT_REASON } from '../../shared/einvoice';
-import { computeTotals, VAT_RATES, vatRatesFor, type LineAmounts } from '../../shared/money';
+import { computeTotals, LINE_ROUNDING, VAT_RATES, vatRatesFor, type LineAmounts } from '../../shared/money';
 import { TAX_EXEMPTION_CATEGORIES, type FieldError, type TaxExemptionCategory } from '../../shared/types';
 import { api, ApiError, type CustomerRow } from '../api';
 import { centsToInput, fmtEur, parseEurToCents } from '../format';
@@ -97,7 +97,7 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
     void load();
   }, [load]);
 
-  const totals = useMemo(() => computeTotals(parsedLines(lines)), [lines]);
+  const totals = useMemo(() => computeTotals(parsedLines(lines), LINE_ROUNDING), [lines]);
 
   function setLine(i: number, patch: Partial<EditableLine>) {
     setLines((prev) => prev.map((l, j) => (j === i ? { ...l, ...patch } : l)));

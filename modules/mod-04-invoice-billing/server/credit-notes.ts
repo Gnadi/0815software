@@ -8,6 +8,7 @@ import {
   getInvoice,
   invoiceLines,
   nowIso,
+  roundingOf,
   todayIso,
   type LineInput,
 } from './invoices.js';
@@ -69,7 +70,11 @@ export function issueCreditNote(
     if (issueDate > today) errors.push({ field: 'issue_date', message: 'A credit note cannot be dated in the future' });
 
     const remaining = creditableByRate(db, invoiceId);
-    const credit = computeTotals(input.lines.map((l) => ({ quantity: l.quantity, unit_price_cents: l.unitPriceCents, vat_rate: l.vatRate })));
+    // Rounded as the invoice is, so crediting every line returns exactly what it charged.
+    const credit = computeTotals(
+      input.lines.map((l) => ({ quantity: l.quantity, unit_price_cents: l.unitPriceCents, vat_rate: l.vatRate })),
+      roundingOf(invoice),
+    );
     if (credit.gross_cents <= 0) errors.push({ field: 'lines', message: 'A credit note has to credit something' });
     const invoiced = new Set(invoiceLines(db, invoiceId).map((l) => l.vat_rate));
     input.lines.forEach((line, i) => {

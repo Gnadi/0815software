@@ -118,8 +118,10 @@ probably needs refunding.
 **Money is computed the way the module computes it.** A view must not re-derive
 rounding in SQL that differs from the application's. If the module rounds per
 line, the view rounds per line. MOD-04's views mirror `shared/money.ts` exactly
-— net rounded per line, VAT rounded once per rate on that rate's tax base — and
-a test asserts a view's total equals `computeTotals()` for the same invoice.
+— net rounded per line with the invoice's own `line_rounding` (decimal since
+the e-invoice review, float for invoices issued before it, which keep their
+amounts), VAT rounded once per rate on that rate's tax base — and a test
+asserts a view's total equals `computeTotals()` for the same invoice.
 This is the rule that stops a receivables report and an invoice PDF from
 disagreeing about what a customer owes.
 

@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { createDraft, DomainError, getCustomer, nowIso } from './invoices.js';
 import { validateTransfer, type DocumentTransfer, type TransferKind, type TransferLine } from '../shared/transfer.js';
-import { fmtEur } from '../shared/money.js';
+import { fitsQuantityDecimals, fmtEur, LINE_ROUNDING, lineNetCents } from '../shared/money.js';
 
 export const MODULE_ID = 'mod-04-invoice-billing';
 
@@ -40,6 +40,12 @@ interface CustomerRow {
  * and the arithmetic is spelled out in the description. That keeps the money
  * bit-exact — which is the property both modules advertise — at the cost of
  * some presentation detail, rather than re-rounding and being a cent out.
+ *
+ * An undiscounted line is folded the same way when this module would not
+ * arrive at the source's net: the transfer contract rounds in floating point
+ * (`transferLineNet`), an invoice now rounds decimally (shared/money.ts), and
+ * the two differ by a cent on about one line in a thousand. A quantity with more
+ * than four decimals, which an invoice does not take, is folded too.
  */
 function toInvoiceLine(line: TransferLine): {
   description: string;
@@ -47,7 +53,7 @@ function toInvoiceLine(line: TransferLine): {
   unitPriceCents: number;
   vatRate: number;
 } {
-  if (line.discount_percent === 0) {
+  if (line.discount_percent === 0 && fitsQuantityDecimals(line.quantity) && lineNetCents(line, LINE_ROUNDING) === line.net_cents) {
     return {
       description: line.description,
       quantity: line.quantity,
@@ -55,7 +61,7 @@ function toInvoiceLine(line: TransferLine): {
       vatRate: line.vat_rate,
     };
   }
-  const detail = `${line.quantity} × ${fmtEur(line.unit_price_cents)} − ${line.discount_percent}%`;
+  const detail = `${line.quantity} × ${fmtEur(line.unit_price_cents)}${line.discount_percent === 0 ? '' : ` − ${line.discount_percent}%`}`;
   return {
     description: `${line.description} (${detail})`,
     quantity: 1,

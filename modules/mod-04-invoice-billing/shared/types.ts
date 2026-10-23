@@ -4,6 +4,8 @@
  * server and client can never disagree.
  */
 
+import type { LineRounding } from './money.js';
+
 /**
  * STORED lifecycle status. Only three values ever hit the database:
  *   draft      no number yet, fully editable, deletable
@@ -156,6 +158,12 @@ export interface InvoiceDetail extends InvoiceRow {
    * existed, which read today's master data.
    */
   parties_frozen: boolean;
+  /**
+   * How the line nets are rounded (shared/money.ts): the rule the invoice was
+   * finalized under, the current one for a draft. A credit note on it is
+   * computed the same way, the client's preview included.
+   */
+  line_rounding: LineRounding;
   cancelled_at: string | null;
   cancellation_reason: string | null;
   lines: InvoiceLine[];

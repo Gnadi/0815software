@@ -8,7 +8,7 @@ import { BASE } from './einvoice-cases.js';
  * and XRechnung rules this module's data can break; the matrix is how that
  * mirror is held to the real artefacts — every model it does NOT refuse is
  * rendered and validated with Mustang (scripts/validate-einvoice.sh, the
- * e-invoice workflow in CI). The golden cases cover eleven happy paths; this
+ * e-invoice workflow in CI). The golden cases cover one happy path each; this
  * covers the combinations, which is where the review found files that were
  * served although they failed (docs/E-RECHNUNG-REVIEW.md, H2).
  */

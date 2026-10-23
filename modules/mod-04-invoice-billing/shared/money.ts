@@ -12,7 +12,8 @@
  *   - VAT       = round(sum of line nets at a rate × rate / 100)
  *                 → computed once per rate on the tax base, not per line
  *   - gross     = net + VAT
- * round() is half-away-from-zero on non-negative inputs (Math.round).
+ * round() is half up; every input is non-negative. How the line net is
+ * computed depends on when the invoice was issued — see `LineRounding`.
  */
 
 /**
@@ -45,16 +46,55 @@ export interface Totals {
   by_rate: { rate: number; base_cents: number; vat_cents: number }[];
 }
 
+/**
+ * How a line's net is rounded to the cent.
+ *
+ * `decimal` — the quantity in ten-thousandths (the four decimals an e-invoice
+ * states it with) times the unit price, rounded half up, in integers: exactly
+ * BT-131, what a recipient recomputes and Peppol checks (PEPPOL-EN16931-R120).
+ *
+ * `float` — Math.round(quantity × unit price) in binary floating point. 0.29
+ * is stored as 0.28999…, so 0.29 × 0.50 € came out 0.14 € instead of 0.15 €;
+ * roughly one decimal quantity in a thousand rounded a cent low that way.
+ * Invoices issued before the switch keep it — their amounts were sent, paid
+ * and booked as computed then, and an issued invoice does not change.
+ *
+ * Which one an invoice uses is fixed when it is finalized (server/invoices.ts);
+ * a draft always uses `LINE_ROUNDING`.
+ */
+export type LineRounding = 'decimal' | 'float';
+
+/** The rounding every invoice finalized from now on is computed with. */
+export const LINE_ROUNDING: LineRounding = 'decimal';
+
+/** Decimal places a quantity may have: what the e-invoice states, so what is computed. */
+export const QUANTITY_DECIMALS = 4;
+
+/**
+ * Whether `quantity` has at most four decimal places. A tolerance far below
+ * 0.0001 absorbs binary noise (0.1 + 0.2), nothing that is a real fifth digit.
+ */
+export function fitsQuantityDecimals(quantity: number): boolean {
+  const scaled = quantity * 10 ** QUANTITY_DECIMALS;
+  return Math.abs(scaled - Math.round(scaled)) < 1e-6;
+}
+
 /** Net amount of a single line in cents, rounded per line. */
-export function lineNetCents(line: LineAmounts): number {
-  return Math.round(line.quantity * line.unit_price_cents);
+export function lineNetCents(line: LineAmounts, rounding: LineRounding): number {
+  if (rounding === 'float') return Math.round(line.quantity * line.unit_price_cents);
+  // Split so neither product leaves the exact integer range of a double:
+  // 1,000,000 × 100,000,000 cents would, as one product in ten-thousandths.
+  const tenThousandths = Math.round(line.quantity * 10_000);
+  const whole = Math.floor(tenThousandths / 10_000);
+  const part = tenThousandths - whole * 10_000;
+  return whole * line.unit_price_cents + Math.floor((part * line.unit_price_cents + 5_000) / 10_000);
 }
 
 /** Derive net / VAT-per-rate / gross from line items. */
-export function computeTotals(lines: LineAmounts[]): Totals {
+export function computeTotals(lines: LineAmounts[], rounding: LineRounding): Totals {
   const baseByRate = new Map<number, number>();
   for (const line of lines) {
-    const net = lineNetCents(line);
+    const net = lineNetCents(line, rounding);
     baseByRate.set(line.vat_rate, (baseByRate.get(line.vat_rate) ?? 0) + net);
   }
   const by_rate = [...baseByRate.entries()]

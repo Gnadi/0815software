@@ -8,7 +8,7 @@ import { seed } from '../server/seed.js';
 import { addDays, todayIso } from '../server/invoices.js';
 import type { AuthConfig } from '../server/auth.js';
 import type { SellerConfig } from '../server/config.js';
-import { computeTotals } from '../shared/money.js';
+import { computeTotals, LINE_ROUNDING, type LineRounding } from '../shared/money.js';
 import type { InvoiceDetail, InvoiceRow, Ledger } from '../shared/types.js';
 
 const auth: AuthConfig = {
@@ -155,7 +155,8 @@ describe('totals are derived from lines with per-line rounding', () => {
       const lines = db
         .prepare('SELECT quantity, unit_price_cents, vat_rate FROM invoice_lines WHERE invoice_id = ?')
         .all(row.id) as { quantity: number; unit_price_cents: number; vat_rate: number }[];
-      const totals = computeTotals(lines);
+      const { line_rounding } = db.prepare('SELECT line_rounding FROM invoices WHERE id = ?').get(row.id) as { line_rounding: LineRounding | null };
+      const totals = computeTotals(lines, line_rounding ?? LINE_ROUNDING);
       expect(row.net_cents, `invoice ${row.id} net`).toBe(totals.net_cents);
       expect(row.vat_cents, `invoice ${row.id} vat`).toBe(totals.vat_cents);
       expect(row.gross_cents, `invoice ${row.id} gross`).toBe(totals.gross_cents);

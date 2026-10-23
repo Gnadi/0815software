@@ -1,7 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
-import { VAT_RATES, vatRatesFor } from '../shared/money.js';
+import { fitsQuantityDecimals, LINE_ROUNDING, QUANTITY_DECIMALS, VAT_RATES, vatRatesFor } from '../shared/money.js';
 import {
   EINVOICE_FORMAT_CHOICES,
   STATUSES,
@@ -356,10 +356,16 @@ function validateLines(raw: unknown, errors: FieldError[]): LineInput[] {
     if (description === '' || description.length > 200) {
       errors.push({ field: `lines[${i}].description`, message: 'Description is required (max 200 characters)' });
     }
-    const quantity = Number(line.quantity);
+    let quantity = Number(line.quantity);
     if (typeof line.quantity === 'boolean' || line.quantity === '' || line.quantity === null || line.quantity === undefined ||
         Number.isNaN(quantity) || !Number.isFinite(quantity) || quantity <= 0 || quantity > 1_000_000) {
       errors.push({ field: `lines[${i}].quantity`, message: 'Quantity must be a number greater than zero' });
+    } else if (!fitsQuantityDecimals(quantity)) {
+      // The e-invoice states four decimals and the amount is computed from
+      // them; a fifth would make the file say one quantity and charge another.
+      errors.push({ field: `lines[${i}].quantity`, message: `Quantity has at most ${QUANTITY_DECIMALS} decimal places` });
+    } else {
+      quantity = Math.round(quantity * 10 ** QUANTITY_DECIMALS) / 10 ** QUANTITY_DECIMALS; // 0.1 + 0.2 → 0.3
     }
     const unitPriceCents = Number(line.unit_price_cents);
     if (!Number.isInteger(unitPriceCents) || unitPriceCents < 0 || unitPriceCents > 100_000_000) {
@@ -1264,6 +1270,7 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
       payment_terms_days: 14, buyer_reference: 'PROBE', note: null, preceding: null, exemption: null, seller: party,
       buyer: { name: 'PROBE', address: null, street: 'x', postcode: '1', city: 'x', country: 'DE', vat_id: null, email: 'probe@example.com', einvoice_address: null },
       lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: party.country === 'AT' ? 20 : 19 }],
+      line_rounding: LINE_ROUNDING,
     };
     return {
       seller: party,

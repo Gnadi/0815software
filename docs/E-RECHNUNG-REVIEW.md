@@ -13,17 +13,20 @@ Ergebnis aufgeführt. Zeilenangaben beziehen sich auf den Stand des Reviews.
 ## Stand der Umsetzung
 
 Nachgetragen am 22.10.2026, nachdem `main` (ebInterface 6.1, Teilgutschriften,
-wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war:
+wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1, M2, M3
+und M5 am 23.10.2026:
 
 | Befund | Stand | Belegt durch |
 | --- | --- | --- |
 | **H3** | **Behoben.** Die erste Auslieferung eines Formats (Rechnung, Storno, Teilgutschrift; XRechnung, ZUGFeRD, ebInterface) speichert die Datei mit SHA-256, Renderer-Version und Person in `issued_documents`; danach werden nur noch diese Bytes ausgeliefert. Trigger verweigern Ändern und Löschen. Die Renderer-Version ist an die Golden Files gekoppelt. | `test/issued-documents.test.ts` |
 | **H1** | **Behoben.** Kunden haben ein Zielformat (XRechnung, ZUGFeRD, ebInterface, keins). Ist eines gesetzt, lehnt das Festschreiben den Entwurf mit 422 ab, solange er darin nicht erzeugbar ist, bevor eine Nummer gezogen wird (auch bei PS-10). Der Entwurf zeigt die fehlenden Felder je Format, eingefrorene Rechnungen sagen, dass nur Storno und Neuausstellung helfen. | `test/einvoice-readiness.test.ts` (Fall A) |
 | **H2** | **Behoben.** Ergänzt: Ländercodes gegen die Liste des CEN-Schematrons (BR-CL-14), Länderpräfix der USt-IdNr. (BR-CO-09), Verkäufer-Kennung je Steuerkategorie (BR-S/Z/E/AE-02, BR-G-02, BR-IC-02, BR-DE-16), echte Kalenderdaten, Texte, die nach dem Bereinigen leer wären. Eine Matrix aus 279 Modellen wird bei jeder MOD-04-Änderung in CI mit Mustang validiert, soweit das Modul sie annimmt. Lokaler Lauf am 22.10.2026: 327 von 327 Dateien gültig (36 Golden-Dateien, 291 aus der Matrix). | `test/einvoice-rules.test.ts` (Fälle J, K, O, P, Q), `.github/workflows/einvoice-validation.yml` |
+| **M1** | **Weitgehend behoben.** Das PDF bricht Positionstext, Notiz, Befreiungsgrund, Gutschriftgrund, Käuferreferenz und Kundennamen nach gemessener Breite um (Metriken der Liberation-Schriften, die beide PDF-Varianten nutzen) und setzt auf der nächsten Seite fort, statt zu kürzen. Mengen stehen mit den vier Nachkommastellen des XML im deutschen Format (`1.234,5`). Offen: Zeichen außerhalb von WinAnsi werden weiter zu „?“ (N4), und beim Festschreiben geht weiter das einfache PDF hinaus, auch an Verkäufer in der Ausstellungspflicht (dafür fehlt eine Einstellung). | `test/einvoice-pdf.test.ts`, Golden-Fall `long` (Fall C) |
 | **M2** | **Behoben.** Die Fußzeile des PDF nennt alle Kennungen, die auch das XML trägt: USt-IdNr., Steuernummer, Registernummer. Ein leeres „VAT“ gibt es nicht mehr. Offen bleiben die Geschäftsbriefangaben nach § 35a GmbHG, dafür fehlen noch Felder. | `test/einvoice-pdf.test.ts` |
+| **M3** | **Behoben.** Zeilenbeträge werden ganzzahlig aus der Menge in Zehntausendsteln gerechnet und kaufmännisch gerundet (BT-131). Mengen haben höchstens vier Nachkommastellen (API und Festschreiben). Report-Views, DATEV/BMD-Export, Gutschriften und Client-Vorschau rechnen gleich. Jede Rechnung behält die Rundung, unter der sie festgeschrieben wurde (`line_rounding`): Bestehende Rechnungen bleiben bei der alten Gleitkomma-Rundung, ihre Beträge ändern sich nicht. Fall C ergibt jetzt 446,63 €, wie Mustang nachrechnet. Ein Import, dessen Zeilennetto die neue Rundung nicht trifft, wird centgenau übernommen. | `test/money.test.ts` (160.000 Kombinationen gegen BigInt, Upgrade-Fall), Golden-Fall `long` |
 | **M5** | **Behoben.** Die Prüfziffer einer Leitweg-ID wird geprüft, nach der Formatspezifikation 2.0.2 (Kap. 2.4, deren Beispiel ist Testfall): beim Speichern von Kunde und Verkäufer und vor jeder Datei, in der elektronischen Adresse und in der Käuferreferenz eines so adressierten Käufers. Eine Bestellnummer gleicher Form (`4711-01`) bei anderen Käufern bleibt unberührt. Die Testdaten tragen gültige IDs. | `test/einvoice-rules.test.ts` (Fall F) |
 | **M6** | **Behoben** mit H2: Die API nimmt nur noch echte Kalenderdaten an. | `test/einvoice-rules.test.ts` |
-| M1, M3, M4, M7, M8, N1–N8 | Offen. | – |
+| M4, M7, M8, N1–N8 | Offen. | – |
 
 Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
 Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
@@ -266,6 +269,9 @@ allen anderen Renderer-Fixes kommen.**
 
 ### M1 · PDF und XML sagen nicht dasselbe
 
+*Status: weitgehend behoben (Umbruch, Mengen); offen sind N4 und der Versand
+des einfachen PDF an Verkäufer in der Ausstellungspflicht.*
+
 **Wo:** `server/pdf.ts:264` (Positionstext nach 46 Zeichen abgeschnitten),
 `:309` (Notiz nach 100), `:317` (Befreiungsgrund nach 100), `:237`
 (Käuferreferenz nach 24), `:145` (Menge mit 3 Nachkommastellen) gegenüber
@@ -323,6 +329,12 @@ Geschäftsbriefangaben (Rechtsform, Sitz, Registergericht, Geschäftsführer;
 § 35a GmbHG, § 80 AktG); dafür gibt es noch kein Feld.
 
 ### M3 · Geldrechnung: Gleitkomma-Rundung und Mengengenauigkeit
+
+*Status: behoben.* Anders als hier vorgeschlagen reicht es nicht, die neue
+Rechnung erst nach dem Speichern der Bytes (H3) einzuführen: Auch Salden,
+Zahlungsstatus, Mahnungen und Exporte ausgestellter Rechnungen hätten sich um
+einen Cent verschoben. Deshalb trägt jede Rechnung ihre Rundungsregel, und
+alles vor der Umstellung Ausgestellte behält die alte.
 
 **Wo:** `shared/money.ts:49–51` (`Math.round(quantity * unit_price_cents)`),
 dieselbe Formel in den Report-Views `server/db.ts:433–462`; `server/app.ts`

@@ -461,9 +461,34 @@ export function openDb(path: string): Database.Database {
     BEGIN SELECT RAISE(ABORT, 'issued documents are immutable'); END;
   `);
 
+  // Which rounding an invoice's line nets are computed with (shared/money.ts,
+  // `LineRounding`). Every invoice issued before this column existed was
+  // computed in floating point and keeps that: its amounts were sent, paid and
+  // booked, and the exact rule would move about one line in a thousand by a cent.
+  // Finalizing stamps the current rule; a draft has none yet.
+  if (!columns('invoices').includes('line_rounding')) {
+    db.transaction(() => {
+      db.exec("ALTER TABLE invoices ADD COLUMN line_rounding TEXT CHECK (line_rounding IN ('decimal', 'float'))");
+      db.exec("UPDATE invoices SET line_rounding = 'float' WHERE status <> 'draft'");
+    })();
+  }
+
   ensureReportViews(db);
 
   return db;
+}
+
+/**
+ * shared/money.ts `lineNetCents` in SQL, for line `l` of invoice `i`. The
+ * decimal branch is integer arithmetic: ten-thousandths up to 10^10 times a
+ * unit price up to 10^8 cents stays inside SQLite's 64-bit integers, and
+ * integer division of a non-negative value floors, so `+ 5000` rounds half up.
+ */
+function lineNetSql(l: string, i: string): string {
+  return (
+    `CASE WHEN ${i}.line_rounding = 'float' THEN CAST(ROUND(${l}.quantity * ${l}.unit_price_cents) AS INTEGER) ` +
+    `ELSE (CAST(ROUND(${l}.quantity * 10000) AS INTEGER) * ${l}.unit_price_cents + 5000) / 10000 END`
+  );
 }
 
 function dropReportViews(db: Database.Database): void {
@@ -490,9 +515,10 @@ function dropReportViews(db: Database.Database): void {
  * 1. DRAFTS NEVER APPEAR. A draft has no number and no issue date; it is not a
  *    business fact yet. Every view filters `status <> 'draft'`.
  * 2. MONEY IS COMPUTED EXACTLY AS shared/money.ts COMPUTES IT — line net is
- *    rounded PER LINE, VAT is rounded ONCE PER RATE on that rate's tax base,
- *    gross is their sum. Nothing is re-derived with different rounding, and
- *    api.test.ts asserts a view total equals computeTotals() for the same
+ *    rounded PER LINE, with the invoice's own `line_rounding` (`lineNetSql`),
+ *    VAT is rounded ONCE PER RATE on that rate's tax base, gross is their sum.
+ *    Nothing is re-derived with different rounding, and api.test.ts and
+ *    money.test.ts assert a view total equals computeTotals() for the same
  *    invoice. (SQLite's round() and JS's Math.round() agree on the
  *    non-negative values this schema allows: quantity > 0, unit price >= 0.)
  * 3. CANCELLED INVOICES ARE INCLUDED AND MARKED, so a report can filter them
@@ -552,8 +578,10 @@ function ensureReportViews(db: Database.Database): void {
         SELECT
           l.credit_note_id,
           l.vat_rate,
-          SUM(CAST(ROUND(l.quantity * l.unit_price_cents) AS INTEGER)) AS base_cents
+          SUM(${lineNetSql('l', 'li')}) AS base_cents
         FROM credit_note_lines l
+        JOIN credit_notes lcn ON lcn.id = l.credit_note_id
+        JOIN invoices li ON li.id = lcn.invoice_id
         GROUP BY l.credit_note_id, l.vat_rate
       )
       GROUP BY credit_note_id
@@ -606,8 +634,9 @@ function ensureReportViews(db: Database.Database): void {
         SELECT
           l.invoice_id,
           l.vat_rate,
-          SUM(CAST(ROUND(l.quantity * l.unit_price_cents) AS INTEGER)) AS base_cents
+          SUM(${lineNetSql('l', 'li')}) AS base_cents
         FROM invoice_lines l
+        JOIN invoices li ON li.id = l.invoice_id
         GROUP BY l.invoice_id, l.vat_rate
       )
       GROUP BY invoice_id
@@ -634,7 +663,7 @@ function ensureReportViews(db: Database.Database): void {
       l.quantity                                        AS quantity,
       l.unit_price_cents                                AS unit_price_cents,
       l.vat_rate                                        AS vat_rate,
-      CAST(ROUND(l.quantity * l.unit_price_cents) AS INTEGER) AS line_net_cents,
+      ${lineNetSql('l', 'i')} AS line_net_cents,
       i.status                                          AS status,
       CASE WHEN i.status = 'cancelled' THEN 1 ELSE 0 END AS is_cancelled
     FROM invoice_lines l

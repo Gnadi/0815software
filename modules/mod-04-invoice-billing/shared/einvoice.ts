@@ -28,7 +28,7 @@
  */
 
 import { hasVatPrefix, isCountryCode } from './countries.js';
-import { computeTotals, lineNetCents } from './money.js';
+import { computeTotals, lineNetCents, type LineRounding } from './money.js';
 import type { TaxExemptionCategory } from './types.js';
 
 export const EINVOICE_PROFILES = ['xrechnung', 'zugferd'] as const;
@@ -121,6 +121,8 @@ export interface EInvoiceModel {
   seller: SellerParty;
   buyer: BuyerParty;
   lines: EInvoiceLine[];
+  /** How the line amounts are rounded — the invoice's own rule (shared/money.ts). */
+  line_rounding: LineRounding;
 }
 
 export interface EInvoiceProblem {
@@ -487,7 +489,7 @@ function taxRegistration(xml: Xml, scheme: 'VA' | 'FC', id: string | null): void
 export function renderCii(model: EInvoiceModel, profile: EInvoiceProfile): string {
   const xml = new Xml();
   const { seller, buyer, exemption } = model;
-  const totals = computeTotals(model.lines);
+  const totals = computeTotals(model.lines, model.line_rounding);
   // "Not subject to VAT" forbids the seller's VAT id and any rate (BR-O-02, BR-O-05).
   const notSubject = exemption?.category === 'O' && totals.by_rate.every((r) => r.rate === 0);
 
@@ -551,7 +553,7 @@ export function renderCii(model: EInvoiceModel, profile: EInvoiceProfile): strin
     xml.close('ram:ApplicableTradeTax');
     xml
       .open('ram:SpecifiedTradeSettlementLineMonetarySummation')
-      .leaf('ram:LineTotalAmount', amount(lineNetCents(line)))
+      .leaf('ram:LineTotalAmount', amount(lineNetCents(line, model.line_rounding)))
       .close('ram:SpecifiedTradeSettlementLineMonetarySummation');
     xml.close('ram:SpecifiedLineTradeSettlement');
     xml.close('ram:IncludedSupplyChainTradeLineItem');

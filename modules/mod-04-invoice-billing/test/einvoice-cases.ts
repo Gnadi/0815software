@@ -20,6 +20,7 @@ export const BASE: EInvoiceModel = {
     vat_id: 'DE123456789', tax_number: null, iban: 'DE02120300000000202051', bic: null, contact_name: 'Erika Mustermann', phone: '+49 89 123456', email: 'rechnung@beispiel.de', einvoice_address: null },
   buyer: { name: 'Kunde GmbH', address: null, street: 'Ring 5', postcode: '1010', city: 'Wien', country: 'AT', vat_id: 'ATU12345678', email: 'ap@kunde.at', einvoice_address: null },
   lines: [{ position: 1, description: 'Leistung', quantity: 1.5, unit_price_cents: 10000, vat_rate: 0 }],
+  line_rounding: 'decimal',
 };
 
 export const CASES: Record<string, EInvoiceModel> = {
@@ -51,5 +52,19 @@ export const CASES: Record<string, EInvoiceModel> = {
   teilgutschrift: { ...BASE, type_code: '381', number: 'INV-2026-0042-GS1', issue_date: '2026-10-25', due_date: null,
     note: 'Gutschrift zur Rechnung INV-2026-0042 vom 2026-10-21: 2 Fachbücher retourniert', preceding: { number: 'INV-2026-0042', issue_date: '2026-10-21' },
     buyer: { ...BASE.buyer, country: 'DE' }, lines: [{ position: 1, description: 'Fachbuch', quantity: 2, unit_price_cents: 1999, vat_rate: 7 }] },
+  // Review case C: a quantity with four decimals, rounded half up exactly
+  // (0.3333 × 999.99 € = 333.30 €), and texts long enough that the PDF has to
+  // wrap them — it used to cut them off.
+  long: {
+    ...BASE,
+    buyer_reference: 'Bestellung 4500012345 / Kostenstelle 4711-0815 / Ansprechpartnerin Frau Meier',
+    note: 'Projekt Sanierung Heizzentrale Schulzentrum Nord, Bauabschnitt 2 — Abrechnung nach Aufmaß vom 14.10.2026.',
+    buyer: { ...BASE.buyer, name: 'Kunde AG', street: 'Kundenweg 5', postcode: '10115', city: 'Berlin', country: 'DE', vat_id: 'DE987654321', email: 'ap@kunde.de' },
+    exemption: { category: 'E', reason: 'Steuerfrei nach § 4 Nr. 14 Buchst. a UStG (Heilbehandlungen im Bereich der Humanmedizin durch Ärzte, Zahnärzte, Heilpraktiker und Physiotherapeuten)' },
+    lines: [
+      { position: 1, description: 'Wartung der Heizungsanlage gemäß Wartungsvertrag Nr. 2026-117, inkl. Abgasmessung, Austausch der Zündelektrode und Prüfung des Ausdehnungsgefäßes', quantity: 0.3333, unit_price_cents: 99999, vat_rate: 19 },
+      { position: 2, description: 'Heilbehandlung', quantity: 1, unit_price_cents: 5000, vat_rate: 0 },
+    ],
+  },
   leitweg: { ...BASE, buyer_reference: '991-12345-73', buyer: { ...BASE.buyer, country: 'DE', einvoice_address: '991-12345-73' }, lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: 7 }] },
 };
