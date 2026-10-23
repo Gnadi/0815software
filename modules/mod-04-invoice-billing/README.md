@@ -488,6 +488,12 @@ date, and the 381 / CreditMemo against both schemas.
 without drift, at most one draft per period (also at the unique index), a
 deleted draft not being regenerated, bounded catch-up, the end date, the
 start-date lock and the access levels.
+`test/money.test.ts` pins the line rounding: decimal, half up, equal to an
+independent BigInt computation for 160,000 quantities and prices; at most four
+decimals, refused at the API and at finalize; and an upgrade leaving every
+invoice issued before it at the amounts it was issued with, its credit notes
+included. `test/einvoice-pdf.test.ts` pins that the PDF says what the XML
+says: texts in full, the quantity's four decimals, the seller's identifiers.
 
 ## Deploy notes
 
