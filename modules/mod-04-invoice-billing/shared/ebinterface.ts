@@ -25,6 +25,7 @@
  * recipient requires them is the recipient's rule, documented in
  * docs/E-RECHNUNG.md rather than guessed here.
  */
+import { ADDRESS_HINT } from './address.js';
 import { isCountryCode } from './countries.js';
 import { computeTotals, lineNetCents, vatRatesFor } from './money.js';
 import { normalizeBic } from './sepa.js';
@@ -103,8 +104,8 @@ export function ebInterfaceProblems(model: EInvoiceModel): EInvoiceProblem[] {
   problems.push(...paymentAccountProblems(model));
 
   if (missing(buyer.name)) add('BT-44', 'customer.name', 'Buyer name is missing');
-  if (missing(buyer.city)) add('BT-52', 'customer.city', 'ebInterface requires the buyer town');
-  if (missing(buyer.postcode)) add('BT-53', 'customer.postcode', 'ebInterface requires the buyer postcode');
+  if (missing(buyer.city)) add('BT-52', 'customer.city', `ebInterface requires the buyer town (on the customer: ${ADDRESS_HINT})`);
+  if (missing(buyer.postcode)) add('BT-53', 'customer.postcode', `ebInterface requires the buyer postcode (on the customer: ${ADDRESS_HINT})`);
   if (missing(buyer.country)) add('BT-55', 'customer.country_code', 'Buyer country (ISO code) is missing');
   else if (!isCountryCode(buyer.country)) {
     add('BT-55', 'customer.country_code', `Buyer country "${buyer.country}" is not an ISO 3166 code — the United Kingdom is GB`);

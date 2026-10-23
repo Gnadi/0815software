@@ -27,6 +27,7 @@
  * This file imports nothing from the server: pure, deterministic, testable.
  */
 
+import { ADDRESS_HINT } from './address.js';
 import { hasVatPrefix, isCountryCode } from './countries.js';
 import { computeTotals, lineNetCents, type LineRounding } from './money.js';
 import { EAS_CODES, ICD_CODES } from './schemes.js';
@@ -348,8 +349,8 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
 
   // ── Seller (BG-4) ──
   if (missing(seller.name)) add('BT-27', 'seller.name', 'Seller name is missing');
-  if (missing(seller.city)) add('BT-37', 'seller.city', 'Seller city is missing (Settings → Seller: city, or an address line "PLZ Ort")');
-  if (missing(seller.postcode)) add('BT-38', 'seller.postcode', 'Seller postcode is missing');
+  if (missing(seller.city)) add('BT-37', 'seller.city', `Seller city is missing (Settings → Seller: ${ADDRESS_HINT})`);
+  if (missing(seller.postcode)) add('BT-38', 'seller.postcode', `Seller postcode is missing (Settings → Seller: ${ADDRESS_HINT})`);
   if (missing(seller.street)) add('BT-35', 'seller.street', 'Seller street is missing');
   if (missing(seller.country)) add('BT-40', 'seller.country', 'Seller country (ISO code, e.g. DE or AT) is missing');
   else if (!isCountryCode(seller.country)) {
@@ -408,8 +409,8 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
     add('BT-48', 'customer.vat_id', `Buyer VAT id "${buyer.vat_id}" does not start with a country code (BR-CO-09)`);
   }
   if (xr) {
-    if (missing(buyer.city)) add('BT-52', 'customer.city', 'XRechnung requires the buyer city');
-    if (missing(buyer.postcode)) add('BT-53', 'customer.postcode', 'XRechnung requires the buyer postcode');
+    if (missing(buyer.city)) add('BT-52', 'customer.city', `XRechnung requires the buyer city (on the customer: ${ADDRESS_HINT})`);
+    if (missing(buyer.postcode)) add('BT-53', 'customer.postcode', `XRechnung requires the buyer postcode (on the customer: ${ADDRESS_HINT})`);
     if (missing(buyer.einvoice_address) && missing(buyer.email)) {
       add('BT-49', 'customer.einvoice_address', 'XRechnung requires the buyer electronic address (e-invoice address, Leitweg-ID or email)');
     }

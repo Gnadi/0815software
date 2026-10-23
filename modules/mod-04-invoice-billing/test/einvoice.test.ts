@@ -172,6 +172,25 @@ describe('reading a printed address', () => {
       country: null,
     });
   });
+
+  it("reads the postcode in the format of the address's own country, and only there (N3)", () => {
+    // Read as four digits, this was postcode 1012 in the city "LG Amsterdam".
+    expect(parseAddressLines(['Damrak 1', '1012 LG Amsterdam', 'Netherlands'])).toEqual({
+      street: 'Damrak 1',
+      postcode: '1012 LG',
+      city: 'Amsterdam',
+      country: 'NL',
+    });
+    expect(parseAddressLines(['ul. Piotrkowska 1', '90-001 Łódź'], 'PL')).toMatchObject({ postcode: '90-001', city: 'Łódź' });
+    expect(parseAddressLines(['Václavské náměstí 1', '110 00 Praha 1'], null, 'CZ')).toMatchObject({ postcode: '110 00', city: 'Praha 1' });
+    // The country the customer was given decides, over a VAT id from elsewhere.
+    expect(parseAddressLines(['Ring 5', '1010 Wien'], 'DE', 'AT')).toMatchObject({ postcode: '1010', city: 'Wien', country: 'AT' });
+    // A postcode that is not the country's, a country whose format is not
+    // known, and no country at all: left to the explicit fields.
+    expect(parseAddressLines(['Ring 5', '1010 Wien'], 'DE')).toMatchObject({ postcode: null, city: null, country: 'DE' });
+    expect(parseAddressLines(['10 Downing Street', 'London SW1A 2AA', 'GB'])).toMatchObject({ postcode: null, city: null, country: 'GB' });
+    expect(parseAddressLines(['Kundenweg 5', '10115 Berlin'])).toMatchObject({ street: null, postcode: null, city: null, country: null });
+  });
 });
 
 describe('font subsetting', () => {

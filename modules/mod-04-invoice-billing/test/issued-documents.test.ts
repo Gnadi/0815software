@@ -187,6 +187,8 @@ const FINGERPRINTS: Record<string, string> = {
   'mod-04-einvoice-7': 'b732517ccc7b294fa422165c4c8e241e52b268729dddc2eae6f846926dfadfa6',
   // Stornorechnung and Rechnungskorrektur instead of Gutschrift, in BT-20, BT-22 and the PDF/A title (N5).
   'mod-04-einvoice-8': '4d760a76a866ce5ab30e06c55f1b95706728230e39bfec77b4c19bee859cd834',
+  // A printed postcode is read in the format of the address's country (N3); the cases carry theirs structured.
+  'mod-04-einvoice-9': '4d760a76a866ce5ab30e06c55f1b95706728230e39bfec77b4c19bee859cd834',
 };
 
 describe('the renderer version', () => {

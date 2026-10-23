@@ -13,8 +13,8 @@ Ergebnis aufgeführt. Zeilenangaben beziehen sich auf den Stand des Reviews.
 ## Stand der Umsetzung
 
 Nachgetragen am 22.10.2026, nachdem `main` (ebInterface 6.1, Teilgutschriften,
-wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1 bis M8,
-N1, N2, N4 und N5 am 23.10.2026:
+wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1 bis M8
+und N1 bis N5 am 23.10.2026:
 
 | Befund | Stand | Belegt durch |
 | --- | --- | --- |
@@ -33,7 +33,8 @@ N1, N2, N4 und N5 am 23.10.2026:
 | **N2** | **Behoben.** Vor jeder Rechnung, in allen drei Formaten, muss die IBAN eine SEPA-IBAN mit stimmender Prüfsumme sein (BT-84, `ibanProblem` wie beim Speichern), ein gesetzter BIC ein BIC (BT-86), geschrieben wie die IBAN ohne Leerzeichen und in Großbuchstaben (das ebInterface-Schema lehnt „BYLA DEM1 001“ ab). Die Vorgaben aus `config.ts`, `AT00 0000 0000 0000 0000` und `EXAMPLEX`, werden mit eigenem Text abgelehnt; `EXAMPLEX` hat die Form eines BIC. Ein Storno nennt kein Konto und wird darauf nicht geprüft, damit eine Rechnung mit Platzhalter-Konto storniert werden kann. Für XRechnung braucht die Telefonnummer mindestens drei Ziffern (BR-DE-27), auch beim Speichern der Einstellungen. | `test/einvoice-rules.test.ts` (Fälle H, V, W, M; N2) |
 | **N1** | **Behoben.** Geschäftsdaten sind Tage in der Zeitzone `BUSINESS_TIMEZONE` (Vorgabe Europe/Berlin; eine unbekannte Zone verhindert den Start): Rechnungsdatum ohne Eingabe, damit das Jahr des Nummernkreises, Fälligkeit, Zahlungen ohne Buchungsdatum, Mahnungen, Überfälligkeit. Das Stornodatum wird beim Stornieren als `cancelled_on` gespeichert, wie ein Rechnungsdatum; es datiert das Storno-Dokument (BT-2), die Gegenbuchung im DATEV/BMD-Export und den Kontoauszug, auch eine spätere Änderung der Zone verschiebt es nicht. Ältere Stornos behalten den UTC-Tag, den sie immer zeigten. Die Report-Views zählen `days_overdue` in derselben Zone; SQLite kennt keine IANA-Zonen, darum trägt die View die Offsets der Zone mit den Umstellungszeitpunkten für 30 Jahre und wird bei jedem Start neu gebaut. Der Client zeigt Zeitstempel in der Ortszeit des Betrachters. | `test/business-date.test.ts` (Neujahrsnacht, Storno um 00:30, SQL gegen `Intl` an den Zeitumstellungen von sieben Zonen, Migration) |
 | **N5** | **Behoben.** Der Storno heißt „Stornorechnung“ (BT-22 „Stornorechnung zur Rechnung … vom …“, Titel des PDF/A), die Teilgutschrift „Rechnungskorrektur“. BT-20 nennt für beide keinen Dokumentnamen mehr, nur „Wird mit offenen Beträgen verrechnet oder erstattet.“ Die Namen stehen an einer Stelle (`DOCUMENT_NAME`). Intern (Oberfläche, DATEV/BMD-Buchungstext) bleibt „Gutschrift“, das geht an keinen Empfänger. | `test/einvoice.test.ts`, `test/credit-notes.test.ts`, Golden-Fälle `storno`, `teilgutschrift`, `at-storno`, `at-teilgutschrift` |
-| N3, N6–N8 | Offen. | – |
+| **N3** | **Behoben.** Eine Zeile „PLZ Ort“ wird nur im Format des Landes der Adresse gelesen (Länderfeld, sonst Länderzeile, Buchstabenpräfix, USt-IdNr.), für 23 Länder mit bekanntem Format: „1012 LG Amsterdam“ ergibt PLZ `1012 LG` und Ort Amsterdam, „90-001 Łódź“ PLZ `90-001`. Ohne Land, bei einem Land ohne hinterlegtes Format (GB, IE …) oder einer PLZ, die nicht ins Format passt, bleiben PLZ und Ort leer, und die Datei wird mit Verweis auf die Felder abgelehnt. | `test/einvoice.test.ts` (N3) |
+| N6–N8 | Offen. | – |
 
 Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
 Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
@@ -510,6 +511,8 @@ mindestens drei Ziffern.
 
 ### N3 · Das Adresslesen rät bei niederländischen Postleitzahlen
 
+*Status: behoben (siehe Tabelle oben).*
+
 `shared/address.ts:78`. Fall D: „1012 LG Amsterdam“ wird zu PLZ `1012` und
 Ort `LG Amsterdam`. Das widerspricht dem Grundsatz der Datei („reported as
 missing rather than guessed“). Vorschlag: nur Länder mit bekanntem Muster
@@ -910,4 +913,5 @@ und Q werden mit dem jeweiligen Business Term abgelehnt (M5, H2, M6). L
 ergibt 0,15 € und 1,01 € (M3). H wird als Rechnung in jedem Format
 abgelehnt, bei Kunden mit Zielformat schon beim Festschreiben; der Storno
 bleibt möglich (N2). M wird beim Speichern abgelehnt, Adresse wie Telefon
-(M4, N2). D, D′ und I gelten unverändert.
+(M4, N2). D ergibt PLZ „1012 LG“ und Ort „Amsterdam“ (N3). D′ und I gelten
+unverändert.

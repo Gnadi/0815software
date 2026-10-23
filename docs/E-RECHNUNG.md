@@ -174,7 +174,14 @@ Below the fields, the screen shows whether XRechnung and ZUGFeRD are
 ### The customer (Customers screen)
 
 All optional. An empty structured field is read from the printed address,
-and the country falls back to the VAT id's prefix.
+and the country falls back to the VAT id's prefix. A "postcode city" line is
+read in the format of the address's country only: the country field, else a
+country line ("Netherlands"), else a letter prefix ("D-80331"), else the VAT
+id. "1012 LG Amsterdam" is postcode `1012 LG` in Amsterdam, "90-001 Łódź"
+postcode `90-001`. A country whose format the module does not know (GB, IE,
+the US …), a postcode that is not in the country's format, or an address
+without any country leaves postcode and city to their own fields, and the
+file is refused until they are filled in (`shared/address.ts`).
 
 | Field | Business term | Needed for |
 | ----- | ------------- | ---------- |
