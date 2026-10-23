@@ -27,6 +27,9 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'POST', path: '/api/pos/:id/approvals', access: 'manage' },
   // Rejects at an approval tier.
   { method: 'POST', path: '/api/pos/:id/reject', access: 'manage' },
+  // The matching tolerance decides which invoices are paid without a person
+  // releasing them; the receiving warehouse where stock lands. The office's.
+  { method: 'PUT', path: '/api/settings/matching', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

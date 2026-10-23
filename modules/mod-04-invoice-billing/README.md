@@ -29,6 +29,9 @@ suite proves each of them:
    payment run, enforced by a unique index rather than by care, and a
    produced file never changes afterwards. See
    [Bills and the SEPA payment file](#bills-and-the-sepa-payment-file).
+   A bill for a MOD-06 purchase order is paid only when the three-way match
+   says what arrived covers it — or a manager released it with a reason. See
+   [Matched against the purchase order](#matched-against-the-purchase-order-mod-06).
 5. **An issued invoice keeps saying what it said.** Finalizing freezes the
    seller and the buyer into the invoice; the PDF, the XRechnung and the
    ZUGFeRD file are rendered from that copy, so a later address change never
@@ -121,8 +124,12 @@ recurring_runs       template, period start/end, the draft it produced
 
 creditors          name, iban (validated), bic, note         (who we pay)
 bills              creditor, reference, remittance, amount_cents (GROSS),
-                   issue_date, due_date, note, paid_at, cancelled_at
+                   issue_date, due_date, note, paid_at, cancelled_at,
+                   po_number?, net_cents?            (the MOD-06 PO it is for)
                    UNIQUE (creditor, reference)
+bill_match_checks  APPEND-ONLY: bill, result, message, ordered/received/invoiced/
+                   tolerance cents, actor, checked_at   (every answer MOD-06 gave)
+bill_match_releases APPEND-ONLY: bill, check, reason, actor  (a held verdict released)
 payment_runs       message_id (the pain.001 MsgId), execution_date,
                    FROZEN debtor name/IBAN/BIC, executed_at, discarded_at,
                    submitted_at, rejected_at, banking_order_id, bank_status
@@ -311,6 +318,7 @@ the Settings screen by whoever holds `manage`, and what is saved there wins (see
 | `SELLER_REGISTRATION` | —                    | E-invoice: register number, e.g. `HRB 12345` (BT-30) — needed without a VAT id |
 | `SELLER_CONTACT_NAME` · `SELLER_PHONE` · `SELLER_EMAIL` | — | E-invoice: seller contact — mandatory for XRechnung (BT-41/42/43) |
 | `SELLER_EINVOICE_ADDRESS` | *(`SELLER_EMAIL`)* | E-invoice: seller electronic address (BT-34) |
+| `PROCUREMENT_URL` | — | MOD-06 Procurement: match bills naming a PO before they are paid |
 
 The server prints a warning on startup while the default password is in
 use. The dev server does not load `.env` files by itself — export the
@@ -396,6 +404,8 @@ PUT    /api/bills/:id                  open bills only — scheduled/paid → 40
 DELETE /api/bills/:id                  never-run open bills only → 409
 POST   /api/bills/:id/cancel           open only — kept, never deleted
 POST   /api/bills/:id/mark-paid        settled outside a run; scheduled → 409
+POST   /api/bills/:id/check-match      ask MOD-06 again (501 without PROCUREMENT_URL)
+POST   /api/bills/:id/release-match    {reason} — pay a held bill anyway (manage)
 
 GET    /api/payment-runs               the runs + the debtor config
 POST   /api/payment-runs               {bill_ids: [], execution_date?} → the run
@@ -964,6 +974,35 @@ export profiles are examples rather than certifications.
    about it wins: a run accepted at upload and refused by a `pain.002` two days
    later ends up `rejected`, with its bills released, not quietly "sent".
 
+### Matched against the purchase order (MOD-06)
+
+A bill may name the MOD-06 purchase order it is for (`po_number`) and its
+**net** amount (`net_cents` — POs are priced net). With `PROCUREMENT_URL`
+set, this module asks MOD-06 whether it may be paid, sending what has been
+invoiced against the PO so far: this bill and the earlier ones, not
+cancelled. MOD-06 compares that with what was ordered and what has arrived
+(its README has the rule and the tolerance) and this module keeps every
+answer, append-only.
+
+- It asks when a bill is entered or edited, on *Check again*, and once more
+  for every selected bill when a payment run is created — the last word
+  before money leaves. A run refuses a bill that is **held** (its latest
+  answer is anything but `matched`) or **not checked** (MOD-06 never
+  answered).
+- An outage of MOD-06 is recorded and decides nothing: the last real answer
+  stands, so it neither pays a held bill nor holds a matched one.
+- A manager may **release** a held bill with a reason (`manage`); the
+  release covers the verdict it answered. An edit asks again, and a new
+  held verdict needs a new release.
+- Without `PROCUREMENT_URL` nothing is asked and nothing held; the PO
+  number is then a reference like any other. *Mark paid* records a payment
+  made elsewhere and is not held — it is a fact, not an instruction.
+
+Pinned by `test/bill-match.test.ts` (the net amount, the cumulative
+amount and that a later bill never changes an earlier verdict, unknown POs,
+the run refusing and then paying, asking again before paying, the outage,
+standalone, the release and its scope).
+
 ### Money, and what a bill is not
 
 A bill's `amount_cents` is the **gross amount to transfer** — what the
@@ -1083,7 +1122,7 @@ person signs in as themselves and gets the level PS-01 grants them here:
 | `module:invoice-billing:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
 
 `module:*:<level>` grants a level in every module. Reads need `view`, any other
-method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/payment-runs` → `manage`; `POST /api/payment-runs/:id/submit` → `manage`; `POST /api/payment-runs/:id/mark-executed` → `manage`; `POST /api/payment-runs/:id/discard` → `manage`; `PUT /api/settings/seller` → `manage`; `PUT /api/accounting-settings` → `manage`. A refused request answers **403**
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/payment-runs` → `manage`; `POST /api/payment-runs/:id/submit` → `manage`; `POST /api/payment-runs/:id/mark-executed` → `manage`; `POST /api/payment-runs/:id/discard` → `manage`; `PUT /api/settings/seller` → `manage`; `PUT /api/accounting-settings` → `manage`; `POST /api/bills/:id/release-match` → `manage`. A refused request answers **403**
 `{ error, required, access }`; `GET /api/me` reports the caller's `access`.
 Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
 manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).

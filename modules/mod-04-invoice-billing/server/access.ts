@@ -44,6 +44,9 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'PUT', path: '/api/dunning-settings', access: 'manage' },
   // Drafts for every template at once — the month-end run, not daily work.
   { method: 'POST', path: '/api/recurring/run', access: 'manage' },
+  // Paying a bill the three-way match holds — more than was received, or
+  // than was ordered — is a decision someone answers for, with a reason.
+  { method: 'POST', path: '/api/bills/:id/release-match', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

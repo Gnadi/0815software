@@ -231,13 +231,13 @@ const presentation: Record<string, ModulePresentation> = {
     },
   },
   'mod-06-procurement-tracker': {
-    body: 'RFQ, purchase orders, multi-tier approval workflows. Export to any ERP CSV format.',
+    body: 'RFQ, purchase orders, multi-tier approvals, goods receipts and the three-way match. Export to any ERP CSV format.',
     overview:
       'Approval tiers are derived from the order total and frozen at submit: the threshold brackets live in one server config file, and the approval chain a request must clear is computed when it is submitted and never shifts underneath it. Run RFQs, raise purchase orders, route multi-tier approvals and export to any ERP’s CSV format.',
     features: [
       'RFQ → purchase-order workflow',
       'Multi-tier approvals derived from the total, frozen at submit',
-      'Threshold brackets in a single server config file',
+      'Goods receipts and a three-way match before invoices are paid',
       'Export to any ERP CSV format',
     ],
     screen: {

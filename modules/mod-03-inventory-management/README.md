@@ -176,7 +176,9 @@ DELETE /api/purchase-orders/:id          drafts only (otherwise 409)
 
 POST   /api/goods-issues                 machine token — {source, reference, warehouse_code,
                                          actor, lines: [{sku, quantity}]}; 201, or 200 on replay
-GET    /api/goods-issues/warehouses      machine token — codes to issue from
+GET    /api/goods-issues/warehouses      machine token — codes to issue from (and receive into)
+POST   /api/goods-receipts               machine token — {source, reference, warehouse_code,
+                                         actor, lines: [{sku, quantity}]}; idempotent
 PUT    /api/reservations                 machine token — {source, reference, warehouse_code, actor,
                                          lines}: what an order needs; answers {reservations, short}
 POST   /api/reservations/release         machine token — {source, reference, actor}; idempotent
@@ -294,6 +296,18 @@ pinned by `test/goods-issues.test.ts`):
 - One negative `goods_issue` movement per product, with the delivery note
   number as reference. A database from before this rebuilds `movements` once
   on start (SQLite cannot alter a CHECK), rows and ids unchanged.
+
+## Goods receipt for a purchase order (MOD-06)
+
+`POST /api/goods-receipts` (machine token) is the mirror: it books the stock
+lines of a goods receipt recorded against a purchase order in MOD-06
+Procurement (`server/goods-receipts.ts`, pinned by
+`test/goods-receipts.test.ts`). All or nothing (every SKU and the warehouse
+must exist), once per receipt (UNIQUE source + reference — the receipt
+number `PO-…/WE-n`), naming the person who received the goods. One positive
+`receipt` movement per product with the receipt number as reference; this
+module's own purchase orders are not touched — MOD-06 keeps that PO's
+progress.
 
 ## License
 

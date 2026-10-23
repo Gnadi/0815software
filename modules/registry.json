@@ -296,6 +296,10 @@
       "peers": {
         "optional": [
           {
+            "id": "mod-06-procurement-tracker",
+            "urlEnv": "PROCUREMENT_URL"
+          },
+          {
             "id": "mod-13-offers",
             "urlEnv": "OFFERS_URL"
           },
@@ -409,6 +413,14 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
+      },
+      "peers": {
+        "optional": [
+          {
+            "id": "mod-03-inventory-management",
+            "urlEnv": "INVENTORY_URL"
+          }
+        ]
       }
     },
     {

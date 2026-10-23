@@ -245,6 +245,8 @@ export const api = {
   deleteBill: (id: number) => request<{ ok: true }>(`/api/bills/${id}`, { method: 'DELETE' }),
   cancelBill: (id: number) => request<BillRow>(`/api/bills/${id}/cancel`, post()),
   markBillPaid: (id: number) => request<BillRow>(`/api/bills/${id}/mark-paid`, post()),
+  checkBillMatch: (id: number) => request<BillRow>(`/api/bills/${id}/check-match`, post()),
+  releaseBillMatch: (id: number, reason: string) => request<BillRow>(`/api/bills/${id}/release-match`, post({ reason })),
 
   paymentRuns: () =>
     request<{ runs: PaymentRunRow[]; config: PaymentConfig }>('/api/payment-runs'),

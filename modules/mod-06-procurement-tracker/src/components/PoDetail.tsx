@@ -4,7 +4,9 @@ import { api, ApiError } from '../api';
 import { fmtDate, fmtDateTime, fmtEur, fmtQty } from '../format';
 import { ApprovalRules } from './ApprovalRules';
 import { PoBadge, TierProgress } from './StatusBadge';
-import { Can } from '../access';
+import { Can, useCan } from '../access';
+
+const RECEIPT_LABEL = { none: 'NOTHING YET', partial: 'PARTLY', complete: 'COMPLETE' } as const;
 
 interface Props {
   id: number;
@@ -22,6 +24,11 @@ export function PoDetailView({ id, config, onBack, onEdit, onOpenRfq, onAuthLost
   const [busy, setBusy] = useState(false);
   const [approver, setApprover] = useState('');
   const [decisionNote, setDecisionNote] = useState('');
+  const [arriving, setArriving] = useState<Record<number, string>>({});
+  const [receivedOn, setReceivedOn] = useState('');
+  const [receiptNote, setReceiptNote] = useState('');
+  const [correction, setCorrection] = useState(false);
+  const canEdit = useCan('edit');
 
   const load = useCallback(async () => {
     try {
@@ -72,6 +79,22 @@ export function PoDetailView({ id, config, onBack, onEdit, onOpenRfq, onAuthLost
     );
   }
 
+  function receive(event: FormEvent) {
+    event.preventDefault();
+    if (!po) return;
+    const lines = Object.entries(arriving)
+      .filter(([, q]) => q.trim() !== '' && Number(q.replace(',', '.')) !== 0)
+      .map(([lineId, q]) => ({ po_line_id: Number(lineId), quantity: Number(q.replace(',', '.')) * (correction ? -1 : 1) }));
+    void run(
+      () => api.receive(po.id, { kind: correction ? 'correction' : 'receipt', received_on: receivedOn || undefined, note: receiptNote.trim() || null, lines }),
+      () => {
+        setArriving({});
+        setReceiptNote('');
+        setCorrection(false);
+      },
+    );
+  }
+
   if (error) return <div className="resource__error mono">{error}</div>;
   if (!po) return <div className="boot mono">LOADING…</div>;
 
@@ -80,6 +103,7 @@ export function PoDetailView({ id, config, onBack, onEdit, onOpenRfq, onAuthLost
   const isApproved = po.status === 'approved';
   const tierLabel = (tier: number) => config.tiers.find((t) => t.tier === tier)?.label ?? `Tier ${tier}`;
   const wasRejected = isDraft && po.approvals.some((a) => a.decision === 'rejected');
+  const receiving = po.status === 'ordered';
 
   return (
     <div>
@@ -214,6 +238,12 @@ export function PoDetailView({ id, config, onBack, onEdit, onOpenRfq, onAuthLost
             <div className="stat__value" style={{ fontSize: 16 }}>{fmtDate(po.ordered_at)}</div>
           </div>
         )}
+        {po.ordered_at && (
+          <div className="stat">
+            <div className="stat__label mono">RECEIVED (NET) · {RECEIPT_LABEL[po.receipt_status]}</div>
+            <div className="stat__value">{fmtEur(po.received_cents)}</div>
+          </div>
+        )}
       </div>
 
       <div className="section-title mono">LINE ITEMS</div>
@@ -227,6 +257,9 @@ export function PoDetailView({ id, config, onBack, onEdit, onOpenRfq, onAuthLost
               <th className="mono">UNIT</th>
               <th className="mono" style={{ textAlign: 'right' }}>UNIT PRICE</th>
               <th className="mono" style={{ textAlign: 'right' }}>NET</th>
+              <th className="mono">SKU</th>
+              {po.ordered_at && <th className="mono" style={{ textAlign: 'right' }}>RECEIVED</th>}
+              {receiving && canEdit && <th className="mono" style={{ textAlign: 'right' }}>{correction ? 'TAKE BACK' : 'ARRIVED NOW'}</th>}
             </tr>
           </thead>
           <tbody>
@@ -238,11 +271,117 @@ export function PoDetailView({ id, config, onBack, onEdit, onOpenRfq, onAuthLost
                 <td className="mono table__id">{line.unit}</td>
                 <td className="table__num mono" style={{ textAlign: 'right' }}>{fmtEur(line.unit_price_cents)}</td>
                 <td className="table__num mono" style={{ textAlign: 'right' }}>{fmtEur(line.net_cents)}</td>
+                <td className="mono">
+                  {!isDraft && po.status !== 'closed' && canEdit ? (
+                    <button
+                      type="button"
+                      className="linklike mono"
+                      title="MOD-03 article number — received goods on this line are booked into its stock"
+                      onClick={() => {
+                        const next = window.prompt(`Article number (SKU) for line ${line.position} — empty for a service:`, line.sku ?? '');
+                        if (next !== null) void run(() => api.setSku(po.id, line.id, next.trim() || null));
+                      }}
+                    >
+                      {line.sku ?? 'set…'}
+                    </button>
+                  ) : (
+                    (line.sku ?? '—')
+                  )}
+                </td>
+                {po.ordered_at && (
+                  <td className={`table__num mono ${line.received_quantity >= line.quantity ? '' : 'table__id'}`} style={{ textAlign: 'right' }}>
+                    {fmtQty(line.received_quantity)} / {fmtQty(line.quantity)}
+                  </td>
+                )}
+                {receiving && canEdit && (
+                  <td className="table__num">
+                    {(correction ? line.received_quantity > 0 : line.received_quantity < line.quantity) && (
+                      <input
+                        className="field__input receive-input"
+                        value={arriving[line.id] ?? ''}
+                        onChange={(e) => setArriving({ ...arriving, [line.id]: e.target.value })}
+                      />
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {receiving && (
+        <Can>
+          <form className="receive-bar" onSubmit={receive}>
+            <label className="field">
+              <span className="field__label mono">RECEIVED ON</span>
+              <input className="field__input" type="date" value={receivedOn} title="Empty → today" onChange={(e) => setReceivedOn(e.target.value)} />
+            </label>
+            <label className="field" style={{ minWidth: 220 }}>
+              <span className="field__label mono">
+                {correction ? 'WHY' : 'NOTE'} {correction && <span className="field__req">*</span>}
+              </span>
+              <input className="field__input" value={receiptNote} placeholder={correction ? 'e.g. counted twice' : 'e.g. delivery note number'} onChange={(e) => setReceiptNote(e.target.value)} />
+            </label>
+            <label className="mono receive-bar__hint">
+              <input type="checkbox" checked={correction} onChange={(e) => setCorrection(e.target.checked)} /> CORRECTION
+            </label>
+            <button className="btn btn--primary" type="submit" disabled={busy || (correction && receiptNote.trim() === '')}>
+              {correction ? 'BOOK CORRECTION →' : 'RECEIVE GOODS →'}
+            </button>
+            <span className="receive-bar__hint mono">NEVER MORE THAN ORDERED</span>
+          </form>
+        </Can>
+      )}
+
+      {po.receipts.length > 0 && (
+        <>
+          <div className="section-title mono">GOODS RECEIPTS · APPEND-ONLY</div>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th className="mono">NUMBER</th>
+                  <th className="mono">RECEIVED</th>
+                  <th className="mono">LINES</th>
+                  <th className="mono">BY</th>
+                  <th className="mono">STOCK (MOD-03)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {po.receipts.map((r) => (
+                  <tr key={r.id}>
+                    <td className="mono">
+                      {r.number}
+                      {r.kind === 'correction' && <span className="badge mono badge--voided">CORRECTION</span>}
+                    </td>
+                    <td className="mono table__id">{r.received_on}</td>
+                    <td className="note-cell">
+                      {r.lines.map((l) => `${fmtQty(l.quantity)} × ${l.description}`).join(' · ')}
+                      {r.note && <div className="table__id">{r.note}</div>}
+                    </td>
+                    <td className="table__id">{r.actor}</td>
+                    <td className="mono">
+                      {r.stock_status === 'booked' && `BOOKED · ${r.stock_warehouse}`}
+                      {r.stock_status === 'not_booked' && <span className="table__id">NOT BOOKED — {r.stock_error}</span>}
+                      {r.stock_status === 'failed' && <span className="badge--rejected" title={r.stock_error ?? ''}>FAILED — {r.stock_error}</span>}
+                      {r.stock_status === null && '—'}
+                      {(r.stock_status === 'failed' || r.stock_status === 'not_booked') && r.kind === 'receipt' && (
+                        <Can>
+                          {' '}
+                          <button type="button" className="linklike mono" disabled={busy} onClick={() => void run(() => api.bookStock(r.id))}>
+                            BOOK AGAIN
+                          </button>
+                        </Can>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       {po.note && (
         <>
