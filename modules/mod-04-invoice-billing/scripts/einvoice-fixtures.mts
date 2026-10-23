@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { EINVOICE_PROFILES, eInvoiceProblems, renderCii, type EInvoiceModel } from '../shared/einvoice.js';
 import { computeTotals, lineNetCents } from '../shared/money.js';
 import type { InvoiceDetail } from '../shared/types.js';
+import { pdfParties } from '../server/einvoice-data.js';
 import { layoutInvoice } from '../server/pdf.js';
 import { buildPdfA } from '../server/pdfa.js';
 import { CASES } from '../test/einvoice-cases.js';
@@ -50,7 +51,9 @@ function zugferdPdf(model: EInvoiceModel): Buffer {
   const pages = layoutInvoice(
     detail,
     { name: model.buyer.name, address: [model.buyer.street, `${model.buyer.postcode} ${model.buyer.city}`].join('\n'), vat_id: model.buyer.vat_id },
-    { name: model.seller.name, addressLines: [model.seller.street ?? '', `${model.seller.postcode} ${model.seller.city}`], vatId: model.seller.vat_id ?? '', iban: model.seller.iban, bic: model.seller.bic ?? '' },
+    // The seller as the API hands it to the layout; only the letterhead's
+    // address lines are made up, because the cases carry the address structured.
+    { ...pdfParties(model).seller, addressLines: [model.seller.street ?? '', `${model.seller.postcode} ${model.seller.city}`] },
     model.type_code === '381'
       ? { number: model.number, date: model.issue_date, ...(model.number.includes('-GS') ? { reason: model.note ?? '' } : {}) }
       : undefined,

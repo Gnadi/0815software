@@ -151,8 +151,8 @@ they carry the seller frozen at issue.
 | street, postcode, city | BT-35, BT-38, BT-37 | both, when the address does not read cleanly | `SELLER_STREET`, `SELLER_POSTCODE`, `SELLER_CITY` |
 | country (ISO) | BT-40 | both. Defaults to the address's country line, else the VAT id prefix | `SELLER_COUNTRY` |
 | VAT id | BT-31 | both. The shipped placeholder `ATU00000000` is refused | `SELLER_VAT_ID` |
-| Steuernummer | BT-32 | instead of / beside the VAT id | `SELLER_TAX_NUMBER` |
-| register number | BT-30 | when there is no VAT id (BR-CO-26), and for category `O` | `SELLER_REGISTRATION` |
+| Steuernummer | BT-32 | instead of / beside the VAT id. Printed in the PDF footer too (§ 14 Abs. 4 Nr. 2 UStG) | `SELLER_TAX_NUMBER` |
+| register number | BT-30 | when there is no VAT id (BR-CO-26), and for category `O`. Printed in the PDF footer | `SELLER_REGISTRATION` |
 | IBAN, BIC | BT-84, BT-86 | both (payment means 58). The IBAN is also the debtor of every payment file and is check-digit validated on save | `SELLER_IBAN`, `SELLER_BIC` |
 | contact person, phone, email | BT-41, BT-42, BT-43 | **XRechnung** | `SELLER_CONTACT_NAME`, `SELLER_PHONE`, `SELLER_EMAIL` |
 | e-invoice address | BT-34 | **XRechnung**. Defaults to the contact email | `SELLER_EINVOICE_ADDRESS` |

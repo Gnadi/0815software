@@ -173,6 +173,8 @@ describe('an e-invoice is stored at its first delivery', () => {
  */
 const FINGERPRINTS: Record<string, string> = {
   'mod-04-einvoice-1': '788a4b8c9e1bf791452b07c4f17cc92771c3cc665067e742e34a42f48966ab1f',
+  // The PDF footer names the Steuernummer and register number (M2); the XML is unchanged.
+  'mod-04-einvoice-2': '788a4b8c9e1bf791452b07c4f17cc92771c3cc665067e742e34a42f48966ab1f',
 };
 
 describe('the renderer version', () => {

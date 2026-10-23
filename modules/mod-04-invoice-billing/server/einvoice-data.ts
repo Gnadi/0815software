@@ -145,6 +145,8 @@ export function pdfParties(parties: { seller: SellerParty; buyer: BuyerParty }):
       vatId: parties.seller.vat_id ?? '',
       iban: parties.seller.iban,
       bic: parties.seller.bic ?? '',
+      taxNumber: parties.seller.tax_number ?? undefined,
+      registration: parties.seller.registration ?? undefined,
     },
     customer: { name: parties.buyer.name, address: parties.buyer.address, vat_id: parties.buyer.vat_id },
   };

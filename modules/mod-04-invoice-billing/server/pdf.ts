@@ -375,10 +375,19 @@ export function layoutInvoice(
   }
 
   // ── Footer ──
+  // The seller by every identifier its e-invoice carries. VAT id or
+  // Steuernummer is a mandatory field (§ 14 Abs. 4 Nr. 2 UStG); a seller with
+  // only the Steuernummer used to get an empty "VAT" here while the XML named
+  // it, so the plain PDF lacked it and the ZUGFeRD picture differed.
+  const ids = [
+    seller.vatId && `VAT ${seller.vatId}`,
+    seller.taxNumber && `TAX NO ${seller.taxNumber}`,
+    seller.registration,
+  ].filter((id) => typeof id === 'string' && id.trim() !== '');
+  const footer = [seller.name, ids.join(' · '), [`IBAN ${seller.iban}`, ...(seller.bic ? [`BIC ${seller.bic}`] : [])].join(' · ')];
   const fy = A4.height - 64;
   page.line(M, fy - 14, R, 0.5, 0.6);
-  page.text('F3', 7, M, fy, `${seller.name} · VAT ${seller.vatId}`, 0.45);
-  page.text('F3', 7, M, fy + 11, `IBAN ${seller.iban} · BIC ${seller.bic}`, 0.45);
+  footer.filter((line) => line !== '').forEach((line, i) => page.text('F3', 7, M, fy + i * 11, line, 0.45));
   page.textRight('F3', 7, R, fy, cancellation?.number ?? invoice.number ?? 'DRAFT', 0.45);
 
   return pages;

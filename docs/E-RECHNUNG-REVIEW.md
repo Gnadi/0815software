@@ -20,9 +20,10 @@ wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war:
 | **H3** | **Behoben.** Die erste Auslieferung eines Formats (Rechnung, Storno, Teilgutschrift; XRechnung, ZUGFeRD, ebInterface) speichert die Datei mit SHA-256, Renderer-Version und Person in `issued_documents`; danach werden nur noch diese Bytes ausgeliefert. Trigger verweigern Ändern und Löschen. Die Renderer-Version ist an die Golden Files gekoppelt. | `test/issued-documents.test.ts` |
 | **H1** | **Behoben.** Kunden haben ein Zielformat (XRechnung, ZUGFeRD, ebInterface, keins). Ist eines gesetzt, lehnt das Festschreiben den Entwurf mit 422 ab, solange er darin nicht erzeugbar ist, bevor eine Nummer gezogen wird (auch bei PS-10). Der Entwurf zeigt die fehlenden Felder je Format, eingefrorene Rechnungen sagen, dass nur Storno und Neuausstellung helfen. | `test/einvoice-readiness.test.ts` (Fall A) |
 | **H2** | **Behoben.** Ergänzt: Ländercodes gegen die Liste des CEN-Schematrons (BR-CL-14), Länderpräfix der USt-IdNr. (BR-CO-09), Verkäufer-Kennung je Steuerkategorie (BR-S/Z/E/AE-02, BR-G-02, BR-IC-02, BR-DE-16), echte Kalenderdaten, Texte, die nach dem Bereinigen leer wären. Eine Matrix aus 279 Modellen wird bei jeder MOD-04-Änderung in CI mit Mustang validiert, soweit das Modul sie annimmt. Lokaler Lauf am 22.10.2026: 327 von 327 Dateien gültig (36 Golden-Dateien, 291 aus der Matrix). | `test/einvoice-rules.test.ts` (Fälle J, K, O, P, Q), `.github/workflows/einvoice-validation.yml` |
+| **M2** | **Behoben.** Die Fußzeile des PDF nennt alle Kennungen, die auch das XML trägt: USt-IdNr., Steuernummer, Registernummer. Ein leeres „VAT“ gibt es nicht mehr. Offen bleiben die Geschäftsbriefangaben nach § 35a GmbHG, dafür fehlen noch Felder. | `test/einvoice-pdf.test.ts` |
 | **M5** | **Behoben.** Die Prüfziffer einer Leitweg-ID wird geprüft, nach der Formatspezifikation 2.0.2 (Kap. 2.4, deren Beispiel ist Testfall): beim Speichern von Kunde und Verkäufer und vor jeder Datei, in der elektronischen Adresse und in der Käuferreferenz eines so adressierten Käufers. Eine Bestellnummer gleicher Form (`4711-01`) bei anderen Käufern bleibt unberührt. Die Testdaten tragen gültige IDs. | `test/einvoice-rules.test.ts` (Fall F) |
 | **M6** | **Behoben** mit H2: Die API nimmt nur noch echte Kalenderdaten an. | `test/einvoice-rules.test.ts` |
-| M1–M4, M7, M8, N1–N8 | Offen. | – |
+| M1, M3, M4, M7, M8, N1–N8 | Offen. | – |
 
 Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
 Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
@@ -300,6 +301,8 @@ statt des einfachen PDF versenden, oder das PDF als „Kopie, keine Rechnung“
 kennzeichnen.
 
 ### M2 · Die Steuernummer fehlt auf dem PDF
+
+*Status: behoben, bis auf die Geschäftsbriefangaben (siehe Vorschlag).*
 
 **Wo:** `server/einvoice-data.ts:125–139` (`pdfParties` übernimmt nur
 `vat_id`, nicht `tax_number` und `registration`); `server/pdf.ts:334`
