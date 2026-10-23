@@ -183,6 +183,8 @@ const FINGERPRINTS: Record<string, string> = {
   'mod-04-einvoice-5': '1fd7021f4fb42788c8abe9c331301ff54ccf28bfedb1f342ec0484ad4f03ed13',
   // The PDF shows Š, Ž, Œ, Ÿ and strips the accent from letters WinAnsi lacks (N4); golden case `k` buys from Poland.
   'mod-04-einvoice-6': 'b732517ccc7b294fa422165c4c8e241e52b268729dddc2eae6f846926dfadfa6',
+  // The BIC is written without spaces and in capitals (N2); no golden case had either.
+  'mod-04-einvoice-7': 'b732517ccc7b294fa422165c4c8e241e52b268729dddc2eae6f846926dfadfa6',
 };
 
 describe('the renderer version', () => {

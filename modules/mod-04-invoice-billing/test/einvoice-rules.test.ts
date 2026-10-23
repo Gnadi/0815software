@@ -18,6 +18,8 @@ import {
   mistypedLeitweg,
   parseElectronicAddress,
   parseSchemeIdentifier,
+  PLACEHOLDER_BIC,
+  PLACEHOLDER_IBAN,
   renderCii,
   type EInvoiceModel,
 } from '../shared/einvoice.js';
@@ -63,12 +65,45 @@ describe("the review's probes are refused, by business term", () => {
     expect(messages('R')).toContain('"Buchhaltung, Frau Meier" is neither an email address, a Leitweg-ID nor a Peppol ID');
     expect(messages('T')).toContain('BT-29');
     expect(messages('U')).toContain('BR-CL-10');
+    expect(messages('H')).toContain('shipped placeholder AT00 0000 0000 0000 0000');
+    expect(messages('V')).toContain('shipped placeholder EXAMPLEX');
+    expect(messages('W')).toContain('DE02 1203 0000 0000 2020 15: IBAN check digits do not match');
   });
 
-  it('refuses the same dates and countries in ebInterface', () => {
+  it('refuses the same dates, countries and payment details in ebInterface', () => {
     const fields = (model: EInvoiceModel) => ebInterfaceProblems(model).map((p) => p.field);
     expect(fields(REFUSED.O!.model)).toEqual(expect.arrayContaining(['issue_date', 'delivery_date']));
     expect(fields(REFUSED.K!.model)).toContain('customer.country_code');
+    for (const name of ['H', 'W']) expect(fields(REFUSED[name]!.model)).toContain('seller.iban');
+    expect(fields(REFUSED.V!.model)).toContain('seller.bic');
+  });
+});
+
+describe('an account someone can pay into, a phone someone can call (N2)', () => {
+  it('does not check the account of a credit note, which names none', () => {
+    const gs = MATRIX['s19-vat_taxno-at_vat-gs']!;
+    const note: EInvoiceModel = { ...gs, seller: { ...gs.seller, iban: PLACEHOLDER_IBAN, bic: PLACEHOLDER_BIC } };
+    expect(eInvoiceProblems(note, 'xrechnung')).toEqual([]);
+    for (const profile of EINVOICE_PROFILES) expect(eInvoiceProblems(note, profile)).toEqual(eInvoiceProblems(gs, profile));
+    expect(ebInterfaceProblems(note)).toEqual(ebInterfaceProblems(gs));
+  });
+
+  it('writes the BIC without spaces and in capitals, which the ebInterface schema requires', () => {
+    const standard = CASES.standard!;
+    const spaced: EInvoiceModel = { ...standard, seller: { ...standard.seller, bic: 'byla dem1 001' } };
+    expect(eInvoiceProblems(spaced, 'xrechnung')).toEqual([]);
+    expect(renderCii(spaced, 'xrechnung')).toContain('<ram:BICID>BYLADEM1001</ram:BICID>');
+    expect(renderEbInterface(spaced)).toContain('<BIC>BYLADEM1001</BIC>');
+  });
+
+  it('refuses a phone with fewer than three digits for XRechnung (BR-DE-27), which alone asks for one', () => {
+    const standard = CASES.standard!;
+    const phone = (value: string): EInvoiceModel => ({ ...standard, seller: { ...standard.seller, phone: value } });
+    expect(eInvoiceProblems(phone('n/a'), 'xrechnung')).toEqual([
+      { term: 'BT-42', field: 'seller.phone', message: 'Seller phone "n/a" has fewer than three digits — XRechnung expects a number to call (BR-DE-27)' },
+    ]);
+    expect(eInvoiceProblems(phone('n/a'), 'zugferd')).toEqual([]);
+    expect(eInvoiceProblems(phone('112'), 'xrechnung')).toEqual([]);
   });
 });
 
@@ -346,6 +381,31 @@ describe('the API refuses what used to reach the file', () => {
     expect(unlisted.status).toBe(422);
     expect(field(unlisted)).toEqual(['identifier']);
     expect((await call('put', '/api/settings/seller', { identifier: '0088:4000001000005' })).status).toBe(200);
+  });
+
+  it('H, M: the shipped IBAN and BIC stop every e-invoice but the cancellation; a phone no one can call is refused in the settings', async () => {
+    const fields = (res: { body: { details: { field: string }[] } }) => res.body.details.map((d) => d.field);
+    const phone = await call('put', '/api/settings/seller', { phone: 'n/a' });
+    expect(phone.status).toBe(422);
+    expect(fields(phone)).toEqual(['phone']);
+
+    // Started without SELLER_IBAN and SELLER_BIC, as server/config.ts falls back.
+    app = createApp({ db, auth, seller: { ...seller(), iban: PLACEHOLDER_IBAN, bic: PLACEHOLDER_BIC } });
+    cookie = (await request(app).post('/api/login').send({ username: 'admin', password: 'pw' })).headers['set-cookie']![0]!.split(';')[0]!;
+    const c = await call('post', '/api/customers', { ...customer, einvoice_format: 'xrechnung' });
+    const draft = await call('post', '/api/invoices', { customer_id: c.body.id, lines });
+    const refused = await call('post', `/api/invoices/${draft.body.id}/finalize`, { issue_date: '2026-10-21' });
+    expect(refused.status).toBe(422);
+    expect(fields(refused)).toEqual(['seller.iban', 'seller.bic']);
+
+    const id = await issued({});
+    for (const format of ['xrechnung.xml', 'zugferd.pdf', 'ebinterface.xml']) {
+      const res = await call('get', `/api/invoices/${id}/${format}`);
+      expect(res.status, format).toBe(422);
+      expect(fields(res), format).toEqual(expect.arrayContaining(['seller.iban', 'seller.bic']));
+    }
+    expect((await call('post', `/api/invoices/${id}/cancel`, { reason: 'Konto fehlte' })).status).toBe(200);
+    expect((await call('get', `/api/invoices/${id}/xrechnung.xml?document=cancellation`)).status).toBe(200);
   });
 
   it('M7: a draft bills a service period, which the XRechnung and the PDF state', async () => {

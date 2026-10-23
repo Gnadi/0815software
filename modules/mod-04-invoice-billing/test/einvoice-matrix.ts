@@ -1,4 +1,4 @@
-import type { EInvoiceModel } from '../shared/einvoice.js';
+import { PLACEHOLDER_BIC, PLACEHOLDER_IBAN, type EInvoiceModel } from '../shared/einvoice.js';
 import { BASE } from './einvoice-cases.js';
 
 /**
@@ -115,9 +115,16 @@ export const REFUSED: Record<string, { model: EInvoiceModel; term: string }> = {
   // A Steuernummer alone identifies no seller (BR-CO-26) — nor does a GLN without its scheme (M8).
   T: { model: model('s19', 'taxno', 'de'), term: 'BT-30' },
   U: { model: model('s19', 'taxno_gln', 'de'), term: 'BT-29' },
+  // H: the IBAN and BIC server/config.ts falls back to, and an IBAN with two digits swapped (N2).
+  H: { model: model('s19', 'vat', 'de_vat'), term: 'BT-84' },
+  V: { model: model('s19', 'vat', 'de_vat'), term: 'BT-86' },
+  W: { model: model('s19', 'vat', 'de_vat'), term: 'BT-84' },
 };
 REFUSED.J!.model.buyer = { ...REFUSED.J!.model.buyer, vat_id: '123456789' };
 REFUSED.K!.model.buyer = { ...REFUSED.K!.model.buyer, country: 'UK' };
 REFUSED.R!.model.buyer = { ...REFUSED.R!.model.buyer, einvoice_address: 'Buchhaltung, Frau Meier' };
 REFUSED.S!.model.seller = { ...REFUSED.S!.model.seller, einvoice_address: 'Rechnungseingang Buchhaltung' };
 REFUSED.U!.model.seller = { ...REFUSED.U!.model.seller, identifier: '4000001000005' };
+REFUSED.H!.model.seller = { ...REFUSED.H!.model.seller, iban: PLACEHOLDER_IBAN };
+REFUSED.V!.model.seller = { ...REFUSED.V!.model.seller, bic: PLACEHOLDER_BIC };
+REFUSED.W!.model.seller = { ...REFUSED.W!.model.seller, iban: 'DE02 1203 0000 0000 2020 15' };

@@ -154,8 +154,8 @@ they carry the seller frozen at issue.
 | Steuernummer | BT-32 | instead of / beside the VAT id. Printed in the PDF footer too (§ 14 Abs. 4 Nr. 2 UStG) | `SELLER_TAX_NUMBER` |
 | register number | BT-30 | when there is no VAT id (BR-CO-26), and for category `O`. Printed in the PDF footer | `SELLER_REGISTRATION` |
 | seller identifier | BT-29 | the third way to meet BR-CO-26 without a VAT id: `scheme:identifier` with an ISO 6523 scheme (BR-CL-10), e.g. `0088:4000001000005` for a GLN. Written as `GlobalID`, printed in the PDF footer. A Steuernummer alone does not count (review S5); a customer's supplier number does, see below | `SELLER_IDENTIFIER` |
-| IBAN, BIC | BT-84, BT-86 | both (payment means 58). The IBAN is also the debtor of every payment file and is check-digit validated on save | `SELLER_IBAN`, `SELLER_BIC` |
-| contact person, phone, email | BT-41, BT-42, BT-43 | **XRechnung** | `SELLER_CONTACT_NAME`, `SELLER_PHONE`, `SELLER_EMAIL` |
+| IBAN, BIC | BT-84, BT-86 | invoices in every format (payment means 58; a credit note names no account). The IBAN must be a SEPA IBAN whose check digits match, on save and before every file; the BIC is optional. The shipped placeholders `AT00 0000 0000 0000 0000` and `EXAMPLEX` are refused. The IBAN is also the debtor of every payment file | `SELLER_IBAN`, `SELLER_BIC` |
+| contact person, phone, email | BT-41, BT-42, BT-43 | **XRechnung**. The phone needs at least three digits (BR-DE-27), so "n/a" is refused | `SELLER_CONTACT_NAME`, `SELLER_PHONE`, `SELLER_EMAIL` |
 | e-invoice address | BT-34 | **XRechnung**. Defaults to the contact email. An email address, a Leitweg-ID, or a Peppol ID written `scheme:identifier`, the scheme from the EAS list (BR-CL-25); anything else is refused | `SELLER_EINVOICE_ADDRESS` |
 
 Below the fields, the screen shows whether XRechnung and ZUGFeRD are

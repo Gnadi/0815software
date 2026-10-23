@@ -1,3 +1,4 @@
+import { PLACEHOLDER_BIC, PLACEHOLDER_IBAN } from '../shared/einvoice.js';
 import type { AuthConfig } from './auth.js';
 import { shellOriginsFromEnv } from './hardening.js';
 import type { PlatformConfig } from './platform.js';
@@ -136,8 +137,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       name: env.SELLER_NAME ?? '0815software GmbH',
       addressLines: (env.SELLER_ADDRESS ?? 'Beispielgasse 8/15|1010 Wien|Austria').split('|'),
       vatId: env.SELLER_VAT_ID ?? 'ATU00000000',
-      iban: env.SELLER_IBAN ?? 'AT00 0000 0000 0000 0000',
-      bic: env.SELLER_BIC ?? 'EXAMPLEX',
+      // Placeholders every e-invoice refuses (shared/einvoice.ts) — a demo needs no bank account.
+      iban: env.SELLER_IBAN ?? PLACEHOLDER_IBAN,
+      bic: env.SELLER_BIC ?? PLACEHOLDER_BIC,
       street: env.SELLER_STREET || undefined,
       postcode: env.SELLER_POSTCODE || undefined,
       city: env.SELLER_CITY || undefined,

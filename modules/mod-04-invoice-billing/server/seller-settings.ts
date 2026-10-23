@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { isCountryCode } from '../shared/countries.js';
-import { MISTYPED_LEITWEG, mistypedLeitweg, parseElectronicAddress, parseSchemeIdentifier } from '../shared/einvoice.js';
+import { isPhoneNumber, MISTYPED_LEITWEG, mistypedLeitweg, parseElectronicAddress, parseSchemeIdentifier } from '../shared/einvoice.js';
 import { ibanProblem, isValidBic, normalizeBic, normalizeIban } from '../shared/sepa.js';
 import type { SellerConfig } from './config.js';
 import { DomainError, nowIso } from './invoices.js';
@@ -276,6 +276,9 @@ export function writeSellerSettings(
     }
     if (key === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
       problems.push({ field: key, message: 'not an email address' });
+    }
+    if (key === 'phone' && !isPhoneNumber(value)) {
+      problems.push({ field: key, message: 'a phone number with at least three digits, e.g. +49 89 123456' });
     }
     if (key === 'einvoiceAddress') {
       const address = parseElectronicAddress(value);

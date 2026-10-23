@@ -327,8 +327,8 @@ the Settings screen by whoever holds `manage`, and what is saved there wins (see
 | `SELLER_NAME`       | `0815software GmbH`    | Letterhead: seller name                  |
 | `SELLER_ADDRESS`    | *(example address)*    | Letterhead: address, `\|`-separated lines |
 | `SELLER_VAT_ID`     | `ATU00000000`          | Letterhead: seller VAT id                |
-| `SELLER_IBAN`       | *(example IBAN)*       | PDF footer **and the debtor account of every payment file** |
-| `SELLER_BIC`        | `EXAMPLEX`             | PDF footer: BIC; the debtor agent when set |
+| `SELLER_IBAN`       | *(example IBAN)*       | PDF footer **and the debtor account of every payment file**; e-invoices refuse the example |
+| `SELLER_BIC`        | `EXAMPLEX`             | PDF footer: BIC; the debtor agent when set. E-invoices refuse `EXAMPLEX`: set the real one, or set it empty |
 | `SELLER_STREET` · `SELLER_POSTCODE` · `SELLER_CITY` · `SELLER_COUNTRY` | *(read from `SELLER_ADDRESS`)* | E-invoice: structured seller address (BT-35/38/37/40) |
 | `SELLER_TAX_NUMBER` | —                      | E-invoice: German Steuernummer (BT-32)   |
 | `SELLER_REGISTRATION` | —                    | E-invoice: register number, e.g. `HRB 12345` (BT-30) — needed without a VAT id |
@@ -654,6 +654,11 @@ recipient recomputing quantity × price arrives at them too (see Money).
   A seller without VAT id or register number is identified by a seller
   identifier such as a GLN, or by the supplier number its customer assigned —
   both are BT-29, which BR-CO-26 accepts (`test/einvoice-rules.test.ts`).
+- **Paid into a real account.** An invoice names the seller's IBAN only when
+  it is a SEPA IBAN whose check digits match, and a BIC only when it is one;
+  the example values the module starts with are refused by name. A credit
+  note names no account and is not held up by one. XRechnung's contact phone
+  needs three digits (`test/einvoice-rules.test.ts`).
 
 - **Refused rather than wrong.** A file is only produced when it would
   validate. Otherwise `422` lists every missing field with its business term

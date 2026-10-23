@@ -30,6 +30,7 @@
 import { hasVatPrefix, isCountryCode } from './countries.js';
 import { computeTotals, lineNetCents, type LineRounding } from './money.js';
 import { EAS_CODES, ICD_CODES } from './schemes.js';
+import { ibanProblem, isValidBic, normalizeBic, normalizeIban } from './sepa.js';
 import type { TaxExemptionCategory } from './types.js';
 
 export const EINVOICE_PROFILES = ['xrechnung', 'zugferd'] as const;
@@ -186,6 +187,12 @@ export function categoryOf(rate: number, exemption: EInvoiceModel['exemption']):
 
 const VAT_ID_RE = /^[A-Z]{2}[A-Z0-9+*]{2,13}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** At least three digits (BR-DE-27): "n/a" or "-" is a contact no one can call. */
+export function isPhoneNumber(value: string | null | undefined): boolean {
+  return (value?.match(/\d/g) ?? []).length >= 3;
+}
+
 /** A Leitweg-ID: Grobadressierung, optional Feinadressierung, two check digits. */
 export const LEITWEG_RE = /^\d{2,12}(-[A-Za-z0-9]{1,30})?-\d{2}$/;
 
@@ -274,6 +281,48 @@ export function missing(value: string | null | undefined): boolean {
   return blank(value) || xmlClean(value!).trim() === '';
 }
 
+/**
+ * The payment details server/config.ts falls back to while SELLER_IBAN and
+ * SELLER_BIC are unset: a demo runs without a bank account, an invoice asking
+ * to be paid into one must not go out (review N2).
+ */
+export const PLACEHOLDER_IBAN = 'AT00 0000 0000 0000 0000';
+export const PLACEHOLDER_BIC = 'EXAMPLEX';
+
+/**
+ * BT-84 and BT-86 of an invoice that asks to be paid, for every format. The
+ * payment means is a SEPA credit transfer, so the account must be the IBAN of
+ * a SEPA country with matching check digits: XRechnung only warns about it
+ * (BR-DE-19), and a mistyped account sends the buyer's money nowhere.
+ * EXAMPLEX is shaped like a BIC, so the placeholders are refused by name. A
+ * credit note names no account and is not checked — the cancellation of an
+ * invoice that went out with the placeholder must still be possible. Both
+ * are checked, and written, without spaces and in capitals: ebInterface's
+ * schema refuses "BYLA DEM1 001".
+ */
+export function paymentAccountProblems(model: EInvoiceModel): EInvoiceProblem[] {
+  if (model.type_code !== '380') return [];
+  const { iban, bic } = model.seller;
+  const problems: EInvoiceProblem[] = [];
+  const add = (term: string, field: string, message: string): void => {
+    problems.push({ term, field, message });
+  };
+  if (missing(iban)) add('BT-84', 'seller.iban', 'Seller IBAN is missing — the payment instructions need it');
+  else if (normalizeIban(iban) === normalizeIban(PLACEHOLDER_IBAN)) {
+    add('BT-84', 'seller.iban', `The seller IBAN is still the shipped placeholder ${PLACEHOLDER_IBAN} — enter the account invoices are paid into (Settings → Seller or SELLER_IBAN)`);
+  } else {
+    const problem = ibanProblem(iban);
+    if (problem) add('BT-84', 'seller.iban', `Seller IBAN ${iban.trim()}: ${problem}`);
+  }
+  if (missing(bic)) return problems;
+  if (normalizeBic(bic!) === PLACEHOLDER_BIC) {
+    add('BT-86', 'seller.bic', `The seller BIC is still the shipped placeholder ${PLACEHOLDER_BIC} — enter the bank's BIC, or set SELLER_BIC empty: a SEPA transfer needs none`);
+  } else if (!isValidBic(bic!)) {
+    add('BT-86', 'seller.bic', `Seller BIC "${bic!.trim()}" is not a BIC (8 or 11 characters, e.g. BYLADEMMXXX)`);
+  }
+  return problems;
+}
+
 /** "2026-02-30" is not a date, although it looks like one and `Date.parse` rolls it over to March. */
 export function isCalendarDate(iso: string | null | undefined): boolean {
   if (typeof iso !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
@@ -314,7 +363,7 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
   if (/^ATU0{8}$/.test(seller.vat_id ?? '')) {
     add('BT-31', 'seller.vatId', 'The seller VAT id is still the shipped placeholder ATU00000000');
   }
-  if (missing(seller.iban)) add('BT-84', 'seller.iban', 'Seller IBAN is missing — the payment instructions need it');
+  problems.push(...paymentAccountProblems(model));
   const notSubject = model.exemption?.category === 'O';
   // BR-CO-26 takes a VAT id, a register number or a seller identifier (BT-29),
   // and EN 16931 names "a previously exchanged Buyer assigned identifier of the
@@ -338,6 +387,9 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
   if (xr) {
     if (missing(seller.contact_name)) add('BT-41', 'seller.contactName', 'XRechnung requires a seller contact name');
     if (missing(seller.phone)) add('BT-42', 'seller.phone', 'XRechnung requires a seller contact phone number');
+    else if (!isPhoneNumber(seller.phone)) {
+      add('BT-42', 'seller.phone', `Seller phone "${seller.phone!.trim()}" has fewer than three digits — XRechnung expects a number to call (BR-DE-27)`);
+    }
     if (missing(seller.email)) add('BT-43', 'seller.email', 'XRechnung requires a seller contact email');
     if (missing(seller.einvoice_address) && missing(seller.email)) {
       add('BT-34', 'seller.einvoiceAddress', 'XRechnung requires the seller electronic address (e-invoice address or contact email)');
@@ -721,7 +773,7 @@ export function renderCii(model: EInvoiceModel, profile: EInvoiceProfile): strin
     if (!missing(seller.bic)) {
       xml
         .open('ram:PayeeSpecifiedCreditorFinancialInstitution')
-        .leaf('ram:BICID', seller.bic!.trim())
+        .leaf('ram:BICID', normalizeBic(seller.bic!))
         .close('ram:PayeeSpecifiedCreditorFinancialInstitution');
     }
     xml.close('ram:SpecifiedTradeSettlementPaymentMeans');

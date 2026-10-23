@@ -44,7 +44,7 @@ const SELLER_LABELS: Record<string, { label: string; hint?: string; multiline?: 
   iban: { label: 'IBAN', hint: 'printed on invoices and the debtor of every payment file' },
   bic: { label: 'BIC' },
   contactName: { label: 'CONTACT PERSON (BT-41)', hint: 'required for XRechnung' },
-  phone: { label: 'CONTACT PHONE (BT-42)', hint: 'required for XRechnung' },
+  phone: { label: 'CONTACT PHONE (BT-42)', hint: 'required for XRechnung, at least three digits' },
   email: { label: 'CONTACT EMAIL (BT-43)', hint: 'required for XRechnung' },
   einvoiceAddress: { label: 'E-INVOICE ADDRESS (BT-34)', hint: 'email, Leitweg-ID or Peppol ID like 0088:4000001000005 — empty → contact email' },
 };

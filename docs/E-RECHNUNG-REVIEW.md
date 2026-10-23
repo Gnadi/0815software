@@ -13,8 +13,8 @@ Ergebnis aufgeführt. Zeilenangaben beziehen sich auf den Stand des Reviews.
 ## Stand der Umsetzung
 
 Nachgetragen am 22.10.2026, nachdem `main` (ebInterface 6.1, Teilgutschriften,
-wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1 bis M8
-und N4 am 23.10.2026:
+wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1 bis M8,
+N2 und N4 am 23.10.2026:
 
 | Befund | Stand | Belegt durch |
 | --- | --- | --- |
@@ -30,7 +30,8 @@ und N4 am 23.10.2026:
 | **M7** | **Behoben.** Entwürfe haben einen Leistungszeitraum (BG-14: erster und letzter Tag, beide oder keiner; BR-29). Er steht im XML, in ebInterface als `Delivery/Period` und im PDF. Ohne eigenes Leistungsdatum ist BT-72 der letzte Tag des Zeitraums, so bleibt der Lieferblock nicht leer (ZUGFeRD 2.5 warnt sonst nach PEPPOL-EN16931-R008). Wiederkehrende Rechnungen tragen den Zeitraum ihres Laufs ein, statt des fiktiven Datums mit Freitext. | `test/einvoice-rules.test.ts` (M7), `test/recurring.test.ts`, Golden-Fall `period` |
 | **M8** | **Behoben.** BR-CO-26 lässt sich ohne USt-IdNr. und Registernummer auf zwei Wegen erfüllen: mit einer Verkäuferkennung (BT-29) mit ISO-6523-Schema aus den Einstellungen, etwa einer GLN (`0088:…`, `GlobalID`), oder mit der Lieferantennummer, die der Kunde vergeben hat (`ram:ID` ohne Schema). EN 16931 nennt Letztere ausdrücklich als Beispiel für BT-29. Beide stehen auch im PDF. | `test/einvoice-rules.test.ts` (Fälle T, U), Matrix-Verkäufer `taxno_gln` |
 | **N4** | **Behoben bis auf die Unicode-Schrift.** Das PDF schlägt jedes Zeichen in derselben CP1252-Tabelle nach, mit der das PDF/A seine Schriften einbettet: Š, Ž, Œ, Ÿ, š, ž, œ und ™ erscheinen richtig. Ein Buchstabe, den WinAnsi nicht hat, erscheint ohne Akzent („Łódź“ als „Lódz“, „Čech“ als „Cech“) statt als „?“; das XML trägt den Namen genau. Offen: eine Unicode-Schrift (Identity-H) im PDF, erst dann stehen Ł, ź und nichtlateinische Schriften dort wie im XML. | `test/einvoice-pdf.test.ts` (N4), Golden-Fall `k` (Käufer in Polen) |
-| N1–N3, N5–N8 | Offen. | – |
+| **N2** | **Behoben.** Vor jeder Rechnung, in allen drei Formaten, muss die IBAN eine SEPA-IBAN mit stimmender Prüfsumme sein (BT-84, `ibanProblem` wie beim Speichern), ein gesetzter BIC ein BIC (BT-86), geschrieben wie die IBAN ohne Leerzeichen und in Großbuchstaben (das ebInterface-Schema lehnt „BYLA DEM1 001“ ab). Die Vorgaben aus `config.ts`, `AT00 0000 0000 0000 0000` und `EXAMPLEX`, werden mit eigenem Text abgelehnt; `EXAMPLEX` hat die Form eines BIC. Ein Storno nennt kein Konto und wird darauf nicht geprüft, damit eine Rechnung mit Platzhalter-Konto storniert werden kann. Für XRechnung braucht die Telefonnummer mindestens drei Ziffern (BR-DE-27), auch beim Speichern der Einstellungen. | `test/einvoice-rules.test.ts` (Fälle H, V, W, M; N2) |
+| N1, N3, N5–N8 | Offen. | – |
 
 Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
 Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
@@ -492,6 +493,8 @@ Europe/Vienna).
 
 ### N2 · Platzhalter-IBAN und Telefonnummer werden nicht geprüft
 
+*Status: behoben (siehe Tabelle oben).*
+
 `server/config.ts:134–135` setzt `AT00 0000 0000 0000 0000` und `EXAMPLEX`
 als Vorgabe, `shared/einvoice.ts:201` prüft die IBAN nur auf leer. Fall H:
 Die XRechnung mit der Platzhalter-IBAN wird ausgeliefert, Mustang warnt nur
@@ -898,6 +901,7 @@ Steuernummer und HRB in der Fußzeile (M2). C zeigt die Texte vollständig und
 0,3333, rechnet 446,63 € ohne Warnung (M1, M3) und lehnt die Freitextadresse
 ab (M4); G folgt C. E zeigt „Škoda Žalec Lódz s.r.o.“ (N4). F, J, K, O, P
 und Q werden mit dem jeweiligen Business Term abgelehnt (M5, H2, M6). L
-ergibt 0,15 € und 1,01 € (M3). M wird beim Speichern abgelehnt, aber nur
-wegen der Adresse (M4), das Telefon „n/a“ ginge durch (N2). D, D′, H und I
-gelten unverändert.
+ergibt 0,15 € und 1,01 € (M3). H wird als Rechnung in jedem Format
+abgelehnt, bei Kunden mit Zielformat schon beim Festschreiben; der Storno
+bleibt möglich (N2). M wird beim Speichern abgelehnt, Adresse wie Telefon
+(M4, N2). D, D′ und I gelten unverändert.

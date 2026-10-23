@@ -27,12 +27,14 @@
  */
 import { isCountryCode } from './countries.js';
 import { computeTotals, lineNetCents, vatRatesFor } from './money.js';
+import { normalizeBic } from './sepa.js';
 import {
   amount,
   EXEMPTION_DEFAULT_REASON,
   isCalendarDate,
   missing,
   parseElectronicAddress,
+  paymentAccountProblems,
   paymentTermsText,
   quantity,
   Xml,
@@ -98,9 +100,7 @@ export function ebInterfaceProblems(model: EInvoiceModel): EInvoiceProblem[] {
   if (/^ATU0{8}$/.test(seller.vat_id ?? '')) {
     add('BT-31', 'seller.vatId', 'The seller VAT id is still the shipped placeholder ATU00000000 — leave it empty if there is none');
   }
-  if (model.type_code === '380' && missing(seller.iban)) {
-    add('BT-84', 'seller.iban', 'Seller IBAN is missing — the payment instructions need it');
-  }
+  problems.push(...paymentAccountProblems(model));
 
   if (missing(buyer.name)) add('BT-44', 'customer.name', 'Buyer name is missing');
   if (missing(buyer.city)) add('BT-52', 'customer.city', 'ebInterface requires the buyer town');
@@ -294,7 +294,7 @@ export function renderEbInterface(model: EInvoiceModel): string {
     xml.open('PaymentMethod');
     xml.open('UniversalBankTransaction');
     xml.open('BeneficiaryAccount');
-    xml.opt('BIC', seller.bic);
+    if (!missing(seller.bic)) xml.leaf('BIC', normalizeBic(seller.bic!));
     xml.leaf('IBAN', seller.iban.replace(/\s/g, '').toUpperCase());
     xml.leaf('BankAccountOwner', seller.name.trim().slice(0, 70));
     xml.close('BeneficiaryAccount');
