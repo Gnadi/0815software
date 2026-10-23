@@ -253,7 +253,7 @@ export function eInvoiceModel(
     };
   }
   if (document === 'cancellation') {
-    const cancelledOn = invoice.cancelled_at!.slice(0, 10);
+    const cancelledOn = invoice.cancelled_on!;
     return {
       ...base,
       type_code: '381',

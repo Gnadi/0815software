@@ -105,7 +105,7 @@ export const api = {
   },
   /** Record what a human confirmed. Each application is independent. */
   applyReceivables: (
-    applications: { booking_key: string; invoice_id: number; amount_cents: number; date: string; note?: string }[],
+    applications: { booking_key: string; invoice_id: number; amount_cents: number; date?: string; note?: string }[],
   ) => request<{ outcomes: ReceivableOutcome[] }>('/api/receivables/apply', post({ applications })),
   login: (username: string, password: string) =>
     request<{ ok: true }>('/api/login', post({ username, password })),

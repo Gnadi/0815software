@@ -23,6 +23,7 @@ import type {
   TaxExemptionCategory,
   VatBreakdownRow,
 } from '../shared/types.js';
+import { businessDate } from './business-date.js';
 
 /** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
 export function likeTerm(term: string): string {
@@ -45,9 +46,12 @@ export function nowIso(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-/** "YYYY-MM-DD" for today (UTC) — the reference date for "overdue". */
+/**
+ * "YYYY-MM-DD" for today in the business time zone (server/business-date.ts):
+ * the issue date when none is given, and the reference date for "overdue".
+ */
 export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return businessDate();
 }
 
 /** date + n days, both as "YYYY-MM-DD". */
@@ -79,6 +83,8 @@ interface InvoiceStoredRow {
   payment_terms_days: number;
   note: string | null;
   cancelled_at: string | null;
+  /** The business date of `cancelled_at`, fixed when cancelling (db.ts). */
+  cancelled_on: string | null;
   cancellation_reason: string | null;
   created_at: string;
   buyer_reference: string | null;
@@ -323,6 +329,7 @@ export function invoiceDetail(
     parties_frozen: invoice.seller_snapshot !== null && invoice.buyer_snapshot !== null,
     line_rounding: roundingOf(invoice),
     cancelled_at: invoice.cancelled_at,
+    cancelled_on: invoice.cancelled_on,
     cancellation_reason: invoice.cancellation_reason,
     lines,
     vat_breakdown: totals.by_rate,
@@ -538,9 +545,10 @@ export function cancelInvoice(
       `${invoice.number} is partly credited (${notes.map((n) => n.number).join(', ')}) — credit the rest with another credit note instead of cancelling`,
     );
   }
+  const at = cancelledAt ?? nowIso();
   db.prepare(
-    "UPDATE invoices SET status = 'cancelled', cancelled_at = ?, cancellation_reason = ? WHERE id = ?",
-  ).run(cancelledAt ?? nowIso(), reason, id);
+    "UPDATE invoices SET status = 'cancelled', cancelled_at = ?, cancelled_on = ?, cancellation_reason = ? WHERE id = ?",
+  ).run(at, businessDate(new Date(at)), reason, id);
 }
 
 export interface PaymentInput {
@@ -622,7 +630,7 @@ export function customerLedger(db: Database.Database, customerId: number): Ledge
     });
     if (invoice.status === 'cancelled') {
       entries.push({
-        date: invoice.cancelled_at!.slice(0, 10),
+        date: invoice.cancelled_on!,
         type: 'cancellation',
         invoice_id: invoice.id,
         number: invoice.number!,

@@ -1,5 +1,6 @@
 import { PLACEHOLDER_BIC, PLACEHOLDER_IBAN } from '../shared/einvoice.js';
 import type { AuthConfig } from './auth.js';
+import { DEFAULT_BUSINESS_TIMEZONE, timeZoneProblem } from './business-date.js';
 import { shellOriginsFromEnv } from './hardening.js';
 import type { PlatformConfig } from './platform.js';
 import type { SsoConfig } from './sso.js';
@@ -52,6 +53,12 @@ export interface ServerConfig {
    * refuses a malformed value rather than dropping it.
    */
   shellOrigins: string[];
+  /**
+   * The IANA zone business dates are days in (server/business-date.ts): issue
+   * and due dates, payments, cancellations, overdue days. BUSINESS_TIMEZONE,
+   * Europe/Berlin when unset.
+   */
+  businessTimeZone: string;
   auth: AuthConfig;
   seller: SellerConfig;
   /**
@@ -119,6 +126,18 @@ function numberFromEnv(
   return value;
 }
 
+/**
+ * Read the business time zone, refusing one Intl does not know: a typo such as
+ * "Europe/Berlinn" would otherwise date every invoice in UTC, and the day is
+ * off only around midnight, where nobody looks.
+ */
+function timeZoneFromEnv(raw: string | undefined): string {
+  if (raw === undefined || raw.trim() === '') return DEFAULT_BUSINESS_TIMEZONE;
+  const problem = timeZoneProblem(raw.trim());
+  if (problem !== null) throw new Error(`BUSINESS_TIMEZONE: ${problem}`);
+  return raw.trim();
+}
+
 /** Read configuration from the environment, with local-dev defaults. */
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
@@ -126,6 +145,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     databasePath: env.DATABASE_PATH ?? './data.db',
     sellerRefreshMs: numberFromEnv('SELLER_REFRESH_MS', env.SELLER_REFRESH_MS, 300_000, 0, 86400000),
     shellOrigins: shellOriginsFromEnv(env.SHELL_ORIGIN),
+    businessTimeZone: timeZoneFromEnv(env.BUSINESS_TIMEZONE),
     auth: {
       username: env.ADMIN_USERNAME ?? 'admin',
       password: env.ADMIN_PASSWORD ?? 'admin',

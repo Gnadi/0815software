@@ -314,6 +314,7 @@
         "optional": [
           "AT_TAXS_REMITTANCE_PATTERN",
           "BANK_CONNECTION",
+          "BUSINESS_TIMEZONE",
           "NOTIFICATION_INVOICE_CHANNEL",
           "SELLER_BIC",
           "SELLER_CITY",

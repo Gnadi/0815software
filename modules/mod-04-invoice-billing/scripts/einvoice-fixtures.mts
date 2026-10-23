@@ -46,6 +46,7 @@ function zugferdPdf(model: EInvoiceModel): Buffer {
     period_start: model.period?.start ?? null, period_end: model.period?.end ?? null,
     tax_exemption_category: model.exemption?.category ?? null, tax_exemption_reason: model.exemption?.reason ?? null,
     parties_frozen: true, line_rounding: model.line_rounding, cancelled_at: cancels ? `${model.issue_date}T00:00:00Z` : null,
+    cancelled_on: cancels ? model.issue_date : null,
     cancellation_reason: cancels ? 'Doppelt fakturiert' : null,
     lines: model.lines.map((l, i) => ({ ...l, id: i + 1, invoice_id: 1, net_cents: lineNetCents(l, model.line_rounding) })),
     vat_breakdown: totals.by_rate, payments: [], open_cents: totals.gross_cents,

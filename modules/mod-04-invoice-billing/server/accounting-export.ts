@@ -274,7 +274,7 @@ interface InvoiceRow {
   number: string;
   status: string;
   issue_date: string;
-  cancelled_at: string | null;
+  cancelled_on: string | null;
   delivery_date: string | null;
   payment_terms_days: number;
   tax_exemption_category: TaxExemptionCategory | null;
@@ -298,13 +298,13 @@ export function bookingsFor(
 ): Booking[] {
   const invoices = db
     .prepare(
-      `SELECT i.id, i.number, i.status, i.issue_date, i.cancelled_at, i.delivery_date, i.payment_terms_days,
+      `SELECT i.id, i.number, i.status, i.issue_date, i.cancelled_on, i.delivery_date, i.payment_terms_days,
               i.tax_exemption_category, i.customer_id, i.buyer_snapshot, i.line_rounding,
               c.name AS customer_name, c.vat_id AS customer_vat_id, c.debtor_account
        FROM invoices i JOIN customers c ON c.id = i.customer_id
        WHERE i.status <> 'draft'
          AND ((i.issue_date BETWEEN @from AND @to)
-              OR (i.status = 'cancelled' AND substr(i.cancelled_at, 1, 10) BETWEEN @from AND @to))
+              OR (i.status = 'cancelled' AND i.cancelled_on BETWEEN @from AND @to))
        ORDER BY i.issue_date, i.number`,
     )
     .all(range) as InvoiceRow[];
@@ -349,7 +349,7 @@ export function bookingsFor(
     if (invoice.issue_date >= range.from && invoice.issue_date <= range.to) {
       for (const r of rows) out.push({ ...base, ...r, kind: 'invoice', date: invoice.issue_date, document: invoice.number });
     }
-    const cancelledOn = invoice.cancelled_at?.slice(0, 10);
+    const cancelledOn = invoice.cancelled_on;
     if (invoice.status === 'cancelled' && cancelledOn && cancelledOn >= range.from && cancelledOn <= range.to) {
       for (const r of rows) {
         out.push({ ...base, ...r, kind: 'cancellation', date: cancelledOn, document: `${invoice.number}-ST` });
@@ -367,7 +367,7 @@ export function bookingsFor(
        FROM credit_notes cn JOIN invoices i ON i.id = cn.invoice_id JOIN customers c ON c.id = i.customer_id
        WHERE cn.issue_date BETWEEN @from AND @to ORDER BY cn.issue_date, cn.number`,
     )
-    .all(range) as (Omit<InvoiceRow, 'id' | 'status' | 'issue_date' | 'cancelled_at'> & {
+    .all(range) as (Omit<InvoiceRow, 'id' | 'status' | 'issue_date' | 'cancelled_on'> & {
     credit_note_id: number;
     credit_number: string;
     credit_date: string;
@@ -403,7 +403,7 @@ export function bookingsFor(
          FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id
          WHERE p.date BETWEEN @from AND @to ORDER BY p.date, p.id`,
       )
-      .all(range) as (Omit<InvoiceRow, 'id' | 'status' | 'issue_date' | 'cancelled_at' | 'tax_exemption_category'> & {
+      .all(range) as (Omit<InvoiceRow, 'id' | 'status' | 'issue_date' | 'cancelled_on' | 'tax_exemption_category'> & {
       date: string;
       amount_cents: number;
     })[];

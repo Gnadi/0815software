@@ -82,7 +82,8 @@ invoice that was sent.
 Cancelling keeps the invoice and its number (unchanged module rule), and the
 original e-invoice stays downloadable as it was. The cancellation itself is a
 **credit note**: type code 381, number `<invoice number>-ST`, dated on the day
-of cancellation, with BT-25/26 referring to the cancelled invoice and the
+of cancellation in the business time zone (`BUSINESS_TIMEZONE`, Europe/Berlin
+unless set; so is the issue date of an invoice finalized without one), with BT-25/26 referring to the cancelled invoice and the
 payment means set to 97 (settled between the parties). It is available for
 both formats with `?document=cancellation`.
 

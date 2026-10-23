@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { businessDaySql } from './business-date.js';
 
 /**
  * Open (or create) the database and ensure the schema exists.
@@ -481,6 +482,20 @@ export function openDb(path: string): Database.Database {
     db.exec('ALTER TABLE invoices ADD COLUMN period_end TEXT');
   }
 
+  // The day an invoice was cancelled, in the business time zone
+  // (server/business-date.ts): the date of its cancellation document (BT-2),
+  // of its reversal in the DATEV/BMD export and in the ledger. Read off the UTC
+  // instant `cancelled_at`, it was the day before between midnight and 01:00 or
+  // 02:00 (review N1). Fixed when cancelling, like an issue date, so a later
+  // change of BUSINESS_TIMEZONE moves no cancellation that was already
+  // exported; earlier rows keep the UTC day they have always shown.
+  if (!columns('invoices').includes('cancelled_on')) {
+    db.transaction(() => {
+      db.exec('ALTER TABLE invoices ADD COLUMN cancelled_on TEXT');
+      db.exec('UPDATE invoices SET cancelled_on = substr(cancelled_at, 1, 10) WHERE cancelled_at IS NOT NULL');
+    })();
+  }
+
   ensureReportViews(db);
 
   return db;
@@ -556,6 +571,8 @@ function ensureReportViews(db: Database.Database): void {
   // Reverse dependency order: dependants first.
   dropReportViews(db);
 
+  // SQLite has no IANA zones; the expression carries the zone's offsets.
+  const today = businessDaySql();
   db.exec(`
     -- One row per partial credit note, with its own money — rounded as any
     -- document is: per line, then VAT once per rate on its own base. A credit
@@ -620,15 +637,18 @@ function ensureReportViews(db: Database.Database): void {
                                                       AS outstanding_cents,
       -- Whole days past due_date, and only while money is still owed. 0 for a
       -- settled, cancelled or not-yet-due invoice, so it never reads as debt.
+      -- Counted from today in the business time zone, as the screens count it.
       CASE
         WHEN i.due_date IS NULL THEN 0
         WHEN COALESCE(t.net_cents, 0) + COALESCE(t.vat_cents, 0) - COALESCE(cr.credited_cents, 0) - COALESCE(p.paid_cents, 0) <= 0 THEN 0
         WHEN i.status = 'cancelled' THEN 0
-        WHEN date('now') <= i.due_date THEN 0
-        ELSE CAST(julianday(date('now')) - julianday(i.due_date) AS INTEGER)
+        WHEN ${today} <= i.due_date THEN 0
+        ELSE CAST(julianday(${today}) - julianday(i.due_date) AS INTEGER)
       END                                             AS days_overdue,
       -- Appended, not inserted: a consumer reading by position keeps working.
-      COALESCE(cr.credited_cents, 0)                  AS credited_cents
+      COALESCE(cr.credited_cents, 0)                  AS credited_cents,
+      -- The cancellation's own date, the business day of cancelled_at.
+      i.cancelled_on                                  AS cancelled_on
     FROM invoices i
     JOIN customers c ON c.id = i.customer_id
     LEFT JOIN (

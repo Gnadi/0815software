@@ -355,7 +355,7 @@ export function layoutInvoice(
   if (invoice.buyer_reference) meta.push(['YOUR REF', invoice.buyer_reference]);
   if (customer.supplier_number) meta.push(['SUPPLIER NO', customer.supplier_number]);
   if (invoice.status === 'cancelled' && !cancellation) {
-    meta.push(['CANCELLED', invoice.cancelled_at?.slice(0, 10) ?? '']);
+    meta.push(['CANCELLED', invoice.cancelled_on ?? '']);
   }
   let metaY = y;
   for (const [label, value] of meta) {

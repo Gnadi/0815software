@@ -124,6 +124,7 @@ describe('the views exist and the migration is idempotent', () => {
       'outstanding_cents',
       'days_overdue',
       'credited_cents',
+      'cancelled_on',
     ]);
     expect(columns('report_invoice_lines')).toEqual([
       'invoice_number',
@@ -436,6 +437,7 @@ describe('cancelled invoices are included and marked', () => {
     expect(row.is_cancelled).toBe(1);
     expect(row.cancellation_reason).toBe('duplicate');
     expect(row.cancelled_at).toBe('2026-07-01T09:00:00.000Z');
+    expect(row.cancelled_on).toBe('2026-07-01');
     // The money it was issued for is still visible — a report that wants it
     // gone filters on the flag, it does not have to guess.
     expect(row.gross_cents).toBe(12_000);

@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { FieldError } from '../../shared/types';
 import { api, ApiError } from '../api';
+import { localDate } from '../format';
 
 /**
  * EXPORTS — the issued invoices of a period for the tax adviser, as a DATEV
@@ -16,11 +17,10 @@ interface Props {
   onAuthLost: () => void;
 }
 
+/** Last month by the viewer's own calendar: in UTC, the first night of a month is still in the one before. */
 function previousMonth(): { from: string; to: string } {
   const now = new Date();
-  const first = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-  const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
-  return { from: first.toISOString().slice(0, 10), to: last.toISOString().slice(0, 10) };
+  return { from: localDate(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: localDate(new Date(now.getFullYear(), now.getMonth(), 0)) };
 }
 
 export function ExportView({ onOpenSettings, onAuthLost }: Props) {

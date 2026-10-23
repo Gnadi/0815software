@@ -335,7 +335,10 @@ const { pathToFileURL } = await import('node:url');
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { openDb } = await import('./db.js');
   const { configFromEnv } = await import('./config.js');
+  const { setBusinessTimeZone } = await import('./business-date.js');
   const config = configFromEnv();
+  // As the server does: the seeded invoices are dated, and the views built, in this zone.
+  setBusinessTimeZone(config.businessTimeZone);
   const db = openDb(config.databasePath);
   seed(db, config.seller);
   db.close();

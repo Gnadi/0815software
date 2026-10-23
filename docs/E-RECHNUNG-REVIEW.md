@@ -14,7 +14,7 @@ Ergebnis aufgeführt. Zeilenangaben beziehen sich auf den Stand des Reviews.
 
 Nachgetragen am 22.10.2026, nachdem `main` (ebInterface 6.1, Teilgutschriften,
 wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1 bis M8,
-N2 und N4 am 23.10.2026:
+N1, N2 und N4 am 23.10.2026:
 
 | Befund | Stand | Belegt durch |
 | --- | --- | --- |
@@ -31,7 +31,8 @@ N2 und N4 am 23.10.2026:
 | **M8** | **Behoben.** BR-CO-26 lässt sich ohne USt-IdNr. und Registernummer auf zwei Wegen erfüllen: mit einer Verkäuferkennung (BT-29) mit ISO-6523-Schema aus den Einstellungen, etwa einer GLN (`0088:…`, `GlobalID`), oder mit der Lieferantennummer, die der Kunde vergeben hat (`ram:ID` ohne Schema). EN 16931 nennt Letztere ausdrücklich als Beispiel für BT-29. Beide stehen auch im PDF. | `test/einvoice-rules.test.ts` (Fälle T, U), Matrix-Verkäufer `taxno_gln` |
 | **N4** | **Behoben bis auf die Unicode-Schrift.** Das PDF schlägt jedes Zeichen in derselben CP1252-Tabelle nach, mit der das PDF/A seine Schriften einbettet: Š, Ž, Œ, Ÿ, š, ž, œ und ™ erscheinen richtig. Ein Buchstabe, den WinAnsi nicht hat, erscheint ohne Akzent („Łódź“ als „Lódz“, „Čech“ als „Cech“) statt als „?“; das XML trägt den Namen genau. Offen: eine Unicode-Schrift (Identity-H) im PDF, erst dann stehen Ł, ź und nichtlateinische Schriften dort wie im XML. | `test/einvoice-pdf.test.ts` (N4), Golden-Fall `k` (Käufer in Polen) |
 | **N2** | **Behoben.** Vor jeder Rechnung, in allen drei Formaten, muss die IBAN eine SEPA-IBAN mit stimmender Prüfsumme sein (BT-84, `ibanProblem` wie beim Speichern), ein gesetzter BIC ein BIC (BT-86), geschrieben wie die IBAN ohne Leerzeichen und in Großbuchstaben (das ebInterface-Schema lehnt „BYLA DEM1 001“ ab). Die Vorgaben aus `config.ts`, `AT00 0000 0000 0000 0000` und `EXAMPLEX`, werden mit eigenem Text abgelehnt; `EXAMPLEX` hat die Form eines BIC. Ein Storno nennt kein Konto und wird darauf nicht geprüft, damit eine Rechnung mit Platzhalter-Konto storniert werden kann. Für XRechnung braucht die Telefonnummer mindestens drei Ziffern (BR-DE-27), auch beim Speichern der Einstellungen. | `test/einvoice-rules.test.ts` (Fälle H, V, W, M; N2) |
-| N1, N3, N5–N8 | Offen. | – |
+| **N1** | **Behoben.** Geschäftsdaten sind Tage in der Zeitzone `BUSINESS_TIMEZONE` (Vorgabe Europe/Berlin; eine unbekannte Zone verhindert den Start): Rechnungsdatum ohne Eingabe, damit das Jahr des Nummernkreises, Fälligkeit, Zahlungen ohne Buchungsdatum, Mahnungen, Überfälligkeit. Das Stornodatum wird beim Stornieren als `cancelled_on` gespeichert, wie ein Rechnungsdatum; es datiert das Storno-Dokument (BT-2), die Gegenbuchung im DATEV/BMD-Export und den Kontoauszug, auch eine spätere Änderung der Zone verschiebt es nicht. Ältere Stornos behalten den UTC-Tag, den sie immer zeigten. Die Report-Views zählen `days_overdue` in derselben Zone; SQLite kennt keine IANA-Zonen, darum trägt die View die Offsets der Zone mit den Umstellungszeitpunkten für 30 Jahre und wird bei jedem Start neu gebaut. Der Client zeigt Zeitstempel in der Ortszeit des Betrachters. | `test/business-date.test.ts` (Neujahrsnacht, Storno um 00:30, SQL gegen `Intl` an den Zeitumstellungen von sieben Zonen, Migration) |
+| N3, N5–N8 | Offen. | – |
 
 Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
 Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
@@ -483,6 +484,8 @@ E-Rechnung erzeugen, oder sie tragen eine erfundene „Registernummer“ ein.
 anbieten und die Meldung entsprechend formulieren. Hintergrund in S5.
 
 ### N1 · Geschäftsdaten in UTC
+
+*Status: behoben (siehe Tabelle oben).*
 
 `server/invoices.ts:34–41, 337, 385`, `server/einvoice-data.ts:187`; die
 Oberfläche sendet beim Festschreiben kein Datum. Zwischen 0 und 1 Uhr (MEZ)

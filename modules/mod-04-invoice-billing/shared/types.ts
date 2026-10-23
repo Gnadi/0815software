@@ -168,6 +168,8 @@ export interface InvoiceDetail extends InvoiceRow {
    */
   line_rounding: LineRounding;
   cancelled_at: string | null;
+  /** The day it was cancelled, in the business time zone: the cancellation's own date. */
+  cancelled_on: string | null;
   cancellation_reason: string | null;
   lines: InvoiceLine[];
   vat_breakdown: VatBreakdownRow[];

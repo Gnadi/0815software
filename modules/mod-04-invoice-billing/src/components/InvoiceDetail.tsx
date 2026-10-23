@@ -161,7 +161,7 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
 
       {invoice.status === 'cancelled' && (
         <div className="resource__error mono">
-          CANCELLED {invoice.cancelled_at ? fmtDate(invoice.cancelled_at) : ''} — {invoice.cancellation_reason}
+          CANCELLED {invoice.cancelled_on ? fmtDate(invoice.cancelled_on) : ''} — {invoice.cancellation_reason}
           {' · '}the number {invoice.number} is kept; issue a new invoice for corrections.
         </div>
       )}

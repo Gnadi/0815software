@@ -170,6 +170,16 @@ invoice whose payments cover the gross total, payment status
 (`unpaid` / `partially_paid` / `paid`) from the sum of payments, and
 `overdue` from `due_date < today` — none of these exist as columns.
 
+**Business dates are days in `BUSINESS_TIMEZONE`** (Europe/Berlin unless set,
+`server/business-date.ts`): "today" for an issue date nobody entered, for
+overdue and for dunning, in the API and in the report views alike.
+Timestamps (`created_at`, `cancelled_at`) stay UTC instants. In UTC it is
+yesterday until 01:00 or 02:00, so an invoice finalized at 00:30 on 1 January
+used to be dated, and numbered, in the old year. The day an invoice is
+cancelled is **stored** as `cancelled_on`, like an issue date: it is the date
+of the cancellation document and of its reversal in the export, and a later
+change of the zone must not move it (`test/business-date.test.ts`).
+
 The payables side follows the same rule: a bill has no status column
 either. `open` / `scheduled` / `paid` / `cancelled` is derived from
 `paid_at`, `cancelled_at` and whether a live payment-run item points at
@@ -231,14 +241,16 @@ never sees the tables above.
 - Format: `INV-<year>-<seq>` with a 4-digit zero-padded sequence,
   e.g. `INV-2026-0001`.
 - One independent sequence per year, driven by the `invoice_counters`
-  table. The year is the year of the **issue date**.
+  table. The year is the year of the **issue date** — today in the
+  business time zone when finalizing names none.
 - A number is assigned in the same SQLite transaction that flips a draft
   to `sent` ("finalize"). Drafts have no number — a CHECK constraint
   makes a numbered draft impossible.
 - Deleting a draft therefore never creates a gap; sent invoices cannot
   be deleted at all (409).
-- Cancelling keeps the number and records a timestamp and reason; the
-  cancellation appears in the customer ledger as a balancing credit.
+- Cancelling keeps the number and records a timestamp, its business day
+  and the reason; the cancellation appears in the customer ledger as a
+  balancing credit on that day.
 - The tests prove the sequence 1..last_seq exists exactly once per year
   even when several drafts are finalized concurrently.
 
@@ -319,6 +331,7 @@ the Settings screen by whoever holds `manage`, and what is saved there wins (see
 | ------------------- | ---------------------- | ---------------------------------------- |
 | `PORT`              | `3004`                 | API / production server port             |
 | `DATABASE_PATH`     | `./data.db`            | SQLite file (created on demand)          |
+| `BUSINESS_TIMEZONE` | `Europe/Berlin`        | IANA zone business dates are days in (issue, due, cancellation, overdue). An unknown zone stops the start |
 | `ADMIN_USERNAME`    | `admin`                | Login user                               |
 | `ADMIN_PASSWORD`    | `admin`                | Login password — **change in prod**      |
 | `SESSION_SECRET`    | `dev-secret-change-me` | HMAC key for the session cookie          |

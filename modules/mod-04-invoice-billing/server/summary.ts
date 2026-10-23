@@ -9,6 +9,7 @@ import {
   type SummaryItem,
   type SummaryTone,
 } from '../shared/summary.js';
+import { businessDate } from './business-date.js';
 import { listInvoices, todayIso } from './invoices.js';
 import type { InvoiceRow } from '../shared/types.js';
 
@@ -30,9 +31,9 @@ const SUPPORTED: ContextFilter[] = ['party', 'from', 'to'];
 /** How many rows a list widget carries. A board shows excerpts, not tables. */
 const LIST_LIMIT = 8;
 
-/** An invoice's own date for context purposes: when issued, else when drafted. */
+/** An invoice's own date for context purposes: when issued, else the business day it was drafted on. */
 function invoiceDate(row: InvoiceRow): string {
-  return (row.issue_date ?? row.created_at).slice(0, 10);
+  return row.issue_date ?? businessDate(new Date(row.created_at));
 }
 
 /**
