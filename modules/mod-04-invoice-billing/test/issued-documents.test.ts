@@ -167,10 +167,12 @@ describe('an e-invoice is stored at its first delivery', () => {
  * RENDERER_VERSION names the code that produced a stored file. It is only
  * worth something if it changes whenever the output does, so it is pinned to
  * the golden files: regenerating them after a renderer change fails here
- * until the version is bumped and its fingerprint recorded.
+ * until the version is bumped and its fingerprint recorded. When a case in
+ * test/einvoice-cases.ts changed and the renderer did not, the version stays
+ * and only its fingerprint is recorded again; the commit shows which it was.
  */
 const FINGERPRINTS: Record<string, string> = {
-  'mod-04-einvoice-1': '9acfe5ebf98b640256df9c9e5bac9ba3226c5a75718130b3e7b0bf7d8975543e',
+  'mod-04-einvoice-1': '788a4b8c9e1bf791452b07c4f17cc92771c3cc665067e742e34a42f48966ab1f',
 };
 
 describe('the renderer version', () => {

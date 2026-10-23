@@ -40,7 +40,7 @@
       </ram:SpecifiedLineTradeSettlement>
     </ram:IncludedSupplyChainTradeLineItem>
     <ram:ApplicableHeaderTradeAgreement>
-      <ram:BuyerReference>991-12345-06</ram:BuyerReference>
+      <ram:BuyerReference>991-12345-73</ram:BuyerReference>
       <ram:SellerTradeParty>
         <ram:Name>Beispiel GmbH</ram:Name>
         <ram:DefinedTradeContact>
@@ -74,7 +74,7 @@
           <ram:CountryID>DE</ram:CountryID>
         </ram:PostalTradeAddress>
         <ram:URIUniversalCommunication>
-          <ram:URIID schemeID="0204">991-12345-06</ram:URIID>
+          <ram:URIID schemeID="0204">991-12345-73</ram:URIID>
         </ram:URIUniversalCommunication>
         <ram:SpecifiedTaxRegistration>
           <ram:ID schemeID="VA">ATU12345678</ram:ID>

@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { isCountryCode } from '../shared/countries.js';
+import { MISTYPED_LEITWEG, mistypedLeitweg } from '../shared/einvoice.js';
 import { ibanProblem, isValidBic, normalizeBic, normalizeIban } from '../shared/sepa.js';
 import type { SellerConfig } from './config.js';
 import { DomainError, nowIso } from './invoices.js';
@@ -272,6 +273,9 @@ export function writeSellerSettings(
     }
     if ((key === 'email' || (key === 'einvoiceAddress' && value.includes('@'))) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
       problems.push({ field: key, message: 'not an email address' });
+    }
+    if (key === 'einvoiceAddress' && mistypedLeitweg(value)) {
+      problems.push({ field: key, message: `Leitweg-ID ${MISTYPED_LEITWEG}` });
     }
     overrides[key] = value;
   }

@@ -12,8 +12,8 @@ import type { AuthConfig } from '../server/auth.js';
 import type { SellerConfig } from '../server/config.js';
 import { hasVatPrefix, isCountryCode } from '../shared/countries.js';
 import { ebInterfaceProblems } from '../shared/ebinterface.js';
-import { EINVOICE_PROFILES, eInvoiceProblems, renderCii, type EInvoiceModel } from '../shared/einvoice.js';
-import { BASE } from './einvoice-cases.js';
+import { EINVOICE_PROFILES, eInvoiceProblems, mistypedLeitweg, renderCii, type EInvoiceModel } from '../shared/einvoice.js';
+import { BASE, CASES } from './einvoice-cases.js';
 import { MATRIX, REFUSED } from './einvoice-matrix.js';
 
 /**
@@ -85,6 +85,39 @@ describe('texts that would render empty', () => {
     const note = { ...BASE, exemption: { category: 'AE' as const, reason: null }, note: '\u0007' };
     expect(terms(note, 'zugferd')).toEqual([]);
     expect(renderCii(note, 'zugferd')).not.toContain('<ram:IncludedNote>');
+  });
+});
+
+describe('Leitweg-IDs carry their check digits (M5)', () => {
+  it('accepts the example of the format specification and the ZRE test ID, in either case', () => {
+    // Formatspezifikation Leitweg-ID 2.0.2, section 2.4; the ZRE publishes the second for tests.
+    for (const id of ['04011000-1234512345-06', '991-33333TEST-33', '991-33333test-33']) expect(mistypedLeitweg(id)).toBe(false);
+  });
+
+  it('catches a typo in the check digits and anywhere before them', () => {
+    // Case F of the review, a swapped digit, and the two IDs this suite used to carry.
+    for (const id of ['04011000-1234512345-99', '04011000-1234512354-06', '04011000-12345-67', '991-12345-06']) {
+      expect(mistypedLeitweg(id)).toBe(true);
+    }
+  });
+
+  it('leaves anything of another shape alone', () => {
+    for (const value of ['ap@kunde.de', 'PO-4711', '4711', '04011000-1234512345-6', '', null]) expect(mistypedLeitweg(value)).toBe(false);
+  });
+
+  const leitweg = CASES.leitweg!;
+  const fields = (model: EInvoiceModel): string[] => eInvoiceProblems(model, 'xrechnung').map((p) => p.field);
+
+  it('refuses a mistyped one as the electronic address, and as the reference of a buyer addressed by one', () => {
+    expect(fields(leitweg)).toEqual([]);
+    expect(fields({ ...leitweg, buyer: { ...leitweg.buyer, einvoice_address: '991-12345-37' } })).toContain('customer.einvoice_address');
+    expect(fields({ ...leitweg, buyer_reference: '991-12345-37' })).toEqual(['buyer_reference']);
+    expect(terms({ ...leitweg, buyer_reference: '991-12345-37' }, 'zugferd')).toEqual(['BT-10']);
+  });
+
+  it("does not take another buyer's order reference of the same shape for one", () => {
+    // 4711-01 fails the check digits, but this buyer is addressed by email.
+    expect(fields({ ...CASES.standard!, buyer_reference: '4711-01' })).toEqual([]);
   });
 });
 
@@ -187,6 +220,21 @@ describe('the API refuses what used to reach the file', () => {
     const res = await call('get', `/api/invoices/${id}/xrechnung.xml`);
     expect(res.status).toBe(422);
     expect(res.body.details.map((d: { message: string }) => d.message.split(':')[0])).toContain('BT-55');
+  });
+
+  it('F: a mistyped Leitweg-ID is refused on the customer and in the seller settings', async () => {
+    const field = (res: { body: { details: { field: string }[] } }) => res.body.details.map((d) => d.field);
+    const address = await call('post', '/api/customers', { ...customer, einvoice_address: '04011000-1234512345-99' });
+    expect(address.status).toBe(422);
+    expect(field(address)).toEqual(['einvoice_address']);
+    const reference = await call('post', '/api/customers', { ...customer, einvoice_address: '04011000-1234512345-06', buyer_reference: '04011000-1234512345-60' });
+    expect(reference.status).toBe(422);
+    expect(field(reference)).toEqual(['buyer_reference']);
+    expect(reference.body.details[0].message).not.toContain('-06'); // no hint that would make a typo valid
+    expect((await call('post', '/api/customers', { ...customer, buyer_reference: '4711-01' })).status).toBe(201);
+    const settings = await call('put', '/api/settings/seller', { einvoiceAddress: '991-12345-06' });
+    expect(settings.status).toBe(422);
+    expect(field(settings)).toEqual(['einvoiceAddress']);
   });
 
   it('O: impossible calendar dates are refused on the draft, at issue and on a credit note', async () => {

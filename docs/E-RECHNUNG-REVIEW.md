@@ -20,8 +20,9 @@ wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war:
 | **H3** | **Behoben.** Die erste Auslieferung eines Formats (Rechnung, Storno, Teilgutschrift; XRechnung, ZUGFeRD, ebInterface) speichert die Datei mit SHA-256, Renderer-Version und Person in `issued_documents`; danach werden nur noch diese Bytes ausgeliefert. Trigger verweigern Ändern und Löschen. Die Renderer-Version ist an die Golden Files gekoppelt. | `test/issued-documents.test.ts` |
 | **H1** | **Behoben.** Kunden haben ein Zielformat (XRechnung, ZUGFeRD, ebInterface, keins). Ist eines gesetzt, lehnt das Festschreiben den Entwurf mit 422 ab, solange er darin nicht erzeugbar ist, bevor eine Nummer gezogen wird (auch bei PS-10). Der Entwurf zeigt die fehlenden Felder je Format, eingefrorene Rechnungen sagen, dass nur Storno und Neuausstellung helfen. | `test/einvoice-readiness.test.ts` (Fall A) |
 | **H2** | **Behoben.** Ergänzt: Ländercodes gegen die Liste des CEN-Schematrons (BR-CL-14), Länderpräfix der USt-IdNr. (BR-CO-09), Verkäufer-Kennung je Steuerkategorie (BR-S/Z/E/AE-02, BR-G-02, BR-IC-02, BR-DE-16), echte Kalenderdaten, Texte, die nach dem Bereinigen leer wären. Eine Matrix aus 279 Modellen wird bei jeder MOD-04-Änderung in CI mit Mustang validiert, soweit das Modul sie annimmt. Lokaler Lauf am 22.10.2026: 327 von 327 Dateien gültig (36 Golden-Dateien, 291 aus der Matrix). | `test/einvoice-rules.test.ts` (Fälle J, K, O, P, Q), `.github/workflows/einvoice-validation.yml` |
+| **M5** | **Behoben.** Die Prüfziffer einer Leitweg-ID wird geprüft, nach der Formatspezifikation 2.0.2 (Kap. 2.4, deren Beispiel ist Testfall): beim Speichern von Kunde und Verkäufer und vor jeder Datei, in der elektronischen Adresse und in der Käuferreferenz eines so adressierten Käufers. Eine Bestellnummer gleicher Form (`4711-01`) bei anderen Käufern bleibt unberührt. Die Testdaten tragen gültige IDs. | `test/einvoice-rules.test.ts` (Fall F) |
 | **M6** | **Behoben** mit H2: Die API nimmt nur noch echte Kalenderdaten an. | `test/einvoice-rules.test.ts` |
-| M1–M5, M7, M8, N1–N8 | Offen. | – |
+| M1–M4, M7, M8, N1–N8 | Offen. | – |
 
 Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
 Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
@@ -377,6 +378,10 @@ Prüfziffer (M5), Peppol-Formate zulassen, Freitext ablehnen.
 
 ### M5 · Leitweg-ID ohne Prüfziffer, Testdaten mit ungültigen IDs
 
+*Status: behoben.* Die Formatspezifikation 2.0.2 (Fassung vom 28.07.2021)
+ließ sich später doch abrufen; ihr Kapitel 2.4 bestätigt das unten
+beschriebene Verfahren, ihr Beispiel `04011000-1234512345-06` ist Testfall.
+
 **Wo:** `shared/einvoice.ts:162` (`LEITWEG_RE` prüft nur das Format); Tests
 `test/einvoice-cases.ts:49`, `test/einvoice.test.ts:233, 282, 484`.
 
@@ -517,7 +522,7 @@ Fall (EU-Dienstleistung) beide USt-IdNrn. braucht.
 - `shared/einvoice.ts:24` nennt „BR-LIN-04“. Eine solche Regel gibt es in
   EN 16931:2017 nicht; die Zeilenformel steht in der Definition von BT-131
   und wird nur von Peppol geprüft (PEPPOL-EN16931-R120, S1).
-- `test/einvoice-cases.ts`: Leitweg-IDs ungültig (M5). Mehrere Fälle setzen
+- `test/einvoice-cases.ts`: Leitweg-IDs ungültig (M5, inzwischen korrigiert). Mehrere Fälle setzen
   das Land auf DE, behalten aber Adresse „Ring 5, 1010 Wien“ und
   `ATU12345678`. Den Validatoren ist das egal, Lesern nicht.
 - Es fehlen Tests für den Weg „festschreiben, dann Kunde korrigieren“ (H1)

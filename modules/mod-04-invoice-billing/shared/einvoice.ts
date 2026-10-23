@@ -168,6 +168,34 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** A Leitweg-ID: Grobadressierung, optional Feinadressierung, two check digits. */
 export const LEITWEG_RE = /^\d{2,12}(-[A-Za-z0-9]{1,30})?-\d{2}$/;
 
+/** Shaped like a Leitweg-ID: what an electronic address is written as, scheme 0204. */
+export function leitwegShaped(value: string | null | undefined): boolean {
+  return typeof value === 'string' && LEITWEG_RE.test(value.trim());
+}
+
+/**
+ * A value shaped like a Leitweg-ID whose check digits do not match: ISO/IEC
+ * 7064 MOD 97-10 over the ID without its hyphens, letters counted A = 10 …
+ * Z = 35 in either case, as in an IBAN (Formatspezifikation Leitweg-ID 2.0.2,
+ * 2.3–2.4). No validator checks them — the XRechnung schematron looks at the
+ * shape at most — so a typo would only show when the public body's portal
+ * returns the invoice, after it was sent.
+ */
+export function mistypedLeitweg(value: string | null | undefined): boolean {
+  if (!leitwegShaped(value)) return false;
+  const digits = value!.trim().replace(/-/g, '').toUpperCase().replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
+  let rest = 0;
+  for (const digit of digits) rest = (rest * 10 + Number(digit)) % 97;
+  return rest !== 1;
+}
+
+/**
+ * Deliberately no hint at the right check digits: the typo may sit anywhere,
+ * and "fixing" the check digits would turn it into a valid ID of the wrong
+ * office.
+ */
+export const MISTYPED_LEITWEG = 'fails its check digits (ISO/IEC 7064 MOD 97-10) — compare it with the Leitweg-ID the public body gave you';
+
 /** The schemeID of an electronic address (BT-34-1 / BT-49-1). */
 function addressScheme(address: string): string {
   return LEITWEG_RE.test(address) ? '0204' : 'EM';
@@ -267,6 +295,20 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
     if (missing(model.buyer_reference)) {
       add('BT-10', 'buyer_reference', 'XRechnung requires a buyer reference — the Leitweg-ID for a public body, else the customer\'s order or contact reference');
     }
+  }
+  // A Leitweg-ID is checked wherever this module treats a value as one: an
+  // electronic address of that shape, which it writes with scheme 0204, and
+  // the buyer reference of a buyer addressed that way — a public body, whose
+  // BT-10 is its Leitweg-ID. Any other buyer's order reference of the same
+  // shape (4711-01) is just a reference.
+  if (mistypedLeitweg(seller.einvoice_address)) {
+    add('BT-34', 'seller.einvoiceAddress', `Leitweg-ID "${seller.einvoice_address!.trim()}" ${MISTYPED_LEITWEG}`);
+  }
+  if (mistypedLeitweg(buyer.einvoice_address)) {
+    add('BT-49', 'customer.einvoice_address', `Leitweg-ID "${buyer.einvoice_address!.trim()}" ${MISTYPED_LEITWEG}`);
+  }
+  if (leitwegShaped(buyer.einvoice_address) && mistypedLeitweg(model.buyer_reference)) {
+    add('BT-10', 'buyer_reference', `Leitweg-ID "${model.buyer_reference!.trim()}" ${MISTYPED_LEITWEG}`);
   }
 
   // ── Tax (BG-23) ──

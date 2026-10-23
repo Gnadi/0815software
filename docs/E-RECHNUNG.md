@@ -172,7 +172,7 @@ and the country falls back to the VAT id's prefix.
 | VAT id | BT-48 | reverse charge, intra-EU supply |
 | buyer reference | BT-10 | **XRechnung**. The **Leitweg-ID** for a public body, otherwise the reference the customer wants quoted (order number, contact). For ebInterface it is the order reference (`OrderID`) — the **Auftragsreferenz** the Austrian federal government requires. An invoice can carry its own |
 | our supplier number | — | **ebInterface** `InvoiceRecipientsBillerID` — the **Lieferantennummer** the Austrian federal government assigns and requires. Frozen at issue like every party field |
-| e-invoice address | BT-49 | **XRechnung**. Defaults to the email. A Leitweg-ID here is sent with scheme `0204`, an email with `EM` |
+| e-invoice address | BT-49 | **XRechnung**. Defaults to the email. A Leitweg-ID here is sent with scheme `0204`, an email with `EM`. A Leitweg-ID must carry its check digits (ISO/IEC 7064 MOD 97-10, Formatspezifikation Leitweg-ID 2.0.2): the customer is refused on save, and so is its buyer reference when that is a Leitweg-ID with the wrong digits. The message does not suggest the right ones — the typo may be anywhere |
 | e-invoice format | — | The format this customer receives: XRechnung, ZUGFeRD, ebInterface, or none. Set, a draft for the customer is **refused at finalize** until it renders in it (see below). Empty means nobody decided, and nothing is checked |
 
 ### Per invoice (editor)

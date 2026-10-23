@@ -142,7 +142,7 @@ describe('the rules this module can break, refused before rendering', () => {
 
   it('addresses a Leitweg-ID with scheme 0204 and an email with EM', () => {
     const xml = renderCii(CASES.leitweg!, 'xrechnung');
-    expect(xml).toContain('<ram:URIID schemeID="0204">991-12345-06</ram:URIID>');
+    expect(xml).toContain('<ram:URIID schemeID="0204">991-12345-73</ram:URIID>');
     expect(xml).toContain('<ram:URIID schemeID="EM">rechnung@beispiel.de</ram:URIID>');
   });
 });
@@ -230,7 +230,7 @@ async function customer(values: Record<string, unknown> = {}): Promise<number> {
       email: 'ap@kunde.de',
       vat_id: 'DE987654321',
       address: 'Kundenweg 5\n10115 Berlin',
-      buyer_reference: '04011000-12345-67',
+      buyer_reference: '04011000-12345-03',
       ...values,
     });
   expect(res.status).toBe(201);
@@ -279,7 +279,7 @@ describe('e-invoices through the API', () => {
     expect(res.headers['content-type']).toContain('application/xml');
     expect(res.headers['content-disposition']).toContain('INV-2026-0001_xrechnung.xml');
     expect(res.text).toContain('<ram:ID>INV-2026-0001</ram:ID>');
-    expect(res.text).toContain('<ram:BuyerReference>04011000-12345-67</ram:BuyerReference>');
+    expect(res.text).toContain('<ram:BuyerReference>04011000-12345-03</ram:BuyerReference>');
     expect(res.text).toContain('<ram:GrandTotalAmount>22.57</ram:GrandTotalAmount>');
     // The city and postcode came from the printed address lines.
     expect(res.text).toContain('<ram:PostcodeCode>10115</ram:PostcodeCode>');
@@ -481,7 +481,7 @@ describe('review findings: what stays frozen, and which rates an installation is
     await request(app)
       .put(`/api/customers/${customerId}`)
       .set('Cookie', cookie)
-      .send({ name: 'Kunde AG', email: 'ap@kunde.de', address: 'Kundenweg 5\n10115 Berlin', buyer_reference: '991-12345-06' });
+      .send({ name: 'Kunde AG', email: 'ap@kunde.de', address: 'Kundenweg 5\n10115 Berlin', buyer_reference: '991-12345-73' });
 
     // Still refused, and the ZUGFeRD file is byte for byte what it was.
     expect((await request(app).get(`/api/invoices/${id}/xrechnung.xml`).set('Cookie', cookie)).status).toBe(422);

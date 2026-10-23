@@ -24,7 +24,14 @@ import {
 } from './einvoice-data.js';
 import { issuedDocumentsOf, type IssuedDocument } from './issued-documents.js';
 import type { EInvoiceFormat } from '../shared/ebinterface.js';
-import { eInvoiceProblems, isCalendarDate, type EInvoiceModel } from '../shared/einvoice.js';
+import {
+  eInvoiceProblems,
+  isCalendarDate,
+  leitwegShaped,
+  MISTYPED_LEITWEG,
+  mistypedLeitweg,
+  type EInvoiceModel,
+} from '../shared/einvoice.js';
 import { ebInterfaceProblems } from '../shared/ebinterface.js';
 import {
   bmdExport,
@@ -219,6 +226,14 @@ function validateCustomer(input: Record<string, unknown>): CustomerInput {
   }
   const buyer_reference = optText(input.buyer_reference, 'buyer_reference', errors, 200);
   const einvoice_address = optText(input.einvoice_address, 'einvoice_address', errors, 200);
+  // Checked when it is saved, not when the first XRechnung is rendered: by
+  // then an invoice may have been sent and frozen with the typo in it.
+  if (mistypedLeitweg(einvoice_address)) {
+    errors.push({ field: 'einvoice_address', message: `Leitweg-ID ${MISTYPED_LEITWEG}` });
+  }
+  if (leitwegShaped(einvoice_address) && mistypedLeitweg(buyer_reference)) {
+    errors.push({ field: 'buyer_reference', message: `Leitweg-ID ${MISTYPED_LEITWEG}` });
+  }
   const supplier_number = optText(input.supplier_number, 'supplier_number', errors, 100);
   let einvoice_format: EInvoiceFormatChoice | null = null;
   if (input.einvoice_format !== undefined && input.einvoice_format !== null && input.einvoice_format !== '') {

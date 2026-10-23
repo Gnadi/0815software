@@ -51,5 +51,5 @@ export const CASES: Record<string, EInvoiceModel> = {
   teilgutschrift: { ...BASE, type_code: '381', number: 'INV-2026-0042-GS1', issue_date: '2026-10-25', due_date: null,
     note: 'Gutschrift zur Rechnung INV-2026-0042 vom 2026-10-21: 2 Fachbücher retourniert', preceding: { number: 'INV-2026-0042', issue_date: '2026-10-21' },
     buyer: { ...BASE.buyer, country: 'DE' }, lines: [{ position: 1, description: 'Fachbuch', quantity: 2, unit_price_cents: 1999, vat_rate: 7 }] },
-  leitweg: { ...BASE, buyer_reference: '991-12345-06', buyer: { ...BASE.buyer, country: 'DE', einvoice_address: '991-12345-06' }, lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: 7 }] },
+  leitweg: { ...BASE, buyer_reference: '991-12345-73', buyer: { ...BASE.buyer, country: 'DE', einvoice_address: '991-12345-73' }, lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: 7 }] },
 };
