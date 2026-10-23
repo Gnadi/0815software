@@ -66,29 +66,29 @@
         </ram:SpecifiedTaxRegistration>
       </ram:SellerTradeParty>
       <ram:BuyerTradeParty>
-        <ram:Name>Kunde GmbH</ram:Name>
+        <ram:Name>Škoda Žalec Łódź s.r.o.</ram:Name>
         <ram:PostalTradeAddress>
-          <ram:PostcodeCode>1010</ram:PostcodeCode>
-          <ram:LineOne>Ring 5</ram:LineOne>
-          <ram:CityName>Wien</ram:CityName>
-          <ram:CountryID>AT</ram:CountryID>
+          <ram:PostcodeCode>90-001</ram:PostcodeCode>
+          <ram:LineOne>ul. Piotrkowska 1</ram:LineOne>
+          <ram:CityName>Łódź</ram:CityName>
+          <ram:CountryID>PL</ram:CountryID>
         </ram:PostalTradeAddress>
         <ram:URIUniversalCommunication>
-          <ram:URIID schemeID="EM">ap@kunde.at</ram:URIID>
+          <ram:URIID schemeID="EM">faktury@example.pl</ram:URIID>
         </ram:URIUniversalCommunication>
         <ram:SpecifiedTaxRegistration>
-          <ram:ID schemeID="VA">ATU12345678</ram:ID>
+          <ram:ID schemeID="VA">PL1234567890</ram:ID>
         </ram:SpecifiedTaxRegistration>
       </ram:BuyerTradeParty>
     </ram:ApplicableHeaderTradeAgreement>
     <ram:ApplicableHeaderTradeDelivery>
       <ram:ShipToTradeParty>
-        <ram:Name>Kunde GmbH</ram:Name>
+        <ram:Name>Škoda Žalec Łódź s.r.o.</ram:Name>
         <ram:PostalTradeAddress>
-          <ram:PostcodeCode>1010</ram:PostcodeCode>
-          <ram:LineOne>Ring 5</ram:LineOne>
-          <ram:CityName>Wien</ram:CityName>
-          <ram:CountryID>AT</ram:CountryID>
+          <ram:PostcodeCode>90-001</ram:PostcodeCode>
+          <ram:LineOne>ul. Piotrkowska 1</ram:LineOne>
+          <ram:CityName>Łódź</ram:CityName>
+          <ram:CountryID>PL</ram:CountryID>
         </ram:PostalTradeAddress>
       </ram:ShipToTradeParty>
       <ram:ActualDeliverySupplyChainEvent>

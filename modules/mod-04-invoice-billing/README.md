@@ -496,7 +496,8 @@ independent BigInt computation for 160,000 quantities and prices; at most four
 decimals, refused at the API and at finalize; and an upgrade leaving every
 invoice issued before it at the amounts it was issued with, its credit notes
 included. `test/einvoice-pdf.test.ts` pins that the PDF says what the XML
-says: texts in full, the quantity's four decimals, the seller's identifiers.
+says: texts in full, the quantity's four decimals, the seller's identifiers,
+and names in letters the PDF font lacks shown without their accents.
 
 ## Deploy notes
 
@@ -644,7 +645,9 @@ recipient recomputing quantity × price arrives at them too (see Money).
   XML's four decimals, written like the amounts (`1.234,5`). The footer names
   the seller by VAT id, Steuernummer, register number and seller identifier,
   and the supplier number the customer assigned us stands beside the invoice
-  number (`test/einvoice-pdf.test.ts`).
+  number. Every letter WinAnsi has is shown as itself (Š, Ž, Œ); one it
+  lacks, without its accent (Łódź as Lódz) — the XML carries it exactly
+  (`test/einvoice-pdf.test.ts`).
 - **Addressed to someone.** An e-invoice address is an email address, a
   Leitweg-ID (check digits verified) or a Peppol ID written `scheme:identifier`
   from the EAS code list; free text is refused, on save and before every file.

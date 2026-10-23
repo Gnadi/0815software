@@ -181,6 +181,8 @@ const FINGERPRINTS: Record<string, string> = {
   'mod-04-einvoice-4': '6a7738bf0fedcc8d000191b4bc7194a4b8864566c9bb327b0e52270fd052d83c',
   // The service period as BG-14, ebInterface Period and PDF rows (M7); golden case `period`.
   'mod-04-einvoice-5': '1fd7021f4fb42788c8abe9c331301ff54ccf28bfedb1f342ec0484ad4f03ed13',
+  // The PDF shows Š, Ž, Œ, Ÿ and strips the accent from letters WinAnsi lacks (N4); golden case `k` buys from Poland.
+  'mod-04-einvoice-6': 'b732517ccc7b294fa422165c4c8e241e52b268729dddc2eae6f846926dfadfa6',
 };
 
 describe('the renderer version', () => {

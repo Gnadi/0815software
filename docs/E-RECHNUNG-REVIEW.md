@@ -14,14 +14,14 @@ Ergebnis aufgeführt. Zeilenangaben beziehen sich auf den Stand des Reviews.
 
 Nachgetragen am 22.10.2026, nachdem `main` (ebInterface 6.1, Teilgutschriften,
 wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1 bis M8
-am 23.10.2026:
+und N4 am 23.10.2026:
 
 | Befund | Stand | Belegt durch |
 | --- | --- | --- |
 | **H3** | **Behoben.** Die erste Auslieferung eines Formats (Rechnung, Storno, Teilgutschrift; XRechnung, ZUGFeRD, ebInterface) speichert die Datei mit SHA-256, Renderer-Version und Person in `issued_documents`; danach werden nur noch diese Bytes ausgeliefert. Trigger verweigern Ändern und Löschen. Die Renderer-Version ist an die Golden Files gekoppelt. | `test/issued-documents.test.ts` |
 | **H1** | **Behoben.** Kunden haben ein Zielformat (XRechnung, ZUGFeRD, ebInterface, keins). Ist eines gesetzt, lehnt das Festschreiben den Entwurf mit 422 ab, solange er darin nicht erzeugbar ist, bevor eine Nummer gezogen wird (auch bei PS-10). Der Entwurf zeigt die fehlenden Felder je Format, eingefrorene Rechnungen sagen, dass nur Storno und Neuausstellung helfen. | `test/einvoice-readiness.test.ts` (Fall A) |
 | **H2** | **Behoben.** Ergänzt: Ländercodes gegen die Liste des CEN-Schematrons (BR-CL-14), Länderpräfix der USt-IdNr. (BR-CO-09), Verkäufer-Kennung je Steuerkategorie (BR-S/Z/E/AE-02, BR-G-02, BR-IC-02, BR-DE-16), echte Kalenderdaten, Texte, die nach dem Bereinigen leer wären. Eine Matrix aus 279 Modellen wird bei jeder MOD-04-Änderung in CI mit Mustang validiert, soweit das Modul sie annimmt. Lokaler Lauf am 22.10.2026: 327 von 327 Dateien gültig (36 Golden-Dateien, 291 aus der Matrix). | `test/einvoice-rules.test.ts` (Fälle J, K, O, P, Q), `.github/workflows/einvoice-validation.yml` |
-| **M1** | **Weitgehend behoben.** Das PDF bricht Positionstext, Notiz, Befreiungsgrund, Gutschriftgrund, Käuferreferenz und Kundennamen nach gemessener Breite um (Metriken der Liberation-Schriften, die beide PDF-Varianten nutzen) und setzt auf der nächsten Seite fort, statt zu kürzen. Mengen stehen mit den vier Nachkommastellen des XML im deutschen Format (`1.234,5`). Offen: Zeichen außerhalb von WinAnsi werden weiter zu „?“ (N4), und beim Festschreiben geht weiter das einfache PDF hinaus, auch an Verkäufer in der Ausstellungspflicht (dafür fehlt eine Einstellung). | `test/einvoice-pdf.test.ts`, Golden-Fall `long` (Fall C) |
+| **M1** | **Weitgehend behoben.** Das PDF bricht Positionstext, Notiz, Befreiungsgrund, Gutschriftgrund, Käuferreferenz und Kundennamen nach gemessener Breite um (Metriken der Liberation-Schriften, die beide PDF-Varianten nutzen) und setzt auf der nächsten Seite fort, statt zu kürzen. Mengen stehen mit den vier Nachkommastellen des XML im deutschen Format (`1.234,5`). Seit N4 erscheinen auch Š, Ž, Œ und Ÿ, andere Buchstaben ohne Akzent statt als „?“. Offen: Beim Festschreiben geht weiter das einfache PDF hinaus, auch an Verkäufer in der Ausstellungspflicht (dafür fehlt eine Einstellung). | `test/einvoice-pdf.test.ts`, Golden-Fall `long` (Fall C) |
 | **M2** | **Behoben.** Die Fußzeile des PDF nennt alle Kennungen, die auch das XML trägt: USt-IdNr., Steuernummer, Registernummer. Ein leeres „VAT“ gibt es nicht mehr. Offen bleiben die Geschäftsbriefangaben nach § 35a GmbHG, dafür fehlen noch Felder. | `test/einvoice-pdf.test.ts` |
 | **M3** | **Behoben.** Zeilenbeträge werden ganzzahlig aus der Menge in Zehntausendsteln gerechnet und kaufmännisch gerundet (BT-131). Mengen haben höchstens vier Nachkommastellen (API und Festschreiben). Report-Views, DATEV/BMD-Export, Gutschriften und Client-Vorschau rechnen gleich. Jede Rechnung behält die Rundung, unter der sie festgeschrieben wurde (`line_rounding`): Bestehende Rechnungen bleiben bei der alten Gleitkomma-Rundung, ihre Beträge ändern sich nicht. Fall C ergibt jetzt 446,63 €, wie Mustang nachrechnet. Ein Import, dessen Zeilennetto die neue Rundung nicht trifft, wird centgenau übernommen. | `test/money.test.ts` (160.000 Kombinationen gegen BigInt, Upgrade-Fall), Golden-Fall `long` |
 | **M4** | **Behoben.** Eine elektronische Adresse ist eine E-Mail-Adresse (`EM`), eine Leitweg-ID (`0204`) oder eine Peppol-ID in der Form `Schema:Kennung` (`0088:…`, `9930:DE…`), das Schema aus der EAS-Codeliste des CEN-Schematrons (BR-CL-25). Freitext wird beim Speichern von Kunde und Verkäufer und vor jeder Datei abgelehnt (Fälle C und M). ebInterface erhält dort nur eine E-Mail-Adresse. | `test/einvoice-rules.test.ts` (Fälle R, S), Matrix-Käufer `peppol` |
@@ -29,7 +29,8 @@ am 23.10.2026:
 | **M6** | **Behoben** mit H2: Die API nimmt nur noch echte Kalenderdaten an. | `test/einvoice-rules.test.ts` |
 | **M7** | **Behoben.** Entwürfe haben einen Leistungszeitraum (BG-14: erster und letzter Tag, beide oder keiner; BR-29). Er steht im XML, in ebInterface als `Delivery/Period` und im PDF. Ohne eigenes Leistungsdatum ist BT-72 der letzte Tag des Zeitraums, so bleibt der Lieferblock nicht leer (ZUGFeRD 2.5 warnt sonst nach PEPPOL-EN16931-R008). Wiederkehrende Rechnungen tragen den Zeitraum ihres Laufs ein, statt des fiktiven Datums mit Freitext. | `test/einvoice-rules.test.ts` (M7), `test/recurring.test.ts`, Golden-Fall `period` |
 | **M8** | **Behoben.** BR-CO-26 lässt sich ohne USt-IdNr. und Registernummer auf zwei Wegen erfüllen: mit einer Verkäuferkennung (BT-29) mit ISO-6523-Schema aus den Einstellungen, etwa einer GLN (`0088:…`, `GlobalID`), oder mit der Lieferantennummer, die der Kunde vergeben hat (`ram:ID` ohne Schema). EN 16931 nennt Letztere ausdrücklich als Beispiel für BT-29. Beide stehen auch im PDF. | `test/einvoice-rules.test.ts` (Fälle T, U), Matrix-Verkäufer `taxno_gln` |
-| N1–N8 | Offen. | – |
+| **N4** | **Behoben bis auf die Unicode-Schrift.** Das PDF schlägt jedes Zeichen in derselben CP1252-Tabelle nach, mit der das PDF/A seine Schriften einbettet: Š, Ž, Œ, Ÿ, š, ž, œ und ™ erscheinen richtig. Ein Buchstabe, den WinAnsi nicht hat, erscheint ohne Akzent („Łódź“ als „Lódz“, „Čech“ als „Cech“) statt als „?“; das XML trägt den Namen genau. Offen: eine Unicode-Schrift (Identity-H) im PDF, erst dann stehen Ł, ź und nichtlateinische Schriften dort wie im XML. | `test/einvoice-pdf.test.ts` (N4), Golden-Fall `k` (Käufer in Polen) |
+| N1–N3, N5–N8 | Offen. | – |
 
 Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
 Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
@@ -272,8 +273,8 @@ allen anderen Renderer-Fixes kommen.**
 
 ### M1 · PDF und XML sagen nicht dasselbe
 
-*Status: weitgehend behoben (Umbruch, Mengen); offen sind N4 und der Versand
-des einfachen PDF an Verkäufer in der Ausstellungspflicht.*
+*Status: weitgehend behoben (Umbruch, Mengen, mit N4 die Zeichen); offen ist
+der Versand des einfachen PDF an Verkäufer in der Ausstellungspflicht.*
 
 **Wo:** `server/pdf.ts:264` (Positionstext nach 46 Zeichen abgeschnitten),
 `:309` (Notiz nach 100), `:317` (Befreiungsgrund nach 100), `:237`
@@ -508,6 +509,8 @@ missing rather than guessed“). Vorschlag: nur Länder mit bekanntem Muster
 lesen (DE, AT, CH, LI, …), sonst als fehlend melden.
 
 ### N4 · Š, Ž, š, ž, Œ, œ, Ÿ werden im PDF zu „?“
+
+*Status: behoben bis auf die Unicode-Schrift (Identity-H).*
 
 `server/pdf.ts:30–36`. Fall E: „Škoda Žalec Łódź s.r.o.“ erscheint als
 „?koda ?alec ?ód? s.r.o.“. Š und Ž gibt es in WinAnsi (0x8A, 0x8E), und die
@@ -889,7 +892,12 @@ mit Mustang-CLI 2.26.0 (`--action validate --no-notices`).
 | P | Ausfuhr (`G`), Verkäufer nur mit Steuernummer und HRB | `eInvoiceProblems`: keine | **ungültig**, BR-G-02 | H2, S5 |
 | Q | nur `E`-Positionen, Verkäufer nur mit HRB | `eInvoiceProblems`: keine | **ungültig**, BR-E-02, BR-DE-16 | H2 |
 
-Nach der Umsetzung von H1–H3: Fall A wird schon beim Festschreiben
-abgelehnt, wenn der Kunde XRechnung erhält; J, K, O, P und Q werden mit dem
-jeweiligen Business Term abgelehnt; die übrigen Ergebnisse gelten
-unverändert, weil die zugehörigen Befunde offen sind.
+Stand nach den Fixes vom 22. und 23.10.2026: A wird schon beim
+Festschreiben abgelehnt, wenn der Kunde XRechnung erhält (H1). B nennt
+Steuernummer und HRB in der Fußzeile (M2). C zeigt die Texte vollständig und
+0,3333, rechnet 446,63 € ohne Warnung (M1, M3) und lehnt die Freitextadresse
+ab (M4); G folgt C. E zeigt „Škoda Žalec Lódz s.r.o.“ (N4). F, J, K, O, P
+und Q werden mit dem jeweiligen Business Term abgelehnt (M5, H2, M6). L
+ergibt 0,15 € und 1,01 € (M3). M wird beim Speichern abgelehnt, aber nur
+wegen der Adresse (M4), das Telefon „n/a“ ginge durch (N2). D, D′, H und I
+gelten unverändert.

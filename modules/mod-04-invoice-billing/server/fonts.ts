@@ -34,6 +34,18 @@ export function unicodeOf(code: number): number | null {
   return code;
 }
 
+const WIN_ANSI_OF = new Map<number, number>(Object.entries(CP1252).map(([code, unicode]) => [unicode, Number(code)]));
+
+/**
+ * The WinAnsi code that shows a Unicode code point, or null when it has none.
+ * The inverse of `unicodeOf`, from the same table — the PDF writer used to
+ * keep a second, shorter one, and Š, Ž, Œ and Ÿ came out as "?" (review N4).
+ */
+export function winAnsiOf(unicode: number): number | null {
+  if ((unicode >= 0x20 && unicode < 0x7f) || (unicode >= 0xa0 && unicode <= 0xff)) return unicode;
+  return WIN_ANSI_OF.get(unicode) ?? null;
+}
+
 /** assets/fonts, found from this file whether it runs from server/ or dist/server/server/. */
 function fontDir(): string {
   let dir = dirname(fileURLToPath(import.meta.url));

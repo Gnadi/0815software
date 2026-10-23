@@ -38,7 +38,13 @@ export const CASES: Record<string, EInvoiceModel> = {
     ],
   },
   ae: { ...BASE, exemption: { category: 'AE', reason: null } },
-  k: { ...BASE, exemption: { category: 'K', reason: null } },
+  // An intra-EU supply to Poland — and a name with letters WinAnsi has (Š, Ž)
+  // and lacks (Ł, ź), which the PDF shows as "Lódz" (review N4).
+  k: {
+    ...BASE,
+    buyer: { ...BASE.buyer, name: 'Škoda Žalec Łódź s.r.o.', street: 'ul. Piotrkowska 1', postcode: '90-001', city: 'Łódź', country: 'PL', vat_id: 'PL1234567890', email: 'faktury@example.pl' },
+    exemption: { category: 'K', reason: null },
+  },
   g: { ...BASE, buyer: { ...BASE.buyer, country: 'CH', vat_id: null }, exemption: { category: 'G', reason: null } },
   e: { ...BASE, buyer: { ...BASE.buyer, country: 'DE', vat_id: null }, exemption: { category: 'E', reason: 'Kein Ausweis von Umsatzsteuer, da Kleinunternehmer gemäß § 19 UStG' } },
   o: { ...BASE, seller: { ...BASE.seller, registration: 'HRB 12345' }, exemption: { category: 'O', reason: null } },

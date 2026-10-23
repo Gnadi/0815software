@@ -387,6 +387,12 @@ if a customer needs it.
   over the same `EInvoiceModel`, as ebInterface is.
 - **Allowances, charges, discounts, units.** Lines carry no allowances or
   charges and are always in unit `C62` (piece). Skonto terms are not encoded.
+- **Every alphabet in the PDF.** The PDF is written in WinAnsi
+  (Windows-1252): German and the other Western European languages, Š, Ž and
+  Œ included. A letter outside it is shown without its accent (Łódź as
+  Lódz), a script without Latin letters as question marks. The XML is UTF-8
+  and carries every name exactly; the PDF would need a Unicode font
+  (Identity-H) to do the same.
 - **Archiving beyond the module.** Issued e-invoices are stored as
   delivered, with their SHA-256, append-only (see *The invoice as issued*),
   but not signed, not timestamped by a third party and not copied to an

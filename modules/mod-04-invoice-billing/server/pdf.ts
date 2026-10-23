@@ -13,7 +13,7 @@ import { EXEMPTION_DEFAULT_REASON } from '../shared/einvoice.js';
 import { fmtEur } from '../shared/money.js';
 import type { CreditNote, Customer, InvoiceDetail } from '../shared/types.js';
 import type { SellerConfig } from './config.js';
-import { fonts, unicodeOf } from './fonts.js';
+import { fonts, unicodeOf, winAnsiOf } from './fonts.js';
 
 export const A4 = { width: 595.28, height: 841.89 };
 
@@ -28,26 +28,38 @@ export type FontKey = keyof typeof FONTS;
 /** Courier glyph width: 600/1000 em — exact, per the AFM spec. */
 const COURIER_EM = 0.6;
 
-const HIGH: Record<string, number> = {
-  '€': 0x80, '‚': 0x82, '„': 0x84, '…': 0x85,
-  '†': 0x86, '‡': 0x87, '‰': 0x89, '‹': 0x8b,
-  '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94,
-  '•': 0x95, '–': 0x96, '—': 0x97, '›': 0x9b,
-  '−': 0x2d, // minus sign → hyphen
-};
+/** Letters WinAnsi lacks that carry no accent to strip: shown as the letter they are written like. */
+const BASE_LETTER: Record<string, string> = { Ł: 'L', ł: 'l', Đ: 'D', đ: 'd', ı: 'i', Ħ: 'H', ħ: 'h', Ŧ: 'T', ŧ: 't', '−': '-' };
 
 /**
  * A JS string as WinAnsi codes. Control characters (a tab pasted into a line
  * description) become spaces: they have no glyph, and a PDF/A may not show
- * the .notdef box in their place.
+ * the .notdef box in their place. A letter WinAnsi has no code for is shown
+ * without its accent — "Łódź" as "Lódz", "Čech" as "Cech" — rather than as
+ * "?", which said nothing; the XML carries the name exactly. Writing every
+ * name as it is needs a Unicode font in the PDF (Identity-H), not yet done.
+ *
+ * Composed first: text pasted from a Mac often spells "ö" as "o" plus a
+ * combining diaeresis, which WinAnsi has as one letter. An accent left over
+ * after that has nothing to sit on in WinAnsi and is dropped.
  */
 export function winAnsiCodes(text: string): number[] {
   const codes: number[] = [];
-  for (const ch of text) {
-    let code = ch.codePointAt(0)!;
-    if (code > 0xff) code = HIGH[ch] ?? 0x3f; // '?'
-    else if (code < 0x20 || (code >= 0x7f && code < 0xa0)) code = 0x20;
-    codes.push(code);
+  for (const ch of text.normalize('NFC')) {
+    const point = ch.codePointAt(0)!;
+    if (point < 0x20 || (point >= 0x7f && point < 0xa0)) {
+      codes.push(0x20);
+      continue;
+    }
+    const direct = winAnsiOf(point);
+    if (direct !== null) {
+      codes.push(direct);
+      continue;
+    }
+    const base = BASE_LETTER[ch] ?? ch.normalize('NFD').replace(/\p{M}/gu, '');
+    if (base === '') continue;
+    const fallback = base.length === 1 ? winAnsiOf(base.codePointAt(0)!) : null;
+    codes.push(fallback ?? 0x3f); // '?'
   }
   return codes;
 }
@@ -125,7 +137,8 @@ export class Page {
 
   /** Right-aligned text — Courier fonts only (fixed glyph width). */
   textRight(font: 'F3' | 'F4', size: number, xRight: number, y: number, value: string, gray = 0): void {
-    this.text(font, size, xRight - value.length * COURIER_EM * size, y, value, gray);
+    // Counted in the glyphs shown, not UTF-16 units: "😀" is one "?", a dropped accent none.
+    this.text(font, size, xRight - winAnsiCodes(value).length * COURIER_EM * size, y, value, gray);
   }
 
   /** Horizontal hairline. */

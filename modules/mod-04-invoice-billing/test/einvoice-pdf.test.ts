@@ -7,7 +7,7 @@ import { openDb } from '../server/db.js';
 import type { AuthConfig } from '../server/auth.js';
 import type { SellerConfig } from '../server/config.js';
 import { unicodeOf } from '../server/fonts.js';
-import { A4, textWidth, wrapText } from '../server/pdf.js';
+import { A4, textWidth, winAnsiCodes, wrapText } from '../server/pdf.js';
 
 /**
  * The PDF says what the XML says — review findings M1 and M2 in
@@ -161,5 +161,22 @@ describe('M1 · the PDF says everything the XML says', () => {
     expect(pdf.match(/\/Type \/Page /g)!.length).toBeGreaterThan(1);
     expect(shown(pdf).join(' ')).toContain(note.slice(-40));
     expect(A4.height).toBeGreaterThan(800);
+  });
+});
+
+describe('N4 · names the PDF font cannot spell', () => {
+  const asShown = (text: string): string => winAnsiCodes(text).map((c) => String.fromCodePoint(unicodeOf(c) ?? 0x3f)).join('');
+
+  it('shows every letter WinAnsi has, Š, Ž, Œ and Ÿ included', () => {
+    expect(asShown('Škoda Žalec · Œuvre · Ÿ · š ž œ')).toBe('Škoda Žalec · Œuvre · Ÿ · š ž œ');
+  });
+
+  it('shows a letter it lacks without its accent, not as a question mark', () => {
+    expect(asShown('Łódź Čech Đurić Göncz Ő')).toBe('Lódz Cech Duric Göncz O');
+    expect(asShown('漢字')).toBe('??'); // nothing to fall back to
+  });
+
+  it('composes a letter typed as base and accent, and drops an accent with nothing to sit on', () => {
+    expect(asShown('Müller Ångström x́')).toBe('Müller Ångström x');
   });
 });
