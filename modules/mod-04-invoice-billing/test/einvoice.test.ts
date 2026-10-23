@@ -394,6 +394,12 @@ describe('e-invoices through the API', () => {
     expect(original.text).toContain('<ram:TypeCode>380</ram:TypeCode>');
     const pdf = await request(app).get(`/api/invoices/${id}/zugferd.pdf?document=cancellation`).set('Cookie', cookie).buffer(true);
     expect(embeddedXml(pdf.body as Buffer)).toContain('<ram:TypeCode>381</ram:TypeCode>');
+
+    // A Stornorechnung, never a "Gutschrift" — in German VAT law the invoice a
+    // recipient issues itself (review N5): in the note, the terms and the title.
+    expect(credit.text).toContain('<ram:Content>Stornorechnung zur Rechnung INV-2026-0001 vom ');
+    expect(credit.text).not.toContain('Gutschrift');
+    expect((pdf.body as Buffer).toString('latin1')).toContain('<rdf:li xml:lang="x-default">Stornorechnung INV-2026-0001-ST</rdf:li>');
   });
 
   it('validates the new customer and draft fields', async () => {

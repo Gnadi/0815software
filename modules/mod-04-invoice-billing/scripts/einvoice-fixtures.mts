@@ -13,7 +13,7 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { EINVOICE_PROFILES, eInvoiceProblems, renderCii, type EInvoiceModel } from '../shared/einvoice.js';
+import { DOCUMENT_NAME, EINVOICE_PROFILES, eInvoiceProblems, renderCii, type EInvoiceModel } from '../shared/einvoice.js';
 import { computeTotals, lineNetCents } from '../shared/money.js';
 import type { InvoiceDetail } from '../shared/types.js';
 import { pdfParties } from '../server/einvoice-data.js';
@@ -62,7 +62,8 @@ function zugferdPdf(model: EInvoiceModel): Buffer {
       ? { number: model.number, date: model.issue_date, ...(model.number.includes('-GS') ? { reason: model.note ?? '' } : {}) }
       : undefined,
   );
-  return buildPdfA(pages, { xml: renderCii(model, 'zugferd'), title: `Rechnung ${model.number}`, author: model.seller.name, date: model.issue_date });
+  const kind = model.type_code === '380' ? 'invoice' : cancels ? 'cancellation' : 'credit_note';
+  return buildPdfA(pages, { xml: renderCii(model, 'zugferd'), title: `${DOCUMENT_NAME[kind]} ${model.number}`, author: model.seller.name, date: model.issue_date });
 }
 
 for (const [name, model] of Object.entries(CASES)) {

@@ -699,7 +699,9 @@ recipient recomputing quantity × price arrives at them too (see Money).
   the PDF and written to the XML.
 - **A cancellation is a document.** A cancelled invoice keeps its original
   e-invoice; its cancellation is a credit note (type 381, number
-  `<invoice>-ST`) referring to it — `?document=cancellation`.
+  `<invoice>-ST`) referring to it — `?document=cancellation`. It calls
+  itself a Stornorechnung, a partial credit note a Rechnungskorrektur, never
+  a "Gutschrift", which in German VAT law is the recipient's own invoice.
 - **Validated outside this repository.** Every case in
   `test/einvoice-cases.ts` passed Mustang (EN 16931 + XRechnung 3.0
   schematron, veraPDF for PDF/A-3b) before its golden file was committed; the

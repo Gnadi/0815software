@@ -87,6 +87,14 @@ unless set; so is the issue date of an invoice finalized without one), with BT-2
 payment means set to 97 (settled between the parties). It is available for
 both formats with `?document=cancellation`.
 
+It calls itself a **Stornorechnung** ("Stornorechnung zur Rechnung … vom …"
+in BT-22, and as the PDF/A title), a partial credit note a
+**Rechnungskorrektur**. Neither says "Gutschrift": in German VAT law that is
+the invoice the recipient issues itself (§ 14 Abs. 2 Satz 2 UStG). The word
+on a seller's correction triggers no tax under § 14c UStG (Abschn. 14c.1
+Abs. 3 UStAE), but a recipient that processes self-billing could take the
+document for one. BT-20 says only what happens to the money.
+
 ### Partial credit notes (Teilgutschriften)
 
 A correction of PART of an invoice — returned goods, a price reduction — is a

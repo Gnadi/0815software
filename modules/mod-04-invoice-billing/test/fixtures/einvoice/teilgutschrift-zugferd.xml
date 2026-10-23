@@ -12,7 +12,7 @@
       <udt:DateTimeString format="102">20261025</udt:DateTimeString>
     </ram:IssueDateTime>
     <ram:IncludedNote>
-      <ram:Content>Gutschrift zur Rechnung INV-2026-0042 vom 2026-10-21: 2 Fachbücher retourniert</ram:Content>
+      <ram:Content>Rechnungskorrektur zur Rechnung INV-2026-0042 vom 2026-10-21: 2 Fachbücher retourniert</ram:Content>
     </ram:IncludedNote>
   </rsm:ExchangedDocument>
   <rsm:SupplyChainTradeTransaction>
@@ -104,7 +104,7 @@
         <ram:RateApplicablePercent>7</ram:RateApplicablePercent>
       </ram:ApplicableTradeTax>
       <ram:SpecifiedTradePaymentTerms>
-        <ram:Description>Gutschrift — wird mit offenen Beträgen verrechnet oder erstattet.</ram:Description>
+        <ram:Description>Wird mit offenen Beträgen verrechnet oder erstattet.</ram:Description>
       </ram:SpecifiedTradePaymentTerms>
       <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
         <ram:LineTotalAmount>39.98</ram:LineTotalAmount>

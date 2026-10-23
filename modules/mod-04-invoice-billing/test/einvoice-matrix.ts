@@ -74,7 +74,7 @@ function model(category: string, seller: string, buyer: string, creditNote = fal
           type_code: '381' as const,
           number: 'INV-2026-0042-GS1',
           due_date: null,
-          note: 'Gutschrift zur Rechnung INV-2026-0042 vom 2026-10-01: Teil zurück',
+          note: 'Rechnungskorrektur zur Rechnung INV-2026-0042 vom 2026-10-01: Teil zurück',
           preceding: { number: 'INV-2026-0042', issue_date: '2026-10-01' },
         }
       : {}),

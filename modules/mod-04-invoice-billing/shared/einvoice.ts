@@ -540,9 +540,13 @@ function deDate(iso: string): string {
   return `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`;
 }
 
-/** The payment terms text (BT-20), in German — the recipient's language. */
+/**
+ * The payment terms text (BT-20), in German — the recipient's language. A
+ * credit note's says what happens to the money and names no document: it
+ * used to open with "Gutschrift" (see DOCUMENT_NAME).
+ */
 export function paymentTermsText(model: EInvoiceModel): string {
-  if (model.type_code === '381') return 'Gutschrift — wird mit offenen Beträgen verrechnet oder erstattet.';
+  if (model.type_code === '381') return 'Wird mit offenen Beträgen verrechnet oder erstattet.';
   if (model.due_date === null || model.payment_terms_days === 0) return 'Zahlbar sofort ohne Abzug.';
   return `Zahlbar innerhalb von ${model.payment_terms_days} Tagen ohne Abzug bis ${deDate(model.due_date)}.`;
 }
@@ -838,3 +842,13 @@ export function renderCii(model: EInvoiceModel, profile: EInvoiceProfile): strin
 export function cancellationNumber(invoiceNumber: string): string {
   return `${invoiceNumber}-ST`;
 }
+
+/**
+ * What each document calls itself, in German: the PDF/A title a viewer shows
+ * and the opening of a credit note's note (BT-22). Never "Gutschrift": in
+ * German VAT law that is the invoice a recipient issues itself (§ 14 Abs. 2
+ * Satz 2 UStG), and a recipient that processes such self-billing would take
+ * ours for one (review N5). A cancellation is a Stornorechnung, a partial
+ * credit note a Rechnungskorrektur; both are credit notes (381) to EN 16931.
+ */
+export const DOCUMENT_NAME = { invoice: 'Rechnung', cancellation: 'Stornorechnung', credit_note: 'Rechnungskorrektur' } as const;

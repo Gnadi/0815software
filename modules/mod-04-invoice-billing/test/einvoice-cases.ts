@@ -51,12 +51,12 @@ export const CASES: Record<string, EInvoiceModel> = {
   z: { ...BASE, buyer: { ...BASE.buyer, country: 'DE' }, exemption: { category: 'Z', reason: null } },
   mixed_e: { ...BASE, buyer: { ...BASE.buyer, country: 'DE' }, exemption: { category: 'E', reason: 'Steuerfrei nach § 4 Nr. 14 UStG' }, lines: [...BASE.lines, { position: 2, description: 'Material', quantity: 2, unit_price_cents: 4550, vat_rate: 19 }] },
   taxno: { ...BASE, seller: { ...BASE.seller, vat_id: null, tax_number: '143/123/45678', registration: 'HRB 12345' }, buyer: { ...BASE.buyer, country: 'DE' }, lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: 19 }] },
-  storno: { ...BASE, type_code: '381', number: 'INV-2026-0042-ST', due_date: null, note: 'Storno der Rechnung INV-2026-0042', preceding: { number: 'INV-2026-0042', issue_date: '2026-10-01' },
+  storno: { ...BASE, type_code: '381', number: 'INV-2026-0042-ST', due_date: null, note: 'Stornorechnung zur Rechnung INV-2026-0042 vom 2026-10-01', preceding: { number: 'INV-2026-0042', issue_date: '2026-10-01' },
     buyer: { ...BASE.buyer, country: 'DE' }, lines: [{ position: 1, description: 'x', quantity: 3, unit_price_cents: 33, vat_rate: 19 }] },
   // A partial credit note (Teilgutschrift): 381 like the storno, but only part
   // of the invoice — two returned books at 7 %, the 19 % lines untouched.
   teilgutschrift: { ...BASE, type_code: '381', number: 'INV-2026-0042-GS1', issue_date: '2026-10-25', due_date: null,
-    note: 'Gutschrift zur Rechnung INV-2026-0042 vom 2026-10-21: 2 Fachbücher retourniert', preceding: { number: 'INV-2026-0042', issue_date: '2026-10-21' },
+    note: 'Rechnungskorrektur zur Rechnung INV-2026-0042 vom 2026-10-21: 2 Fachbücher retourniert', preceding: { number: 'INV-2026-0042', issue_date: '2026-10-21' },
     buyer: { ...BASE.buyer, country: 'DE' }, lines: [{ position: 1, description: 'Fachbuch', quantity: 2, unit_price_cents: 1999, vat_rate: 7 }] },
   // Review case C: a quantity with four decimals, rounded half up exactly
   // (0.3333 × 999.99 € = 333.30 €), and texts long enough that the PDF has to

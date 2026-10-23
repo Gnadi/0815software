@@ -68,7 +68,7 @@ export const AT_CASES: Record<string, EInvoiceModel> = {
     number: 'RE-2026-0042-ST',
     issue_date: '2026-10-25',
     due_date: null,
-    note: 'Storno der Rechnung RE-2026-0042',
+    note: 'Stornorechnung zur Rechnung RE-2026-0042 vom 2026-10-21',
     preceding: { number: 'RE-2026-0042', issue_date: '2026-10-21' },
   },
   // A partial credit note: a CreditMemo for part of the invoice, at one rate.
@@ -78,7 +78,7 @@ export const AT_CASES: Record<string, EInvoiceModel> = {
     number: 'RE-2026-0042-GS1',
     issue_date: '2026-10-28',
     due_date: null,
-    note: 'Gutschrift zur Rechnung RE-2026-0042 vom 2026-10-21: Preisnachlass wegen Verzug',
+    note: 'Rechnungskorrektur zur Rechnung RE-2026-0042 vom 2026-10-21: Preisnachlass wegen Verzug',
     preceding: { number: 'RE-2026-0042', issue_date: '2026-10-21' },
     lines: [{ position: 1, description: 'Preisnachlass Wartung', quantity: 1, unit_price_cents: 5000, vat_rate: 20 }],
   },

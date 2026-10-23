@@ -12,7 +12,7 @@
       <udt:DateTimeString format="102">20261021</udt:DateTimeString>
     </ram:IssueDateTime>
     <ram:IncludedNote>
-      <ram:Content>Storno der Rechnung INV-2026-0042</ram:Content>
+      <ram:Content>Stornorechnung zur Rechnung INV-2026-0042 vom 2026-10-01</ram:Content>
     </ram:IncludedNote>
   </rsm:ExchangedDocument>
   <rsm:SupplyChainTradeTransaction>
@@ -104,7 +104,7 @@
         <ram:RateApplicablePercent>19</ram:RateApplicablePercent>
       </ram:ApplicableTradeTax>
       <ram:SpecifiedTradePaymentTerms>
-        <ram:Description>Gutschrift — wird mit offenen Beträgen verrechnet oder erstattet.</ram:Description>
+        <ram:Description>Wird mit offenen Beträgen verrechnet oder erstattet.</ram:Description>
       </ram:SpecifiedTradePaymentTerms>
       <ram:SpecifiedTradeSettlementHeaderMonetarySummation>
         <ram:LineTotalAmount>0.99</ram:LineTotalAmount>

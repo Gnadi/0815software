@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { countryOfVatId, resolveAddress } from '../shared/address.js';
 import {
   cancellationNumber,
+  DOCUMENT_NAME,
   eInvoiceProblems,
   renderCii,
   EINVOICE_PROFILES,
@@ -248,7 +249,7 @@ export function eInvoiceModel(
       number: note.number,
       issue_date: note.issue_date,
       due_date: null,
-      note: `Gutschrift zur Rechnung ${invoice.number} vom ${invoice.issue_date}: ${note.reason}`,
+      note: `${DOCUMENT_NAME.credit_note} zur Rechnung ${invoice.number} vom ${invoice.issue_date}: ${note.reason}`,
       preceding: { number: invoice.number, issue_date: invoice.issue_date },
     };
   }
@@ -260,7 +261,7 @@ export function eInvoiceModel(
       number: cancellationNumber(invoice.number),
       issue_date: cancelledOn,
       due_date: null,
-      note: `Storno der Rechnung ${invoice.number} vom ${invoice.issue_date}${
+      note: `${DOCUMENT_NAME.cancellation} zur Rechnung ${invoice.number} vom ${invoice.issue_date}${
         invoice.cancellation_reason ? `: ${invoice.cancellation_reason}` : ''
       }`,
       preceding: { number: invoice.number, issue_date: invoice.issue_date },
@@ -472,7 +473,7 @@ function zugferdFile(
         );
   const pdf = buildPdfA(pages, {
     xml,
-    title: `${document === 'invoice' ? 'Rechnung' : 'Gutschrift'} ${model.number}`,
+    title: `${DOCUMENT_NAME[typeof document === 'object' ? 'credit_note' : document]} ${model.number}`,
     author: model.seller.name,
     date: model.issue_date,
   });

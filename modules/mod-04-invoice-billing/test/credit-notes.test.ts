@@ -242,6 +242,11 @@ describe('as an e-invoice', () => {
     expect(xml).toContain('<ram:IssuerAssignedID>INV-2026-0001</ram:IssuerAssignedID>');
     expect(xml).toContain('<ram:GrandTotalAmount>23.80</ram:GrandTotalAmount>');
     expect(xml).not.toContain('Fachbuch');
+    // A Rechnungskorrektur: "Gutschrift" is the recipient's own invoice in German VAT law (review N5).
+    expect(xml).toContain('<ram:Content>Rechnungskorrektur zur Rechnung INV-2026-0001 vom ');
+    expect(xml).not.toContain('Gutschrift');
+    const pdf = await request(app).get(`/api/invoices/${id}/zugferd.pdf?credit_note=${note.body.id}`).set('Cookie', as('view')).buffer(true).expect(200);
+    expect((pdf.body as Buffer).toString('latin1')).toContain('<rdf:li xml:lang="x-default">Rechnungskorrektur INV-2026-0001-GS1</rdf:li>');
     await request(app).get(`/api/invoices/${id}/xrechnung.xml?credit_note=abc`).set('Cookie', as('view')).expect(422);
     const other = await invoice();
     await request(app).get(`/api/invoices/${other}/xrechnung.xml?credit_note=${note.body.id}`).set('Cookie', as('view')).expect(404);
