@@ -173,6 +173,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       // MOD-06 Procurement — when set, a bill naming a purchase order is
       // matched against what was ordered and received before it is paid.
       procurementUrl: env.PROCUREMENT_URL || undefined,
+      // PS-04 AI Platform — when set, a supplier invoice (e-invoice, PDF,
+      // scan) can be read into the bill form instead of typed.
+      aiUrl: env.AI_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
       invoiceChannel: env.NOTIFICATION_INVOICE_CHANNEL || undefined,
     },

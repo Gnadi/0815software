@@ -897,3 +897,19 @@ textarea.field__input {
     grid-template-columns: 1fr 70px 100px 70px 32px;
   }
 }
+
+/* A bill read from its document: where from, and what to look at before saving. */
+.readbox {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  line-height: 1.6;
+}
+.readbox__ok {
+  opacity: 0.75;
+}
+.readbox__warn {
+  color: var(--danger);
+}

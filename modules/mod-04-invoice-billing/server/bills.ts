@@ -264,6 +264,9 @@ export interface BillInput {
   /** The MOD-06 purchase order and the net amount it is matched with. */
   poNumber?: string | null;
   netCents?: number | null;
+  /** Set when the bill was read from a document rather than typed. */
+  readFrom?: string | null;
+  documentSha256?: string | null;
   createdAt?: string;
 }
 
@@ -298,8 +301,8 @@ export function createBill(db: Database.Database, input: BillInput): number {
     const info = db
       .prepare(
         `INSERT INTO bills
-           (creditor_id, reference, remittance, amount_cents, issue_date, due_date, note, created_at, po_number, net_cents)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (creditor_id, reference, remittance, amount_cents, issue_date, due_date, note, created_at, po_number, net_cents, read_from, document_sha256)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.creditorId,
@@ -312,6 +315,8 @@ export function createBill(db: Database.Database, input: BillInput): number {
         input.createdAt ?? nowIso(),
         input.poNumber ?? null,
         input.netCents ?? null,
+        input.readFrom ?? null,
+        input.documentSha256 ?? null,
       );
     return Number(info.lastInsertRowid);
   });

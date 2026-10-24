@@ -319,6 +319,7 @@ the Settings screen by whoever holds `manage`, and what is saved there wins (see
 | `SELLER_CONTACT_NAME` · `SELLER_PHONE` · `SELLER_EMAIL` | — | E-invoice: seller contact — mandatory for XRechnung (BT-41/42/43) |
 | `SELLER_EINVOICE_ADDRESS` | *(`SELLER_EMAIL`)* | E-invoice: seller electronic address (BT-34) |
 | `PROCUREMENT_URL` | — | MOD-06 Procurement: match bills naming a PO before they are paid |
+| `AI_URL` | — | PS-04 AI Platform: read a supplier invoice (e-invoice, PDF, scan) into the bill form |
 
 The server prints a warning on startup while the default password is in
 use. The dev server does not load `.env` files by itself — export the
@@ -406,6 +407,10 @@ POST   /api/bills/:id/cancel           open only — kept, never deleted
 POST   /api/bills/:id/mark-paid        settled outside a run; scheduled → 409
 POST   /api/bills/:id/check-match      ask MOD-06 again (501 without PROCUREMENT_URL)
 POST   /api/bills/:id/release-match    {reason} — pay a held bill anyway (manage)
+POST   /api/bills/read                 {content_base64, content_type, filename} → {extraction,
+                                        proposal} — PS-04 reads, nothing saved (501 without AI_URL)
+GET    /api/settings/bill-reading      {model, available} — which model may read documents
+PUT    /api/settings/bill-reading      {model: null|anthropic|openai|gemini|ollama|kimi} (manage)
 
 GET    /api/payment-runs               the runs + the debtor config
 POST   /api/payment-runs               {bill_ids: [], execution_date?} → the run
@@ -1002,6 +1007,44 @@ Pinned by `test/bill-match.test.ts` (the net amount, the cumulative
 amount and that a later bill never changes an earlier verdict, unknown POs,
 the run refusing and then paying, asking again before paying, the outage,
 standalone, the release and its scope).
+
+### Read from the document (PS-04)
+
+With `AI_URL`, *Read from document* on the Bills screen takes the supplier's
+invoice — an XRechnung, a ZUGFeRD PDF, an ebInterface file, a printed PDF,
+or (with a model set in Settings) a scan — and fills the bill form from it.
+PS-04 does the reading ([its README](../../platform/ps-04-ai-platform/README.md#document-extraction));
+`server/bill-reading.ts` turns what it read into a proposal:
+
+- **The creditor** by IBAN (the account the money goes to), else by exact
+  name; neither → *Create creditor* with the name, IBAN and BIC from the
+  document. A name match whose IBAN differs from the one on file is the
+  classic invoice-fraud letter and says so first, before anything else.
+- **The amount** is what is still to pay (EN 16931 BT-115), not the gross
+  of a part-paid invoice; net, dates, the PO (BT-13) and the payment
+  reference come along.
+- **Twice is flagged.** The same file again (its SHA-256 is kept on the
+  bill), or the same supplier number for that creditor, answers *Already
+  entered as bill #n* — the unique key would refuse the save anyway, but
+  a reprint with another file is caught before anyone types.
+- **Our own identity goes along** (`SELLER_*` / Settings): our name, VAT ID
+  and IBAN are on every invoice we receive, as the buyer's, and are never
+  taken for the supplier's.
+- **Nothing is saved.** The person checks, corrects and saves; the bill then
+  records how it was read (`read_from`: `e-invoice:cii:pdf`, `text`,
+  `model:anthropic` …) and from which document (`document_sha256`). Warnings
+  from PS-04 (totals that do not add up, a failing IBAN check, a credit
+  note) stand above the form.
+- **Which model may read is the administrator's** (Settings → *Bills ·
+  reading them from the document*, `manage`): none by default, so nothing
+  leaves PS-04; a model reads scans and photos and means the invoice is
+  sent to that provider.
+- Without `AI_URL` the button is not shown and the form is typed as before.
+
+Pinned by `test/bill-reading.test.ts` (the proposal and our own identity
+sent along, creditor by IBAN and the changed-IBAN warning, read-from kept
+and both duplicate paths, a part-paid invoice, PS-04's refusals and outage,
+standalone, and the settings with their level).
 
 ### Money, and what a bill is not
 

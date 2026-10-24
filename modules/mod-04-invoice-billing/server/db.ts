@@ -175,6 +175,19 @@ export function openDb(path: string): Database.Database {
   // every answer is kept — append-only, like everything a payment depends on.
   if (!columns('bills').includes('po_number')) db.exec('ALTER TABLE bills ADD COLUMN po_number TEXT');
   if (!columns('bills').includes('net_cents')) db.exec('ALTER TABLE bills ADD COLUMN net_cents INTEGER CHECK (net_cents IS NULL OR net_cents >= 0)');
+
+  // ── Reading a bill from its document (server/bill-reading.ts) ─────────
+  if (!columns('bills').includes('read_from')) db.exec('ALTER TABLE bills ADD COLUMN read_from TEXT');
+  if (!columns('bills').includes('document_sha256')) db.exec('ALTER TABLE bills ADD COLUMN document_sha256 TEXT');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_bills_document ON bills (document_sha256);
+    CREATE TABLE IF NOT EXISTS bill_reading_settings (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      settings   TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT
+    );
+  `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_bills_po ON bills (po_number);
     CREATE TABLE IF NOT EXISTS bill_match_checks (

@@ -124,6 +124,54 @@ export interface EmbedResult {
   usage: { prompt_tokens: number; completion_tokens: number };
 }
 
+/** How sure an extracted field is — see PS-04 `shared/types.ts`. */
+export type ExtractionConfidence = 'exact' | 'found' | 'derived' | 'guess' | 'model';
+export interface ExtractedInvoiceFields {
+  document_type: 'invoice' | 'credit_note';
+  supplier_name: string | null;
+  supplier_vat_id: string | null;
+  iban: string | null;
+  bic: string | null;
+  invoice_number: string | null;
+  issue_date: string | null;
+  due_date: string | null;
+  currency: string | null;
+  net_cents: number | null;
+  tax_cents: number | null;
+  gross_cents: number | null;
+  payable_cents: number | null;
+  po_number: string | null;
+  payment_reference: string | null;
+}
+export interface ExtractedInvoiceLine {
+  description: string;
+  quantity: number | null;
+  unit_code: string | null;
+  unit_price_cents: number | null;
+  net_cents: number | null;
+  vat_rate: number | null;
+}
+export interface InvoiceExtraction {
+  source: 'e-invoice' | 'text' | 'model';
+  syntax: 'cii' | 'ubl' | 'ebinterface' | null;
+  embedded: boolean;
+  provider: string;
+  model: string | null;
+  fields: ExtractedInvoiceFields;
+  confidence: Partial<Record<keyof ExtractedInvoiceFields, ExtractionConfidence>>;
+  lines: ExtractedInvoiceLine[];
+  warnings: string[];
+  document_sha256: string;
+}
+export interface ExtractInvoiceInput {
+  content_base64?: string;
+  content_type?: string;
+  filename?: string;
+  text?: string;
+  own?: { names?: string[]; vat_ids?: string[]; ibans?: string[] };
+  provider?: string;
+}
+
 // ── PS-05 Integration Hub ──────────────────────────────────────────────
 export interface ProxyInput {
   method?: string;

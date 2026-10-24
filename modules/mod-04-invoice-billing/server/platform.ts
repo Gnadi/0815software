@@ -1,5 +1,9 @@
 import type { MatchVerdict } from '../shared/types.js';
 import {
+  AiClient,
+  ServiceError,
+  type ExtractInvoiceInput,
+  type InvoiceExtraction,
   AuditClient,
   BankingClient,
   CustomersClient,
@@ -76,6 +80,8 @@ export interface PlatformConfig {
   /** Base URL of MOD-17 Orders & Delivery Notes, for billing a delivery. */
   ordersUrl?: string;
   procurementUrl?: string;
+  /** Base URL of PS-04 AI Platform, which reads supplier invoices into bills. */
+  aiUrl?: string;
   serviceToken?: string;
   /** PS-03 channel name to send invoice emails through. */
   invoiceChannel?: string;
@@ -216,6 +222,15 @@ export interface PlatformHooks {
    * records that and keeps the last verdict it had.
    */
   matchInvoice?(poNumber: string, invoicedNetCents: number): Promise<MatchVerdict>;
+  /** Whether PS-04 is wired — decided by configuration, not by asking it. */
+  aiConfigured?: boolean;
+  /**
+   * Have PS-04 read a supplier invoice. THROWS an `OfferFetchError` with
+   * PS-04's status and message (422 for a scan without a vision model, 415
+   * for a file it cannot read) or 502 when it cannot be reached — the person
+   * then types the bill as before.
+   */
+  extractInvoice?(input: ExtractInvoiceInput): Promise<InvoiceExtraction>;
   /**
    * The stack owner's own party from PS-11 — the seller letterhead. Null when
    * PS-11 is unset or has no `self` party yet: the module then uses Settings /
@@ -372,7 +387,9 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const offersUrl = cfg.offersUrl ? cfg.offersUrl.replace(/\/+$/, '') : null;
   const ordersUrl = cfg.ordersUrl ? cfg.ordersUrl.replace(/\/+$/, '') : null;
   const procurementUrl = cfg.procurementUrl ? cfg.procurementUrl.replace(/\/+$/, '') : null;
-  if (!notify && !files && !audit && !payments && !numbers && !customers && !banking && !offersUrl && !ordersUrl && !procurementUrl) {
+  // A vision model reading a scan takes far longer than any other call here.
+  const ai = cfg.aiUrl ? new AiClient({ baseUrl: cfg.aiUrl, serviceToken: cfg.serviceToken, timeoutMs: 90_000 }) : null;
+  if (!notify && !files && !audit && !payments && !numbers && !customers && !banking && !offersUrl && !ordersUrl && !procurementUrl && !ai) {
     return noopPlatform;
   }
 
@@ -505,6 +522,21 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
       const parsed = (await res.json().catch(() => ({}))) as MatchVerdict & { error?: string };
       if (!res.ok) throw new OfferFetchError(res.status, parsed.error ?? `The procurement module answered ${res.status}`);
       return parsed;
+    },
+
+    aiConfigured: Boolean(ai),
+
+    async extractInvoice(input: ExtractInvoiceInput): Promise<InvoiceExtraction> {
+      if (!ai) throw new OfferFetchError(501, 'No AI platform is configured — set AI_URL to read bills from their documents');
+      try {
+        return await ai.extractInvoice(input);
+      } catch (err) {
+        if (err instanceof ServiceError) {
+          const message = (err.body as { error?: string } | null)?.error ?? err.message;
+          throw new OfferFetchError(err.status >= 500 ? 502 : err.status, message);
+        }
+        throw new OfferFetchError(502, `The AI platform is unreachable: ${err instanceof Error ? err.message : String(err)}`);
+      }
     },
 
     async fetchSelf(): Promise<SelfParty | null> {

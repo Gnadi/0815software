@@ -22,6 +22,9 @@ Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
     → Rechnung je Lieferung (MOD-04).
   - **MOD-04:** E-Rechnung (XRechnung, ZUGFeRD, ebInterface 6.1), Mahnwesen,
     wiederkehrende Rechnungen, Teilgutschriften, BMD-/DATEV-Export.
+  - **Eingangsseite:** 3-Way-Match (MOD-06 ↔ MOD-04) und Belegerkennung —
+    PS-04 liest Eingangsrechnungen (E-Rechnung exakt, PDF über Labels, Scan
+    per Vision-Modell), MOD-04 füllt daraus die Eingangsrechnung vor.
 - **Größte verbleibende Lücken:**
   - **Projektplanung in der Tiefe:** Gantt, Abhängigkeiten, Kapazitätsblick
     (Board, Meilensteine und Budget sind in MOD-11 umgesetzt).
@@ -29,7 +32,8 @@ Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
     Gleitzeit hinaus (beides ist in MOD-11 umgesetzt).
   - **Lagertiefe:** Lagerplätze, Kommissionierung, Bewertung (Barcode und
     Reservierung sind umgesetzt).
-  - **Eingangsseite:** Belegerkennung (OCR), PEPPOL (3-Way-Match ist umgesetzt).
+  - **Eingangsseite:** PEPPOL-Empfang/-Versand (3-Way-Match und
+    Belegerkennung sind umgesetzt).
 - **Sinnvollste neue Module** (Abschnitt 3): Terminbuchung, Spesen, Formulare/Umfragen, Wissen.
   **Nicht bauen:** Finanzbuchhaltung, Lohnverrechnung, Kasse (RKSV), MRP,
   Website-Builder, VoIP, IoT, Social Marketing.
@@ -50,7 +54,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Bankabgleich (E) | ✅ PS-12 EBICS, camt.053 → Zuordnung zu offenen Rechnungen | **stärker als Odoo Community**, real-bank-ungetestet |
 | SEPA-Zahlungen | ✅ MOD-04 pain.001, Finanzamtszahlung, EACT | DACH-Vorsprung |
 | Hauptbuch, Analytik, Budgets, Konsolidierung (E) | ❌ | ⛔ Volle FiBu nicht bauen — Steuerberater nutzt BMD/DATEV. Stattdessen **Export** (siehe 2.) |
-| Vendor-Bill-OCR (E) | ❌ (PS-04 hat kein OCR/Extraktion) | 🔜 als PS-04-Fähigkeit, dann in MOD-04 Bills |
+| Vendor-Bill-OCR (E) | ✅ PS-04 `/api/extract/invoice` (XRechnung/ZUGFeRD/UBL/ebInterface exakt, PDF-Textlayer über Labels, Scans per Vision-Modell nur wenn vom Admin freigegeben) → MOD-04 *Read from document* (Kreditor per IBAN, Duplikat per Datei-Hash) | Offen: Positionen in MOD-04 übernehmen (Abgleich auf Positionsebene), Spesen-Modul als zweiter Konsument |
 | Expenses (E: OCR) | ❌ | 🔜 **neues Modul** (siehe 3.) |
 | Documents (E) | 🟡 MOD-09 (Matters, Versionen) | Vorschau, Volltextsuche via PS-09, Freigabelinks fehlen |
 | Spreadsheet/BI (E) | 🟡 MOD-08 (SQL-Reports, Pivot, SVG-Charts) | ⛔ kein Spreadsheet nachbauen; XLSX-Export ergänzen |
@@ -150,7 +154,8 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    die Stufe weiter; der lokale Admin bleibt der Standalone-Modus.
 2. ✅ **MOD-04: E-Rechnung.** XRechnung/ZUGFeRD (DE, PR #37) und
    ebInterface 6.1 (AT, Bund), jeweils gegen das offizielle Schema geprüft
-   (`docs/E-RECHNUNG.md`). Offen: UBL/PEPPOL-Versand, Eingangsrechnungen lesen.
+   (`docs/E-RECHNUNG.md`). Eingangsrechnungen lesen: ✅ über PS-04 (UBL, CII,
+   ebInterface). Offen: UBL/PEPPOL-Versand.
 3. ✅ **MOD-04: Wiederkehrende Rechnungen** (= Odoo Subscriptions light:
    Vorlage → höchstens ein Entwurf je Periode). ✅ **Teilgutschriften** als
    eigener Beleg (`-GS<n>`, je Steuersatz gedeckelt, als 381 / CreditMemo).
@@ -170,9 +175,11 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    IMAP-Brücke über PS-05.**
 9. ✅ **MOD-06: 3-Way-Match** Bestellung ↔ Wareneingang (in MOD-06, Lagerzugang
    in MOD-03) ↔ Eingangsrechnung (MOD-04 Bills, Zahlungssperre mit Freigabe).
-10. **PS-04: Dokumentextraktion** (Rechnung/Beleg → strukturierte Felder),
-    mit Mock-Provider wie die übrigen Fähigkeiten. Konsumenten: MOD-04 Bills,
-    Spesen, MOD-09.
+10. ✅ **PS-04: Dokumentextraktion** (Rechnung/Beleg → strukturierte Felder),
+    deterministisch ohne Modell als Standard (E-Rechnung exakt, PDF-Textlayer
+    über Labels); ein Scan nur mit Vision-Modell, sonst eine ehrliche
+    Ablehnung statt Platzhalterwerten. Konsument: MOD-04 Bills; offen: Spesen,
+    MOD-09.
 11. **MOD-08: XLSX-Export, Parameter, weitere Charttypen.**
 12. **MOD-09: Vorschau, Volltext via PS-09, Freigabelinks, Löschfristen.**
 
@@ -184,9 +191,11 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 3. ✅ **Projekte & Aufgaben in MOD-11** (umgesetzt — die Projekte und Aufgaben
    lagen schon dort; Board, Meilensteine, Zuständige, Schätzungen, Budget).
 4. ✅ **3-Way-Match** (umgesetzt — Wareneingang in MOD-06, Prüfung in MOD-06,
-   Zahlungssperre in MOD-04). Offen: **PS-04 Dokumentextraktion** — die Rechnung
-   als Beleg einlesen statt abtippen.
-5. **MOD-11 Timer/Self-Service**, **MOD-12 Anhänge/CSAT** — Komfort in
+   Zahlungssperre in MOD-04).
+5. ✅ **PS-04 Dokumentextraktion** (umgesetzt — eine PS-04-Fähigkeit, kein
+   Modul; erster Konsument MOD-04 Bills, die Rechnung wird eingelesen statt
+   abgetippt).
+6. **MOD-11 Timer/Self-Service**, **MOD-12 Anhänge/CSAT** — Komfort in
    bestehenden Modulen.
 
 ## 3. Neue Module (Vorschlag)

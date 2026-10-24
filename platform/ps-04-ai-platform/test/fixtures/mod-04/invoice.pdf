@@ -1,0 +1,100 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [7 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>
+endobj
+6 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold /Encoding /WinAnsiEncoding >>
+endobj
+7 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R >> >> /Contents 8 0 R >>
+endobj
+8 0 obj
+<< /Length 3027 >>
+stream
+0 g BT /F2 26 Tf 56 763.89 Td (0815) Tj ET
+0.45 g BT /F3 6.5 Tf 56 749.89 Td (BEISPIEL GMBH \267 STANDARD BUSINESS SOFTWARE) Tj ET
+0 g BT /F4 13 Tf 484.68 763.89 Td (INVOICE) Tj ET
+0.8 w 0.2 G 56 735.89 m 539.28 735.89 l S
+0.45 g BT /F1 7 Tf 56 719.89 Td (Beispiel GmbH \267 Hauptstra\337e 1 \267 80331 M\374nchen \267 Deutschland) Tj ET
+0.45 g BT /F4 7 Tf 56 691.89 Td (BILL TO) Tj ET
+0 g BT /F2 10 Tf 56 675.89 Td (Kunde AG) Tj ET
+0.25 g BT /F1 9 Tf 56 661.89 Td (Kundenweg 5) Tj ET
+0.25 g BT /F1 9 Tf 56 648.89 Td (10115 Berlin) Tj ET
+0.45 g BT /F3 8 Tf 56 633.89 Td (VAT DE987654321) Tj ET
+0.45 g BT /F4 7 Tf 356 691.89 Td (INVOICE NO) Tj ET
+0 g BT /F3 9 Tf 469.08 691.89 Td (INV-2026-0001) Tj ET
+0.45 g BT /F4 7 Tf 356 675.89 Td (ISSUE DATE) Tj ET
+0 g BT /F3 9 Tf 485.28 675.89 Td (2026-10-21) Tj ET
+0.45 g BT /F4 7 Tf 356 659.89 Td (SERVICE DATE) Tj ET
+0 g BT /F3 9 Tf 485.28 659.89 Td (2026-10-21) Tj ET
+0.45 g BT /F4 7 Tf 356 643.89 Td (DUE DATE) Tj ET
+0 g BT /F3 9 Tf 485.28 643.89 Td (2026-11-04) Tj ET
+0.45 g BT /F4 7 Tf 356 627.89 Td (TERMS) Tj ET
+0 g BT /F3 9 Tf 479.88 627.89 Td (14 DAYS NET) Tj ET
+0.45 g BT /F4 7 Tf 356 611.89 Td (YOUR REF) Tj ET
+0 g BT /F3 9 Tf 474.48 611.89 Td (PO-2026-0007) Tj ET
+0.45 g BT /F4 7 Tf 56 571.89 Td (POS) Tj ET
+0.45 g BT /F4 7 Tf 86 571.89 Td (DESCRIPTION) Tj ET
+0.45 g BT /F4 7 Tf 343.4 571.89 Td (QTY) Tj ET
+0.45 g BT /F4 7 Tf 390 571.89 Td (UNIT PRICE) Tj ET
+0.45 g BT /F4 7 Tf 453.4 571.89 Td (VAT) Tj ET
+0.45 g BT /F4 7 Tf 526.68 571.89 Td (NET) Tj ET
+0.7 w 0.3 G 56 565.89 m 539.28 565.89 l S
+0.45 g BT /F3 9 Tf 56 549.89 Td (1) Tj ET
+0 g BT /F1 9 Tf 86 549.89 Td (Widget) Tj ET
+0 g BT /F3 9 Tf 345.2 549.89 Td (10) Tj ET
+0 g BT /F3 9 Tf 394.2 549.89 Td (50,00 \200) Tj ET
+0 g BT /F3 9 Tf 449.8 549.89 Td (19%) Tj ET
+0 g BT /F3 9 Tf 496.08 549.89 Td (500,00 \200) Tj ET
+0.45 g BT /F3 9 Tf 56 533.89 Td (2) Tj ET
+0 g BT /F1 9 Tf 86 533.89 Td (Fachbuch) Tj ET
+0 g BT /F3 9 Tf 350.6 533.89 Td (2) Tj ET
+0 g BT /F3 9 Tf 394.2 533.89 Td (19,99 \200) Tj ET
+0 g BT /F3 9 Tf 455.2 533.89 Td (7%) Tj ET
+0 g BT /F3 9 Tf 501.48 533.89 Td (39,98 \200) Tj ET
+0.5 w 0.6 G 56 523.89 m 539.28 523.89 l S
+0.45 g BT /F4 7 Tf 340 503.89 Td (NET TOTAL) Tj ET
+0 g BT /F3 9 Tf 496.08 503.89 Td (539,98 \200) Tj ET
+0.45 g BT /F4 7 Tf 340 487.89 Td (VAT 7% OF 39,98 \200) Tj ET
+0 g BT /F3 9 Tf 506.88 487.89 Td (2,80 \200) Tj ET
+0.45 g BT /F4 7 Tf 340 471.89 Td (VAT 19% OF 500,00 \200) Tj ET
+0 g BT /F3 9 Tf 501.48 471.89 Td (95,00 \200) Tj ET
+0.8 w 0.2 G 340 459.89 m 539.28 459.89 l S
+0 g BT /F4 7 Tf 340 449.89 Td (GROSS TOTAL) Tj ET
+0 g BT /F4 10 Tf 491.28 449.89 Td (637,78 \200) Tj ET
+0.3 g BT /F1 8.5 Tf 56 421.89 Td (Payment within 14 days of the invoice date \(due 2026-11-04\). Please reference INV-2026-0001 with your transfer.) Tj ET
+0.5 w 0.6 G 56 78 m 539.28 78 l S
+0.45 g BT /F3 7 Tf 56 64 Td (Beispiel GmbH \267 VAT DE123456789) Tj ET
+0.45 g BT /F3 7 Tf 56 53 Td (IBAN DE02 1203 0000 0000 2020 51 \267 BIC BYLADEM1001) Tj ET
+0.45 g BT /F3 7 Tf 484.68 64 Td (INV-2026-0001) Tj ET
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000218 00000 n 
+0000000320 00000 n 
+0000000415 00000 n 
+0000000515 00000 n 
+0000000677 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+3756
+%%EOF

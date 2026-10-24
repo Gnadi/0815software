@@ -251,6 +251,7 @@ describe('the views exist and the migration is idempotent', () => {
       'accounting_settings',
       'bill_match_checks',
       'bill_match_releases',
+      'bill_reading_settings',
       'bills',
       'credit_note_lines',
       'credit_notes',
