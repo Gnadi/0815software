@@ -18,12 +18,11 @@ import {
   mistypedLeitweg,
   parseElectronicAddress,
   parseSchemeIdentifier,
-  PLACEHOLDER_BIC,
-  PLACEHOLDER_IBAN,
   renderCii,
   type EInvoiceModel,
 } from '../shared/einvoice.js';
 import { EAS_CODES, ICD_CODES } from '../shared/schemes.js';
+import { PLACEHOLDER_BIC, PLACEHOLDER_IBAN } from '../shared/sepa.js';
 import { BASE, CASES } from './einvoice-cases.js';
 import { MATRIX, REFUSED } from './einvoice-matrix.js';
 

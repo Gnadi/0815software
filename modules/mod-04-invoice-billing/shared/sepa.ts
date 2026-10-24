@@ -69,6 +69,15 @@ export const SEPA_IBAN_LENGTHS: Readonly<Record<string, number>> = {
   VA: 22,
 };
 
+/**
+ * The payment details server/config.ts falls back to while SELLER_IBAN and
+ * SELLER_BIC are unset: a demo runs without a bank account. Neither an invoice
+ * asking to be paid into it (review N2) nor a payment file paying from it may
+ * go out, and EXAMPLEX is shaped like a BIC, so both are refused by name.
+ */
+export const PLACEHOLDER_IBAN = 'AT00 0000 0000 0000 0000';
+export const PLACEHOLDER_BIC = 'EXAMPLEX';
+
 /** Strip spaces and case: the form an IBAN is stored and compared in. */
 export function normalizeIban(raw: string): string {
   return raw.replace(/\s+/g, '').toUpperCase();

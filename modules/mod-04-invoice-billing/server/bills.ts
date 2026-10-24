@@ -23,6 +23,8 @@ import {
   normalizeBic,
   normalizeIban,
   PAIN_VERSION,
+  PLACEHOLDER_BIC,
+  PLACEHOLDER_IBAN,
   sepaControlSum,
   sepaText,
   validateSepaInstruction,
@@ -377,14 +379,21 @@ export function paymentConfig(
   bankingConfigured = false,
 ): PaymentConfig {
   const iban = normalizeIban(seller.iban ?? '');
-  const problem = ibanProblem(iban);
-  const bic = seller.bic && isValidBic(seller.bic) ? normalizeBic(seller.bic) : null;
+  const ibanTrouble = iban === normalizeIban(PLACEHOLDER_IBAN) ? `it is still the shipped placeholder ${PLACEHOLDER_IBAN}` : ibanProblem(iban);
+  // EXAMPLEX passes the BIC format, so it used to go to the bank as the debtor
+  // agent beside a real IBAN, and the bank refused the file.
+  const placeholderBic = seller.bic !== undefined && normalizeBic(seller.bic) === PLACEHOLDER_BIC;
+  const bic = seller.bic && !placeholderBic && isValidBic(seller.bic) ? normalizeBic(seller.bic) : null;
+  const problems = [
+    ibanTrouble === null ? null : `SELLER_IBAN is not a usable debtor account — ${ibanTrouble}`,
+    placeholderBic ? `SELLER_BIC is still the shipped placeholder ${PLACEHOLDER_BIC} — set the bank's BIC, or set it empty: a SEPA file needs none` : null,
+  ].filter((p): p is string => p !== null);
   return {
     debtor_name: seller.name,
     debtor_iban: iban === '' ? '' : formatIban(iban),
     debtor_bic: bic,
-    ready: problem === null,
-    problem: problem === null ? null : `SELLER_IBAN is not a usable debtor account — ${problem}`,
+    ready: problems.length === 0,
+    problem: problems.length === 0 ? null : problems.join('. '),
     pain_version: PAIN_VERSION,
     batch_booking: batchBooking,
     banking_configured: bankingConfigured,

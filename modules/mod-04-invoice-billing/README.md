@@ -342,7 +342,7 @@ the Settings screen by whoever holds `manage`, and what is saved there wins (see
 | `SELLER_ADDRESS`    | *(example address)*    | Letterhead: address, `\|`-separated lines |
 | `SELLER_VAT_ID`     | `ATU00000000`          | Letterhead: seller VAT id                |
 | `SELLER_IBAN`       | *(example IBAN)*       | PDF footer **and the debtor account of every payment file**; e-invoices refuse the example |
-| `SELLER_BIC`        | `EXAMPLEX`             | PDF footer: BIC; the debtor agent when set. E-invoices refuse `EXAMPLEX`: set the real one, or set it empty |
+| `SELLER_BIC`        | `EXAMPLEX`             | PDF footer: BIC; the debtor agent when set. E-invoices and payment files refuse `EXAMPLEX`: set the real one, or set it empty |
 | `SELLER_STREET` · `SELLER_POSTCODE` · `SELLER_CITY` · `SELLER_COUNTRY` | *(read from `SELLER_ADDRESS`)* | E-invoice: structured seller address (BT-35/38/37/40) |
 | `SELLER_TAX_NUMBER` | —                      | E-invoice: German Steuernummer (BT-32)   |
 | `SELLER_REGISTRATION` | —                    | E-invoice: register number, e.g. `HRB 12345` (BT-30) — needed without a VAT id |
@@ -485,8 +485,8 @@ a database rebuilds the views so an added column reaches an existing
 deployment.
 
 `test/sepa.test.ts` and `test/bills.test.ts` cover the payables half:
-IBAN check digits, non-SEPA countries and the placeholder `SELLER_IBAN`;
-the SEPA character set; the exact bytes of a rendered `pain.001.001.03`
+IBAN check digits, non-SEPA countries and the placeholders `SELLER_IBAN` and
+`SELLER_BIC`; the SEPA character set; the exact bytes of a rendered `pain.001.001.03`
 (golden file, element order included) and that rendering it twice is
 identical; refusing to pay a bill that is already in a run, both through
 the API and at the unique index; a run's frozen creditor surviving a

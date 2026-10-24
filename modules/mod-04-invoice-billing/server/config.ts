@@ -1,4 +1,4 @@
-import { PLACEHOLDER_BIC, PLACEHOLDER_IBAN } from '../shared/einvoice.js';
+import { PLACEHOLDER_BIC, PLACEHOLDER_IBAN } from '../shared/sepa.js';
 import type { AuthConfig } from './auth.js';
 import { DEFAULT_BUSINESS_TIMEZONE, timeZoneProblem } from './business-date.js';
 import { shellOriginsFromEnv } from './hardening.js';

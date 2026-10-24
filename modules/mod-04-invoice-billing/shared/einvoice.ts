@@ -35,7 +35,7 @@ import { ADDRESS_HINT } from './address.js';
 import { hasVatPrefix, isCountryCode } from './countries.js';
 import { computeTotals, lineNetCents, type LineRounding } from './money.js';
 import { EAS_CODES, ICD_CODES } from './schemes.js';
-import { ibanProblem, isValidBic, normalizeBic, normalizeIban } from './sepa.js';
+import { ibanProblem, isValidBic, normalizeBic, normalizeIban, PLACEHOLDER_BIC, PLACEHOLDER_IBAN } from './sepa.js';
 import { DEFAULT_UNIT, isUnitCode, UNIT_CODES } from './units.js';
 import type { TaxExemptionCategory } from './types.js';
 
@@ -290,14 +290,6 @@ export function blank(value: string | null | undefined): boolean {
 export function missing(value: string | null | undefined): boolean {
   return blank(value) || xmlClean(value!).trim() === '';
 }
-
-/**
- * The payment details server/config.ts falls back to while SELLER_IBAN and
- * SELLER_BIC are unset: a demo runs without a bank account, an invoice asking
- * to be paid into one must not go out (review N2).
- */
-export const PLACEHOLDER_IBAN = 'AT00 0000 0000 0000 0000';
-export const PLACEHOLDER_BIC = 'EXAMPLEX';
 
 /**
  * BT-84 and BT-86 of an invoice that asks to be paid, for every format. The

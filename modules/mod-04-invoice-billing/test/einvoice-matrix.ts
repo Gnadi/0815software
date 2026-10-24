@@ -1,4 +1,5 @@
-import { PLACEHOLDER_BIC, PLACEHOLDER_IBAN, type EInvoiceModel } from '../shared/einvoice.js';
+import type { EInvoiceModel } from '../shared/einvoice.js';
+import { PLACEHOLDER_BIC, PLACEHOLDER_IBAN } from '../shared/sepa.js';
 import { BASE } from './einvoice-cases.js';
 
 /**

@@ -270,8 +270,20 @@ describe('the debtor account', () => {
     const res = await request(unconfigured).get('/api/payment-config').set('Cookie', await login(unconfigured));
     const config = res.body as PaymentConfig;
     expect(config.ready).toBe(false);
-    expect(config.problem).toContain('SELLER_IBAN');
+    expect(config.problem).toContain('SELLER_IBAN is not a usable debtor account — it is still the shipped placeholder');
+    expect(config.problem).toContain('SELLER_BIC');
     expect(config.pain_version).toBe('pain.001.001.03');
+  });
+
+  it('refuses the placeholder BIC beside a real IBAN — the bank would refuse it as the debtor agent', async () => {
+    const half = createApp({ db: openDb(':memory:'), auth, seller: { ...seller, bic: 'EXAMPLEX' } });
+    const config = (await request(half).get('/api/payment-config').set('Cookie', await login(half))).body as PaymentConfig;
+    expect(config.ready).toBe(false);
+    expect(config.problem).toBe("SELLER_BIC is still the shipped placeholder EXAMPLEX — set the bank's BIC, or set it empty: a SEPA file needs none");
+    expect(config.debtor_bic).toBeNull();
+    // Without a BIC at all the file names none, which SEPA allows.
+    const none = createApp({ db: openDb(':memory:'), auth, seller: { ...seller, bic: '' } });
+    expect(((await request(none).get('/api/payment-config').set('Cookie', await login(none))).body as PaymentConfig).ready).toBe(true);
   });
 
   it('refuses to build a run at all while it is unusable', async () => {
