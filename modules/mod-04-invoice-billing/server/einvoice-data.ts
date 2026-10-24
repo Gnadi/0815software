@@ -68,6 +68,7 @@ export function sellerParty(seller: SellerConfig): SellerParty {
     tax_number: opt(seller.taxNumber),
     registration: opt(seller.registration),
     identifier: opt(seller.identifier),
+    legal_information: opt(seller.legalInformation),
     iban: seller.iban,
     bic: opt(seller.bic),
     contact_name: opt(seller.contactName),
@@ -159,6 +160,7 @@ export function pdfParties(parties: { seller: SellerParty; buyer: BuyerParty }):
       taxNumber: parties.seller.tax_number ?? undefined,
       registration: parties.seller.registration ?? undefined,
       identifier: parties.seller.identifier ?? undefined,
+      legalInformation: parties.seller.legal_information ?? undefined,
     },
     customer: {
       name: parties.buyer.name,

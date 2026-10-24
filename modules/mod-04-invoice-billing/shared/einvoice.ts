@@ -82,6 +82,11 @@ export interface SellerParty {
    * before it existed.
    */
   identifier?: string | null;
+  /**
+   * BT-33 — the Geschäftsbriefangaben: registered office, register court,
+   * managing directors. Absent in snapshots frozen before it existed.
+   */
+  legal_information?: string | null;
   iban: string;
   bic: string | null;
   /** BG-6 seller contact — mandatory in XRechnung (BR-DE-2/5/6/7). */
@@ -718,6 +723,7 @@ export function renderCii(model: EInvoiceModel, profile: EInvoiceProfile): strin
   const sellerId = parseSchemeIdentifier(seller.identifier);
   if (sellerId) xml.leaf('ram:GlobalID', sellerId.value, ` schemeID="${sellerId.scheme}"`);
   xml.leaf('ram:Name', seller.name);
+  xml.opt('ram:Description', seller.legal_information);
   if (!missing(seller.registration)) {
     xml
       .open('ram:SpecifiedLegalOrganization')

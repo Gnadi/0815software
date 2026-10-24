@@ -46,6 +46,7 @@
       <ram:BuyerReference>PO-7781</ram:BuyerReference>
       <ram:SellerTradeParty>
         <ram:Name>Beispiel GmbH</ram:Name>
+        <ram:Description>Sitz München · Registergericht Amtsgericht München · Geschäftsführerin: Erika Mustermann</ram:Description>
         <ram:SpecifiedLegalOrganization>
           <ram:ID>HRB 12345</ram:ID>
         </ram:SpecifiedLegalOrganization>

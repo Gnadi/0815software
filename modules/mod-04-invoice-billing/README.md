@@ -349,6 +349,7 @@ the Settings screen by whoever holds `manage`, and what is saved there wins (see
 | `SELLER_IDENTIFIER` | —                      | E-invoice: seller identifier with its ISO 6523 scheme, e.g. `0088:4000001000005` (GLN, BT-29) — identifies a seller without VAT id or register number |
 | `SELLER_CONTACT_NAME` · `SELLER_PHONE` · `SELLER_EMAIL` | — | E-invoice: seller contact — mandatory for XRechnung (BT-41/42/43) |
 | `SELLER_EINVOICE_ADDRESS` | *(`SELLER_EMAIL`)* | E-invoice: seller electronic address (BT-34) |
+| `SELLER_LEGAL_INFORMATION` | — | Geschäftsbriefangaben: registered office, register court, managing directors (§ 35a GmbHG, § 14 UGB). Footer of invoices and dunning letters; BT-33 in the XML |
 
 The server prints a warning on startup while the default password is in
 use. The dev server does not load `.env` files by itself — export the
@@ -658,8 +659,8 @@ recipient recomputing quantity × price arrives at them too (see Money).
   continue on the next page, rather than being cut off; quantities show the
   XML's four decimals, written like the amounts (`1.234,5`). The footer names
   the seller by VAT id, Steuernummer, register number and seller identifier,
-  and the supplier number the customer assigned us stands beside the invoice
-  number. Every letter WinAnsi has is shown as itself (Š, Ž, Œ); one it
+  with its Geschäftsbriefangaben (§ 35a GmbHG, also written as BT-33), and the
+  supplier number the customer assigned us stands beside the invoice number. Every letter WinAnsi has is shown as itself (Š, Ž, Œ); one it
   lacks, without its accent (Łódź as Lódz) — the XML carries it exactly
   (`test/einvoice-pdf.test.ts`).
 - **Addressed to someone.** An e-invoice address is an email address, a

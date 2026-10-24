@@ -35,6 +35,13 @@ export interface SellerConfig {
   email?: string | undefined;
   /** BT-34 — the address e-invoice replies go to. Defaults to `email`. */
   einvoiceAddress?: string | undefined;
+  /**
+   * BT-33 — what a business letter of this company must state beside its
+   * name and register number: registered office, register court, managing
+   * directors (§ 35a GmbHG, § 80 AktG, § 125a and § 37a HGB, § 14 UGB).
+   * Printed in the PDF footer and written to the XML.
+   */
+  legalInformation?: string | undefined;
 }
 
 export interface ServerConfig {
@@ -171,6 +178,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       phone: env.SELLER_PHONE || undefined,
       email: env.SELLER_EMAIL || undefined,
       einvoiceAddress: env.SELLER_EINVOICE_ADDRESS || undefined,
+      legalInformation: env.SELLER_LEGAL_INFORMATION || undefined,
     },
     austrianRemittance: {
       TAXS: patternFromEnv('AT_TAXS_REMITTANCE_PATTERN', env.AT_TAXS_REMITTANCE_PATTERN),

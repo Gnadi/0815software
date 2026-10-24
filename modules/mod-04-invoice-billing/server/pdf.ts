@@ -289,6 +289,12 @@ export function layoutInvoice(
   const pages: Page[] = [];
   let page = new Page();
   pages.push(page);
+  // The Geschäftsbriefangaben (§ 35a GmbHG and its kin) go into the footer
+  // under the name. The footer grows upwards by their lines, and the body
+  // ends that much earlier, so neither runs into the other.
+  const legal = seller.legalInformation?.trim() ? wrapText('F3', 7, seller.legalInformation.trim(), R - M) : [];
+  const lift = legal.length * 11;
+  const bodyEnd = BODY_END - lift;
 
   // ── Letterhead ──
   page.text('F2', 26, M, 78, '0815');
@@ -403,7 +409,7 @@ export function layoutInvoice(
   page.line(M, y - 6, R, 0.5, 0.6);
 
   // ── Totals / VAT summary ──
-  if (y > A4.height - 220) {
+  if (y > A4.height - 220 - lift) {
     page = new Page();
     pages.push(page);
     y = 78;
@@ -433,7 +439,7 @@ export function layoutInvoice(
   // mandatory content (§ 14 Abs. 4 Nr. 5 and 8 UStG), not decoration.
   const paragraph = (font: FontKey, size: number, text: string, gray: number): void => {
     for (const line of wrapText(font, size, text, R - M)) {
-      if (y > BODY_END) {
+      if (y > bodyEnd) {
         page = new Page();
         pages.push(page);
         y = 78;
@@ -481,8 +487,8 @@ export function layoutInvoice(
     seller.registration,
     seller.identifier && `ID ${seller.identifier}`,
   ].filter((id) => typeof id === 'string' && id.trim() !== '');
-  const footer = [seller.name, ids.join(' · '), [`IBAN ${seller.iban}`, ...(seller.bic ? [`BIC ${seller.bic}`] : [])].join(' · ')];
-  const fy = A4.height - 64;
+  const footer = [seller.name, ...legal, ids.join(' · '), [`IBAN ${seller.iban}`, ...(seller.bic ? [`BIC ${seller.bic}`] : [])].join(' · ')];
+  const fy = A4.height - 64 - lift;
   page.line(M, fy - 14, R, 0.5, 0.6);
   footer.filter((line) => line !== '').forEach((line, i) => page.text('F3', 7, M, fy + i * 11, line, 0.45));
   page.textRight('F3', 7, R, fy, cancellation?.number ?? invoice.number ?? 'DRAFT', 0.45);

@@ -324,6 +324,7 @@
           "SELLER_EMAIL",
           "SELLER_IBAN",
           "SELLER_IDENTIFIER",
+          "SELLER_LEGAL_INFORMATION",
           "SELLER_PHONE",
           "SELLER_POSTCODE",
           "SELLER_REFRESH_MS",

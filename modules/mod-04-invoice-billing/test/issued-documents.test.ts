@@ -190,8 +190,9 @@ const FINGERPRINTS: Record<string, string> = {
   // A printed postcode is read in the format of the address's country (N3); the cases carry theirs structured.
   'mod-04-einvoice-9': '4d760a76a866ce5ab30e06c55f1b95706728230e39bfec77b4c19bee859cd834',
   // Each line in its own unit (N7): CII unitCode, ebInterface Unit, the PDF's quantity; golden case `units`.
-  // Recorded again for the cases alone: the domestic ones got a German buyer (N8).
-  'mod-04-einvoice-10': 'ee0b923186a763cb4f0d5a7184c4e90da68915cd962b3349b33ee9f320935dd8',
+  // Recorded again for the cases alone: the domestic ones got a German buyer (N8),
+  // and `taxno` its Geschäftsbriefangaben as BT-33, which a seller without them does not write.
+  'mod-04-einvoice-10': '572c88a65dbffd4e9b92e979a0e2c61f2269d19a8070073df97eaac2652040b8',
 };
 
 describe('the renderer version', () => {

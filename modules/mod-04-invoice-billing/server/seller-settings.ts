@@ -52,6 +52,7 @@ export const SELLER_KEYS = [
   'phone',
   'email',
   'einvoiceAddress',
+  'legalInformation',
 ] as const;
 export type SellerKey = (typeof SELLER_KEYS)[number];
 
@@ -76,6 +77,7 @@ export const SELLER_ENV_NAMES: Record<SellerKey, string> = {
   phone: 'SELLER_PHONE',
   email: 'SELLER_EMAIL',
   einvoiceAddress: 'SELLER_EINVOICE_ADDRESS',
+  legalInformation: 'SELLER_LEGAL_INFORMATION',
 };
 
 export type SellerOverrides = Partial<Pick<SellerConfig, SellerKey>>;
@@ -216,6 +218,7 @@ const LIMITS: Record<Exclude<SellerKey, 'addressLines'>, number> = {
   phone: 40,
   email: 160,
   einvoiceAddress: 200,
+  legalInformation: 300,
 };
 
 /**

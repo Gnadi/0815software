@@ -43,7 +43,7 @@ beforeEach(async () => {
   cookie = res.headers['set-cookie']![0]!.split(';')[0]!;
 });
 
-const call = (method: 'get' | 'post', url: string, body?: object) => {
+const call = (method: 'get' | 'post' | 'put', url: string, body?: object) => {
   const r = request(app)[method](url).set('Cookie', cookie);
   return body ? r.send(body) : r;
 };
@@ -98,6 +98,27 @@ describe('M2 · the PDF names the seller as the XML does', () => {
       // What the footer used to say: "Beispiel GmbH · VAT " and "IBAN … · BIC ".
       expect(texts.filter((t) => /(VAT|BIC) $/.test(t))).toEqual([]);
     }
+  });
+});
+
+describe('the Geschäftsbriefangaben (§ 35a GmbHG, § 14 UGB)', () => {
+  const legal = 'Sitz München · Registergericht Amtsgericht München · Geschäftsführer: Erika Mustermann, Max Mustermann, Dr. Johanna Beispiel-Langname, Friedrich Wilhelm von Musterhausen';
+
+  it('are printed in the footer of both PDFs and written as BT-33', async () => {
+    expect((await call('put', '/api/settings/seller', { legalInformation: legal })).status).toBe(200);
+    const id = await issued(lines);
+    const xml = await download(`/api/invoices/${id}/xrechnung.xml`);
+    expect(xml).toMatch(/<ram:SellerTradeParty>[\s\S]*<ram:Name>Beispiel GmbH<\/ram:Name>\s*<ram:Description>Sitz München · Registergericht Amtsgericht München · Geschäftsführer: Erika Mustermann/);
+    for (const url of [`/api/invoices/${id}/pdf`, `/api/invoices/${id}/zugferd.pdf`]) {
+      // Longer than the footer is wide: wrapped, nothing cut off.
+      expect(shown(await download(url)).join(' '), url).toContain(legal);
+    }
+  });
+
+  it('are refused beyond 300 characters', async () => {
+    const res = await call('put', '/api/settings/seller', { legalInformation: 'x'.repeat(301) });
+    expect(res.status).toBe(422);
+    expect(res.body.details.map((d: { field: string }) => d.field)).toEqual(['legalInformation']);
   });
 });
 

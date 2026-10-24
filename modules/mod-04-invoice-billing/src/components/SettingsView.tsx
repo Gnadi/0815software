@@ -47,6 +47,10 @@ const SELLER_LABELS: Record<string, { label: string; hint?: string; multiline?: 
   phone: { label: 'CONTACT PHONE (BT-42)', hint: 'required for XRechnung, at least three digits' },
   email: { label: 'CONTACT EMAIL (BT-43)', hint: 'required for XRechnung' },
   einvoiceAddress: { label: 'E-INVOICE ADDRESS (BT-34)', hint: 'email, Leitweg-ID or Peppol ID like 0088:4000001000005 — empty → contact email' },
+  legalInformation: {
+    label: 'BUSINESS LETTER DETAILS (BT-33)',
+    hint: 'registered office, register court, managing directors — required on the invoices of a GmbH, AG, KG or e.K. (§ 35a GmbHG …, § 14 UGB); printed in the PDF footer',
+  },
 };
 
 const SOURCE_LABEL: Record<SellerFieldState['source'], string> = {
