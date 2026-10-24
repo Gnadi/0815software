@@ -36,6 +36,8 @@ import { EMBED_DIMS, EMBED_MODEL, embed, embedVendor, openaiEmbedProvider } from
 import { ingestDocument, search } from './rag.js';
 import { runAgent } from './agents.js';
 import { generateImage, transcribe } from './media.js';
+import { extractInvoice } from './extraction.js';
+import type { ExtractInvoiceRequest } from '../shared/types.js';
 import { approxTokens, defaultFetch, type FetchLike } from './providers/index.js';
 
 export interface AppOptions {
@@ -98,6 +100,9 @@ export function createApp(opts: AppOptions): express.Express {
     app.use(hardeningMiddleware(opts.hardening));
   }
   app.use(requestTelemetry({ service: 'ps-04', log: opts.logRequests === true }));
+  // A scanned invoice is megabytes, base64 a third more; only this route
+  // takes that much, so the parser for it runs before the general one.
+  app.use('/api/extract', express.json({ limit: '14mb' }));
   app.use(express.json({ limit: '512kb' }));
 
   // A caller is either the admin (session) or a module (service token).
@@ -378,6 +383,24 @@ export function createApp(opts: AppOptions): express.Express {
     res.json(result);
   });
 
+  // ── Document extraction ────────────────────────────────────────────
+  app.post('/api/extract/invoice', requireCaller, async (req, res) => {
+    const b = body(req);
+    const provider = typeof b.provider === 'string' && b.provider !== '' ? b.provider : undefined;
+    if (provider !== undefined && !isProvider(provider)) fail(422, 'Validation failed', [{ field: 'provider', message: 'is not a known provider' }]);
+    const own = (b.own ?? {}) as Record<string, unknown>;
+    const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, 10) : undefined);
+    const input: ExtractInvoiceRequest = {
+      content_base64: typeof b.content_base64 === 'string' ? b.content_base64 : undefined,
+      content_type: typeof b.content_type === 'string' ? b.content_type : undefined,
+      filename: typeof b.filename === 'string' ? b.filename : undefined,
+      text: typeof b.text === 'string' ? b.text : undefined,
+      own: { names: strings(own.names), vat_ids: strings(own.vat_ids), ibans: strings(own.ibans) },
+      provider: provider as ProviderName | undefined,
+    };
+    res.json(await extractInvoice(db, { chat: chatConfig, fetchImpl: opts.fetchImpl }, input, now()));
+  });
+
   // ── Terminal error middleware ──────────────────────────────────────
   app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
     if (res.headersSent) {
@@ -386,6 +409,13 @@ export function createApp(opts: AppOptions): express.Express {
     }
     if (err instanceof DomainError) {
       res.status(err.status).json({ error: err.message, details: err.details });
+      return;
+    }
+    // The JSON parser's own refusals (too large, malformed) are the caller's
+    // mistake and say so, rather than surfacing as a 500.
+    const status = (err as { status?: unknown }).status;
+    if (typeof status === 'number' && status >= 400 && status < 500) {
+      res.status(status).json({ error: status === 413 ? 'The request is too large' : 'The request body is not valid JSON' });
       return;
     }
     console.error(err);

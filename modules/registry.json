@@ -285,6 +285,7 @@
         "optional": [
           "ps-01-identity",
           "ps-03-notification-hub",
+          "ps-04-ai-platform",
           "ps-06-file-storage",
           "ps-07-audit-log",
           "ps-08-payments",
