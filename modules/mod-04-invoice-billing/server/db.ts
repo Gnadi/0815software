@@ -378,6 +378,13 @@ export function openDb(path: string): Database.Database {
     db.exec('ALTER TABLE customers ADD COLUMN supplier_number TEXT');
   }
 
+  // The customer's register number (BT-47, "HRB 12345"): BR-AE-02 takes it
+  // instead of a VAT id for domestic reverse charge (§ 13b UStG), where the
+  // law asks for none (review N6).
+  if (!columns('customers').includes('registration')) {
+    db.exec('ALTER TABLE customers ADD COLUMN registration TEXT');
+  }
+
   // What an issued invoice must keep saying, whatever the master data does
   // later. `seller_snapshot` / `buyer_snapshot` are JSON frozen in the same
   // transaction that assigns the number (server/einvoice-data.ts) — the

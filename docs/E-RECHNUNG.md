@@ -115,7 +115,7 @@ Lines above 0 % are category `S`. Lines at 0 % carry the invoice's
 | Code | Meaning | Default exemption text (BT-120) | VATEX (BT-121) | Also required |
 | ---- | ------- | ------------------------------- | -------------- | ------------- |
 | `E` | exempt (§ 4 UStG, § 6 UStG-AT, § 19 UStG Kleinunternehmer …) | none, **you must state the legal ground** | — | — |
-| `AE` | reverse charge | Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge) | VATEX-EU-AE | both VAT ids |
+| `AE` | reverse charge | Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge) | VATEX-EU-AE | across a border both VAT ids (§ 14a Abs. 1 UStG). At home (§ 13b UStG, seller and buyer in one country) what BR-AE-02 takes: the seller's VAT id or Steuernummer, the buyer's VAT id or register number (BT-47). ebInterface keeps both UIDs, which Austrian reverse charge requires |
 | `K` | intra-EU supply of goods | Steuerfreie innergemeinschaftliche Lieferung | VATEX-EU-IC | both VAT ids. The buyer address is written as the delivery address |
 | `G` | export outside the EU | Steuerfreie Ausfuhrlieferung | VATEX-EU-G | — |
 | `Z` | zero-rated | — | — | — |
@@ -189,6 +189,7 @@ file is refused until they are filled in (`shared/address.ts`).
 | VAT id | BT-48 | reverse charge, intra-EU supply |
 | buyer reference | BT-10 | **XRechnung**. The **Leitweg-ID** for a public body, otherwise the reference the customer wants quoted (order number, contact). For ebInterface it is the order reference (`OrderID`) — the **Auftragsreferenz** the Austrian federal government requires. An invoice can carry its own |
 | our supplier number | BT-29 | **ebInterface** `InvoiceRecipientsBillerID` — the **Lieferantennummer** the Austrian federal government assigns and requires. In XRechnung and ZUGFeRD it is the seller identifier without a scheme, which EN 16931 describes as "a previously exchanged Buyer assigned identifier of the Seller" — so it also meets BR-CO-26. Printed on the PDF. Frozen at issue like every party field |
+| register number | BT-47 | Domestic reverse charge for a customer without a VAT id ("HRB 98765"), written as its legal organisation and printed under the address |
 | e-invoice address | BT-49 | **XRechnung**. Defaults to the email. One of three kinds, each sent with its scheme: an email address (`EM`), a Leitweg-ID (`0204`), or a Peppol ID written `scheme:identifier` such as `0088:4012345000009` or `9930:DE987654321`, the scheme from the EAS list (BR-CL-25). Free text ("Buchhaltung, Frau Meier") is refused on save and before every file — it used to go out as an `EM` address that reaches nobody, and no validator objects. ebInterface takes only an email here. A Leitweg-ID must carry its check digits (ISO/IEC 7064 MOD 97-10, Formatspezifikation Leitweg-ID 2.0.2): the customer is refused on save, and so is its buyer reference when that is a Leitweg-ID with the wrong digits. The message does not suggest the right ones — the typo may be anywhere |
 | e-invoice format | — | The format this customer receives: XRechnung, ZUGFeRD, ebInterface, or none. Set, a draft for the customer is **refused at finalize** until it renders in it (see below). Empty means nobody decided, and nothing is checked |
 

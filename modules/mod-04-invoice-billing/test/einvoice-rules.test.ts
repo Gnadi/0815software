@@ -68,6 +68,8 @@ describe("the review's probes are refused, by business term", () => {
     expect(messages('H')).toContain('shipped placeholder AT00 0000 0000 0000 0000');
     expect(messages('V')).toContain('shipped placeholder EXAMPLEX');
     expect(messages('W')).toContain('DE02 1203 0000 0000 2020 15: IBAN check digits do not match');
+    expect(messages('X')).toContain('VAT id or its register number');
+    expect(messages('Y')).toContain('across a border');
   });
 
   it('refuses the same dates, countries and payment details in ebInterface', () => {
@@ -76,6 +78,24 @@ describe("the review's probes are refused, by business term", () => {
     expect(fields(REFUSED.K!.model)).toContain('customer.country_code');
     for (const name of ['H', 'W']) expect(fields(REFUSED[name]!.model)).toContain('seller.iban');
     expect(fields(REFUSED.V!.model)).toContain('seller.bic');
+  });
+});
+
+describe('domestic reverse charge without VAT ids (N6)', () => {
+  const accepted = (name: string): boolean => EINVOICE_PROFILES.every((p) => eInvoiceProblems(MATRIX[name]!, p).length === 0);
+
+  // A seller with Steuernummer and register number (BR-CO-26 does not count the Steuernummer alone).
+  it('takes the Steuernummer for the seller and the register number for the buyer at home', () => {
+    expect(accepted('ae-taxno_reg-de_reg')).toBe(true);
+    expect(accepted('ae-taxno_reg-de_vat')).toBe(true);
+    // Across a border the law wants both VAT ids, whatever BR-AE-02 would take.
+    expect(accepted('ae-taxno_reg-at_vat')).toBe(false);
+    expect(eInvoiceProblems(MATRIX['ae-taxno_reg-at_vat']!, 'xrechnung').map((p) => p.field)).toEqual(['seller.vatId']);
+  });
+
+  it('writes the buyer register number as its legal organisation (BT-47)', () => {
+    const xml = renderCii(MATRIX['ae-taxno_reg-de_reg']!, 'xrechnung');
+    expect(xml).toMatch(/<ram:BuyerTradeParty>\s*<ram:Name>Kunde GmbH<\/ram:Name>\s*<ram:SpecifiedLegalOrganization>\s*<ram:ID>HRB 98765<\/ram:ID>/);
   });
 });
 
@@ -406,6 +426,24 @@ describe('the API refuses what used to reach the file', () => {
     }
     expect((await call('post', `/api/invoices/${id}/cancel`, { reason: 'Konto fehlte' })).status).toBe(200);
     expect((await call('get', `/api/invoices/${id}/xrechnung.xml?document=cancellation`)).status).toBe(200);
+  });
+
+  it('N6: domestic reverse charge for a customer known by its register number, in the XML and on the PDF', async () => {
+    const c = await call('post', '/api/customers', { ...customer, registration: 'HRB 98765' });
+    expect(c.status).toBe(201);
+    expect(c.body.registration).toBe('HRB 98765');
+    const d = await call('post', '/api/invoices', {
+      customer_id: c.body.id,
+      tax_exemption_category: 'AE',
+      lines: [{ description: 'Trockenbauarbeiten', quantity: 3, unit: 'DAY', unit_price_cents: 64000, vat_rate: 0 }],
+    });
+    expect((await call('post', `/api/invoices/${d.body.id}/finalize`, { issue_date: '2026-10-21' })).status).toBe(200);
+    const xml = await call('get', `/api/invoices/${d.body.id}/xrechnung.xml`);
+    expect(xml.status).toBe(200);
+    expect(xml.text).toMatch(/<ram:BuyerTradeParty>\s*<ram:Name>Kunde AG<\/ram:Name>\s*<ram:SpecifiedLegalOrganization>\s*<ram:ID>HRB 98765<\/ram:ID>/);
+    expect(xml.text).toContain('<ram:CategoryCode>AE</ram:CategoryCode>');
+    const pdf = (await call('get', `/api/invoices/${d.body.id}/pdf`).buffer(true)).body as Buffer;
+    expect(pdf.toString('latin1')).toContain('(HRB 98765) Tj');
   });
 
   it('M7: a draft bills a service period, which the XRechnung and the PDF state', async () => {

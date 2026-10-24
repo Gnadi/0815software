@@ -47,6 +47,9 @@ const SELLERS: Record<string, Partial<EInvoiceModel['seller']>> = {
 const BUYERS: Record<string, { buyer: Partial<EInvoiceModel['buyer']>; buyer_reference?: string }> = {
   de_vat: { buyer: { street: 'Kundenweg 5', postcode: '10115', city: 'Berlin', country: 'DE', vat_id: 'DE987654321' } },
   de: { buyer: { street: 'Kundenweg 5', postcode: '10115', city: 'Berlin', country: 'DE', vat_id: null } },
+  // A German company without a VAT id, identified by its register number —
+  // what domestic reverse charge (§ 13b UStG) may bill (BR-AE-02, N6).
+  de_reg: { buyer: { street: 'Baustraße 3', postcode: '10115', city: 'Berlin', country: 'DE', vat_id: null, registration: 'HRB 98765' } },
   at_vat: { buyer: { street: 'Ring 5', postcode: '1010', city: 'Wien', country: 'AT', vat_id: 'ATU12345678' } },
   ch: { buyer: { street: 'Bahnhofstrasse 1', postcode: '8001', city: 'Zürich', country: 'CH', vat_id: null } },
   xi: { buyer: { street: 'Main Street 1', postcode: 'BT1 1AA', city: 'Belfast', country: 'XI', vat_id: 'XI123456789' } },
@@ -115,6 +118,9 @@ export const REFUSED: Record<string, { model: EInvoiceModel; term: string }> = {
   // A Steuernummer alone identifies no seller (BR-CO-26) — nor does a GLN without its scheme (M8).
   T: { model: model('s19', 'taxno', 'de'), term: 'BT-30' },
   U: { model: model('s19', 'taxno_gln', 'de'), term: 'BT-29' },
+  // Reverse charge: at home a buyer without VAT id and register number, across a border one without VAT id (N6).
+  X: { model: model('ae', 'taxno_reg', 'de'), term: 'BT-48' },
+  Y: { model: model('ae', 'vat', 'at_vat'), term: 'BT-48' },
   // H: the IBAN and BIC server/config.ts falls back to, and an IBAN with two digits swapped (N2).
   H: { model: model('s19', 'vat', 'de_vat'), term: 'BT-84' },
   V: { model: model('s19', 'vat', 'de_vat'), term: 'BT-86' },
@@ -125,6 +131,7 @@ REFUSED.K!.model.buyer = { ...REFUSED.K!.model.buyer, country: 'UK' };
 REFUSED.R!.model.buyer = { ...REFUSED.R!.model.buyer, einvoice_address: 'Buchhaltung, Frau Meier' };
 REFUSED.S!.model.seller = { ...REFUSED.S!.model.seller, einvoice_address: 'Rechnungseingang Buchhaltung' };
 REFUSED.U!.model.seller = { ...REFUSED.U!.model.seller, identifier: '4000001000005' };
+REFUSED.Y!.model.buyer = { ...REFUSED.Y!.model.buyer, vat_id: null, registration: 'FN 123456a' };
 REFUSED.H!.model.seller = { ...REFUSED.H!.model.seller, iban: PLACEHOLDER_IBAN };
 REFUSED.V!.model.seller = { ...REFUSED.V!.model.seller, bic: PLACEHOLDER_BIC };
 REFUSED.W!.model.seller = { ...REFUSED.W!.model.seller, iban: 'DE02 1203 0000 0000 2020 15' };

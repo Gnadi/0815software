@@ -54,6 +54,11 @@ export interface Customer {
    * The Republic of Austria assigns one and requires it on every invoice.
    */
   supplier_number?: string | null;
+  /**
+   * BT-47, the customer's register number ("HRB 12345"). Identifies a buyer
+   * without a VAT id for domestic reverse charge (BR-AE-02).
+   */
+  registration?: string | null;
   /** The customer's personal account (Debitor) in DATEV / BMD. Empty → numbered from settings. */
   debtor_account?: number | null;
   /**

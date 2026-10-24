@@ -14,7 +14,7 @@ Ergebnis aufgeführt. Zeilenangaben beziehen sich auf den Stand des Reviews.
 
 Nachgetragen am 22.10.2026, nachdem `main` (ebInterface 6.1, Teilgutschriften,
 wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1 bis M8
-und N1 bis N5 am 23.10.2026, N7 am 24.10.2026:
+und N1 bis N5 am 23.10.2026, N6 und N7 am 24.10.2026:
 
 | Befund | Stand | Belegt durch |
 | --- | --- | --- |
@@ -35,7 +35,8 @@ und N1 bis N5 am 23.10.2026, N7 am 24.10.2026:
 | **N5** | **Behoben.** Der Storno heißt „Stornorechnung“ (BT-22 „Stornorechnung zur Rechnung … vom …“, Titel des PDF/A), die Teilgutschrift „Rechnungskorrektur“. BT-20 nennt für beide keinen Dokumentnamen mehr, nur „Wird mit offenen Beträgen verrechnet oder erstattet.“ Die Namen stehen an einer Stelle (`DOCUMENT_NAME`). Intern (Oberfläche, DATEV/BMD-Buchungstext) bleibt „Gutschrift“, das geht an keinen Empfänger. | `test/einvoice.test.ts`, `test/credit-notes.test.ts`, Golden-Fälle `storno`, `teilgutschrift`, `at-storno`, `at-teilgutschrift` |
 | **N3** | **Behoben.** Eine Zeile „PLZ Ort“ wird nur im Format des Landes der Adresse gelesen (Länderfeld, sonst Länderzeile, Buchstabenpräfix, USt-IdNr.), für 23 Länder mit bekanntem Format: „1012 LG Amsterdam“ ergibt PLZ `1012 LG` und Ort Amsterdam, „90-001 Łódź“ PLZ `90-001`. Ohne Land, bei einem Land ohne hinterlegtes Format (GB, IE …) oder einer PLZ, die nicht ins Format passt, bleiben PLZ und Ort leer, und die Datei wird mit Verweis auf die Felder abgelehnt. | `test/einvoice.test.ts` (N3) |
 | **N7** | **Behoben.** Jede Position hat eine Einheit (BT-130) aus einer Auswahl von 18 Codes der UN/ECE-Empfehlung 20 (Stück, Stunde, Tag, Woche, Monat, Jahr, Minute, Pauschale, km, kg, t, m, m², m³, l, kWh, Satz, Paar), jeder in der Liste von BR-CL-23. Sie steht im XML (`unitCode`), in ebInterface (`Unit`), im PDF hinter der Menge („7,5 h“) und in `report_invoice_lines`. Ohne Angabe und bei allen bisherigen Positionen ist es C62 (Stück), wie bisher übermittelt. Teilgutschriften und Vorlagen tragen die Einheit ihrer Positionen. Übernahmen aus anderen Modulen (`shared/transfer.ts`) kennen noch keine Einheit und kommen als Stück an. | `test/units.test.ts`, Golden-Fall `units` (alle 18 Codes, von Mustang geprüft) |
-| N6, N8 | Offen. | – |
+| **N6** | **Behoben.** Reverse Charge über eine Grenze verlangt weiter beide USt-IdNrn. (§ 14a Abs. 1 UStG). Im Inland (§ 13b UStG, Verkäufer und Käufer im selben Land) gilt, was BR-AE-02 nimmt: beim Verkäufer USt-IdNr. oder Steuernummer, beim Käufer USt-IdNr. oder Registernummer. Dafür hat der Kunde ein Feld Registernummer (BT-47), geschrieben als `SpecifiedLegalOrganization` und im PDF unter der Adresse. ebInterface bleibt bei beiden UIDs, die das österreichische Reverse Charge verlangt. Offen bleibt, was die Norm nicht hergibt: ein Käufer ohne USt-IdNr. und ohne Registereintrag (etwa ein Einzelunternehmer am Bau) lässt sich nach BR-AE-02 nicht ausweisen. | `test/einvoice-rules.test.ts` (N6, Fälle X und Y), Matrix-Käufer `de_reg` |
+| N8 | Offen. | – |
 
 Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
 Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
@@ -543,6 +544,8 @@ Siehe S3.
 
 ### N6 · Reverse Charge strenger als nötig
 
+*Status: behoben (siehe Tabelle oben); offen bleibt die Lücke in BR-AE-02 für Käufer ohne USt-IdNr. und Registereintrag.*
+
 `shared/einvoice.ts:253–256` verlangt bei `AE` beide USt-IdNrn. BR-AE-02
 akzeptiert beim Verkäufer auch die Steuernummer und beim Käufer auch die
 Registernummer (BT-47). Für Inlandsfälle nach § 13b UStG (z. B.
@@ -744,7 +747,13 @@ empfehlen, BT-13 als eigenes Feld ergänzen.
   - Nicht im Inland steuerbare Leistungen an Drittlandskunden: `O` oder
     `AE`? Bei `O` verbietet BR-O-02 jede USt-IdNr., auch die eigene.
   - Inländisches Reverse Charge (§ 13b UStG): `AE` wie das
-    innergemeinschaftliche, mit anderen Pflichtangaben (N6).
+    innergemeinschaftliche, mit anderen Pflichtangaben (N6). BR-AE-02
+    verlangt beim Käufer USt-IdNr. oder Registernummer (BT-47); das Gesetz
+    verlangt keine von beiden. Ein Käufer, der keine hat (Einzelunternehmer
+    ohne Handelsregistereintrag, nur mit Steuernummer), ist damit nach
+    EN 16931 nicht ausweisbar, obwohl die Rechnung umsatzsteuerlich
+    vollständig wäre. Ob seine Steuernummer in BT-47 gehört, sagt die Norm
+    nicht.
   - Differenzbesteuerung (§ 25a) und Reiseleistungen (§ 25): nur über `E`
     mit VATEX-Codes, ohne eigene Kategorie.
 - **Genau eine Aufschlüsselung je Kategorie** (z. B. BR-E-01): Zwei

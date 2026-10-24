@@ -106,6 +106,8 @@ export interface BuyerParty {
    * Lieferantennummer. Absent in snapshots frozen before it existed.
    */
   supplier_number?: string | null;
+  /** BT-47, the buyer's register number. Absent in snapshots frozen before it existed. */
+  registration?: string | null;
 }
 
 export interface EInvoiceLine {
@@ -447,17 +449,23 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
   const hasZero = rates.has(0);
   const hasStandard = [...rates].some((r) => r > 0);
   // Who the seller has to be identified as depends on the categories used:
-  // reverse charge, an intra-EU supply and an export need its VAT id (this
-  // module's rule for AE, BR-IC-02, BR-G-02); every other category but
-  // "not subject" takes the VAT id or the Steuernummer (BR-S-02, BR-Z-02,
-  // BR-E-02, BR-AE-02 and, for XRechnung, BR-DE-16).
+  // an intra-EU supply and an export need its VAT id (BR-IC-02, BR-G-02), and
+  // so does reverse charge across a border, where the law names both VAT ids
+  // (§ 14a Abs. 1 UStG). Every other category but "not subject" takes the VAT
+  // id or the Steuernummer (BR-S-02, BR-Z-02, BR-E-02, BR-AE-02 and, for
+  // XRechnung, BR-DE-16) — domestic reverse charge (§ 13b UStG) too, which
+  // used to demand both VAT ids, and so could not be invoiced without them
+  // (review N6).
   const categories = new Set(model.lines.map((l) => categoryOf(l.vat_rate, model.exemption)));
+  const domestic = !missing(seller.country) && seller.country === buyer.country;
   const vatIdRequiredBy =
-    categories.has('AE') ? 'Reverse charge' : categories.has('K') ? 'An intra-EU supply (BR-IC-02)' : categories.has('G') ? 'An export outside the EU (BR-G-02)' : null;
+    categories.has('AE') && !domestic
+      ? 'Reverse charge across a border (§ 14a Abs. 1 UStG)'
+      : categories.has('K') ? 'An intra-EU supply (BR-IC-02)' : categories.has('G') ? 'An export outside the EU (BR-G-02)' : null;
   if (vatIdRequiredBy !== null) {
     if (missing(seller.vat_id)) add('BT-31', 'seller.vatId', `${vatIdRequiredBy} requires the seller's VAT id`);
   } else if ([...categories].some((c) => c !== 'O' && c !== '?') && missing(seller.vat_id) && missing(seller.tax_number)) {
-    add('BT-31', 'seller.vatId', `Lines in VAT category ${[...categories].filter((c) => c !== 'O' && c !== '?').join(', ')} need the seller VAT id or Steuernummer (BR-S-02, BR-Z-02, BR-E-02, BR-DE-16)`);
+    add('BT-31', 'seller.vatId', `Lines in VAT category ${[...categories].filter((c) => c !== 'O' && c !== '?').join(', ')} need the seller VAT id or Steuernummer (BR-S-02, BR-Z-02, BR-E-02, BR-AE-02, BR-DE-16)`);
   }
   if (hasZero) {
     const exemption = model.exemption;
@@ -468,8 +476,12 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
       if (exemption.category === 'E' && missing(reason)) {
         add('BT-120', 'tax_exemption_reason', 'An exempt invoice must name the legal ground, e.g. "Steuerfrei nach § 4 Nr. 14 UStG" or the § 19 UStG Kleinunternehmer note');
       }
-      if ((exemption.category === 'AE' || exemption.category === 'K') && missing(buyer.vat_id)) {
-        add('BT-48', 'customer.vat_id', `${exemption.category === 'AE' ? 'Reverse charge' : 'An intra-EU supply'} requires the buyer's VAT id`);
+      if (exemption.category === 'K' && missing(buyer.vat_id)) add('BT-48', 'customer.vat_id', "An intra-EU supply requires the buyer's VAT id");
+      if (exemption.category === 'AE' && missing(buyer.vat_id)) {
+        if (!domestic) add('BT-48', 'customer.vat_id', "Reverse charge across a border requires the buyer's VAT id (§ 14a Abs. 1 UStG)");
+        else if (missing(buyer.registration)) {
+          add('BT-48', 'customer.vat_id', "Reverse charge needs the buyer's VAT id or its register number, e.g. HRB 12345 (BR-AE-02)");
+        }
       }
       if (exemption.category === 'O' && hasStandard) {
         add('BT-118', 'tax_exemption_category', '"Not subject to VAT" cannot be combined with taxed lines on one invoice (BR-O-11)');
@@ -741,6 +753,12 @@ export function renderCii(model: EInvoiceModel, profile: EInvoiceProfile): strin
 
   xml.open('ram:BuyerTradeParty');
   xml.leaf('ram:Name', buyer.name);
+  if (!missing(buyer.registration)) {
+    xml
+      .open('ram:SpecifiedLegalOrganization')
+      .leaf('ram:ID', buyer.registration!.trim())
+      .close('ram:SpecifiedLegalOrganization');
+  }
   postalAddress(xml, buyer);
   electronicAddress(xml, missing(buyer.einvoice_address) ? buyer.email : buyer.einvoice_address);
   if (!notSubject) taxRegistration(xml, 'VA', buyer.vat_id);

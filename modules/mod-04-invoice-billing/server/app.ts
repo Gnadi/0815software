@@ -193,13 +193,14 @@ interface CustomerInput {
   einvoice_address: string | null;
   debtor_account: number | null;
   supplier_number: string | null;
+  registration: string | null;
   einvoice_format: EInvoiceFormatChoice | null;
 }
 
 const CUSTOMER_COLUMNS = [
   'name', 'email', 'vat_id', 'address', 'street', 'postcode', 'city',
   'country_code', 'buyer_reference', 'einvoice_address', 'debtor_account', 'supplier_number',
-  'einvoice_format',
+  'einvoice_format', 'registration',
 ] as const;
 
 function validateCustomer(input: Record<string, unknown>): CustomerInput {
@@ -242,6 +243,7 @@ function validateCustomer(input: Record<string, unknown>): CustomerInput {
     errors.push({ field: 'buyer_reference', message: `Leitweg-ID ${MISTYPED_LEITWEG}` });
   }
   const supplier_number = optText(input.supplier_number, 'supplier_number', errors, 100);
+  const registration = optText(input.registration, 'registration', errors, 80);
   let einvoice_format: EInvoiceFormatChoice | null = null;
   if (input.einvoice_format !== undefined && input.einvoice_format !== null && input.einvoice_format !== '') {
     if ((EINVOICE_FORMAT_CHOICES as readonly unknown[]).includes(input.einvoice_format)) {
@@ -260,7 +262,7 @@ function validateCustomer(input: Record<string, unknown>): CustomerInput {
   if (errors.length > 0) fail(errors);
   return {
     name, email, vat_id, address, street, postcode, city, country_code,
-    buyer_reference, einvoice_address, debtor_account, supplier_number, einvoice_format,
+    buyer_reference, einvoice_address, debtor_account, supplier_number, registration, einvoice_format,
   };
 }
 

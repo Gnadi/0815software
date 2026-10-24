@@ -228,7 +228,7 @@ function tableHead(page: Page, y: number): number {
  * The customer fields the letterhead prints, and the number the customer knows
  * us by — which the e-invoice carries as BT-29, so the picture names it too.
  */
-export type PdfCustomer = Pick<Customer, 'name' | 'address' | 'vat_id'> & { supplier_number?: string | null };
+export type PdfCustomer = Pick<Customer, 'name' | 'address' | 'vat_id'> & { supplier_number?: string | null; registration?: string | null };
 
 /** Render an invoice as a letterhead-style PDF. */
 export function renderInvoicePdf(invoice: InvoiceDetail, customer: PdfCustomer, seller: SellerConfig): Buffer {
@@ -325,6 +325,11 @@ export function layoutInvoice(
   }
   if (customer.vat_id) {
     page.text('F3', 8, M, addrY + 2, `VAT ${customer.vat_id}`, 0.45);
+    addrY += 15;
+  }
+  // What identifies a buyer without a VAT id for reverse charge — the XML says it (BT-47).
+  if (customer.registration) {
+    page.text('F3', 8, M, addrY + 2, customer.registration, 0.45);
     addrY += 15;
   }
 

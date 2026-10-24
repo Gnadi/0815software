@@ -95,7 +95,8 @@ and repeating it, the e-invoices that went out, and money going out:
 customers          name, email, vat_id, address              (CRUD via UI/API)
                    + street, postcode, city, country_code, buyer_reference,
                    einvoice_address, debtor_account, supplier_number,
-                   einvoice_format (xrechnung | zugferd | ebinterface | none)
+                   registration (BT-47), einvoice_format (xrechnung |
+                   zugferd | ebinterface | none)
                    (all optional)
 invoices           number (NULL for drafts), customer, status,
                    issue_date, due_date, payment_terms_days,
@@ -704,7 +705,9 @@ recipient recomputing quantity × price arrives at them too (see Money).
 - **0 % needs a reason.** A draft with 0 % lines names its VAT category —
   `E` exempt (with the legal ground), `AE` reverse charge, `K` intra-EU supply,
   `G` export, `Z` zero-rated, `O` not subject — and the reason is printed on
-  the PDF and written to the XML.
+  the PDF and written to the XML. Reverse charge across a border needs both
+  VAT ids; at home (§ 13b UStG) the seller's Steuernummer and the customer's
+  register number do, as BR-AE-02 allows.
 - **A cancellation is a document.** A cancelled invoice keeps its original
   e-invoice; its cancellation is a credit note (type 381, number
   `<invoice>-ST`) referring to it — `?document=cancellation`. It calls

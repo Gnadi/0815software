@@ -98,6 +98,7 @@ export function buyerParty(customer: Customer): BuyerParty {
     email: customer.email,
     einvoice_address: customer.einvoice_address ?? null,
     supplier_number: customer.supplier_number ?? null,
+    registration: customer.registration ?? null,
   };
 }
 
@@ -135,6 +136,9 @@ export function invoiceParties(
     if (buyer.supplier_number === undefined) {
       buyer.supplier_number = getCustomer(db, invoice.customer_id).supplier_number ?? null;
     }
+    if (buyer.registration === undefined) {
+      buyer.registration = getCustomer(db, invoice.customer_id).registration ?? null;
+    }
     return { seller: JSON.parse(invoice.seller_snapshot) as SellerParty, buyer, frozen: true };
   }
   return { seller: sellerParty(liveSeller), buyer: buyerParty(getCustomer(db, invoice.customer_id)), frozen: false };
@@ -161,6 +165,7 @@ export function pdfParties(parties: { seller: SellerParty; buyer: BuyerParty }):
       address: parties.buyer.address,
       vat_id: parties.buyer.vat_id,
       supplier_number: parties.buyer.supplier_number ?? null,
+      registration: parties.buyer.registration ?? null,
     },
   };
 }

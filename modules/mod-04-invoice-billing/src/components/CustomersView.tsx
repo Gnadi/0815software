@@ -23,13 +23,14 @@ interface FormState {
   einvoice_address: string;
   debtor_account: string;
   supplier_number: string;
+  registration: string;
   einvoice_format: string;
 }
 
 const EMPTY: FormState = {
   id: null, name: '', email: '', vat_id: '', address: '', street: '', postcode: '', city: '',
   country_code: '', buyer_reference: '', einvoice_address: '', debtor_account: '', supplier_number: '',
-  einvoice_format: '',
+  registration: '', einvoice_format: '',
 };
 
 /**
@@ -52,6 +53,7 @@ const EINVOICE_FIELDS: { key: keyof FormState; label: string; placeholder?: stri
   { key: 'country_code', label: 'COUNTRY (ISO)', placeholder: 'DE, AT … — else from the VAT id' },
   { key: 'buyer_reference', label: 'BUYER REFERENCE · LEITWEG-ID · AUFTRAGSREFERENZ', placeholder: 'required for XRechnung and the Austrian federal government' },
   { key: 'supplier_number', label: 'OUR SUPPLIER NUMBER (LIEFERANTENNUMMER)', placeholder: 'assigned by the customer — required by the Austrian federal government; identifies us in XRechnung and ZUGFeRD too (BT-29)' },
+  { key: 'registration', label: 'REGISTER NUMBER (BT-47)', placeholder: 'HRB 12345 — identifies a customer without a VAT id for domestic reverse charge' },
   { key: 'einvoice_address', label: 'E-INVOICE ADDRESS', placeholder: 'email, Leitweg-ID or Peppol ID like 0088:4000001000005 — empty → email' },
   { key: 'debtor_account', label: 'DEBTOR ACCOUNT (DATEV / BMD)', placeholder: 'empty → numbered' },
 ];
@@ -101,6 +103,7 @@ export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
         einvoice_address: form.einvoice_address.trim() || null,
         debtor_account: form.debtor_account.trim() || null,
         supplier_number: form.supplier_number.trim() || null,
+        registration: form.registration.trim() || null,
         einvoice_format: form.einvoice_format || null,
       };
       if (form.id === null) await api.createCustomer(values);
@@ -210,6 +213,7 @@ export function CustomersView({ onOpenLedger, onAuthLost }: Props) {
                             einvoice_address: c.einvoice_address ?? '',
                             debtor_account: c.debtor_account === null || c.debtor_account === undefined ? '' : String(c.debtor_account),
                             supplier_number: c.supplier_number ?? '',
+                            registration: c.registration ?? '',
                             einvoice_format: c.einvoice_format ?? '',
                           })
                         }
