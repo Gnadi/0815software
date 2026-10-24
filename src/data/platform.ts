@@ -133,7 +133,7 @@ export const platform: PlatformService[] = [
       'GET /api/completions',
       'POST /api/extract/invoice',
     ],
-    consumers: 'Any module that needs chat, embeddings, retrieval or prompts — and MOD-04, which reads supplier invoices into bills.',
+    consumers: 'Any module that needs chat, embeddings, retrieval or prompts — MOD-12 for ticket replies, MOD-04 to read supplier invoices into bills.',
   },
   {
     n: 'PS-05',
