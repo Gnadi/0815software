@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { computeTotals } from '../shared/money.js';
 import type { CreditNote } from '../shared/types.js';
+import { DEFAULT_UNIT } from '../shared/units.js';
 import {
   creditableByRate,
   DomainError,
@@ -104,11 +105,11 @@ export function issueCreditNote(
       .run(invoiceId, seq, `${invoice.number}-GS${seq}`, issueDate, input.reason, actor, nowIso());
     const creditNoteId = Number(info.lastInsertRowid);
     const insert = db.prepare(
-      `INSERT INTO credit_note_lines (credit_note_id, position, description, quantity, unit_price_cents, vat_rate)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO credit_note_lines (credit_note_id, position, description, quantity, unit, unit_price_cents, vat_rate)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     input.lines.forEach((line, i) => {
-      insert.run(creditNoteId, i + 1, line.description, line.quantity, line.unitPriceCents, line.vatRate);
+      insert.run(creditNoteId, i + 1, line.description, line.quantity, line.unit ?? DEFAULT_UNIT, line.unitPriceCents, line.vatRate);
     });
     return getCreditNote(db, creditNoteId);
   })();

@@ -1,4 +1,5 @@
 import type { EInvoiceModel } from '../shared/einvoice.js';
+import { UNIT_CODES, UNITS } from '../shared/units.js';
 
 /**
  * The e-invoice cases the golden files in test/fixtures/einvoice/ are made
@@ -38,6 +39,14 @@ export const CASES: Record<string, EInvoiceModel> = {
     ],
   },
   ae: { ...BASE, exemption: { category: 'AE', reason: null } },
+  // Every unit the editor offers, a line each (review N7): the golden file
+  // takes each code past BR-CL-23 in the validators, and a unit added to
+  // shared/units.ts changes it, so it cannot go out unvalidated.
+  units: {
+    ...BASE,
+    buyer: { ...BASE.buyer, name: 'Kunde AG', street: 'Kundenweg 5', postcode: '10115', city: 'Berlin', country: 'DE', vat_id: 'DE987654321', email: 'ap@kunde.de' },
+    lines: UNIT_CODES.map((unit, i) => ({ position: i + 1, description: UNITS[unit].name, quantity: 2.5, unit, unit_price_cents: 1000 + i, vat_rate: 19 })),
+  },
   // An intra-EU supply to Poland — and a name with letters WinAnsi has (Š, Ž)
   // and lacks (Ł, ź), which the PDF shows as "Lódz" (review N4).
   k: {

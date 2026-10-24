@@ -204,6 +204,16 @@ PEPPOL-EN16931-R008 (a warning there for now). The PDF shows the period as
 *SERVICE FROM* / *SERVICE TO*, ebInterface as *Delivery/Period*. Recurring
 invoices fill the period of each run.
 
+Each line has a **unit** (BT-130): piece, hour, day, week, month, year,
+minute, lump sum, kilometre, kilogram, tonne, metre, square and cubic metre,
+litre, kilowatt hour, set or pair — UN/ECE Recommendation 20 codes from the
+list EN 16931 prescribes (BR-CL-23), offered as a choice rather than as the
+2,000-odd codes of the list. A piece (C62) is the default and what every line
+from before was sent as. A credit note's line is in the unit it names, a
+recurring template's in the unit of its line. Offers and delivery notes
+taken over from other modules (`shared/transfer.ts`) carry no unit yet and
+arrive as pieces.
+
 ### Before the first one goes out
 
 Already on the **draft**, the invoice screen lists per format exactly what is
@@ -401,8 +411,8 @@ if a customer needs it.
   it into a bill is a feature still to build.
 - **UBL.** The PEPPOL UBL syntax is not written; it would be a new renderer
   over the same `EInvoiceModel`, as ebInterface is.
-- **Allowances, charges, discounts, units.** Lines carry no allowances or
-  charges and are always in unit `C62` (piece). Skonto terms are not encoded.
+- **Allowances, charges, discounts.** Lines carry no allowances or charges.
+  Skonto terms are not encoded. (Units of measure are: see *Per invoice*.)
 - **Every alphabet in the PDF.** The PDF is written in WinAnsi
   (Windows-1252): German and the other Western European languages, Š, Ž and
   Œ included. A letter outside it is shown without its accent (Łódź as

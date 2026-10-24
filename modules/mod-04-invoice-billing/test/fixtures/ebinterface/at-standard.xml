@@ -42,7 +42,7 @@
       <ListLineItem>
         <PositionNumber>1</PositionNumber>
         <Description>Beratung</Description>
-        <Quantity Unit="C62">3</Quantity>
+        <Quantity Unit="HUR">3</Quantity>
         <UnitPrice>0.33</UnitPrice>
         <TaxItem>
           <TaxableAmount>0.99</TaxableAmount>

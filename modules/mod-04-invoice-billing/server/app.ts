@@ -12,6 +12,7 @@ import {
   type TaxExemptionCategory,
 } from '../shared/types.js';
 import { isCountryCode } from '../shared/countries.js';
+import { DEFAULT_UNIT, isUnitCode, UNIT_CODES, UNITS, type UnitCode } from '../shared/units.js';
 import {
   assertIssuable,
   eInvoiceFile,
@@ -390,7 +391,13 @@ function validateLines(raw: unknown, errors: FieldError[]): LineInput[] {
     if (!(VAT_RATES as readonly number[]).includes(vatRate)) {
       errors.push({ field: `lines[${i}].vat_rate`, message: `VAT rate must be one of: ${VAT_RATES.join(', ')}` });
     }
-    return { description, quantity, unitPriceCents, vatRate };
+    // Optional: a client that knows nothing of units bills pieces, as before.
+    let unit: UnitCode = DEFAULT_UNIT;
+    if (line.unit !== undefined && line.unit !== null && line.unit !== '') {
+      if (isUnitCode(line.unit)) unit = line.unit;
+      else errors.push({ field: `lines[${i}].unit`, message: `Unit must be one of: ${UNIT_CODES.map((c) => `${c} (${UNITS[c].name})`).join(', ')}` });
+    }
+    return { description, quantity, unit, unitPriceCents, vatRate };
   });
 }
 

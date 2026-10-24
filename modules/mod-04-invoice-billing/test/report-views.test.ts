@@ -137,6 +137,7 @@ describe('the views exist and the migration is idempotent', () => {
       'line_net_cents',
       'status',
       'is_cancelled',
+      'unit_code',
     ]);
     expect(columns('report_payments')).toEqual([
       'payment_id',

@@ -32,6 +32,7 @@ import { hasVatPrefix, isCountryCode } from './countries.js';
 import { computeTotals, lineNetCents, type LineRounding } from './money.js';
 import { EAS_CODES, ICD_CODES } from './schemes.js';
 import { ibanProblem, isValidBic, normalizeBic, normalizeIban } from './sepa.js';
+import { DEFAULT_UNIT, isUnitCode, UNIT_CODES } from './units.js';
 import type { TaxExemptionCategory } from './types.js';
 
 export const EINVOICE_PROFILES = ['xrechnung', 'zugferd'] as const;
@@ -111,6 +112,8 @@ export interface EInvoiceLine {
   position: number;
   description: string;
   quantity: number;
+  /** BT-130, UN/ECE Rec 20 (shared/units.ts). C62 when absent. */
+  unit?: string;
   unit_price_cents: number;
   vat_rate: number;
 }
@@ -481,6 +484,9 @@ export function eInvoiceProblems(model: EInvoiceModel, profile: EInvoiceProfile)
   if (model.lines.length === 0) add('BG-25', 'lines', 'An invoice needs at least one line');
   model.lines.forEach((line, i) => {
     if (missing(line.description)) add('BT-153', `lines[${i}].description`, 'A line needs a description that is not only control characters');
+    if (line.unit !== undefined && !isUnitCode(line.unit)) {
+      add('BT-130', `lines[${i}].unit`, `Unit "${line.unit}" is not one of ${UNIT_CODES.join(', ')} (UN/ECE Rec 20, BR-CL-23)`);
+    }
   });
   // Format 102 is checked for its digits only, by every validator: an
   // impossible date would pass and be wrong.
@@ -679,8 +685,7 @@ export function renderCii(model: EInvoiceModel, profile: EInvoiceProfile): strin
       .close('ram:SpecifiedLineTradeAgreement');
     xml
       .open('ram:SpecifiedLineTradeDelivery')
-      // C62 "one" (unit): this module does not record units of measure.
-      .leaf('ram:BilledQuantity', quantity(line.quantity), ' unitCode="C62"')
+      .leaf('ram:BilledQuantity', quantity(line.quantity), ` unitCode="${line.unit ?? DEFAULT_UNIT}"`)
       .close('ram:SpecifiedLineTradeDelivery');
     xml.open('ram:SpecifiedLineTradeSettlement');
     xml.open('ram:ApplicableTradeTax').leaf('ram:TypeCode', 'VAT').leaf('ram:CategoryCode', category);

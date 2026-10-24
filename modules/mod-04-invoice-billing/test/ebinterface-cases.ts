@@ -41,7 +41,8 @@ export const AT_BASE: EInvoiceModel = {
     email: 'ap@kunde.at',
   },
   lines: [
-    { position: 1, description: 'Beratung', quantity: 3, unit_price_cents: 33, vat_rate: 20 },
+    // Consulting in hours, books in pieces: the unit reaches ebInterface's Quantity (review N7).
+    { position: 1, description: 'Beratung', quantity: 3, unit: 'HUR', unit_price_cents: 33, vat_rate: 20 },
     { position: 2, description: 'Fachbuch', quantity: 2.5, unit_price_cents: 1999, vat_rate: 10 },
     { position: 3, description: 'Pflanzen', quantity: 1, unit_price_cents: 1250, vat_rate: 13 },
     { position: 4, description: 'Lizenz', quantity: 1, unit_price_cents: 120000, vat_rate: 20 },

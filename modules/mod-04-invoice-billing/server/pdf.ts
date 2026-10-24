@@ -11,6 +11,7 @@
 
 import { EXEMPTION_DEFAULT_REASON } from '../shared/einvoice.js';
 import { fmtEur } from '../shared/money.js';
+import { withUnit } from '../shared/units.js';
 import type { CreditNote, Customer, InvoiceDetail } from '../shared/types.js';
 import type { SellerConfig } from './config.js';
 import { fonts, unicodeOf, winAnsiOf } from './fonts.js';
@@ -375,7 +376,11 @@ export function layoutInvoice(
   // ── Line items ──
   y = tableHead(page, y);
   for (const line of invoice.lines) {
-    const description = wrapText('F1', 9, line.description, DESCRIPTION_WIDTH);
+    const qty = withUnit(fmtQty(line.quantity), line.unit);
+    // A unit can make the quantity wider than the widest bare one; the
+    // description then yields, on that line only, rather than run under it.
+    const width = Math.min(DESCRIPTION_WIDTH, COL.qty - textWidth('F3', 9, qty) - 6 - (M + 30));
+    const description = wrapText('F1', 9, line.description, width);
     const extra = (description.length - 1) * 11;
     if (y + extra > A4.height - 200) {
       page = new Page();
@@ -384,7 +389,7 @@ export function layoutInvoice(
     }
     page.text('F3', 9, M, y, String(line.position), 0.45);
     description.forEach((text, i) => page.text('F1', 9, M + 30, y + i * 11, text));
-    page.textRight('F3', 9, COL.qty, y, fmtQty(line.quantity));
+    page.textRight('F3', 9, COL.qty, y, qty);
     page.textRight('F3', 9, COL.price, y, fmtEur(line.unit_price_cents));
     page.textRight('F3', 9, COL.vat, y, `${line.vat_rate}%`);
     page.textRight('F3', 9, COL.net, y, fmtEur(line.net_cents));

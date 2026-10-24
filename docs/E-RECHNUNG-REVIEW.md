@@ -14,7 +14,7 @@ Ergebnis aufgeführt. Zeilenangaben beziehen sich auf den Stand des Reviews.
 
 Nachgetragen am 22.10.2026, nachdem `main` (ebInterface 6.1, Teilgutschriften,
 wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1 bis M8
-und N1 bis N5 am 23.10.2026:
+und N1 bis N5 am 23.10.2026, N7 am 24.10.2026:
 
 | Befund | Stand | Belegt durch |
 | --- | --- | --- |
@@ -34,7 +34,8 @@ und N1 bis N5 am 23.10.2026:
 | **N1** | **Behoben.** Geschäftsdaten sind Tage in der Zeitzone `BUSINESS_TIMEZONE` (Vorgabe Europe/Berlin; eine unbekannte Zone verhindert den Start): Rechnungsdatum ohne Eingabe, damit das Jahr des Nummernkreises, Fälligkeit, Zahlungen ohne Buchungsdatum, Mahnungen, Überfälligkeit. Das Stornodatum wird beim Stornieren als `cancelled_on` gespeichert, wie ein Rechnungsdatum; es datiert das Storno-Dokument (BT-2), die Gegenbuchung im DATEV/BMD-Export und den Kontoauszug, auch eine spätere Änderung der Zone verschiebt es nicht. Ältere Stornos behalten den UTC-Tag, den sie immer zeigten. Die Report-Views zählen `days_overdue` in derselben Zone; SQLite kennt keine IANA-Zonen, darum trägt die View die Offsets der Zone mit den Umstellungszeitpunkten für 30 Jahre und wird bei jedem Start neu gebaut. Der Client zeigt Zeitstempel in der Ortszeit des Betrachters. | `test/business-date.test.ts` (Neujahrsnacht, Storno um 00:30, SQL gegen `Intl` an den Zeitumstellungen von sieben Zonen, Migration) |
 | **N5** | **Behoben.** Der Storno heißt „Stornorechnung“ (BT-22 „Stornorechnung zur Rechnung … vom …“, Titel des PDF/A), die Teilgutschrift „Rechnungskorrektur“. BT-20 nennt für beide keinen Dokumentnamen mehr, nur „Wird mit offenen Beträgen verrechnet oder erstattet.“ Die Namen stehen an einer Stelle (`DOCUMENT_NAME`). Intern (Oberfläche, DATEV/BMD-Buchungstext) bleibt „Gutschrift“, das geht an keinen Empfänger. | `test/einvoice.test.ts`, `test/credit-notes.test.ts`, Golden-Fälle `storno`, `teilgutschrift`, `at-storno`, `at-teilgutschrift` |
 | **N3** | **Behoben.** Eine Zeile „PLZ Ort“ wird nur im Format des Landes der Adresse gelesen (Länderfeld, sonst Länderzeile, Buchstabenpräfix, USt-IdNr.), für 23 Länder mit bekanntem Format: „1012 LG Amsterdam“ ergibt PLZ `1012 LG` und Ort Amsterdam, „90-001 Łódź“ PLZ `90-001`. Ohne Land, bei einem Land ohne hinterlegtes Format (GB, IE …) oder einer PLZ, die nicht ins Format passt, bleiben PLZ und Ort leer, und die Datei wird mit Verweis auf die Felder abgelehnt. | `test/einvoice.test.ts` (N3) |
-| N6–N8 | Offen. | – |
+| **N7** | **Behoben.** Jede Position hat eine Einheit (BT-130) aus einer Auswahl von 18 Codes der UN/ECE-Empfehlung 20 (Stück, Stunde, Tag, Woche, Monat, Jahr, Minute, Pauschale, km, kg, t, m, m², m³, l, kWh, Satz, Paar), jeder in der Liste von BR-CL-23. Sie steht im XML (`unitCode`), in ebInterface (`Unit`), im PDF hinter der Menge („7,5 h“) und in `report_invoice_lines`. Ohne Angabe und bei allen bisherigen Positionen ist es C62 (Stück), wie bisher übermittelt. Teilgutschriften und Vorlagen tragen die Einheit ihrer Positionen. Übernahmen aus anderen Modulen (`shared/transfer.ts`) kennen noch keine Einheit und kommen als Stück an. | `test/units.test.ts`, Golden-Fall `units` (alle 18 Codes, von Mustang geprüft) |
+| N6, N8 | Offen. | – |
 
 Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
 Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
@@ -550,6 +551,8 @@ Rechnungen sind ohne USt-IdNr. nicht möglich. Niedrig, weil der häufige
 Fall (EU-Dienstleistung) beide USt-IdNrn. braucht.
 
 ### N7 · Einheit immer C62 („Stück“)
+
+*Status: behoben (siehe Tabelle oben).*
 
 `shared/einvoice.ts:441–442`. „3 × Beratungstag“ wird als 3 Stück
 übermittelt. Formal gültig, fachlich falsch für Stunden (`HUR`) und Tage

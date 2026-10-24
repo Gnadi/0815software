@@ -496,6 +496,15 @@ export function openDb(path: string): Database.Database {
     })();
   }
 
+  // The unit a line is billed in (BT-130, shared/units.ts). Every line before
+  // it was sent as C62, a piece, and stays that: what went out does not change.
+  if (!columns('invoice_lines').includes('unit')) {
+    db.exec("ALTER TABLE invoice_lines ADD COLUMN unit TEXT NOT NULL DEFAULT 'C62'");
+  }
+  if (!columns('credit_note_lines').includes('unit')) {
+    db.exec("ALTER TABLE credit_note_lines ADD COLUMN unit TEXT NOT NULL DEFAULT 'C62'");
+  }
+
   ensureReportViews(db);
 
   return db;
@@ -693,7 +702,9 @@ function ensureReportViews(db: Database.Database): void {
       l.vat_rate                                        AS vat_rate,
       ${lineNetSql('l', 'i')} AS line_net_cents,
       i.status                                          AS status,
-      CASE WHEN i.status = 'cancelled' THEN 1 ELSE 0 END AS is_cancelled
+      CASE WHEN i.status = 'cancelled' THEN 1 ELSE 0 END AS is_cancelled,
+      -- Appended: UN/ECE Rec 20, C62 for a piece and for every line before units.
+      l.unit                                            AS unit_code
     FROM invoice_lines l
     JOIN invoices i ON i.id = l.invoice_id
     WHERE i.status <> 'draft';

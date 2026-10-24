@@ -106,8 +106,8 @@ invoices           number (NULL for drafts), customer, status,
                    frozen at finalize — see E-invoices), line_rounding
                    (decimal | float, fixed at finalize — see Money)
 invoice_lines      invoice, position, description, quantity (at most four
-                   decimals), unit_price_cents, vat_rate (0 | 7 | 10 | 13 |
-                   19 | 20)
+                   decimals), unit (UN/ECE Rec 20, C62 = piece by default),
+                   unit_price_cents, vat_rate (0 | 7 | 10 | 13 | 19 | 20)
 payments           invoice, date, amount_cents, note
 invoice_counters   year → last_seq                           (the number source)
 accounting_settings  one row: DATEV / BMD export settings (JSON), who saved it
@@ -117,7 +117,7 @@ dunning_notices      invoice, level, what was claimed and the letter text
                      UNIQUE (invoice, level)   ← append-only
 credit_notes         invoice, seq, number (<invoice>-GS<seq>), issue_date,
                      reason, actor   UNIQUE (invoice, seq) ← never updated
-credit_note_lines    credit note, position, description, quantity,
+credit_note_lines    credit note, position, description, quantity, unit,
                      unit_price_cents, vat_rate (positive, like any 381)
 recurring_invoices   name, customer, interval, start/end date, active,
                      the draft it produces (JSON)
@@ -205,7 +205,7 @@ promise. Full stance and rules:
 | View | One row per | Key |
 | ---- | ----------- | --- |
 | `report_invoices` | non-draft invoice — dates, status, customer name and VAT id, net/VAT/gross, paid, outstanding, days overdue | `invoice_number` |
-| `report_invoice_lines` | invoice line, with `line_net_cents` | `invoice_number` + `line_position` |
+| `report_invoice_lines` | invoice line, with `line_net_cents` and `unit_code` | `invoice_number` + `line_position` |
 | `report_payments` | payment, joined to invoice number and customer | `payment_id` |
 | `report_receivables_aging` | customer with an open balance, in the buckets current / 1-30 / 31-60 / 61-90 / 90+ | `customer_id` |
 
@@ -380,7 +380,7 @@ GET    /api/invoices                   ?search=&status=&overdue=1
                                        (status: draft|sent|paid|cancelled — derived)
 POST   /api/invoices                   {customer_id, payment_terms_days?, note?,
                                         delivery_date?, period_start?, period_end?,
-                                        lines: [{description, quantity,
+                                        lines: [{description, quantity, unit?,
                                                  unit_price_cents, vat_rate}]}
 GET    /api/invoices/:id               lines, VAT breakdown, payments, derived state
 PUT    /api/invoices/:id               drafts only — sent invoices → 409
@@ -667,6 +667,14 @@ recipient recomputing quantity × price arrives at them too (see Money).
   A seller without VAT id or register number is identified by a seller
   identifier such as a GLN, or by the supplier number its customer assigned —
   both are BT-29, which BR-CO-26 accepts (`test/einvoice-rules.test.ts`).
+- **Billed in its unit.** Every line has a unit of measure (BT-130), chosen
+  in the editor from a list of UN/ECE Rec 20 codes (`shared/units.ts`):
+  piece, hour, day, week, month, year, minute, lump sum, km, kg, t, m, m²,
+  m³, l, kWh, set, pair. It goes into the XML (`unitCode`), ebInterface
+  (`Unit`) and after the quantity on the PDF ("7,5 h"). A line that names
+  none, and every line from before, is a piece (C62), as it always went out.
+  The golden case `units` carries every code past the validators
+  (`test/units.test.ts`).
 - **Paid into a real account.** An invoice names the seller's IBAN only when
   it is a SEPA IBAN whose check digits match, and a BIC only when it is one;
   the example values the module starts with are refused by name. A credit

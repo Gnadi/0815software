@@ -3,6 +3,7 @@ import { computeTotals } from '../../shared/money';
 import type { CreditNote, InvoiceDetail as Detail } from '../../shared/types';
 import { api, ApiError, creditNotePdfUrl, ebInterfaceUrl, invoicePdfUrl, xrechnungUrl, zugferdUrl, type EInvoiceStatus } from '../api';
 import { centsToInput, fmtDate, fmtEur, fmtQty, parseEurToCents } from '../format';
+import { UNITS, withUnit, type UnitCode } from '../../shared/units';
 import { PaymentBadge, StatusBadge } from './StatusBadge';
 import { Can } from '../access';
 
@@ -215,7 +216,7 @@ export function InvoiceDetail({ id, onBack, onEdit, onOpenLedger, onAuthLost }: 
               <tr key={line.id}>
                 <td className="mono table__id">{line.position}</td>
                 <td>{line.description}</td>
-                <td className="table__num mono" style={{ textAlign: 'right' }}>{fmtQty(line.quantity)}</td>
+                <td className="table__num mono" style={{ textAlign: 'right' }}>{withUnit(fmtQty(line.quantity), line.unit)}</td>
                 <td className="table__num mono" style={{ textAlign: 'right' }}>{fmtEur(line.unit_price_cents)}</td>
                 <td className="table__num mono" style={{ textAlign: 'right' }}>{line.vat_rate}%</td>
                 <td className="table__num mono" style={{ textAlign: 'right' }}>{fmtEur(line.net_cents)}</td>
@@ -578,6 +579,8 @@ function EInvoicePanel({
 interface CreditLine {
   description: string;
   quantity: string;
+  /** The invoice line's: what was billed in hours is credited in hours. */
+  unit: UnitCode;
   unitPrice: string;
   vatRate: number;
   include: boolean;
@@ -598,7 +601,7 @@ function CreditNoteForm({
   invoice: Detail;
   busy: boolean;
   onClose: () => void;
-  onSubmit: (payload: { reason: string; issue_date?: string; lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[] }) => void;
+  onSubmit: (payload: { reason: string; issue_date?: string; lines: { description: string; quantity: number; unit: UnitCode; unit_price_cents: number; vat_rate: number }[] }) => void;
 }) {
   const [reason, setReason] = useState('');
   const [date, setDate] = useState('');
@@ -606,6 +609,7 @@ function CreditNoteForm({
     invoice.lines.map((l) => ({
       description: l.description,
       quantity: String(l.quantity),
+      unit: l.unit,
       unitPrice: centsToInput(l.unit_price_cents),
       vatRate: l.vat_rate,
       include: false,
@@ -637,6 +641,7 @@ function CreditNoteForm({
             lines: chosen.map((l) => ({
               description: l.description,
               quantity: Number(l.quantity.replace(',', '.')),
+              unit: l.unit,
               unit_price_cents: parseEurToCents(l.unitPrice) ?? -1,
               vat_rate: l.vatRate,
             })),
@@ -663,6 +668,7 @@ function CreditNoteForm({
               <span className="field__label mono">QTY</span>
               <input className="field__input" type="number" step="any" min="0" value={line.quantity} disabled={!line.include} onChange={(e) => setLine(i, { quantity: e.target.value })} />
             </label>
+            <span className="mono table__id">{UNITS[line.unit].name}</span>
             <label className="field">
               <span className="field__label mono">UNIT PRICE €</span>
               <input className="field__input" value={line.unitPrice} disabled={!line.include} onChange={(e) => setLine(i, { unitPrice: e.target.value })} />

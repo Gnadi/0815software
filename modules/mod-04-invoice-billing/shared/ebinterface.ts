@@ -29,6 +29,7 @@ import { ADDRESS_HINT } from './address.js';
 import { isCountryCode } from './countries.js';
 import { computeTotals, lineNetCents, vatRatesFor } from './money.js';
 import { normalizeBic } from './sepa.js';
+import { DEFAULT_UNIT } from './units.js';
 import {
   amount,
   EXEMPTION_DEFAULT_REASON,
@@ -259,7 +260,7 @@ export function renderEbInterface(model: EInvoiceModel): string {
     xml.open('ListLineItem');
     xml.leaf('PositionNumber', String(line.position));
     xml.leaf('Description', line.description);
-    xml.leaf('Quantity', quantity(line.quantity), ' Unit="C62"');
+    xml.leaf('Quantity', quantity(line.quantity), ` Unit="${line.unit ?? DEFAULT_UNIT}"`);
     xml.leaf('UnitPrice', amount(line.unit_price_cents));
     // Per line only the base and the category: the tax is computed once per
     // rate below, which is how this module (and § 11 UStG) rounds it.

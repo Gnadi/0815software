@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { EXEMPTION_DEFAULT_REASON } from '../../shared/einvoice';
 import { computeTotals, LINE_ROUNDING, VAT_RATES, vatRatesFor, type LineAmounts } from '../../shared/money';
 import { TAX_EXEMPTION_CATEGORIES, type FieldError, type TaxExemptionCategory } from '../../shared/types';
+import { DEFAULT_UNIT, UNIT_CODES, UNITS, type UnitCode } from '../../shared/units';
 import { api, ApiError, type CustomerRow } from '../api';
 import { centsToInput, fmtEur, parseEurToCents } from '../format';
 
@@ -15,11 +16,12 @@ interface Props {
 interface EditableLine {
   description: string;
   quantity: string;
+  unit: UnitCode;
   unitPrice: string; // EUR text, e.g. "12,50"
   vatRate: string;
 }
 
-const EMPTY_LINE: EditableLine = { description: '', quantity: '1', unitPrice: '', vatRate: '20' };
+const EMPTY_LINE: EditableLine = { description: '', quantity: '1', unit: DEFAULT_UNIT, unitPrice: '', vatRate: '20' };
 
 /** What each VAT category of the 0 % lines means, in the words an invoice uses. */
 const CATEGORY_LABEL: Record<TaxExemptionCategory, string> = {
@@ -85,6 +87,7 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
           detail.lines.map((l) => ({
             description: l.description,
             quantity: String(l.quantity),
+            unit: l.unit,
             unitPrice: centsToInput(l.unit_price_cents),
             vatRate: String(l.vat_rate),
           })),
@@ -126,6 +129,7 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
         lines: lines.map((l) => ({
           description: l.description,
           quantity: Number(l.quantity.replace(',', '.')),
+          unit: l.unit,
           unit_price_cents: parseEurToCents(l.unitPrice) ?? -1,
           vat_rate: Number(l.vatRate),
         })),
@@ -263,6 +267,16 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
                 value={line.quantity}
                 onChange={(e) => setLine(i, { quantity: e.target.value })}
               />
+            </label>
+            <label className="field">
+              <span className="field__label mono">UNIT</span>
+              <select className="field__input" value={line.unit} onChange={(e) => setLine(i, { unit: e.target.value as UnitCode })}>
+                {UNIT_CODES.map((code) => (
+                  <option key={code} value={code}>
+                    {UNITS[code].name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="field">
               <span className="field__label mono">UNIT PRICE €</span>

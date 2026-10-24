@@ -72,7 +72,7 @@ MOD-04 Invoice & Billing is the reference implementation
 | View | One row per | Key | Cancellation fields |
 | ---- | ----------- | --- | ------------------- |
 | `report_invoices` | non-draft invoice — header, customer, net/VAT/gross, credited, paid, outstanding (gross − credited − paid), days overdue | `invoice_number` | `status`, `is_cancelled`, `cancelled_at`, `cancelled_on`, `cancellation_reason` |
-| `report_invoice_lines` | invoice line, with the line net | `invoice_number` + `line_position` | `status`, `is_cancelled` |
+| `report_invoice_lines` | invoice line, with the line net and its unit (`unit_code`, UN/ECE Rec 20) | `invoice_number` + `line_position` | `status`, `is_cancelled` |
 | `report_payments` | payment, joined to invoice and customer | `payment_id` | `invoice_status`, `invoice_is_cancelled` |
 | `report_credit_notes` | partial credit note, with its own net/VAT/gross and the invoice it corrects | `credit_note_number` | `invoice_status`, `invoice_is_cancelled` |
 | `report_receivables_aging` | customer with an open balance, in the conventional buckets | `customer_id` | n/a — cancelled invoices are excluded |

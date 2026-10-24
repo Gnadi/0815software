@@ -170,12 +170,13 @@ export type EInvoiceDocument = 'invoice' | 'cancellation' | { creditNoteId: numb
 
 /** Stored lines as the model's — the same for an invoice, a draft and a credit note. */
 function modelLines(
-  lines: { position: number; description: string; quantity: number; unit_price_cents: number; vat_rate: number }[],
+  lines: { position: number; description: string; quantity: number; unit: string; unit_price_cents: number; vat_rate: number }[],
 ): EInvoiceModel['lines'] {
   return lines.map((l) => ({
     position: l.position,
     description: l.description,
     quantity: l.quantity,
+    unit: l.unit,
     unit_price_cents: l.unit_price_cents,
     vat_rate: l.vat_rate,
   }));

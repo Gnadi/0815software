@@ -33,7 +33,8 @@ export function fmtDate(iso: string): string {
 
 /** "12", "2.5" — quantities without float noise. */
 export function fmtQty(n: number): string {
-  return String(Math.round(n * 1000) / 1000);
+  // Four decimals, as the e-invoice states the quantity — three hid one.
+  return String(Math.round(n * 10_000) / 10_000);
 }
 
 /**

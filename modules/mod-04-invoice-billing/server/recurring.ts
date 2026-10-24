@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import type { RecurringInterval, RecurringTemplate } from '../shared/types.js';
+import { DEFAULT_UNIT } from '../shared/units.js';
 import { addDays, createDraft, DomainError, getCustomer, nowIso, todayIso, type DraftInput } from './invoices.js';
 
 /**
@@ -109,7 +110,8 @@ function toTemplate(db: Database.Database, row: TemplateRow, today: string): Rec
     active: row.active === 1,
     payment_terms_days: draft.paymentTermsDays,
     note: draft.note,
-    lines: draft.lines.map((l) => ({ description: l.description, quantity: l.quantity, unit_price_cents: l.unitPriceCents, vat_rate: l.vatRate })),
+    // A template saved before units existed bills pieces, as its drafts did.
+    lines: draft.lines.map((l) => ({ description: l.description, quantity: l.quantity, unit: l.unit ?? DEFAULT_UNIT, unit_price_cents: l.unitPriceCents, vat_rate: l.vatRate })),
     buyer_reference: draft.buyerReference ?? null,
     tax_exemption_category: draft.taxExemptionCategory ?? null,
     tax_exemption_reason: draft.taxExemptionReason ?? null,

@@ -15,6 +15,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DOCUMENT_NAME, EINVOICE_PROFILES, eInvoiceProblems, renderCii, type EInvoiceModel } from '../shared/einvoice.js';
 import { computeTotals, lineNetCents } from '../shared/money.js';
+import { DEFAULT_UNIT, isUnitCode } from '../shared/units.js';
 import type { InvoiceDetail } from '../shared/types.js';
 import { pdfParties } from '../server/einvoice-data.js';
 import { layoutInvoice } from '../server/pdf.js';
@@ -48,7 +49,7 @@ function zugferdPdf(model: EInvoiceModel): Buffer {
     parties_frozen: true, line_rounding: model.line_rounding, cancelled_at: cancels ? `${model.issue_date}T00:00:00Z` : null,
     cancelled_on: cancels ? model.issue_date : null,
     cancellation_reason: cancels ? 'Doppelt fakturiert' : null,
-    lines: model.lines.map((l, i) => ({ ...l, id: i + 1, invoice_id: 1, net_cents: lineNetCents(l, model.line_rounding) })),
+    lines: model.lines.map((l, i) => ({ ...l, unit: isUnitCode(l.unit) ? l.unit : DEFAULT_UNIT, id: i + 1, invoice_id: 1, net_cents: lineNetCents(l, model.line_rounding) })),
     vat_breakdown: totals.by_rate, payments: [], open_cents: totals.gross_cents,
     credited_cents: 0, credit_notes: [], creditable: [],
   };

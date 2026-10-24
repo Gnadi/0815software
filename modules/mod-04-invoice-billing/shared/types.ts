@@ -5,6 +5,7 @@
  */
 
 import type { LineRounding } from './money.js';
+import type { UnitCode } from './units.js';
 
 /**
  * STORED lifecycle status. Only three values ever hit the database:
@@ -97,6 +98,8 @@ export interface InvoiceLine {
   position: number;
   description: string;
   quantity: number;
+  /** UN/ECE Rec 20 (shared/units.ts); C62 for every line from before units existed. */
+  unit: UnitCode;
   unit_price_cents: number;
   vat_rate: number;
   /** Derived: round(quantity × unit_price_cents). Never stored. */
@@ -568,7 +571,7 @@ export interface RecurringTemplate {
   active: boolean;
   payment_terms_days: number;
   note: string | null;
-  lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[];
+  lines: { description: string; quantity: number; unit: UnitCode; unit_price_cents: number; vat_rate: number }[];
   buyer_reference: string | null;
   tax_exemption_category: TaxExemptionCategory | null;
   tax_exemption_reason: string | null;

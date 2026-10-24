@@ -23,6 +23,7 @@ import type {
   TaxExemptionCategory,
   VatBreakdownRow,
 } from '../shared/types.js';
+import { DEFAULT_UNIT, type UnitCode } from '../shared/units.js';
 import { businessDate } from './business-date.js';
 
 /** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
@@ -342,6 +343,8 @@ export function invoiceDetail(
 export interface LineInput {
   description: string;
   quantity: number;
+  /** C62 when not given — what a line was before units existed. */
+  unit?: UnitCode;
   unitPriceCents: number;
   vatRate: number;
 }
@@ -364,11 +367,11 @@ export interface DraftInput {
 
 function writeLines(db: Database.Database, invoiceId: number, lines: LineInput[]): void {
   const insert = db.prepare(
-    `INSERT INTO invoice_lines (invoice_id, position, description, quantity, unit_price_cents, vat_rate)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO invoice_lines (invoice_id, position, description, quantity, unit, unit_price_cents, vat_rate)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   lines.forEach((line, i) => {
-    insert.run(invoiceId, i + 1, line.description, line.quantity, line.unitPriceCents, line.vatRate);
+    insert.run(invoiceId, i + 1, line.description, line.quantity, line.unit ?? DEFAULT_UNIT, line.unitPriceCents, line.vatRate);
   });
 }
 

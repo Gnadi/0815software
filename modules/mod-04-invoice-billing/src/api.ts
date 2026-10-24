@@ -16,6 +16,7 @@ import type {
 } from '../shared/types';
 import type { EInvoiceProblem, SellerParty } from '../shared/einvoice';
 import type { EInvoiceFormat } from '../shared/ebinterface';
+import type { UnitCode } from '../shared/units';
 import type { DunningNotice, DunningRow, DunningSettings } from '../shared/types';
 import type { CreditNote, EInvoiceFormatChoice, RecurringInterval, RecurringTemplate, TaxExemptionCategory } from '../shared/types';
 
@@ -32,7 +33,7 @@ export interface RecurringPayload {
   buyer_reference: string | null;
   tax_exemption_category: TaxExemptionCategory | '' | null;
   tax_exemption_reason: string | null;
-  lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[];
+  lines: { description: string; quantity: number; unit?: UnitCode; unit_price_cents: number; vat_rate: number }[];
 }
 
 interface GeneratedDraft {
@@ -153,7 +154,7 @@ export const api = {
   /** A partial credit note — issued at once, never changed. */
   issueCreditNote: (
     id: number,
-    payload: { reason: string; issue_date?: string; lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[] },
+    payload: { reason: string; issue_date?: string; lines: { description: string; quantity: number; unit?: UnitCode; unit_price_cents: number; vat_rate: number }[] },
   ) => request<CreditNote>(`/api/invoices/${id}/credit-notes`, { method: 'POST', body: JSON.stringify(payload) }),
   cancel: (id: number, reason: string) =>
     request<InvoiceDetail>(`/api/invoices/${id}/cancel`, post({ reason })),
