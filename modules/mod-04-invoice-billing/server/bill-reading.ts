@@ -95,6 +95,20 @@ export function proposeBill(db: Database.Database, x: InvoiceExtraction): BillPr
     due_date: f.due_date,
     po_number: f.po_number,
     remittance: f.payment_reference && f.payment_reference !== f.invoice_number ? f.payment_reference.slice(0, 140) : null,
+    // A line without its net is not one a bill can keep; neither is a nameless one.
+    lines: x.lines
+      .filter((l) => l.net_cents !== null && l.description.trim() !== '')
+      .slice(0, 500)
+      .map((l, i) => ({
+        position: i + 1,
+        description: l.description.trim().slice(0, 300),
+        item_id: l.item_id?.slice(0, 64) ?? null,
+        quantity: l.quantity,
+        unit_code: l.unit_code?.slice(0, 10) ?? null,
+        unit_price_cents: l.unit_price_cents,
+        net_cents: l.net_cents!,
+        vat_rate: l.vat_rate,
+      })),
     duplicate_of: duplicate,
     read_from: readFromLabel(x),
     document_sha256: x.document_sha256,

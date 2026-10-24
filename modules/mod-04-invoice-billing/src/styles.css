@@ -913,3 +913,37 @@ textarea.field__input {
 .readbox__warn {
   color: var(--danger);
 }
+
+/* The supplier's lines on a bill — a copy of the document, with their sum. */
+.billlines {
+  margin-top: 16px;
+  font-size: 12px;
+}
+.billlines__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+.billlines__sum {
+  margin-top: 6px;
+  font-size: 11px;
+  letter-spacing: 0.4px;
+  text-align: right;
+}
+.billlines .table th,
+.billlines .table td {
+  padding: 6px 8px;
+  font-size: 11px;
+}
+/* The description is the column that wraps; the numbers stay on one line. */
+.billlines .table td:nth-child(2) {
+  white-space: normal;
+}
+.billlines .table {
+  width: 100%;
+  /* The list tables keep 720px and scroll; inside the dialog it must fit. */
+  min-width: 0;
+}

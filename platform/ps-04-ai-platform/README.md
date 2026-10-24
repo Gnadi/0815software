@@ -137,6 +137,13 @@ What it holds to:
   Composite fonts without a usable map yield no text, and the PDF goes the
   vision route or is refused.
 
+**Lines** come with the fields: description, the supplier's article number
+(BT-155 — what a PO line's SKU is compared with), quantity and unit, unit
+price, net, VAT rate. An e-invoice gives them exactly, a model gives them
+when it read the document; the labelled-pattern reader does not guess a
+table. When the lines do not add up to the net, a warning says so — an
+allowance or charge on the whole invoice is legal (BT-107/108).
+
 Pinned by `test/extraction.test.ts`: the EN 16931 example invoice from the
 European Commission's eInvoicing-EN16931 repository (EUPL 1.2), in UBL and
 CII, must read to identical fields; MOD-04's schema-validated XRechnung,

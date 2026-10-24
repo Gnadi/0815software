@@ -199,7 +199,7 @@ const presentation: Record<string, ModulePresentation> = {
       'Partial credit notes against an issued invoice',
       'Bill an accepted offer, or each delivery note, with one action',
       'Bills for a purchase order held until the goods have arrived (three-way match)',
-      'Read a supplier invoice into a bill — e-invoice, PDF or scan — instead of typing it',
+      'Read a supplier invoice into a bill, with its lines — e-invoice, PDF or scan — instead of typing it',
     ],
     screen: {
       variant: 'detail',

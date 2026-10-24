@@ -297,8 +297,55 @@ function validateBill(input: Record<string, unknown>): BillInput {
   const documentSha256 = optText(input.document_sha256, 'document_sha256', errors, 64);
   if (documentSha256 !== null && !/^[0-9a-f]{64}$/.test(documentSha256)) errors.push({ field: 'document_sha256', message: 'document_sha256 is a SHA-256 in hex' });
 
+  const lines = validateBillLines(input.lines, errors);
+
   if (errors.length > 0) fail(errors);
-  return { creditorId, reference, remittance, amountCents, issueDate, dueDate: dueDate!, note, poNumber, netCents, readFrom, documentSha256 };
+  return { creditorId, reference, remittance, amountCents, issueDate, dueDate: dueDate!, note, poNumber, netCents, readFrom, documentSha256, lines };
+}
+
+const MAX_BILL_LINES = 500;
+
+/**
+ * The supplier's lines, as invoiced — optional, and only their shape is
+ * checked: they are a copy of the document, so a discount line may be
+ * negative and the lines need not add up to the net (an allowance on the
+ * whole invoice is legal). The screen shows the difference instead.
+ * Undefined keeps what an edited bill has; an array, even empty, replaces it.
+ */
+function validateBillLines(raw: unknown, errors: FieldError[]): BillInput['lines'] {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || raw.length > MAX_BILL_LINES) {
+    errors.push({ field: 'lines', message: `lines is a list of at most ${MAX_BILL_LINES}` });
+    return undefined;
+  }
+  const out: NonNullable<BillInput['lines']> = [];
+  raw.forEach((line, i) => {
+    const l = (typeof line === 'object' && line !== null ? line : {}) as Record<string, unknown>;
+    const at = (f: string) => `lines[${i}].${f}`;
+    const description = typeof l.description === 'string' ? l.description.trim() : '';
+    if (description === '' || description.length > 300) errors.push({ field: at('description'), message: 'Each line names what was invoiced (max 300 characters)' });
+    const netCents = Number(l.net_cents);
+    if (!Number.isInteger(netCents) || Math.abs(netCents) > MAX_AMOUNT_CENTS) errors.push({ field: at('net_cents'), message: 'The line net is whole cents' });
+    const optNumber = (f: string, ok: (n: number) => boolean, message: string): number | null => {
+      if (l[f] === undefined || l[f] === null || l[f] === '') return null;
+      const n = Number(l[f]);
+      if (!ok(n)) errors.push({ field: at(f), message });
+      return n;
+    };
+    const quantity = optNumber('quantity', Number.isFinite, 'quantity is a number');
+    const unitPriceCents = optNumber('unit_price_cents', Number.isInteger, 'unit_price_cents is whole cents');
+    const vatRate = optNumber('vat_rate', (n) => Number.isFinite(n) && n >= 0 && n <= 100, 'vat_rate is 0 to 100');
+    out.push({
+      description,
+      item_id: optText(l.item_id, at('item_id'), errors, 64),
+      quantity,
+      unit_code: optText(l.unit_code, at('unit_code'), errors, 10),
+      unit_price_cents: unitPriceCents,
+      net_cents: netCents,
+      vat_rate: vatRate,
+    });
+  });
+  return out;
 }
 
 function validateDraft(input: Record<string, unknown>): DraftInput {

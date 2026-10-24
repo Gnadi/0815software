@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type {
+  BillLine,
   Bill,
   BillRow,
   BillStatus,
@@ -130,12 +131,15 @@ export function paymentReference(bill: { remittance: string | null; reference: s
 
 function toBillRow(db: Database.Database, row: BillJoinRow, today: string): BillRow {
   const status = billStatus(row, row.payment_run_id);
+  const lines = billLines(db, row.id);
   return {
     ...row,
     status,
     overdue: status === 'open' && row.due_date < today,
     payment_reference: paymentReference(row),
     match: billMatch(db, row),
+    lines,
+    lines_net_cents: lines.length === 0 ? null : lines.reduce((sum, l) => sum + l.net_cents, 0),
   };
 }
 
@@ -267,7 +271,24 @@ export interface BillInput {
   /** Set when the bill was read from a document rather than typed. */
   readFrom?: string | null;
   documentSha256?: string | null;
+  /** The supplier's lines. Undefined on an edit keeps the ones the bill has; an array replaces them. */
+  lines?: Omit<BillLine, 'position'>[];
   createdAt?: string;
+}
+
+function writeLines(db: Database.Database, billId: number, lines: Omit<BillLine, 'position'>[]): void {
+  db.prepare('DELETE FROM bill_lines WHERE bill_id = ?').run(billId);
+  const insert = db.prepare(
+    `INSERT INTO bill_lines (bill_id, position, description, item_id, quantity, unit_code, unit_price_cents, net_cents, vat_rate)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  lines.forEach((l, i) => insert.run(billId, i + 1, l.description, l.item_id, l.quantity, l.unit_code, l.unit_price_cents, l.net_cents, l.vat_rate));
+}
+
+export function billLines(db: Database.Database, billId: number): BillLine[] {
+  return db
+    .prepare('SELECT position, description, item_id, quantity, unit_code, unit_price_cents, net_cents, vat_rate FROM bill_lines WHERE bill_id = ? ORDER BY position')
+    .all(billId) as BillLine[];
 }
 
 /** A bill is only editable while it is open — see the status ladder above. */
@@ -297,7 +318,8 @@ function withDuplicateCheck<T>(db: Database.Database, creditorId: number, refere
 
 export function createBill(db: Database.Database, input: BillInput): number {
   getCreditor(db, input.creditorId);
-  return withDuplicateCheck(db, input.creditorId, input.reference, () => {
+  // One transaction: a bill never exists without the lines it was saved with.
+  return withDuplicateCheck(db, input.creditorId, input.reference, db.transaction(() => {
     const info = db
       .prepare(
         `INSERT INTO bills
@@ -318,8 +340,10 @@ export function createBill(db: Database.Database, input: BillInput): number {
         input.readFrom ?? null,
         input.documentSha256 ?? null,
       );
-    return Number(info.lastInsertRowid);
-  });
+    const billId = Number(info.lastInsertRowid);
+    if (input.lines && input.lines.length > 0) writeLines(db, billId, input.lines);
+    return billId;
+  }));
 }
 
 export function updateBill(db: Database.Database, id: number, input: BillInput): void {
@@ -327,7 +351,7 @@ export function updateBill(db: Database.Database, id: number, input: BillInput):
   requireOpen(bill, 'edit');
   getCreditor(db, input.creditorId);
   const changedKey = bill.creditor_id !== input.creditorId || bill.reference !== input.reference;
-  const write = (): void => {
+  const write = db.transaction((): void => {
     db.prepare(
       `UPDATE bills SET creditor_id = ?, reference = ?, remittance = ?, amount_cents = ?,
                         issue_date = ?, due_date = ?, note = ?, po_number = ?, net_cents = ?
@@ -344,7 +368,8 @@ export function updateBill(db: Database.Database, id: number, input: BillInput):
       input.netCents ?? null,
       id,
     );
-  };
+    if (input.lines !== undefined) writeLines(db, id, input.lines);
+  });
   if (changedKey) withDuplicateCheck(db, input.creditorId, input.reference, write);
   else write();
 }
@@ -363,7 +388,10 @@ export function deleteBill(db: Database.Database, id: number): void {
   if (count > 0) {
     throw new DomainError(409, 'This bill has been in a payment run — cancel it instead of deleting it');
   }
-  db.prepare('DELETE FROM bills WHERE id = ?').run(id);
+  db.transaction(() => {
+    db.prepare('DELETE FROM bill_lines WHERE bill_id = ?').run(id);
+    db.prepare('DELETE FROM bills WHERE id = ?').run(id);
+  })();
 }
 
 export function cancelBill(db: Database.Database, id: number, at?: string): void {

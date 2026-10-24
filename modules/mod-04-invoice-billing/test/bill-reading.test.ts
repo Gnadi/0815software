@@ -175,6 +175,59 @@ describe('reading a supplier invoice into the bill form', () => {
   });
 });
 
+describe('the supplier\'s lines', () => {
+  const LINES: InvoiceExtraction['lines'] = [
+    { description: 'Widget', item_id: 'W-1', quantity: 10, unit_code: 'C62', unit_price_cents: 9000, net_cents: 90_000, vat_rate: 20 },
+    { description: 'Freight', item_id: null, quantity: 1, unit_code: null, unit_price_cents: 12_000, net_cents: 12_000, vat_rate: 20 },
+    { description: 'Loyalty discount', item_id: null, quantity: null, unit_code: null, unit_price_cents: null, net_cents: -2_000, vat_rate: 20 },
+    // Not keepable: no net amount, no name.
+    { description: 'Note: delivered on pallets', item_id: null, quantity: null, unit_code: null, unit_price_cents: null, net_cents: null, vat_rate: null },
+    { description: '  ', item_id: null, quantity: 1, unit_code: null, unit_price_cents: null, net_cents: 5, vat_rate: null },
+  ];
+  let creditor: number;
+  beforeEach(async () => {
+    answer = () => extraction({}, { lines: LINES });
+    creditor = (await request(app).post('/api/creditors').set('Cookie', ADMIN).send({ name: 'Widget GmbH', iban: 'AT96 2011 1822 0212 0077' }).expect(201)).body.id;
+  });
+  const save = (values: Record<string, unknown>) =>
+    request(app).post('/api/bills').set('Cookie', CLERK).send({ creditor_id: creditor, reference: 'R-2026-118', amount_cents: 120_000, net_cents: 100_000, due_date: '2026-11-04', ...values });
+
+  it('are proposed as read, numbered, without the ones a bill cannot keep — and saved with the bill', async () => {
+    const p = (await read().expect(200)).body.proposal as BillProposal;
+    expect(p.lines.map((l) => [l.position, l.description, l.net_cents])).toEqual([
+      [1, 'Widget', 90_000],
+      [2, 'Freight', 12_000],
+      [3, 'Loyalty discount', -2_000],
+    ]);
+    const bill = (await save({ lines: p.lines.map(({ position: _p, ...l }) => l) }).expect(201)).body as BillRow;
+    expect(bill.lines).toHaveLength(3);
+    expect(bill.lines[0]).toEqual({ position: 1, description: 'Widget', item_id: 'W-1', quantity: 10, unit_code: 'C62', unit_price_cents: 9000, net_cents: 90_000, vat_rate: 20 });
+    // Derived, and only compared: the bill's own net stays what was saved.
+    expect(bill).toMatchObject({ lines_net_cents: 100_000, net_cents: 100_000, amount_cents: 120_000 });
+  });
+
+  it('an edit without lines keeps them, with lines replaces them, with none removes them; a deleted bill takes its lines along', async () => {
+    const id = (await save({ lines: [{ description: 'Widget', net_cents: 100_000 }] }).expect(201)).body.id as number;
+    const put = (values: Record<string, unknown>) =>
+      request(app).put(`/api/bills/${id}`).set('Cookie', CLERK).send({ creditor_id: creditor, reference: 'R-2026-118', amount_cents: 120_000, net_cents: 100_000, due_date: '2026-11-04', ...values }).expect(200);
+    expect(((await put({})).body as BillRow).lines).toHaveLength(1);
+    const replaced = (await put({ lines: [{ description: 'A', net_cents: 60_000 }, { description: 'B', net_cents: 30_000 }] })).body as BillRow;
+    // 900 € of lines against 1,000 € net: shown, not refused — an allowance on the whole invoice is legal.
+    expect(replaced).toMatchObject({ lines_net_cents: 90_000, net_cents: 100_000 });
+    expect(((await put({ lines: [] })).body as BillRow)).toMatchObject({ lines: [], lines_net_cents: null });
+    await put({ lines: [{ description: 'A', net_cents: 1 }] });
+    await request(app).delete(`/api/bills/${id}`).set('Cookie', ADMIN).expect(200);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bill_lines').get()).toEqual({ n: 0 });
+  });
+
+  it('only well-formed lines are kept, and the whole bill is refused otherwise', async () => {
+    const res = await save({ lines: [{ description: '', net_cents: 1 }, { description: 'X', net_cents: 1.5, vat_rate: 120 }] }).expect(422);
+    expect(res.body.details.map((d: { field: string }) => d.field)).toEqual(['lines[0].description', 'lines[1].net_cents', 'lines[1].vat_rate']);
+    await save({ lines: 'Widget' }).expect(422);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM bills').get()).toEqual({ n: 0 });
+  });
+});
+
 describe('which model may read invoices is the administrator\'s', () => {
   it('patterns only by default; a manager may name a model, which is then asked for', async () => {
     expect((await request(app).get('/api/settings/bill-reading').set('Cookie', CLERK).expect(200)).body).toMatchObject({ model: null, available: true });

@@ -99,7 +99,9 @@ const FIELD_PROMPT = `You read one supplier invoice and answer with ONE JSON obj
 {"document_type":"invoice"|"credit_note","supplier_name":string|null,"supplier_vat_id":string|null,
 "iban":string|null,"bic":string|null,"invoice_number":string|null,"issue_date":"YYYY-MM-DD"|null,
 "due_date":"YYYY-MM-DD"|null,"currency":"EUR"|...|null,"net":"1234.56"|null,"tax":"1234.56"|null,
-"gross":"1234.56"|null,"payable":"1234.56"|null,"po_number":string|null,"payment_reference":string|null}
+"gross":"1234.56"|null,"payable":"1234.56"|null,"po_number":string|null,"payment_reference":string|null,
+"lines":[{"description":string,"item_id":string|null,"quantity":number|null,"unit":string|null,
+"unit_price":"12.50"|null,"net":"125.00"|null,"vat_rate":number|null}]}
 Rules: copy values exactly as printed; amounts as decimal strings with a dot; null when the invoice
 does not show a value — never estimate. The supplier is who issued the invoice, not who receives it.`;
 
@@ -109,7 +111,7 @@ function ownHint(own: OwnIdentity): string {
 }
 
 /** A model's answer, held to the same shapes as everything else. */
-export function fieldsFromModel(answer: string): { fields: ExtractedFields; confidence: Read['confidence'] } {
+export function fieldsFromModel(answer: string): { fields: ExtractedFields; confidence: Read['confidence']; lines: ExtractedLine[] } {
   const json = /\{[\s\S]*\}/.exec(answer)?.[0];
   let raw: Record<string, unknown> = {};
   try {
@@ -143,7 +145,26 @@ export function fieldsFromModel(answer: string): { fields: ExtractedFields; conf
   };
   const confidence: Read['confidence'] = {};
   for (const [key, value] of Object.entries(fields)) if (value !== null && key !== 'document_type') confidence[key as keyof ExtractedFields] = 'model';
-  return { fields, confidence };
+  // Lines, held to the same shapes; one without a description is not a line.
+  const rawLines = Array.isArray(raw.lines) ? (raw.lines as unknown[]).slice(0, 500) : [];
+  const lines = rawLines
+    .filter((l): l is Record<string, unknown> => typeof l === 'object' && l !== null)
+    .map((l): ExtractedLine => {
+      const text = (k: string, max: number) => (typeof l[k] === 'string' && (l[k] as string).trim() !== '' ? (l[k] as string).trim().slice(0, max) : null);
+      const cents = (k: string) => (typeof l[k] === 'number' ? decimalCents(String(l[k])) : decimalCents(text(k, 30)?.replace(/[^\d.-]/g, '') ?? null));
+      const number = (k: string) => (typeof l[k] === 'number' && Number.isFinite(l[k]) ? (l[k] as number) : null);
+      return {
+        description: text('description', 300) ?? '',
+        item_id: text('item_id', 64),
+        quantity: number('quantity'),
+        unit_code: text('unit', 10),
+        unit_price_cents: cents('unit_price'),
+        net_cents: cents('net'),
+        vat_rate: number('vat_rate'),
+      };
+    })
+    .filter((l) => l.description !== '');
+  return { fields, confidence, lines };
 }
 
 async function anthropicVision(cfg: ExtractionConfig, data: Buffer, mediaType: string, own: OwnIdentity): Promise<{ text: string; model: string }> {
@@ -182,6 +203,11 @@ function check(read: Read): string[] {
   }
   if (f.payable_cents !== null && f.gross_cents !== null && f.payable_cents !== f.gross_cents) {
     out.push(`Only ${eur(f.payable_cents)} of ${eur(f.gross_cents)} is still to pay — something was prepaid or deducted`);
+  }
+  if (read.lines.length > 0 && f.net_cents !== null && read.lines.every((l) => l.net_cents !== null)) {
+    const sum = read.lines.reduce((acc, l) => acc + l.net_cents!, 0);
+    // Not an error by itself: EN 16931 allows allowances and charges on the whole invoice (BT-107/108).
+    if (sum !== f.net_cents) out.push(`The lines add up to ${eur(sum)} net, the invoice says ${eur(f.net_cents)} — an allowance or charge on the whole invoice?`);
   }
   if (f.currency && f.currency !== 'EUR') out.push(`The invoice is in ${f.currency}, not EUR`);
   if (f.issue_date && f.due_date && f.due_date < f.issue_date) out.push('The due date is before the issue date');
@@ -240,8 +266,8 @@ export async function extractInvoice(db: Database.Database, cfg: ExtractionConfi
         ],
         chosen.model,
       );
-      const { fields, confidence } = fieldsFromModel(answer.text);
-      read = { source: 'model', syntax: null, embedded: false, provider: chosen.provider.name, model: chosen.model, fields, confidence, lines: [], warnings: [] };
+      const { fields, confidence, lines } = fieldsFromModel(answer.text);
+      read = { source: 'model', syntax: null, embedded: false, provider: chosen.provider.name, model: chosen.model, fields, confidence, lines, warnings: [] };
     } else {
       const found = readInvoiceText(text, own);
       read = { source: 'text', syntax: null, embedded: false, provider: 'mock', model: null, ...found, lines: [] };
@@ -260,8 +286,8 @@ export async function extractInvoice(db: Database.Database, cfg: ExtractionConfi
       );
     }
     const answer = await anthropicVision(cfg, data, media, own);
-    const { fields, confidence } = fieldsFromModel(answer.text);
-    read = { source: 'model', syntax: null, embedded: false, provider: 'anthropic', model: answer.model, fields, confidence, lines: [], warnings: [] };
+    const { fields, confidence, lines } = fieldsFromModel(answer.text);
+    read = { source: 'model', syntax: null, embedded: false, provider: 'anthropic', model: answer.model, fields, confidence, lines, warnings: [] };
   }
 
   const sha = createHash('sha256').update(data).digest('hex');

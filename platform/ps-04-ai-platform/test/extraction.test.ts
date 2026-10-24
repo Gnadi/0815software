@@ -62,7 +62,13 @@ describe('structured e-invoices are read exactly', () => {
       payable_cents: 25033,
     });
     expect(ubl.lines).toHaveLength(cii.lines.length);
-    expect(ubl.lines[0]).toMatchObject({ description: 'PATAT FRITES 10MM 10KG', quantity: 2, net_cents: 1990 });
+    expect(ubl.lines[0]).toMatchObject({ description: 'PATAT FRITES 10MM 10KG', item_id: '166022', quantity: 2, net_cents: 1990 });
+    // The lines read the same from both syntaxes, and add up to the net (BT-106 = BT-109 here).
+    // (The published pair itself differs in unit codes — EA / H87 — and one description's
+    // spelling, so those are not compared.)
+    const money = (l: InvoiceExtraction['lines'][number]) => [l.item_id, l.quantity, l.unit_price_cents, l.net_cents, l.vat_rate];
+    expect(ubl.lines.map(money)).toEqual(cii.lines.map(money));
+    expect(ubl.lines.reduce((sum, l) => sum + l.net_cents!, 0)).toBe(ubl.fields.net_cents);
     expect(ubl.confidence.gross_cents).toBe('exact');
     expect(ubl.warnings).toEqual([]);
   });
@@ -222,6 +228,7 @@ describe('scans and models', () => {
     expect(r).toMatchObject({ source: 'model', provider: 'anthropic', model: 'vision-model' });
     expect(r.fields).toMatchObject({ supplier_name: 'Scan & Co KG', iban: 'AT611904300234573201', gross_cents: 12000, net_cents: 10000 });
     expect(r.confidence.gross_cents).toBe('model');
+    expect(r.lines).toEqual([]);
     const content = (sent[0]!.body.messages as { content: { type: string }[] }[])[0]!.content;
     expect(content[0]!.type).toBe('image');
     expect(sent[0]!.body.system).toContain('RECIPIENT (not the supplier) is: Kunde AG');
@@ -245,6 +252,53 @@ describe('scans and models', () => {
     const big = Buffer.alloc(3 * 1024 * 1024, 0x41).toString('base64');
     expect((await extract({ content_base64: big }).expect(200)).body.source).toBe('text');
     await request(app).post('/api/embeddings').set(svc).send({ input: 'x'.repeat(600 * 1024) }).expect(413);
+  });
+});
+
+describe('lines', () => {
+  it('a model\'s lines are held to the same shapes; lines that do not add up to the net are flagged', async () => {
+    const fetchImpl: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              invoice_number: 'S-1',
+              net: '150.00',
+              gross: '180.00',
+              tax: '30.00',
+              due_date: '2026-11-30',
+              lines: [
+                { description: 'Widget', item_id: 'W-1', quantity: 10, unit: 'C62', unit_price: '10.00', net: '100.00', vat_rate: 20 },
+                { description: 'Freight', net: 40 },
+                { description: '   ', net: '999.00' },
+                'not a line',
+              ],
+            }),
+          },
+        ],
+      }),
+    });
+    const keyed = createApp({ db, auth, anthropicApiKey: 'k', fetchImpl });
+    const r = (await extract({ content_base64: Buffer.from('89504e470d0a1a0a', 'hex').toString('base64'), provider: 'anthropic' }, keyed).expect(200)).body as InvoiceExtraction;
+    expect(r.lines).toEqual([
+      { description: 'Widget', item_id: 'W-1', quantity: 10, unit_code: 'C62', unit_price_cents: 1000, net_cents: 10000, vat_rate: 20 },
+      { description: 'Freight', item_id: null, quantity: null, unit_code: null, unit_price_cents: null, net_cents: 4000, vat_rate: null },
+    ]);
+    expect(r.warnings).toContain('The lines add up to 140.00 net, the invoice says 150.00 — an allowance or charge on the whole invoice?');
+  });
+
+  it('ebInterface lines carry the supplier\'s article number when it has one', async () => {
+    const eb = await extractFile('mod-04/at-standard.xml');
+    expect(eb.lines.map((l) => [l.description, l.net_cents, l.vat_rate])).toEqual([
+      ['Beratung', 99, 20],
+      ['Fachbuch', 4998, 10],
+      ['Pflanzen', 1250, 13],
+      ['Lizenz', 120000, 20],
+    ]);
+    expect(eb.lines[0]!.item_id).toBeNull();
   });
 });
 

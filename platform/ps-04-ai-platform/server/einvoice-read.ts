@@ -86,6 +86,7 @@ function readCii(root: XmlElement): EInvoiceRead {
   const lines = all(tx, 'IncludedSupplyChainTradeLineItem').map(
     (li): ExtractedLine => ({
       description: textAt(li, 'SpecifiedTradeProduct', 'Name') ?? '',
+      item_id: textAt(li, 'SpecifiedTradeProduct', 'SellerAssignedID'), // BT-155
       quantity: num(textAt(li, 'SpecifiedLineTradeDelivery', 'BilledQuantity')),
       unit_code: path(li, 'SpecifiedLineTradeDelivery', 'BilledQuantity')?.attrs.unitCode ?? null,
       unit_price_cents: decimalCents(textAt(li, 'SpecifiedLineTradeAgreement', 'NetPriceProductTradePrice', 'ChargeAmount')),
@@ -125,6 +126,7 @@ function readUbl(root: XmlElement): EInvoiceRead {
     const qty = path(li, credit ? 'CreditedQuantity' : 'InvoicedQuantity');
     return {
       description: textAt(li, 'Item', 'Name') ?? '',
+      item_id: textAt(li, 'Item', 'SellersItemIdentification', 'ID'), // BT-155
       quantity: num(qty?.text.trim() ?? null),
       unit_code: qty?.attrs.unitCode ?? null,
       unit_price_cents: decimalCents(textAt(li, 'Price', 'PriceAmount')),
@@ -168,6 +170,7 @@ function readEbInterface(root: XmlElement): EInvoiceRead {
   const lines = all(path(root, 'Details', 'ItemList'), 'ListLineItem').map(
     (li): ExtractedLine => ({
       description: textAt(li, 'Description') ?? '',
+      item_id: all(li, 'ArticleNumber').find((a) => !a.attrs.ArticleNumberType || a.attrs.ArticleNumberType === 'SellersArticleNumber')?.text.trim() || null,
       quantity: num(textAt(li, 'Quantity')),
       unit_code: path(li, 'Quantity')?.attrs.Unit ?? null,
       unit_price_cents: decimalCents(textAt(li, 'UnitPrice')),

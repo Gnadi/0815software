@@ -54,7 +54,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Bankabgleich (E) | ✅ PS-12 EBICS, camt.053 → Zuordnung zu offenen Rechnungen | **stärker als Odoo Community**, real-bank-ungetestet |
 | SEPA-Zahlungen | ✅ MOD-04 pain.001, Finanzamtszahlung, EACT | DACH-Vorsprung |
 | Hauptbuch, Analytik, Budgets, Konsolidierung (E) | ❌ | ⛔ Volle FiBu nicht bauen — Steuerberater nutzt BMD/DATEV. Stattdessen **Export** (siehe 2.) |
-| Vendor-Bill-OCR (E) | ✅ PS-04 `/api/extract/invoice` (XRechnung/ZUGFeRD/UBL/ebInterface exakt, PDF-Textlayer über Labels, Scans per Vision-Modell nur wenn vom Admin freigegeben) → MOD-04 *Read from document* (Kreditor per IBAN, Duplikat per Datei-Hash) | Offen: Positionen in MOD-04 übernehmen (Abgleich auf Positionsebene), Spesen-Modul als zweiter Konsument |
+| Vendor-Bill-OCR (E) | ✅ PS-04 `/api/extract/invoice` (XRechnung/ZUGFeRD/UBL/ebInterface exakt, PDF-Textlayer über Labels, Scans per Vision-Modell nur wenn vom Admin freigegeben) → MOD-04 *Read from document* (Kreditor per IBAN, Duplikat per Datei-Hash, Positionen samt Lieferanten-Artikelnummer übernommen) | Offen: 3-Way-Match auf Positionsebene (Artikelnummer ↔ SKU der Bestellposition), Spesen-Modul als zweiter Konsument |
 | Expenses (E: OCR) | ❌ | 🔜 **neues Modul** (siehe 3.) |
 | Documents (E) | 🟡 MOD-09 (Matters, Versionen) | Vorschau, Volltextsuche via PS-09, Freigabelinks fehlen |
 | Spreadsheet/BI (E) | 🟡 MOD-08 (SQL-Reports, Pivot, SVG-Charts) | ⛔ kein Spreadsheet nachbauen; XLSX-Export ergänzen |
@@ -87,7 +87,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | --- | --- | --- |
 | Inventory | ✅ MOD-03 (Ledger, Lager, PO-Wareneingang, Inventur, Warenausgang je Lieferschein, Reservierung je Auftrag aus MOD-17) | Lagerplätze, Kommissionierung, Bewertung (gleitender Ø), mehrere Ausgangslager je Auftrag fehlen |
 | Barcode (E) | ✅ MOD-03: GTIN mit Prüfziffer, Scan per Handscanner oder Kamera (BarcodeDetector), Etiketten EAN/UPC bzw. Code 128 — gegen python-barcode geprüft | Etikettendrucker-Sprachen (ZPL), GS1-128 mit AIs offen |
-| Purchase | ✅ MOD-06 (RFQ, PO, Freigabestufen, Wareneingang mit Lagerzugang in MOD-03, 3-Way-Match mit Zahlungssperre in MOD-04, ERP-CSV) | Lieferanten-Mail via PS-03; Abgleich auf Positionsebene (braucht Rechnungspositionen, z. B. aus PS-04) |
+| Purchase | ✅ MOD-06 (RFQ, PO, Freigabestufen, Wareneingang mit Lagerzugang in MOD-03, 3-Way-Match mit Zahlungssperre in MOD-04, ERP-CSV) | Lieferanten-Mail via PS-03; Abgleich auf Positionsebene (die Rechnungspositionen liegen jetzt in MOD-04, mit Lieferanten-Artikelnummer) |
 | Manufacturing/MRP, PLM, Quality (E) | ❌ | ⛔ eigener Markt; höchstens ein schlankes Stücklisten-/Fertigungsauftragsmodul auf Anfrage |
 | Maintenance | ❌ | 🟡 **neues kleines Modul „Anlagen & Wartung“** (Geräte, Intervalle, Prüfprotokolle) — passt zum Ethos (Fälligkeit abgeleitet, nie gespeichert) |
 

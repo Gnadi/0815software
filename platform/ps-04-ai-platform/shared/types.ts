@@ -115,6 +115,8 @@ export interface ExtractedFields {
 
 export interface ExtractedLine {
   description: string;
+  /** The supplier's article number (EN 16931 BT-155) — what a PO line's SKU is compared with. */
+  item_id: string | null;
   quantity: number | null;
   unit_code: string | null;
   unit_price_cents: number | null;

@@ -293,6 +293,25 @@ export interface Bill {
   document_sha256: string | null;
 }
 
+/**
+ * One line of the supplier's invoice, as it was invoiced — a copy of the
+ * document, kept so the bill can be checked against it and, later, matched
+ * line by line. The bill's amounts are its own fields; nothing is summed
+ * from these into what is paid.
+ */
+export interface BillLine {
+  position: number;
+  description: string;
+  /** The supplier's article number (EN 16931 BT-155). */
+  item_id: string | null;
+  quantity: number | null;
+  unit_code: string | null;
+  unit_price_cents: number | null;
+  /** May be negative: a discount line. */
+  net_cents: number;
+  vat_rate: number | null;
+}
+
 /** One row of the bills list — status, creditor and overdue are all derived. */
 export interface BillRow extends Bill {
   creditor_name: string;
@@ -307,6 +326,10 @@ export interface BillRow extends Bill {
   payment_reference: string;
   /** Derived: where the three-way match stands for this bill. */
   match: BillMatch;
+  /** The supplier's lines, in order; empty when the bill was typed without them. */
+  lines: BillLine[];
+  /** Derived: the lines' net, summed — null without lines. Compared with `net_cents`, never replacing it. */
+  lines_net_cents: number | null;
 }
 
 // ── The three-way match (server/bill-match.ts; the verdict is MOD-06's) ──
@@ -638,6 +661,8 @@ export interface BillProposal {
   due_date: string | null;
   po_number: string | null;
   remittance: string | null;
+  /** The invoice's lines, as read — taken over into the bill when it is saved. */
+  lines: BillLine[];
   /** A bill already entered from this document, or with this supplier's number. */
   duplicate_of: number | null;
   read_from: string;

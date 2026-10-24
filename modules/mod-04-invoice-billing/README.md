@@ -399,7 +399,11 @@ DELETE /api/creditors/:id              409 if the creditor has bills
 GET    /api/bills                      ?search=&status=&overdue=1
                                        (status: open|scheduled|paid|cancelled — derived)
 POST   /api/bills                      {creditor_id, reference, amount_cents,
-                                        due_date, issue_date?, remittance?, note?}
+                                        due_date, issue_date?, remittance?, note?,
+                                        po_number?, net_cents?, lines?}
+                                        lines: [{description, net_cents, item_id?,
+                                        quantity?, unit_code?, unit_price_cents?, vat_rate?}]
+                                        — on PUT: omitted keeps them, [] removes them
 GET    /api/bills/:id
 PUT    /api/bills/:id                  open bills only — scheduled/paid → 409
 DELETE /api/bills/:id                  never-run open bills only → 409
@@ -1023,6 +1027,12 @@ PS-04 does the reading ([its README](../../platform/ps-04-ai-platform/README.md#
 - **The amount** is what is still to pay (EN 16931 BT-115), not the gross
   of a part-paid invoice; net, dates, the PO (BT-13) and the payment
   reference come along.
+- **The lines come along** — description, the supplier's article number
+  (BT-155), quantity, unit price, VAT rate, net — from an e-invoice exactly,
+  from a model when one read the document; the labelled-pattern reader of a
+  printed PDF reads no lines. Lines without a net amount (a text note in
+  the invoice) are left out. In the form they can be dropped, not typed;
+  the bill keeps them, an edit keeps them unless it sends new ones.
 - **Twice is flagged.** The same file again (its SHA-256 is kept on the
   bill), or the same supplier number for that creditor, answers *Already
   entered as bill #n* — the unique key would refuse the save anyway, but
@@ -1042,17 +1052,23 @@ PS-04 does the reading ([its README](../../platform/ps-04-ai-platform/README.md#
 - Without `AI_URL` the button is not shown and the form is typed as before.
 
 Pinned by `test/bill-reading.test.ts` (the proposal and our own identity
-sent along, creditor by IBAN and the changed-IBAN warning, read-from kept
+sent along, the lines proposed, saved, kept, replaced, removed and
+validated, creditor by IBAN and the changed-IBAN warning, read-from kept
 and both duplicate paths, a part-paid invoice, PS-04's refusals and outage,
 standalone, and the settings with their level).
 
 ### Money, and what a bill is not
 
 A bill's `amount_cents` is the **gross amount to transfer** — what the
-supplier's invoice says is due. Bills carry no VAT split, no line items and
-no tax logic: a bill is a payment instruction, not a tax document, and
-inventing a VAT breakdown in the screen least qualified to choose a rate
-would be worse than not having one. Your bookkeeping is where the split
+supplier's invoice says is due. Bills carry no VAT split and no tax logic:
+a bill is a payment instruction, not a tax document, and inventing a VAT
+breakdown in the screen least qualified to choose a rate would be worse
+than not having one. A bill may keep the supplier's **lines** (`bill_lines`)
+— but only as a copy of the document, read from it (see *Read from the
+document*): nothing is summed from them into what is paid or matched. Their
+net sum (`lines_net_cents`) is derived and shown beside the bill's net; a
+difference is not refused, because EN 16931 allows allowances and charges
+on the whole invoice (BT-107/108). Your bookkeeping is where the split
 belongs. Money stays integer cents until the two-decimal string the schema
 demands, and the file's `CtrlSum` is summed from those same integers, so it
 can never be a rounding of a rounding.

@@ -145,6 +145,7 @@ export interface ExtractedInvoiceFields {
 }
 export interface ExtractedInvoiceLine {
   description: string;
+  item_id: string | null;
   quantity: number | null;
   unit_code: string | null;
   unit_price_cents: number | null;

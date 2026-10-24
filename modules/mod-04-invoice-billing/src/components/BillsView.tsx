@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { BillMatchState, BillProposal, BillRow, BillStatus, CreditorRow, FieldError, PaymentConfig } from '../../shared/types';
+import type { BillLine, BillMatchState, BillProposal, BillRow, BillStatus, CreditorRow, FieldError, PaymentConfig } from '../../shared/types';
 import { api, ApiError, type BillReadingState, type PayablesTotals } from '../api';
 import { centsToInput, fmtEur, parseEurToCents } from '../format';
 import { Can } from '../access';
@@ -31,6 +31,8 @@ interface BillForm {
   note: string;
   po_number: string;
   net: string;
+  /** The supplier's lines — read from the document or kept from the bill; never typed here. */
+  lines: BillLine[];
 }
 
 const EMPTY_BILL: BillForm = {
@@ -44,6 +46,7 @@ const EMPTY_BILL: BillForm = {
   note: '',
   po_number: '',
   net: '',
+  lines: [],
 };
 
 /** The three-way match, in one word; the reason is in the tooltip. */
@@ -174,6 +177,7 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
         due_date: p.due_date ?? '',
         po_number: p.po_number ?? '',
         net: p.net_cents === null ? '' : centsToInput(p.net_cents),
+        lines: p.lines,
       });
     } catch (err) {
       handle(err, 'Could not read the document');
@@ -241,6 +245,7 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
         note: form.note.trim() || null,
         // A bill read from its document says so, and which document it was.
         ...(form.id === null && proposal ? { read_from: proposal.read_from, document_sha256: proposal.document_sha256 } : {}),
+        lines: form.lines.map(({ position: _position, ...line }) => line),
       };
       if (form.id === null) await api.createBill(values);
       else await api.updateBill(form.id, values);
@@ -424,7 +429,10 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                   <div className="mono table__id">{b.creditor_iban}</div>
                 </td>
                 <td>
-                  <div className="mono" title={b.read_from ? `Read from ${readFromText(b.read_from)}` : undefined}>
+                  <div
+                    className="mono"
+                    title={[b.read_from ? `Read from ${readFromText(b.read_from)}` : null, b.lines.length > 0 ? `${b.lines.length} lines` : null].filter(Boolean).join(' · ') || undefined}
+                  >
                     {b.reference}
                     {b.read_from && <span className="table__id"> ⎘</span>}
                   </div>
@@ -473,6 +481,7 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                                 note: b.note ?? '',
                                 po_number: b.po_number ?? '',
                                 net: b.net_cents === null ? '' : centsToInput(b.net_cents),
+                                lines: b.lines,
                               })
                             }
                           >
@@ -708,6 +717,7 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                 />
               </label>
             </div>
+            {form.lines.length > 0 && <BillLines form={form} onChange={(lines) => setForm({ ...form, lines })} />}
             <div className="modal__actions">
               <button className="btn btn--ghost" type="button" onClick={() => setForm(null)}>
                 CANCEL
@@ -719,6 +729,75 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
           </form>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The supplier's lines in the form: shown as the document has them, with
+ * their sum beside the bill's net. A difference is not an error — an
+ * allowance or a charge on the whole invoice is legal — but a person sees it.
+ * Lines can be dropped, not typed: they are a copy of the document.
+ */
+function BillLines({ form, onChange }: { form: BillForm; onChange: (lines: BillLine[]) => void }) {
+  const sum = form.lines.reduce((acc, l) => acc + l.net_cents, 0);
+  const net = form.net.trim() === '' ? null : parseEurToCents(form.net);
+  const renumber = (lines: BillLine[]) => lines.map((l, i) => ({ ...l, position: i + 1 }));
+  return (
+    <div className="billlines">
+      <div className="billlines__head mono">
+        <span>THEIR LINES · {form.lines.length}</span>
+        <button type="button" className="rowbtn mono" onClick={() => onChange([])}>
+          REMOVE ALL
+        </button>
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th className="mono">POS</th>
+              <th className="mono">DESCRIPTION</th>
+              <th className="mono table__num">QTY</th>
+              <th className="mono table__num">PRICE</th>
+              <th className="mono table__num">VAT</th>
+              <th className="mono table__num">NET</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {form.lines.map((l) => (
+              <tr key={l.position}>
+                <td className="mono table__id">{l.position}</td>
+                <td>
+                  {l.description}
+                  {l.item_id && <div className="mono table__id">{l.item_id}</div>}
+                </td>
+                <td className="mono table__num">
+                  {l.quantity ?? '—'}
+                  {l.unit_code ? ` ${l.unit_code}` : ''}
+                </td>
+                <td className="mono table__num">{l.unit_price_cents === null ? '—' : fmtEur(l.unit_price_cents)}</td>
+                <td className="mono table__num">{l.vat_rate === null ? '—' : `${l.vat_rate}%`}</td>
+                <td className="mono table__num">{fmtEur(l.net_cents)}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="rowbtn mono"
+                    title="Remove this line"
+                    onClick={() => onChange(renumber(form.lines.filter((x) => x.position !== l.position)))}
+                  >
+                    ×
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className={`billlines__sum mono ${net !== null && net !== sum ? 'readbox__warn' : ''}`}>
+        LINES {fmtEur(sum)} NET
+        {net !== null && (net === sum ? ' = THE BILL\'S NET' : ` · THE BILL SAYS ${fmtEur(net)} — AN ALLOWANCE OR CHARGE ON THE WHOLE INVOICE?`)}
+      </div>
     </div>
   );
 }

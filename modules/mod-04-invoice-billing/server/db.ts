@@ -181,6 +181,20 @@ export function openDb(path: string): Database.Database {
   if (!columns('bills').includes('document_sha256')) db.exec('ALTER TABLE bills ADD COLUMN document_sha256 TEXT');
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_bills_document ON bills (document_sha256);
+    -- The supplier's lines, as invoiced (BillLine in shared/types.ts).
+    CREATE TABLE IF NOT EXISTS bill_lines (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      bill_id          INTEGER NOT NULL REFERENCES bills(id),
+      position         INTEGER NOT NULL CHECK (position >= 1),
+      description      TEXT    NOT NULL,
+      item_id          TEXT,
+      quantity         REAL,
+      unit_code        TEXT,
+      unit_price_cents INTEGER,
+      net_cents        INTEGER NOT NULL,
+      vat_rate         REAL,
+      UNIQUE (bill_id, position)
+    );
     CREATE TABLE IF NOT EXISTS bill_reading_settings (
       id         INTEGER PRIMARY KEY CHECK (id = 1),
       settings   TEXT NOT NULL,

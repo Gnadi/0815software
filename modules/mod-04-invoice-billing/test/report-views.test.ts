@@ -249,6 +249,7 @@ describe('the views exist and the migration is idempotent', () => {
     ).map((t) => t.name);
     expect(tables).toEqual([
       'accounting_settings',
+      'bill_lines',
       'bill_match_checks',
       'bill_match_releases',
       'bill_reading_settings',
