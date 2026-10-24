@@ -14,7 +14,7 @@ Ergebnis aufgeführt. Zeilenangaben beziehen sich auf den Stand des Reviews.
 
 Nachgetragen am 22.10.2026, nachdem `main` (ebInterface 6.1, Teilgutschriften,
 wiederkehrende Rechnungen, Mahnwesen) in den Branch übernommen war; M1 bis M8
-und N1 bis N5 am 23.10.2026, N6 und N7 am 24.10.2026:
+und N1 bis N5 am 23.10.2026, N6 bis N8 am 24.10.2026:
 
 | Befund | Stand | Belegt durch |
 | --- | --- | --- |
@@ -36,7 +36,7 @@ und N1 bis N5 am 23.10.2026, N6 und N7 am 24.10.2026:
 | **N3** | **Behoben.** Eine Zeile „PLZ Ort“ wird nur im Format des Landes der Adresse gelesen (Länderfeld, sonst Länderzeile, Buchstabenpräfix, USt-IdNr.), für 23 Länder mit bekanntem Format: „1012 LG Amsterdam“ ergibt PLZ `1012 LG` und Ort Amsterdam, „90-001 Łódź“ PLZ `90-001`. Ohne Land, bei einem Land ohne hinterlegtes Format (GB, IE …) oder einer PLZ, die nicht ins Format passt, bleiben PLZ und Ort leer, und die Datei wird mit Verweis auf die Felder abgelehnt. | `test/einvoice.test.ts` (N3) |
 | **N7** | **Behoben.** Jede Position hat eine Einheit (BT-130) aus einer Auswahl von 18 Codes der UN/ECE-Empfehlung 20 (Stück, Stunde, Tag, Woche, Monat, Jahr, Minute, Pauschale, km, kg, t, m, m², m³, l, kWh, Satz, Paar), jeder in der Liste von BR-CL-23. Sie steht im XML (`unitCode`), in ebInterface (`Unit`), im PDF hinter der Menge („7,5 h“) und in `report_invoice_lines`. Ohne Angabe und bei allen bisherigen Positionen ist es C62 (Stück), wie bisher übermittelt. Teilgutschriften und Vorlagen tragen die Einheit ihrer Positionen. Übernahmen aus anderen Modulen (`shared/transfer.ts`) kennen noch keine Einheit und kommen als Stück an. | `test/units.test.ts`, Golden-Fall `units` (alle 18 Codes, von Mustang geprüft) |
 | **N6** | **Behoben.** Reverse Charge über eine Grenze verlangt weiter beide USt-IdNrn. (§ 14a Abs. 1 UStG). Im Inland (§ 13b UStG, Verkäufer und Käufer im selben Land) gilt, was BR-AE-02 nimmt: beim Verkäufer USt-IdNr. oder Steuernummer, beim Käufer USt-IdNr. oder Registernummer. Dafür hat der Kunde ein Feld Registernummer (BT-47), geschrieben als `SpecifiedLegalOrganization` und im PDF unter der Adresse. ebInterface bleibt bei beiden UIDs, die das österreichische Reverse Charge verlangt. Offen bleibt, was die Norm nicht hergibt: ein Käufer ohne USt-IdNr. und ohne Registereintrag (etwa ein Einzelunternehmer am Bau) lässt sich nach BR-AE-02 nicht ausweisen. | `test/einvoice-rules.test.ts` (N6, Fälle X und Y), Matrix-Käufer `de_reg` |
-| N8 | Offen. | – |
+| **N8** | **Behoben.** `E-RECHNUNG.md` sagt jetzt, dass das BMF MINIMUM und BASIC WL ausschließt und BASIC umstritten ist, das Modul schreibt EN 16931. Der Kopf von `shared/einvoice.ts` nennt ZUGFeRD 2.4/2.5 (Factur-X 1.08/1.09) statt 2.3/1.07, statt „BR-LIN-04“ die Definition von BT-131 und PEPPOL-EN16931-R120. Die Inlandsfälle in `test/einvoice-cases.ts` haben einen deutschen Käufer statt Wiener Adresse mit ATU-Nummer, der Leitweg-Fall eine Behörde. Fall A (festschreiben, dann Kunde korrigieren) ist Test, ungültige Stammdaten gegen das Schematron sind es mit den Prüffällen und der Matrix seit H2. | `test/einvoice-readiness.test.ts`, Golden Files der Inlandsfälle |
 
 Beim Umsetzen von H2 fiel ein weiterer Fall auf: Ein Text nur aus
 Steuerzeichen (etwa eine eingefügte Notiz) wurde zu einem leeren Element, das
@@ -563,6 +563,8 @@ Fall (EU-Dienstleistung) beide USt-IdNrn. braucht.
 
 ### N8 · Doku und Testdaten
 
+*Status: behoben (siehe Tabelle oben).*
+
 - README und `E-RECHNUNG.md`: Die Zusage „nur, wenn es validiert“ stimmte
   nicht (H2). Mit H2 behoben, die Texte beschreiben jetzt auch die Matrix.
 - `E-RECHNUNG.md` Z. 27: „ZUGFeRD from profile EN 16931 up“. Das BMF schließt
@@ -854,6 +856,7 @@ nächste Schritt.
 5. **M3, M6**, Rechnen und Daten.
 6. **M4, M5, M8, M7**, Adressen, Leitweg-ID, Verkäufer-ID, Zeitraum.
 7. **N1–N8** nach Bedarf, die Doku-Korrekturen (N8) zusammen mit den Fixes.
+   Stand 24.10.2026: alle umgesetzt, siehe Tabelle am Anfang.
 8. **XRechnung 4.0** einplanen, sobald das finale Bundle im Frühjahr 2027
    erscheint.
 

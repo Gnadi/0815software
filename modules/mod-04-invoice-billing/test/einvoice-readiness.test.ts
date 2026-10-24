@@ -149,12 +149,24 @@ describe('a customer without an e-invoice format', () => {
     }
   });
 
-  it('says plainly that a sent invoice keeps its gaps', async () => {
-    const { invoiceId } = await draftFor(INCOMPLETE);
+  it('says plainly that a sent invoice keeps its gaps — correcting the customer afterwards changes nothing', async () => {
+    const { customerId, invoiceId } = await draftFor(INCOMPLETE);
     await call('post', `/api/invoices/${invoiceId}/finalize`, { issue_date: '2026-10-21' });
     const refused = await call('get', `/api/invoices/${invoiceId}/xrechnung.xml`);
     expect(refused.status).toBe(422);
     expect(refused.body.error).toContain('keeps its data as issued');
     expect(refused.body.error).toContain('cancel it and send a new one');
+
+    // Review case A: the customer is put right after the invoice was sent.
+    const fixed = { ...INCOMPLETE, address: 'Kundenweg 5\n10115 Berlin', email: 'ap@kunde.de', buyer_reference: 'PO-1' };
+    expect((await call('put', `/api/customers/${customerId}`, fixed)).status).toBe(200);
+    const still = await call('get', `/api/invoices/${invoiceId}/xrechnung.xml`);
+    expect(still.status).toBe(422);
+    expect(still.body.details.map((d: { field: string }) => d.field)).toEqual(expect.arrayContaining(['customer.postcode']));
+    // What the message says helps: cancel, and send the invoice again.
+    await call('post', `/api/invoices/${invoiceId}/cancel`, { reason: 'Adresse unvollständig' });
+    const again = await call('post', '/api/invoices', { customer_id: customerId, lines: [{ description: 'Beratung', quantity: 1, unit_price_cents: 10000, vat_rate: 19 }] });
+    expect((await call('post', `/api/invoices/${again.body.id}/finalize`, { issue_date: '2026-10-21' })).status).toBe(200);
+    expect((await call('get', `/api/invoices/${again.body.id}/xrechnung.xml`)).status).toBe(200);
   });
 });

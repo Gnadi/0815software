@@ -24,6 +24,13 @@ export const BASE: EInvoiceModel = {
   line_rounding: 'decimal',
 };
 
+/**
+ * A German business customer, for the domestic cases. They used to set only the
+ * country to DE and kept BASE's Vienna address and Austrian VAT id — nothing a
+ * validator objects to, and nothing a reader can follow (review N8).
+ */
+const DE_BUYER: EInvoiceModel['buyer'] = { ...BASE.buyer, name: 'Kunde AG', street: 'Kundenweg 5', postcode: '10115', city: 'Berlin', country: 'DE', vat_id: 'DE987654321', email: 'ap@kunde.de' };
+
 export const CASES: Record<string, EInvoiceModel> = {
   // A German invoice with both German rates, a BIC, a delivery date before
   // the issue date, and a note that needs escaping.
@@ -31,7 +38,7 @@ export const CASES: Record<string, EInvoiceModel> = {
     ...BASE,
     note: 'Projekt Müller & Söhne <Phase 2>',
     seller: { ...BASE.seller, bic: 'BYLADEM1001' },
-    buyer: { ...BASE.buyer, name: 'Kunde AG', street: 'Kundenweg 5', postcode: '10115', city: 'Berlin', country: 'DE', vat_id: 'DE987654321', email: 'ap@kunde.de' },
+    buyer: DE_BUYER,
     lines: [
       { position: 1, description: 'Beratung „Strategie“ – Tag', quantity: 3, unit_price_cents: 33, vat_rate: 19 },
       { position: 2, description: 'Fachbuch', quantity: 2.5, unit_price_cents: 1999, vat_rate: 7 },
@@ -44,7 +51,7 @@ export const CASES: Record<string, EInvoiceModel> = {
   // shared/units.ts changes it, so it cannot go out unvalidated.
   units: {
     ...BASE,
-    buyer: { ...BASE.buyer, name: 'Kunde AG', street: 'Kundenweg 5', postcode: '10115', city: 'Berlin', country: 'DE', vat_id: 'DE987654321', email: 'ap@kunde.de' },
+    buyer: DE_BUYER,
     lines: UNIT_CODES.map((unit, i) => ({ position: i + 1, description: UNITS[unit].name, quantity: 2.5, unit, unit_price_cents: 1000 + i, vat_rate: 19 })),
   },
   // An intra-EU supply to Poland — and a name with letters WinAnsi has (Š, Ž)
@@ -55,18 +62,18 @@ export const CASES: Record<string, EInvoiceModel> = {
     exemption: { category: 'K', reason: null },
   },
   g: { ...BASE, buyer: { ...BASE.buyer, country: 'CH', vat_id: null }, exemption: { category: 'G', reason: null } },
-  e: { ...BASE, buyer: { ...BASE.buyer, country: 'DE', vat_id: null }, exemption: { category: 'E', reason: 'Kein Ausweis von Umsatzsteuer, da Kleinunternehmer gemäß § 19 UStG' } },
+  e: { ...BASE, buyer: { ...DE_BUYER, vat_id: null }, exemption: { category: 'E', reason: 'Kein Ausweis von Umsatzsteuer, da Kleinunternehmer gemäß § 19 UStG' } },
   o: { ...BASE, seller: { ...BASE.seller, registration: 'HRB 12345' }, exemption: { category: 'O', reason: null } },
-  z: { ...BASE, buyer: { ...BASE.buyer, country: 'DE' }, exemption: { category: 'Z', reason: null } },
-  mixed_e: { ...BASE, buyer: { ...BASE.buyer, country: 'DE' }, exemption: { category: 'E', reason: 'Steuerfrei nach § 4 Nr. 14 UStG' }, lines: [...BASE.lines, { position: 2, description: 'Material', quantity: 2, unit_price_cents: 4550, vat_rate: 19 }] },
-  taxno: { ...BASE, seller: { ...BASE.seller, vat_id: null, tax_number: '143/123/45678', registration: 'HRB 12345' }, buyer: { ...BASE.buyer, country: 'DE' }, lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: 19 }] },
+  z: { ...BASE, buyer: DE_BUYER, exemption: { category: 'Z', reason: null } },
+  mixed_e: { ...BASE, buyer: DE_BUYER, exemption: { category: 'E', reason: 'Steuerfrei nach § 4 Nr. 14 UStG' }, lines: [...BASE.lines, { position: 2, description: 'Material', quantity: 2, unit_price_cents: 4550, vat_rate: 19 }] },
+  taxno: { ...BASE, seller: { ...BASE.seller, vat_id: null, tax_number: '143/123/45678', registration: 'HRB 12345' }, buyer: DE_BUYER, lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: 19 }] },
   storno: { ...BASE, type_code: '381', number: 'INV-2026-0042-ST', due_date: null, note: 'Stornorechnung zur Rechnung INV-2026-0042 vom 2026-10-01', preceding: { number: 'INV-2026-0042', issue_date: '2026-10-01' },
-    buyer: { ...BASE.buyer, country: 'DE' }, lines: [{ position: 1, description: 'x', quantity: 3, unit_price_cents: 33, vat_rate: 19 }] },
+    buyer: DE_BUYER, lines: [{ position: 1, description: 'x', quantity: 3, unit_price_cents: 33, vat_rate: 19 }] },
   // A partial credit note (Teilgutschrift): 381 like the storno, but only part
   // of the invoice — two returned books at 7 %, the 19 % lines untouched.
   teilgutschrift: { ...BASE, type_code: '381', number: 'INV-2026-0042-GS1', issue_date: '2026-10-25', due_date: null,
     note: 'Rechnungskorrektur zur Rechnung INV-2026-0042 vom 2026-10-21: 2 Fachbücher retourniert', preceding: { number: 'INV-2026-0042', issue_date: '2026-10-21' },
-    buyer: { ...BASE.buyer, country: 'DE' }, lines: [{ position: 1, description: 'Fachbuch', quantity: 2, unit_price_cents: 1999, vat_rate: 7 }] },
+    buyer: DE_BUYER, lines: [{ position: 1, description: 'Fachbuch', quantity: 2, unit_price_cents: 1999, vat_rate: 7 }] },
   // Review case C: a quantity with four decimals, rounded half up exactly
   // (0.3333 × 999.99 € = 333.30 €), and texts long enough that the PDF has to
   // wrap them — it used to cut them off.
@@ -74,7 +81,7 @@ export const CASES: Record<string, EInvoiceModel> = {
     ...BASE,
     buyer_reference: 'Bestellung 4500012345 / Kostenstelle 4711-0815 / Ansprechpartnerin Frau Meier',
     note: 'Projekt Sanierung Heizzentrale Schulzentrum Nord, Bauabschnitt 2 — Abrechnung nach Aufmaß vom 14.10.2026.',
-    buyer: { ...BASE.buyer, name: 'Kunde AG', street: 'Kundenweg 5', postcode: '10115', city: 'Berlin', country: 'DE', vat_id: 'DE987654321', email: 'ap@kunde.de' },
+    buyer: DE_BUYER,
     exemption: { category: 'E', reason: 'Steuerfrei nach § 4 Nr. 14 Buchst. a UStG (Heilbehandlungen im Bereich der Humanmedizin durch Ärzte, Zahnärzte, Heilpraktiker und Physiotherapeuten)' },
     lines: [
       { position: 1, description: 'Wartung der Heizungsanlage gemäß Wartungsvertrag Nr. 2026-117, inkl. Abgasmessung, Austausch der Zündelektrode und Prüfung des Ausdehnungsgefäßes', quantity: 0.3333, unit_price_cents: 99999, vat_rate: 19 },
@@ -88,8 +95,9 @@ export const CASES: Record<string, EInvoiceModel> = {
     ...BASE,
     delivery_date: '2026-10-31',
     period: { start: '2026-10-01', end: '2026-10-31' },
-    buyer: { ...BASE.buyer, name: 'Kunde AG', street: 'Kundenweg 5', postcode: '10115', city: 'Berlin', country: 'DE', vat_id: 'DE987654321', email: 'ap@kunde.de' },
+    buyer: DE_BUYER,
     lines: [{ position: 1, description: 'Wartungspauschale Oktober 2026', quantity: 1, unit_price_cents: 25000, vat_rate: 19 }],
   },
-  leitweg: { ...BASE, buyer_reference: '991-12345-73', buyer: { ...BASE.buyer, country: 'DE', einvoice_address: '991-12345-73' }, lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: 7 }] },
+  // A German public body, addressed by its Leitweg-ID.
+  leitweg: { ...BASE, buyer_reference: '991-12345-73', buyer: { ...DE_BUYER, name: 'Stadt Musterhausen', street: 'Rathausplatz 1', postcode: '12345', city: 'Musterhausen', vat_id: null, email: 'rechnung@musterhausen.example', einvoice_address: '991-12345-73' }, lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: 7 }] },
 };

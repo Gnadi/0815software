@@ -5,10 +5,12 @@
  *   XRechnung 3.0   the German CIUS of EN 16931 (KoSIT). What German public
  *                   bodies require, and since 1.1.2025 a valid e-invoice for
  *                   B2B under § 14 UStG. Delivered as the bare XML file.
- *   ZUGFeRD 2.3     a PDF/A-3 with this XML embedded as `factur-x.xml`
- *   (Factur-X 1.07) (server/pdfa.ts). Profile EN 16931 ("COMFORT"): a person
+ *   ZUGFeRD         a PDF/A-3 with this XML embedded as `factur-x.xml`
+ *   (Factur-X)      (server/pdfa.ts). Profile EN 16931 ("COMFORT"): a person
  *                   reads the PDF, software reads the XML, and the XML is the
- *                   invoice.
+ *                   invoice. Written in D16B, valid under ZUGFeRD 2.4 and 2.5
+ *                   (Factur-X 1.08, 1.09), whose CII D22B accepts it; the
+ *                   golden files pass the 2.5 rules (docs/E-RECHNUNG.md).
  *
  * The XML of both is produced by ONE renderer from ONE model, so the two can
  * differ only where their specifications do: the specification identifier
@@ -20,9 +22,11 @@
  * validator rejects a week later is not.
  *
  * Money is integer cents throughout and comes from shared/money.ts — per-line
- * rounding, VAT once per rate — which is precisely the arithmetic the EN 16931
- * business rules recompute (BR-LIN-04, BR-CO-10, BR-CO-17, BR-S-08). The XML
- * therefore states the same figures as the PDF and the API, to the cent.
+ * rounding, VAT once per rate — which is precisely the arithmetic EN 16931
+ * defines and its rules recompute: the line net of BT-131 (checked only by
+ * Peppol, PEPPOL-EN16931-R120), the sums of BR-CO-10, the VAT of BR-CO-17 and
+ * BR-S-08. The XML therefore states the same figures as the PDF and the API,
+ * to the cent.
  *
  * This file imports nothing from the server: pure, deterministic, testable.
  */

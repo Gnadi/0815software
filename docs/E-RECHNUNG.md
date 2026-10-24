@@ -24,9 +24,10 @@ not covered by the mandate.
 
 An e-invoice is an invoice in a **structured format that conforms to
 EN 16931** and can be processed electronically. A PDF sent by email is not one.
-XRechnung qualifies, and so does ZUGFeRD from profile EN 16931 (formerly
-"COMFORT") up. The MINIMUM and BASIC WL profiles do not, so this module never
-writes them.
+XRechnung qualifies, and so does ZUGFeRD in profile EN 16931 (formerly
+"COMFORT") and above. The BMF rules out MINIMUM and BASIC WL; whether BASIC
+suffices, the literature does not agree. This module writes EN 16931, which
+qualifies beyond doubt, and none of the others.
 
 Austria has no general B2B mandate. Invoices to the Austrian federal
 government (since 2014) go through e-Rechnung.gv.at as **ebInterface** or
