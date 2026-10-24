@@ -885,21 +885,33 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     );
     const detail = invoiceDetail(db, Number(req.params.id));
 
-    // Fan the freshly-issued invoice out to the Platform Services (email the
-    // customer, archive the PDF, record the audit event). Best-effort and a
-    // no-op when nothing is configured, so mod-04 still works standalone.
+    // Fan the freshly-issued invoice out to the Platform Services (tell the
+    // customer, archive what it receives, record the audit event). Best-effort
+    // and a no-op when nothing is configured, so mod-04 still works standalone.
     const customer = getCustomer(db, detail.customer_id);
-    const issued = pdfParties(invoiceParties(db, detail.id, seller));
+    const number = detail.number ?? `draft-${detail.id}`;
+    // Was `res.locals.username`, which nothing ever set — so every issued
+    // invoice reached PS-07 as the literal "admin".
+    const actor = actorOf(res, auth);
+    const format = customer.einvoice_format;
     try {
       await platform.invoiceIssued({
-        number: detail.number ?? `draft-${detail.id}`,
+        number,
         customerEmail: customer.email,
         customerName: detail.customer_name,
         totalFormatted: fmtEur(detail.gross_cents),
-        pdf: renderInvoicePdf(detail, issued.customer, issued.seller),
-        // Was `res.locals.username`, which nothing ever set — so every issued
-        // invoice reached PS-07 as the literal "admin".
-        actor: actorOf(res, auth),
+        // The archive used to get the plain PDF even for a customer that
+        // receives an e-invoice, whose XML is the invoice to keep (§ 14b UStG,
+        // GoBD). Now it gets that file, the bytes every download serves.
+        document: () => {
+          if (format === 'xrechnung' || format === 'zugferd' || format === 'ebinterface') {
+            const file = eInvoiceFile(db, detail.id, seller, format, 'invoice', actor);
+            return { filename: file.filename, contentType: file.content_type, content: file.content };
+          }
+          const issued = pdfParties(invoiceParties(db, detail.id, seller));
+          return { filename: `${number}.pdf`, contentType: 'application/pdf', content: renderInvoicePdf(detail, issued.customer, issued.seller) };
+        },
+        actor,
       });
     } catch (err) {
       // A platform side-effect must never fail the invoice itself.

@@ -532,8 +532,11 @@ mod-04 can consume the shared [Platform Services](../../platform) through the
 [`@0815software/platform-clients`](../../platform/clients) package. When the
 matching `*_URL` env vars are set, **issuing an invoice** also:
 
-- emails the customer via **PS-03 Notification Hub**,
-- archives the rendered PDF in **PS-06 File Storage**, and
+- tells the customer via **PS-03 Notification Hub** that the invoice was
+  issued (PS-03 carries no attachments, so the email carries no file),
+- archives what the customer receives in **PS-06 File Storage** — its
+  e-invoice in the format set on the customer, as every download serves it,
+  else the PDF — and
 - records an `invoice.issued` event on **PS-07 Audit Log**.
 
 With `PAYMENTS_URL` set, `POST /api/invoices/:id/pay` collects an invoice's
@@ -1138,7 +1141,9 @@ Kept out deliberately to stay a 3–4 week module. If you need any of
 these, that's commissioned work — exactly the kind 0815software does:
 
 - **Sending email** — standalone, "send" means mark-as-sent and assigns the
-  number (no SMTP). Real delivery is available opt-in via PS-03 (see above).
+  number (no SMTP). With PS-03 wired the customer is told by email that the
+  invoice was issued; the file itself is not sent, PS-03 carries no
+  attachments (see above).
 - **A local user table, per-customer permissions** — standalone this is
   one staff admin; several people with their own levels come from PS-01
   (see [Users and access levels](#users-and-access-levels)).

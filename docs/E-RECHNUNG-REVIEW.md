@@ -21,7 +21,7 @@ und N1 bis N5 am 23.10.2026, N6 bis N8 am 24.10.2026:
 | **H3** | **Behoben.** Die erste Auslieferung eines Formats (Rechnung, Storno, Teilgutschrift; XRechnung, ZUGFeRD, ebInterface) speichert die Datei mit SHA-256, Renderer-Version und Person in `issued_documents`; danach werden nur noch diese Bytes ausgeliefert. Trigger verweigern Ändern und Löschen. Die Renderer-Version ist an die Golden Files gekoppelt. | `test/issued-documents.test.ts` |
 | **H1** | **Behoben.** Kunden haben ein Zielformat (XRechnung, ZUGFeRD, ebInterface, keins). Ist eines gesetzt, lehnt das Festschreiben den Entwurf mit 422 ab, solange er darin nicht erzeugbar ist, bevor eine Nummer gezogen wird (auch bei PS-10). Der Entwurf zeigt die fehlenden Felder je Format, eingefrorene Rechnungen sagen, dass nur Storno und Neuausstellung helfen. | `test/einvoice-readiness.test.ts` (Fall A) |
 | **H2** | **Behoben.** Ergänzt: Ländercodes gegen die Liste des CEN-Schematrons (BR-CL-14), Länderpräfix der USt-IdNr. (BR-CO-09), Verkäufer-Kennung je Steuerkategorie (BR-S/Z/E/AE-02, BR-G-02, BR-IC-02, BR-DE-16), echte Kalenderdaten, Texte, die nach dem Bereinigen leer wären. Eine Matrix aus 279 Modellen wird bei jeder MOD-04-Änderung in CI mit Mustang validiert, soweit das Modul sie annimmt. Lokaler Lauf am 22.10.2026: 327 von 327 Dateien gültig (36 Golden-Dateien, 291 aus der Matrix). | `test/einvoice-rules.test.ts` (Fälle J, K, O, P, Q), `.github/workflows/einvoice-validation.yml` |
-| **M1** | **Weitgehend behoben.** Das PDF bricht Positionstext, Notiz, Befreiungsgrund, Gutschriftgrund, Käuferreferenz und Kundennamen nach gemessener Breite um (Metriken der Liberation-Schriften, die beide PDF-Varianten nutzen) und setzt auf der nächsten Seite fort, statt zu kürzen. Mengen stehen mit den vier Nachkommastellen des XML im deutschen Format (`1.234,5`). Seit N4 erscheinen auch Š, Ž, Œ und Ÿ, andere Buchstaben ohne Akzent statt als „?“. Offen: Beim Festschreiben geht weiter das einfache PDF hinaus, auch an Verkäufer in der Ausstellungspflicht (dafür fehlt eine Einstellung). | `test/einvoice-pdf.test.ts`, Golden-Fall `long` (Fall C) |
+| **M1** | **Weitgehend behoben.** Das PDF bricht Positionstext, Notiz, Befreiungsgrund, Gutschriftgrund, Käuferreferenz und Kundennamen nach gemessener Breite um (Metriken der Liberation-Schriften, die beide PDF-Varianten nutzen) und setzt auf der nächsten Seite fort, statt zu kürzen. Mengen stehen mit den vier Nachkommastellen des XML im deutschen Format (`1.234,5`). Seit N4 erscheinen auch Š, Ž, Œ und Ÿ, andere Buchstaben ohne Akzent statt als „?“. Beim Festschreiben geht keine Datei an den Kunden: PS-03 kennt keine Anhänge, die E-Mail behauptete nur einen (korrigiert am 24.10.2026). Das Archiv (PS-06) bekam das einfache PDF und bekommt jetzt, was der Kunde erhält: seine E-Rechnung im Zielformat, mit den gespeicherten Bytes. Offen bleibt die Zustellung der Datei selbst (E-Mail-Anhang, Peppol). | `test/einvoice-pdf.test.ts`, Golden-Fall `long` (Fall C) |
 | **M2** | **Behoben.** Die Fußzeile des PDF nennt alle Kennungen, die auch das XML trägt: USt-IdNr., Steuernummer, Registernummer. Ein leeres „VAT“ gibt es nicht mehr. Seit 24.10.2026 auch die Geschäftsbriefangaben (§ 35a GmbHG, § 80 AktG, § 125a/§ 37a HGB, § 14 UGB): ein Feld in den Einstellungen, gedruckt in der Fußzeile von Rechnung und Mahnung, im XML als BT-33. | `test/einvoice-pdf.test.ts` |
 | **M3** | **Behoben.** Zeilenbeträge werden ganzzahlig aus der Menge in Zehntausendsteln gerechnet und kaufmännisch gerundet (BT-131). Mengen haben höchstens vier Nachkommastellen (API und Festschreiben). Report-Views, DATEV/BMD-Export, Gutschriften und Client-Vorschau rechnen gleich. Jede Rechnung behält die Rundung, unter der sie festgeschrieben wurde (`line_rounding`): Bestehende Rechnungen bleiben bei der alten Gleitkomma-Rundung, ihre Beträge ändern sich nicht. Fall C ergibt jetzt 446,63 €, wie Mustang nachrechnet. Ein Import, dessen Zeilennetto die neue Rundung nicht trifft, wird centgenau übernommen. | `test/money.test.ts` (160.000 Kombinationen gegen BigInt, Upgrade-Fall), Golden-Fall `long` |
 | **M4** | **Behoben.** Eine elektronische Adresse ist eine E-Mail-Adresse (`EM`), eine Leitweg-ID (`0204`) oder eine Peppol-ID in der Form `Schema:Kennung` (`0088:…`, `9930:DE…`), das Schema aus der EAS-Codeliste des CEN-Schematrons (BR-CL-25). Freitext wird beim Speichern von Kunde und Verkäufer und vor jeder Datei abgelehnt (Fälle C und M). ebInterface erhält dort nur eine E-Mail-Adresse. | `test/einvoice-rules.test.ts` (Fälle R, S), Matrix-Käufer `peppol` |
@@ -279,8 +279,8 @@ allen anderen Renderer-Fixes kommen.**
 
 ### M1 · PDF und XML sagen nicht dasselbe
 
-*Status: weitgehend behoben (Umbruch, Mengen, mit N4 die Zeichen); offen ist
-der Versand des einfachen PDF an Verkäufer in der Ausstellungspflicht.*
+*Status: weitgehend behoben (Umbruch, Mengen, mit N4 die Zeichen, Archiv im
+Zielformat); offen ist die Zustellung der Datei selbst.*
 
 **Wo:** `server/pdf.ts:264` (Positionstext nach 46 Zeichen abgeschnitten),
 `:309` (Notiz nach 100), `:317` (Befreiungsgrund nach 100), `:237`
@@ -308,6 +308,12 @@ Dazu kommt der Versand: Beim Festschreiben verschickt PS-03 das **einfache
 PDF** (`server/app.ts:720–725`). Für einen Verkäufer in der
 Ausstellungspflicht ist das ab 2027 keine Rechnung mehr. Geht es neben der
 E-Rechnung mit abweichendem Inhalt hinaus, kommt das § 14c-Risiko hinzu.
+
+*Korrektur vom 24.10.2026:* PS-03 verschickt gar keine Datei, es kennt keine
+Anhänge. Die E-Mail behauptete nur, die Rechnung sei angehängt. Das einfache
+PDF ging ins Archiv (PS-06), auch bei Kunden mit E-Rechnung. Beides ist
+behoben: Die E-Mail meldet die Ausstellung, das Archiv erhält das Dokument im
+Zielformat des Kunden.
 
 **Vorschlag:** Umbrechen statt kürzen (Positionstext, Notiz,
 Befreiungsgrund, Käuferreferenz). Menge in PDF und XML mit derselben

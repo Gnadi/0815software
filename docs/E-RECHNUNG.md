@@ -406,9 +406,12 @@ check the first file in its preview.
 Each of these is out of scope on purpose. Each one is a contained addition
 if a customer needs it.
 
-- **Sending.** There is no PEPPOL access point and no email delivery of the
-  XML. With PS-03 wired, issuing still emails the plain PDF. Delivering
-  e-invoices over a channel is a separate integration.
+- **Sending.** There is no PEPPOL access point and no delivery of the file
+  by email: PS-03 carries no attachments, so with it wired, issuing tells
+  the customer that the invoice was issued, and nothing more. With PS-06
+  wired, the archive gets what the customer receives: the e-invoice in the
+  format set on the customer, the bytes every download serves, else the PDF.
+  Delivering the file itself over a channel is a separate integration.
 - **Receiving.** The bills side does not read incoming XRechnung or ZUGFeRD.
   The receiving obligation is met by any mailbox that keeps the XML; reading
   it into a bill is a feature still to build.
@@ -425,8 +428,8 @@ if a customer needs it.
 - **Archiving beyond the module.** Issued e-invoices are stored as
   delivered, with their SHA-256, append-only (see *The invoice as issued*),
   but not signed, not timestamped by a third party and not copied to an
-  archive outside the module's database; backups carry them. PS-06 archives
-  the plain PDF when wired. Revision-proof long-term storage is still open
+  archive outside the module's database; backups carry them. PS-06 archives,
+  when wired, the document in the customer's format. Revision-proof long-term storage is still open
   (`docs/PLATFORM-READINESS.md`, D2).
 - **Debtor master data for DATEV / BMD.** Only bookings are exported. The
   adviser creates or imports the personal accounts.
