@@ -1,4 +1,12 @@
 import type { MatchVerdict } from '../shared/types.js';
+
+/** One line invoiced against a PO so far, as sent to MOD-06 to match line by line. */
+export interface InvoicedLine {
+  item_id: string | null;
+  description: string;
+  quantity: number | null;
+  net_cents: number;
+}
 import {
   AiClient,
   ServiceError,
@@ -221,7 +229,7 @@ export interface PlatformHooks {
    * (404 for an unknown PO) when it refuses or cannot be reached; the caller
    * records that and keeps the last verdict it had.
    */
-  matchInvoice?(poNumber: string, invoicedNetCents: number): Promise<MatchVerdict>;
+  matchInvoice?(poNumber: string, invoicedNetCents: number, lines?: InvoicedLine[]): Promise<MatchVerdict>;
   /** Whether PS-04 is wired — decided by configuration, not by asking it. */
   aiConfigured?: boolean;
   /**
@@ -506,14 +514,14 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
 
     procurementConfigured: Boolean(procurementUrl),
 
-    async matchInvoice(poNumber: string, invoicedNetCents: number): Promise<MatchVerdict> {
+    async matchInvoice(poNumber: string, invoicedNetCents: number, lines?: InvoicedLine[]): Promise<MatchVerdict> {
       if (!procurementUrl) throw new OfferFetchError(501, 'No procurement is configured — set PROCUREMENT_URL to match bills against purchase orders');
       let res: Response;
       try {
         res = await fetch(`${procurementUrl}/api/match`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...(cfg.serviceToken ? { 'X-Service-Token': cfg.serviceToken } : {}) },
-          body: JSON.stringify({ po_number: poNumber, invoiced_net_cents: invoicedNetCents }),
+          body: JSON.stringify({ po_number: poNumber, invoiced_net_cents: invoicedNetCents, ...(lines && lines.length > 0 ? { lines } : {}) }),
           signal: AbortSignal.timeout(OFFER_FETCH_TIMEOUT_MS),
         });
       } catch (err) {

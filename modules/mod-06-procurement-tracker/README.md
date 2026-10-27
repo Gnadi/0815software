@@ -333,9 +333,11 @@ POST   /api/receipts/:id/book-stock      book (again) in MOD-03 — 501 without 
 PUT    /api/pos/:id/lines/:lineId/sku    {sku} — until the PO is closed
 GET    /api/settings/matching            tolerance, receiving warehouse, MOD-03's warehouses
 PUT    /api/settings/matching            {tolerance_percent, tolerance_cap_cents,
-                                          receiving_warehouse}  (manage)
-POST   /api/match                        machine token: {po_number, invoiced_net_cents} →
-                                          matched | awaiting_receipt | over_invoiced | not_ordered
+                                          receiving_warehouse, line_matching}  (manage)
+POST   /api/match                        machine token: {po_number, invoiced_net_cents, lines?} →
+                                          matched | awaiting_receipt | over_invoiced | not_ordered,
+                                          plus lines[] and line_issues when lines were sent
+                                          lines: [{item_id, description, quantity, net_cents}]
 
 GET    /api/export/profiles              the shipped profiles
 GET    /api/export/pos.csv?profile=NAME  ordered POs through a profile (CSV download)
@@ -458,11 +460,36 @@ The received value is what arrived at the PO's prices; the tolerance is
 `min(value × percent, cap)` from *Matching* (default 2 %, at most 50 €).
 Nothing about invoices is stored here — MOD-04 keeps them and every answer.
 
+**Line by line.** The amount can match while the goods do not: ten widgets
+invoiced, ten bolts received, the same money. When MOD-04 sends the
+invoice's lines (everything invoiced against the PO so far), each is
+matched to a PO line — by SKU against the supplier's article number, else
+by its exact description (a description two PO lines share matches
+neither) — and lines that land on the same PO line are summed:
+
+| line result | when | holds the invoice |
+| --- | --- | --- |
+| `ok` | invoiced ≤ received, at ≤ PO price + tolerance % | no |
+| `awaiting_receipt` | more invoiced than arrived, not more than ordered | yes |
+| `over_ordered` | more invoiced than ordered | yes |
+| `price_above` | unit price above the PO price + tolerance % | yes |
+| `not_on_po` | no PO line has this SKU or description (freight …) | only above the tolerance cap |
+| `unchecked` | matched, but the invoice gives no quantity | no |
+
+The header result is unchanged; `line_issues` counts the lines that hold
+the invoice on their own, and the message names them. *Match line by line*
+in *Matching* (on by default, `manage`) turns it off: then only the amount
+counts, whatever the lines say.
+
 Pinned by `test/receiving.test.ts`: receipts and the derived figures,
 never beyond ordered, only on ordered POs, corrections, the MOD-03 booking
 (booked once, failure recorded and retried, nothing for services,
 corrections or without a warehouse), the article number on a frozen PO,
-every match result at its boundaries, the cap, and the machine token.
+every match result at its boundaries, the cap, and the machine token; line
+by line: the right amount for the wrong goods, more than ordered, the unit
+price at the tolerance boundary, lines summed per PO line (SKU in any case),
+a line not on the PO below and above the cap, no quantity, the switch, and
+malformed lines.
 
 ## Users and access levels
 

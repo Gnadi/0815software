@@ -1003,6 +1003,15 @@ answer, append-only.
 - A manager may **release** a held bill with a reason (`manage`); the
   release covers the verdict it answered. An edit asks again, and a new
   held verdict needs a new release.
+- **Line by line**, when the bill has the supplier's lines (read from its
+  document): they go to MOD-06 with the lines of the earlier bills on the
+  PO, and MOD-06 matches each to a PO line by article number or
+  description. A line it counts as an issue — more than arrived or was
+  ordered, above the PO price, a sizeable line not on the PO — holds the
+  bill even when the amount matched, because the same money can be the
+  wrong goods. Each check keeps the line verdicts; this module counts the
+  issues itself. A release covers the line issues of the verdict it
+  answers, like the rest. A bill without lines is matched on its amount.
 - Without `PROCUREMENT_URL` nothing is asked and nothing held; the PO
   number is then a reference like any other. *Mark paid* records a payment
   made elsewhere and is not held — it is a fact, not an instruction.
@@ -1010,7 +1019,9 @@ answer, append-only.
 Pinned by `test/bill-match.test.ts` (the net amount, the cumulative
 amount and that a later bill never changes an earlier verdict, unknown POs,
 the run refusing and then paying, asking again before paying, the outage,
-standalone, the release and its scope).
+standalone, the release and its scope; line by line: the lines sent so far
+and only with lines, a line issue holding a matched amount, the issue
+counted here, the release).
 
 ### Read from the document (PS-04)
 

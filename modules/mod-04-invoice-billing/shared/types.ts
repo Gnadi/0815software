@@ -346,6 +346,27 @@ export interface MatchVerdict {
   result: 'matched' | 'awaiting_receipt' | 'over_invoiced' | 'not_ordered';
   difference_cents: number;
   message: string;
+  /** MOD-06's line-by-line answer, when the bill had lines; absent from an older MOD-06. */
+  lines?: MatchLineVerdict[];
+  /** How many lines hold the bill on their own. */
+  line_issues?: number;
+}
+
+/** One invoiced line against its PO line, as MOD-06 answers it. */
+export interface MatchLineVerdict {
+  item_id: string | null;
+  description: string;
+  po_position: number | null;
+  matched_by: 'sku' | 'description' | null;
+  invoiced_quantity: number | null;
+  received_quantity: number | null;
+  ordered_quantity: number | null;
+  invoiced_net_cents: number;
+  invoiced_unit_price_cents: number | null;
+  ordered_unit_price_cents: number | null;
+  result: 'ok' | 'awaiting_receipt' | 'over_ordered' | 'price_above' | 'not_on_po' | 'unchecked';
+  issue: boolean;
+  message: string;
 }
 
 /** One recorded check, append-only. `unknown_po` and `error` are this module's. */
@@ -357,6 +378,9 @@ export interface BillMatchCheck {
   received_cents: number | null;
   invoiced_cents: number;
   tolerance_cents: number | null;
+  /** Lines that hold the bill even when the amount matched. */
+  line_issues: number;
+  lines: MatchLineVerdict[];
   actor: string;
   checked_at: string;
 }

@@ -7,8 +7,8 @@ import { createApp } from '../server/app.js';
 import { openDb } from '../server/db.js';
 import { COOKIE_NAME, createToken, type AuthConfig } from '../server/auth.js';
 import type { SellerConfig } from '../server/config.js';
-import { noopPlatform, OfferFetchError, type PlatformHooks } from '../server/platform.js';
-import type { BillRow, MatchVerdict } from '../shared/types.js';
+import { noopPlatform, OfferFetchError, type InvoicedLine, type PlatformHooks } from '../server/platform.js';
+import type { BillRow, MatchLineVerdict, MatchVerdict } from '../shared/types.js';
 
 /**
  * The three-way match, the paying side (server/bill-match.ts): a bill naming
@@ -39,6 +39,8 @@ let app: Express;
 let received: number;
 let reachable: boolean;
 let asked: { po: string; invoiced: number }[];
+let askedLines: (InvoicedLine[] | undefined)[];
+let lineAnswer: MatchLineVerdict[];
 let released: { reason: string }[];
 
 function verdict(po: string, invoiced: number): MatchVerdict {
@@ -61,11 +63,13 @@ function verdict(po: string, invoiced: number): MatchVerdict {
 const procurement: PlatformHooks = {
   ...noopPlatform,
   procurementConfigured: true,
-  async matchInvoice(po, invoiced) {
+  async matchInvoice(po, invoiced, lines) {
     asked.push({ po, invoiced });
+    askedLines.push(lines);
     if (!reachable) throw new OfferFetchError(502, 'The procurement module is unreachable: ECONNREFUSED');
     if (po !== 'PO-2026-0007') throw new OfferFetchError(404, `There is no purchase order ${po}`);
-    return verdict(po, invoiced);
+    // An answer that says no line is an issue while one is: this module counts for itself.
+    return { ...verdict(po, invoiced), lines: lineAnswer, line_issues: 0 };
   },
   async matchReleased(info) {
     released.push({ reason: info.reason });
@@ -86,6 +90,8 @@ beforeEach(async () => {
   received = 100_000;
   reachable = true;
   asked = [];
+  askedLines = [];
+  lineAnswer = [];
   released = [];
   app = createApp({ db, auth, seller, platform: procurement });
   creditor = (await request(app).post('/api/creditors').set('Cookie', ADMIN).send({ name: 'Widget GmbH', iban: 'AT96 2011 1822 0212 0077' }).expect(201)).body.id;
@@ -183,5 +189,51 @@ describe('releasing a held bill', () => {
     const again = (await request(app).post(`/api/bills/${held.id}/check-match`).set('Cookie', CLERK).send({}).expect(200)).body as BillRow;
     expect(again.match.state).toBe('matched');
     expect(db.prepare('SELECT COUNT(*) AS n FROM bill_match_checks WHERE bill_id = ?').get(held.id)).toEqual({ n: 2 });
+  });
+});
+
+describe('line by line', () => {
+  const line = (over: Partial<MatchLineVerdict>): MatchLineVerdict => ({
+    item_id: 'W-1',
+    description: 'Widget',
+    po_position: 1,
+    matched_by: 'sku',
+    invoiced_quantity: 4,
+    received_quantity: 4,
+    ordered_quantity: 10,
+    invoiced_net_cents: 20_000,
+    invoiced_unit_price_cents: 5000,
+    ordered_unit_price_cents: 5000,
+    result: 'ok',
+    issue: false,
+    message: 'Widget (W-1): 4 invoiced, 4 received (PO line 1)',
+    ...over,
+  });
+  const withLines = (reference: string, lines: Record<string, unknown>[], net = 20_000) =>
+    addBill({ reference, po_number: 'PO-2026-0007', net_cents: net, lines });
+
+  it('sends the lines invoiced on the PO so far — this bill\'s and the earlier ones — and only when this bill has lines', async () => {
+    await withLines('R-1', [{ description: 'Widget', item_id: 'W-1', quantity: 2, net_cents: 10_000 }], 10_000).expect(201);
+    await withLines('R-2', [{ description: 'Widget', item_id: 'W-1', quantity: 2, net_cents: 10_000 }], 10_000).expect(201);
+    await addBill({ reference: 'R-3', po_number: 'PO-2026-0007', net_cents: 1 }).expect(201);
+    expect(askedLines[0]).toEqual([{ item_id: 'W-1', description: 'Widget', quantity: 2, net_cents: 10_000 }]);
+    expect(askedLines[1]).toHaveLength(2);
+    expect(askedLines[2]).toEqual([]);
+  });
+
+  it('a line that does not match holds the bill even when the amount matched; a release covers it', async () => {
+    lineAnswer = [line({ description: 'Installation', item_id: null, result: 'awaiting_receipt', issue: true, message: 'Installation: 2 invoiced, 0 received so far (PO line 2)' })];
+    const held = (await withLines('R-1', [{ description: 'Installation', quantity: 2, net_cents: 20_000 }]).expect(201)).body as BillRow;
+    expect(held.match).toMatchObject({ state: 'held', check: { result: 'matched', line_issues: 1 } });
+    expect(held.match.check!.lines[0]).toMatchObject({ result: 'awaiting_receipt', issue: true });
+    await pay([held.id]).expect(409);
+    await request(app).post(`/api/bills/${held.id}/release-match`).set('Cookie', ADMIN).send({ reason: 'Installed, delivery note follows' }).expect(200);
+    await pay([held.id]).expect(201);
+  });
+
+  it('once the lines match, the bill is matched', async () => {
+    lineAnswer = [line({})];
+    const ok = (await withLines('R-1', [{ description: 'Widget', item_id: 'W-1', quantity: 4, net_cents: 20_000 }]).expect(201)).body as BillRow;
+    expect(ok.match).toMatchObject({ state: 'matched', check: { line_issues: 0 } });
   });
 });

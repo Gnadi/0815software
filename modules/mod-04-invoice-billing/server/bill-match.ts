@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import type { BillMatch, BillMatchCheck, BillMatchRelease, MatchVerdict } from '../shared/types.js';
 import { DomainError } from './invoices.js';
-import { OfferFetchError, type PlatformHooks } from './platform.js';
+import { OfferFetchError, type InvoicedLine, type PlatformHooks } from './platform.js';
 
 /**
  * The three-way match, the paying side: a bill naming a MOD-06 purchase order
@@ -18,6 +18,11 @@ import { OfferFetchError, type PlatformHooks } from './platform.js';
  * - **Held bills are refused by the payment run** (`createPaymentRun`), the
  *   one place money leaves. A manager may release a held verdict with a
  *   reason (`bill_match_releases`); the release covers that verdict only.
+ * - **Line by line**, when the bill has the supplier's lines: they go along
+ *   with the lines of the earlier bills on the PO, and MOD-06 matches each
+ *   to a PO line. A line it counts as an issue — more than arrived or was
+ *   ordered, above the PO price, a sizeable line not on the PO — holds the
+ *   bill even when the amount matched: the same money can be the wrong goods.
  * - **Opt-in.** Without PROCUREMENT_URL nothing is asked and nothing held;
  *   the purchase order number is then a reference like any other.
  */
@@ -37,8 +42,27 @@ export function invoicedSoFar(db: Database.Database, billId: number): number {
   ).n;
 }
 
+/**
+ * The lines invoiced against the bill's PO so far — this bill's and the ones
+ * before it, not cancelled, like `invoicedSoFar`. Empty when this bill has
+ * none: then only the amount is matched.
+ */
+export function invoicedLinesSoFar(db: Database.Database, billId: number): InvoicedLine[] {
+  const bill = db.prepare('SELECT po_number FROM bills WHERE id = ?').get(billId) as { po_number: string | null } | undefined;
+  if (!bill?.po_number) return [];
+  const own = db.prepare('SELECT COUNT(*) AS n FROM bill_lines WHERE bill_id = ?').get(billId) as { n: number };
+  if (own.n === 0) return [];
+  return db
+    .prepare(
+      `SELECT l.item_id, l.description, l.quantity, l.net_cents FROM bill_lines l JOIN bills b ON b.id = l.bill_id
+        WHERE b.po_number = ? AND b.cancelled_at IS NULL AND b.id <= ? ORDER BY b.id, l.position`,
+    )
+    .all(bill.po_number, billId) as InvoicedLine[];
+}
+
 function checksOf(db: Database.Database, billId: number): CheckRow[] {
-  return db.prepare('SELECT * FROM bill_match_checks WHERE bill_id = ? ORDER BY id').all(billId) as CheckRow[];
+  const rows = db.prepare('SELECT * FROM bill_match_checks WHERE bill_id = ? ORDER BY id').all(billId) as (Omit<CheckRow, 'lines'> & { lines: string })[];
+  return rows.map((r) => ({ ...r, lines: JSON.parse(r.lines) as CheckRow['lines'] }));
 }
 
 /** Where the match stands — derived from the bill, its checks and releases. */
@@ -58,16 +82,30 @@ export function billMatch(db: Database.Database, bill: { id: number; po_number: 
     (db.prepare('SELECT check_id, reason, actor, at FROM bill_match_releases WHERE bill_id = ? AND check_id = ? ORDER BY id DESC LIMIT 1').get(bill.id, latest.id) as
       | BillMatchRelease
       | undefined) ?? null;
-  const state = latest.result === 'matched' ? 'matched' : release ? 'released' : 'held';
+  const state = latest.result === 'matched' && latest.line_issues === 0 ? 'matched' : release ? 'released' : 'held';
   return { state, check: strip(latest), last_error: strip(lastError), release };
 }
 
 function record(db: Database.Database, billId: number, invoiced: number, actor: string, verdict: MatchVerdict | { result: 'unknown_po' | 'error'; message: string }): void {
   const v = verdict as Partial<MatchVerdict>;
+  const lines = v.lines ?? [];
   db.prepare(
-    `INSERT INTO bill_match_checks (bill_id, result, message, ordered_cents, received_cents, invoiced_cents, tolerance_cents, actor, checked_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(billId, verdict.result, verdict.message, v.ordered_cents ?? null, v.received_cents ?? null, invoiced, v.tolerance_cents ?? null, actor, new Date().toISOString());
+    `INSERT INTO bill_match_checks (bill_id, result, message, ordered_cents, received_cents, invoiced_cents, tolerance_cents, line_issues, lines, actor, checked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    billId,
+    verdict.result,
+    verdict.message,
+    v.ordered_cents ?? null,
+    v.received_cents ?? null,
+    invoiced,
+    v.tolerance_cents ?? null,
+    // Counted here from the verdicts, so an answer that miscounts cannot release a line.
+    lines.filter((l) => l.issue).length,
+    JSON.stringify(lines),
+    actor,
+    new Date().toISOString(),
+  );
 }
 
 /**
@@ -83,7 +121,7 @@ export async function checkBill(db: Database.Database, platform: PlatformHooks, 
   if (!bill?.po_number || bill.paid_at || bill.cancelled_at || !platform.procurementConfigured || !platform.matchInvoice) return;
   const invoiced = invoicedSoFar(db, billId);
   try {
-    record(db, billId, invoiced, actor, await platform.matchInvoice(bill.po_number, invoiced));
+    record(db, billId, invoiced, actor, await platform.matchInvoice(bill.po_number, invoiced, invoicedLinesSoFar(db, billId)));
   } catch (err) {
     if (err instanceof OfferFetchError && err.status === 404) {
       record(db, billId, invoiced, actor, { result: 'unknown_po', message: `MOD-06 has no purchase order ${bill.po_number}` });

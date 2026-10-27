@@ -12,6 +12,7 @@ export function MatchingSettingsView({ onAuthLost }: { onAuthLost: () => void })
   const [percent, setPercent] = useState('');
   const [cap, setCap] = useState('');
   const [warehouse, setWarehouse] = useState('');
+  const [lineMatching, setLineMatching] = useState(true);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
   const canManage = useCan('manage');
@@ -31,6 +32,7 @@ export function MatchingSettingsView({ onAuthLost }: { onAuthLost: () => void })
       setPercent(String(d.settings.tolerance_percent).replace('.', ','));
       setCap((d.settings.tolerance_cap_cents / 100).toFixed(2).replace('.', ','));
       setWarehouse(d.settings.receiving_warehouse ?? '');
+      setLineMatching(d.settings.line_matching);
     } catch (err) {
       handle(err);
     }
@@ -48,6 +50,7 @@ export function MatchingSettingsView({ onAuthLost }: { onAuthLost: () => void })
         tolerance_percent: Number(percent.replace(',', '.')),
         tolerance_cap_cents: Math.round(Number(cap.replace(',', '.')) * 100),
         receiving_warehouse: warehouse || null,
+        line_matching: lineMatching,
       });
       await load();
       setSaved(true);
@@ -68,6 +71,11 @@ export function MatchingSettingsView({ onAuthLost }: { onAuthLost: () => void })
             An invoice against a PO is paid without anyone releasing it when its net amount is no more than what has arrived, valued at the PO's prices, plus the
             tolerance: {String(s.tolerance_percent).replace('.', ',')} % of it, at most {fmtEur(s.tolerance_cap_cents)}. More than that is held in MOD-04 until the
             goods arrive or a manager releases it with a reason.
+          </p>
+          <p className="resource__desc">
+            {s.line_matching
+              ? 'When the invoice comes with its lines, each is matched too — by SKU, else by its exact description: no more invoiced than arrived or was ordered, at no more than the PO price plus the tolerance %. A line not on the PO (freight) holds the invoice only above the cap.'
+              : 'Line matching is off: only the net amount is compared, whatever the invoice lines say.'}
           </p>
         </div>
       </div>
@@ -104,6 +112,10 @@ export function MatchingSettingsView({ onAuthLost }: { onAuthLost: () => void })
               onChange={(e) => setWarehouse(e.target.value)}
             />
           )}
+        </label>
+        <label className="field">
+          <span className="field__label mono">MATCH LINE BY LINE</span>
+          <input type="checkbox" checked={lineMatching} disabled={!canManage} onChange={(e) => setLineMatching(e.target.checked)} />
         </label>
         <Can level="manage">
           <button className="btn btn--primary" onClick={() => void save()}>

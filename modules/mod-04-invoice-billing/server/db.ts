@@ -229,6 +229,10 @@ export function openDb(path: string): Database.Database {
     );
   `);
 
+  // The line-by-line answer of a check: how many lines hold the bill, and MOD-06's verdicts.
+  if (!columns('bill_match_checks').includes('line_issues')) db.exec('ALTER TABLE bill_match_checks ADD COLUMN line_issues INTEGER NOT NULL DEFAULT 0');
+  if (!columns('bill_match_checks').includes('lines')) db.exec("ALTER TABLE bill_match_checks ADD COLUMN lines TEXT NOT NULL DEFAULT '[]'");
+
   // The PS-11 Customers party this customer is, when the master service is
   // wired. Null in a standalone deployment, which is why it is nullable.
   if (!columns('customers').includes('party_id')) {

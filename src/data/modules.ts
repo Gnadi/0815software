@@ -242,11 +242,11 @@ const presentation: Record<string, ModulePresentation> = {
   'mod-06-procurement-tracker': {
     body: 'RFQ, purchase orders, multi-tier approvals, goods receipts and the three-way match. Export to any ERP CSV format.',
     overview:
-      'Approval tiers are derived from the order total and frozen at submit: the threshold brackets live in one server config file, and the approval chain a request must clear is computed when it is submitted and never shifts underneath it. Run RFQs, raise purchase orders, route multi-tier approvals and export to any ERP’s CSV format. Goods are received against the order — and booked into Inventory as stock — and a supplier’s bill for it is only paid once what arrived covers it: the three-way match of order, goods receipt and invoice.',
+      'Approval tiers are derived from the order total and frozen at submit: the threshold brackets live in one server config file, and the approval chain a request must clear is computed when it is submitted and never shifts underneath it. Run RFQs, raise purchase orders, route multi-tier approvals and export to any ERP’s CSV format. Goods are received against the order — and booked into Inventory as stock — and a supplier’s bill for it is only paid once what arrived covers it: the three-way match of order, goods receipt and invoice — on the amount, and line by line when the invoice comes with its lines, so the right sum for the wrong goods is held too.',
     features: [
       'RFQ → purchase-order workflow',
       'Multi-tier approvals derived from the total, frozen at submit',
-      'Goods receipts and a three-way match before invoices are paid',
+      'Goods receipts and a three-way match before invoices are paid — on the amount and line by line',
       'Export to any ERP CSV format',
     ],
     screen: {
