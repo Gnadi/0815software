@@ -70,9 +70,9 @@ paths:
         '401': { description: Authentication required }
   /api/connections:
     get:
-      summary: Get connections
+      summary: Get connections (redacted; ?provider= filters — a module lists its mailboxes with the service token)
       tags: [ps-05-integration-hub]
-      security: [{adminSession: []}]
+      security: [{serviceToken: []}, {adminSession: []}]
       responses:
         '200': { description: Success }
         '401': { description: Authentication required }
@@ -166,6 +166,53 @@ paths:
       responses:
         '200': { description: Success }
         '401': { description: Authentication required }
+  /api/connections/{id}/mail/probe:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Log in to a mailbox connection and count its unread messages
+      tags: [ps-05-integration-hub]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '422': { description: Not a mailbox connection }
+        '502': { description: The mailbox refused the login or could not be read }
+  /api/connections/{id}/mail/fetch:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: The oldest unread messages, parsed (MIME, RFC 2047/2231); nothing is marked read
+      tags: [ps-05-integration-hub]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '403': { description: The mailbox host is not allowed (egress check) }
+        '422': { description: Not a mailbox connection }
+        '502': { description: The mailbox refused the login or could not be read }
+  /api/connections/{id}/mail/ack:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Mark fetched messages read (\\Seen) within the same UIDVALIDITY
+      tags: [ps-05-integration-hub]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '409': { description: The folder changed since the fetch (UIDVALIDITY) }
+        '422': { description: Not a mailbox connection, or uidvalidity/uids malformed }
+        '502': { description: The mailbox refused the login or could not be read }
   /api/webhook-events:
     get:
       summary: Get webhook-events

@@ -3,6 +3,7 @@ import { egressPolicyFromEnv, type EgressPolicy } from './egress.js';
 import { loadKey } from './crypto.js';
 import { oauthConfigFromEnv, type OAuthConfig } from './oauth.js';
 import { REGISTRY } from './provider-registry.js';
+import type { ImapLimits } from './imap.js';
 
 export interface ServerConfig {
   /** Which outbound targets the proxy and OAuth exchange may call. */
@@ -18,6 +19,8 @@ export interface ServerConfig {
   selfBaseUrl: string;
   /** When > 0, run due sync jobs on an internal timer (ms). */
   tickIntervalMs: number;
+  /** Mailbox (IMAP) connections: how long to wait, and how much one fetch may carry. */
+  mailLimits: ImapLimits;
 }
 
 /**
@@ -73,5 +76,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     oauth: oauthConfigFromEnv(env, REGISTRY.map((p) => p.key)),
     selfBaseUrl: env.SELF_BASE_URL ?? `http://localhost:${port}`,
     tickIntervalMs: numberFromEnv('TICK_INTERVAL_MS', env.TICK_INTERVAL_MS, 0, 0, 86400000),
+    mailLimits: {
+      timeoutMs: numberFromEnv('MAIL_TIMEOUT_SECONDS', env.MAIL_TIMEOUT_SECONDS, 30, 5, 300) * 1000,
+      maxMessageBytes: numberFromEnv('MAIL_MAX_MESSAGE_BYTES', env.MAIL_MAX_MESSAGE_BYTES, 10 * 1024 * 1024, 64 * 1024, 50 * 1024 * 1024),
+      maxFetchBytes: numberFromEnv('MAIL_MAX_FETCH_BYTES', env.MAIL_MAX_FETCH_BYTES, 25 * 1024 * 1024, 1024 * 1024, 100 * 1024 * 1024),
+    },
   };
 }

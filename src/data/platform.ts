@@ -145,13 +145,14 @@ export const platform: PlatformService[] = [
     port: 4005,
     source: `${REPO}/ps-05-integration-hub`,
     overview:
-      'The connection and translation layer to outside systems. Credentials are stored encrypted at rest (AES-256-GCM) and never returned; a config-as-code provider registry declares each vendor’s base URL, auth type and webhook signature scheme. A generic proxy issues REST or GraphQL calls through a connection, injecting the right auth header, and inbound webhooks are verified per provider before being recorded.',
+      'The connection and translation layer to outside systems. Credentials are stored encrypted at rest (AES-256-GCM) and never returned; a config-as-code provider registry declares each vendor’s base URL, auth type and webhook signature scheme. A generic proxy issues REST or GraphQL calls through a connection, injecting the right auth header, and inbound webhooks are verified per provider before being recorded. A connection can also be a mailbox: read over IMAP with TLS, its mail handed over parsed — sender, threading headers, text, attachments, and whether a machine sent it — and marked read only once the module has it.',
     responsibilities: [
       'Connections with credentials encrypted at rest, redacted on read',
-      'Provider registry (Google, Microsoft, Stripe, GitHub, Shopify, REST, GraphQL)',
+      'Provider registry (Google, Microsoft, Stripe, GitHub, Shopify, REST, GraphQL, IMAP)',
       'Generic REST + GraphQL proxy with injected provider auth',
       'Inbound webhook signature verification per provider',
       'OAuth connect and sync jobs as documented seams',
+      'IMAP mailboxes: unread mail parsed (MIME, RFC 2047/2231), acknowledged separately',
     ],
     api: [
       'GET /api/providers',
@@ -159,8 +160,9 @@ export const platform: PlatformService[] = [
       'POST /api/connections/:id/proxy · /graphql',
       'POST /api/webhooks/:provider',
       'GET /api/webhook-events · GET /api/sync-jobs',
+      'POST /api/connections/:id/mail/probe · /mail/fetch · /mail/ack',
     ],
-    consumers: 'Any module that talks to a third-party SaaS or external API.',
+    consumers: 'Any module that talks to a third-party SaaS or external API — MOD-12 reads its support mailbox through it.',
   },
   {
     n: 'PS-06',

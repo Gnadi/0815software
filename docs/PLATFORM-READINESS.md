@@ -389,9 +389,11 @@ composability campaign — see [`CUSTOMER-MASTER-DATA.md`](./CUSTOMER-MASTER-DAT
 The next new service would be PS-12.*
 - **Feature Flags / Config** — flagged earlier; small, genuinely
   cross-cutting.
-- **Inbound Email/Bridge service** — mod-12 explicitly needs a real mailbox;
-  today it accepts pre-parsed JSON. A shared inbound-email service (IMAP/
-  provider webhooks → normalized events) would unblock support intake.
+- **Inbound Email/Bridge service** — ✅ done inside PS-05 rather than as a
+  new service: an `imap` connection (TLS/STARTTLS, egress-checked, password
+  encrypted) and `/mail/probe|fetch|ack`, parsed MIME out, read as a machine
+  with the service token. MOD-12 is the first consumer; MOD-04 (bills by
+  mail) and MOD-10 can use the same routes.
 See `docs/PLATFORM-SERVICE-OPPORTUNITIES.md` for the ranked list.
 
 ---

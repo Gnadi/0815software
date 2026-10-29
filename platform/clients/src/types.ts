@@ -190,6 +190,63 @@ export interface SyncJob {
   updated_at: string;
 }
 
+/** A mailbox connection's unread mail, parsed by PS-05 (provider `imap`). */
+export interface MailAddress {
+  name: string | null;
+  address: string;
+}
+export interface MailAttachment {
+  filename: string;
+  content_type: string;
+  size: number;
+  inline: boolean;
+  content_id: string | null;
+  content_base64: string;
+}
+export interface MailMessage {
+  uid: number;
+  size: number;
+  /** Too large to fetch whole: headers only. */
+  body_omitted: boolean;
+  /** Without angle brackets; deduplicate on it. */
+  message_id: string | null;
+  from: MailAddress | null;
+  reply_to: MailAddress | null;
+  to: MailAddress[];
+  subject: string;
+  date: string | null;
+  in_reply_to: string | null;
+  references: string[];
+  text: string;
+  /** Why it looks machine-sent (auto-reply, bounce, list), or null. */
+  automated: string | null;
+  attachments: MailAttachment[];
+}
+export interface MailFetchResult {
+  mailbox: string;
+  uidvalidity: number;
+  messages: MailMessage[];
+  remaining: number;
+}
+/** A connection as PS-05 lists it — credentials never included. */
+export interface IntegrationConnection {
+  id: number;
+  provider: string;
+  name: string;
+  status: string;
+  scopes: string;
+  external_account: string | null;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface MailboxProbeResult {
+  mailbox: string;
+  uidvalidity: number;
+  exists: number;
+  unseen: number;
+}
+
 // ── PS-06 Files ────────────────────────────────────────────────────────
 export interface PutObjectInput {
   bucket: string;

@@ -615,6 +615,8 @@
           "ps-01-identity",
           "ps-03-notification-hub",
           "ps-04-ai-platform",
+          "ps-05-integration-hub",
+          "ps-06-file-storage",
           "ps-07-audit-log"
         ]
       },
@@ -622,7 +624,9 @@
         "required": [],
         "optional": [
           "NOTIFICATION_ACK_CHANNEL",
-          "SHELL_ORIGIN"
+          "SHELL_ORIGIN",
+          "ATTACHMENT_MAX_BYTES",
+          "ATTACHMENTS_PER_MESSAGE"
         ],
         "secrets": [
           "ADMIN_PASSWORD",
@@ -633,7 +637,7 @@
       "constraints": {
         "supportsSso": true,
         "embeddable": true,
-        "needsPublicBaseUrl": false,
+        "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
         "publishesReportViews": false
       }

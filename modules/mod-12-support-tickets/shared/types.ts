@@ -65,6 +65,10 @@ export interface EventPayload {
   assignee_name?: string | null;
   body?: string;
   reopened?: boolean;
+  /** The canned response a reply started from (server/canned.ts). */
+  canned_id?: number;
+  /** A comment that arrived by email from someone other than the requester. */
+  other_sender?: string;
 }
 
 export interface TicketEvent {
@@ -75,10 +79,29 @@ export interface TicketEvent {
   visibility: CommentVisibility | null;
   created_at: string;
   payload: EventPayload;
+  /** Files that came with this event; who may see them is the event's visibility. */
+  attachments: AttachmentInfo[];
+}
+
+// ── Attachments ────────────────────────────────────────────────────────
+export interface AttachmentInfo {
+  id: number;
+  filename: string;
+  content_type: string;
+  size: number;
+  sha256: string;
+  created_at: string;
+}
+
+/** An upload as a request carries it: JSON, the bytes base64-encoded. */
+export interface AttachmentUpload {
+  filename: string;
+  content_type?: string;
+  content_base64: string;
 }
 
 // ── SLA (all derived at read time) ─────────────────────────────────────
-export type SlaState = 'met' | 'breached' | 'at_risk' | 'pending';
+export type SlaState = 'met' | 'breached' | 'at_risk' | 'pending' | 'paused';
 
 export interface SlaLeg {
   /** When this leg is due (created_at + the priority's target). */
@@ -88,12 +111,135 @@ export interface SlaLeg {
   state: SlaState;
   /** Convenience: state === 'breached'. */
   breached: boolean;
+  /** Counted in business hours (true) or around the clock. */
+  business_hours: boolean;
+  /** Clock minutes left until due, while neither met nor breached. */
+  remaining_minutes: number | null;
 }
 
 export interface Sla {
   priority: Priority;
   first_response: SlaLeg;
   resolution: SlaLeg;
+  /** The policy version the ticket is held to (null: the built-in defaults). */
+  policy_version: number | null;
+}
+
+// ── SLA policy (versioned; a ticket keeps the version it came in under) ──
+export interface SlaTarget {
+  first_response_minutes: number;
+  resolution_minutes: number;
+  /** Count only business hours (true) or around the clock (false). */
+  business_hours: boolean;
+}
+
+/** One opening window on a weekday, local time, `HH:MM` (end may be 24:00). */
+export interface BusinessWindow {
+  start: string;
+  end: string;
+}
+
+export interface Holiday {
+  date: string;
+  name: string;
+}
+
+export interface SlaPolicy {
+  targets: Record<Priority, SlaTarget>;
+  at_risk_minutes: number;
+  /** IANA zone the business hours and holidays are in. */
+  timezone: string;
+  /** Monday first: seven lists of opening windows. */
+  week: BusinessWindow[][];
+  holidays: Holiday[];
+  /** Stop the resolution clock while the ticket waits on the requester. */
+  pause_on_pending: boolean;
+}
+
+export interface SlaPolicyVersion {
+  /** null: the built-in defaults, before anyone saved a policy. */
+  id: number | null;
+  policy: SlaPolicy;
+  created_by: string | null;
+  created_at: string | null;
+}
+
+// ── Settings set in the UI ─────────────────────────────────────────────
+export interface HelpdeskSettings {
+  csat: {
+    /** The requester may rate a resolved ticket on the status page. */
+    enabled: boolean;
+    /** And is invited by email when it is resolved (PS-03). */
+    invite_by_email: boolean;
+  };
+  /** Public replies go to the requester by email (PS-03, NOTIFICATION_ACK_CHANNEL). */
+  reply_by_email: boolean;
+  mailbox: {
+    enabled: boolean;
+    /** A PS-05 mailbox connection. */
+    connection_id: number | null;
+    poll_seconds: number;
+  };
+}
+
+// ── Canned responses ───────────────────────────────────────────────────
+export const CANNED_PLACEHOLDERS = ['requester_name', 'requester_first_name', 'ticket_ref', 'subject', 'agent_name'] as const;
+export type CannedPlaceholder = (typeof CANNED_PLACEHOLDERS)[number];
+
+export interface CannedResponse {
+  id: number;
+  title: string;
+  body: string;
+  active: boolean;
+  /** Replies that started from it — counted from the comments. */
+  uses: number;
+  created_by: string;
+  created_at: string;
+  updated_by: string;
+  updated_at: string;
+}
+
+// ── Satisfaction (CSAT) ────────────────────────────────────────────────
+export interface CsatRating {
+  id: number;
+  ref: string;
+  score: number;
+  comment: string | null;
+  created_at: string;
+}
+
+export interface CsatStats {
+  count: number;
+  average: number | null;
+  /** Share of 4- and 5-star ratings, in percent — the usual CSAT figure. */
+  csat_percent: number | null;
+  distribution: Record<'1' | '2' | '3' | '4' | '5', number>;
+  recent: CsatRating[];
+}
+
+// ── Mailbox (PS-05) ────────────────────────────────────────────────────
+export type MailAction = 'created' | 'appended' | 'noted' | 'ignored' | 'failed';
+
+export interface MailIngest {
+  id: number;
+  message_id: string | null;
+  from_address: string | null;
+  subject: string;
+  action: MailAction;
+  reason: string | null;
+  ticket_ref: string | null;
+  received_at: string;
+}
+
+export interface MailboxStatus {
+  /** INTEGRATION_URL and PLATFORM_SERVICE_TOKEN are set. */
+  configured: boolean;
+  settings: HelpdeskSettings['mailbox'];
+  connections: { id: number; name: string; account: string | null; status: string }[];
+  /** Why the connection list could not be read, if it could not. */
+  connections_error: string | null;
+  last_poll: { at: string; ok: boolean; fetched: number; error: string | null } | null;
+  recent: MailIngest[];
 }
 
 // ── Agents ─────────────────────────────────────────────────────────────
@@ -129,6 +275,7 @@ export interface TicketDetail extends TicketRow {
   events: TicketEvent[];
   /** Where the workflow can legally go next from the current status. */
   allowed_transitions: Status[];
+  ratings: CsatRating[];
 }
 
 // ── Public (requester-facing) view — no internal notes, no assignee ────
@@ -139,6 +286,7 @@ export interface PublicEvent {
   to?: Status;
   body?: string;
   created_at: string;
+  attachments: AttachmentInfo[];
 }
 
 export interface PublicTicket {
@@ -149,12 +297,15 @@ export interface PublicTicket {
   created_at: string;
   updated_at: string;
   events: PublicEvent[];
+  /** Present when ratings are collected: may the requester rate now, and what they gave. */
+  rating: { can_rate: boolean; given: { score: number; comment: string | null; created_at: string } | null } | null;
 }
 
 // ── Config as served to the client (single source: server config files) ──
 export interface SlaPolicyInfo {
   first_response_minutes: number;
   resolution_minutes: number;
+  business_hours: boolean;
 }
 
 export interface AppConfig {
@@ -162,8 +313,11 @@ export interface AppConfig {
   statuses: Status[];
   priorities: Priority[];
   transitions: Record<Status, Status[]>;
+  /** The policy new tickets are held to now. */
   sla: Record<Priority, SlaPolicyInfo>;
   at_risk_minutes: number;
+  /** Attachment limits, so the forms can refuse early. */
+  attachments: { max_bytes: number; per_message: number };
 }
 
 // ── SLA dashboard ──────────────────────────────────────────────────────
@@ -177,7 +331,8 @@ export interface PriorityBucket {
 export interface Dashboard {
   by_priority: PriorityBucket[];
   by_status: Record<Status, number>;
-  totals: { open: number; at_risk: number; breached: number; unassigned: number };
+  totals: { open: number; at_risk: number; breached: number; unassigned: number; paused: number };
+  csat: CsatStats;
 }
 
 // ── Errors ─────────────────────────────────────────────────────────────

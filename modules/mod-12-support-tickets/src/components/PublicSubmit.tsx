@@ -1,6 +1,7 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import type { Priority } from '../../shared/types';
 import { api, ApiError, type WebIntakeResult } from '../api';
+import { FilePicker, toUploads } from './Files';
 
 const PRIORITY_HINTS: { value: Priority; label: string; hint: string }[] = [
   { value: 'low', label: 'LOW', hint: 'A minor issue or a suggestion.' },
@@ -18,6 +19,15 @@ export function PublicSubmit() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<WebIntakeResult | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [limits, setLimits] = useState<{ max_bytes: number; per_message: number } | null>(null);
+
+  useEffect(() => {
+    api
+      .publicConfig()
+      .then((c) => setLimits(c.attachments))
+      .catch(() => setLimits(null));
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -30,6 +40,7 @@ export function PublicSubmit() {
         subject,
         body,
         priority,
+        attachments: await toUploads(files),
       });
       setResult(res);
     } catch (err) {
@@ -118,6 +129,13 @@ export function PublicSubmit() {
             </span>
             <textarea className="field__input" value={body} onChange={(e) => setBody(e.target.value)} />
           </label>
+
+          {limits && (
+            <div className="field">
+              <span className="field__label mono">SCREENSHOTS, LOGS, DOCUMENTS</span>
+              <FilePicker files={files} onChange={setFiles} maxBytes={limits.max_bytes} perMessage={limits.per_message} disabled={busy} />
+            </div>
+          )}
 
           <div className="field">
             <span className="field__label mono">PRIORITY HINT</span>

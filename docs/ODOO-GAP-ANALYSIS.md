@@ -27,6 +27,9 @@ Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
     per Vision-Modell), MOD-04 füllt daraus die Eingangsrechnung vor.
   - **Self-Service:** Timer, Erinnerungen und „Mein Bereich“ in MOD-11;
     eigene Kontaktdaten in MOD-05 (Name und Privatadresse mit HR-Freigabe).
+  - **Helpdesk:** Anhänge, Textbausteine, Geschäftszeiten-SLA mit Feiertagen
+    und Pause während „pending“ (versionierte Richtlinie), Zufriedenheit
+    (CSAT) in MOD-12; das echte Support-Postfach über IMAP liest PS-05.
 - **Größte verbleibende Lücken:**
   - **Projektplanung in der Tiefe:** Gantt, Abhängigkeiten, Kapazitätsblick
     (Board, Meilensteine und Budget sind in MOD-11 umgesetzt).
@@ -81,7 +84,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | --- | --- | --- |
 | Website Builder, Blog, Forum | ❌ (Marketing-Site ist Astro) | ⛔ Astro/Headless-CMS sind besser; Kunden-Website ist Auftragsarbeit |
 | eCommerce | ✅ MOD-07 | Varianten, Gutscheine, Versandregeln, MOD-03-Bestandskopplung prüfen |
-| Live Chat | ❌ | 🟡 optional als Intake-Kanal von MOD-12 |
+| Live Chat | ❌ | 🟡 optional als Intake-Kanal von MOD-12 (Postfach über PS-05 und Webformular gibt es) |
 | eLearning | ❌ | ⛔ (Moodle/ILIAS existieren, Open Source) |
 
 ### Supply Chain
@@ -113,7 +116,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | SMS Marketing | ❌ (PS-03 kann SMS) | Teil des Newsletter-Moduls |
 | Marketing Automation (E) | ❌ (PS-02 kann Abläufe) | ⛔ als Modul; PS-02-Vorlagen reichen |
 | Events | ❌ | 🟡 über Terminbuchung + Formulare abdecken |
-| Surveys | ❌ | 🔜 **neues Modul „Formulare & Umfragen“** — dient auch CSAT in MOD-12, Lead-Formular für MOD-10, Antrag für MOD-14 |
+| Surveys | ❌ | 🔜 **neues Modul „Formulare & Umfragen“** — Lead-Formular für MOD-10, Antrag für MOD-14; die einfache CSAT-Bewertung hat MOD-12 schon selbst |
 | Social Marketing (E) | ❌ | ⛔ |
 
 ### Services
@@ -122,7 +125,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | --- | --- | --- |
 | Project | ✅ MOD-11 (Board, Meilensteine, Zuständige, Fälligkeiten, Schätzung vs. gebuchte Zeit, Stundenbudget, „Meine Aufgaben“; Angebot → Projekt aus MOD-13) | Kein eigenes Modul: die Projekte lagen schon in MOD-11. Offen: Gantt/Abhängigkeiten, Kapazitätsblick gegen die Arbeitszeitmodelle |
 | Timesheet (Timer, Erinnerung, Freigabe) | ✅ MOD-11 (Tageserfassung, Timer am Server mit Kappung an Mitternacht und Tageshöchstzeit, Erinnerungen über PS-03 für nicht eingereichte Woche und vergessenen Timer, „Mein Bereich“, Wochenfreigabe, „nur eigene Zeiten“, Gleitzeitkonto mit Soll aus datierten Arbeitszeitmodellen, Überstunden über der Obergrenze, Auszahlung, Monats-CSV für die Lohnverrechnung) | Offen: Stempeluhr (Kommen/Gehen), Pausenabzug |
-| Helpdesk (E) | ✅ MOD-12 | Anhänge (PS-06), Textbausteine, Geschäftszeiten-SLA, CSAT, IMAP-Brücke |
+| Helpdesk (E) | ✅ MOD-12 (Queue, Workflow, abgeleitete SLA in Geschäftszeiten mit Feiertagen und Pause bei „pending“, versionierte Richtlinie, Anhänge mit Kopie in PS-06, Textbausteine, CSAT, Antworten per E-Mail, Support-Postfach über PS-05/IMAP) | Offen: Tickets zusammenführen, Teams/Warteschlangen mit eigener SLA, Wissensdatenbank (MOD-23) |
 | Planning (E) | ❌ | 🟡 als Kapazitätsblick in MOD-11 (Zuständige × Arbeitszeitmodelle), nicht separat |
 | Appointments (E) | ❌ | 🔜 **neues Modul „Terminbuchung“** — für KMU (Arzt, Handwerk, Beratung) einer der greifbarsten Nutzen |
 | Field Service (E) | ❌ | 🟡 später: Projekte + Terminbuchung + Mobile-Ansicht |
@@ -176,8 +179,10 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 7. ✅ **MOD-11: Timer + Mitarbeiter-Self-Service** — Timer, Erinnerungen und
    „Mein Bereich“ in MOD-11; Self-Service für die eigenen Stammdaten in MOD-05
    (dort gehören sie hin: es ist das Verzeichnis, nicht die Zeiterfassung).
-8. **MOD-12: Anhänge (PS-06), Textbausteine, Geschäftszeiten, CSAT,
-   IMAP-Brücke über PS-05.**
+8. ✅ **MOD-12: Anhänge, Textbausteine, Geschäftszeiten, CSAT, IMAP-Brücke**
+   — Anhänge in MOD-12 (Kopie in PS-06), SLA-Richtlinie versioniert in der
+   Oberfläche, IMAP-Client und MIME-Parser in PS-05 (Passwort verschlüsselt,
+   auch für andere Module nutzbar), MOD-12 holt die Post als Maschine ab.
 9. ✅ **MOD-06: 3-Way-Match** Bestellung ↔ Wareneingang (in MOD-06, Lagerzugang
    in MOD-03) ↔ Eingangsrechnung (MOD-04 Bills, Zahlungssperre mit Freigabe).
 10. ✅ **PS-04: Dokumentextraktion** (Rechnung/Beleg → strukturierte Felder),
@@ -201,7 +206,10 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    Modul; erster Konsument MOD-04 Bills, die Rechnung wird eingelesen statt
    abgetippt).
 6. ✅ **MOD-11 Timer/„Mein Bereich“ + MOD-05 Self-Service** (umgesetzt).
-7. **MOD-12 Anhänge/CSAT** — Komfort in einem bestehenden Modul.
+7. ✅ **MOD-12 Helpdesk-Ausbau + PS-05 Postfach** (umgesetzt).
+8. **MOD-08 XLSX/Parameter** und **MOD-09 Vorschau/Volltext** — die
+   verbleibenden Punkte aus Abschnitt 2; danach die neuen Module aus
+   Abschnitt 3.
 
 ## 3. Neue Module (Vorschlag)
 

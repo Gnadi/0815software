@@ -33,8 +33,8 @@ export function Dashboard({ config, onAuthLost }: Props) {
           <h1 className="resource__title">SLA dashboard</h1>
           <p className="resource__desc">
             Everything here is derived: a ticket is counted as breached when its first-response or resolution
-            leg is past due, and at-risk within {config.at_risk_minutes} minutes of a due time. Closed tickets
-            are excluded.
+            leg is past due, and at-risk once {config.at_risk_minutes} minutes of its clock are left. Closed tickets
+            are excluded. A ticket waiting on the requester counts as paused when the policy stops the clock for it.
           </p>
         </div>
       </div>
@@ -60,6 +60,10 @@ export function Dashboard({ config, onAuthLost }: Props) {
               <div className="stat__label mono">UNASSIGNED</div>
               <div className="stat__value">{data.totals.unassigned}</div>
             </div>
+            <div className="stat">
+              <div className="stat__label mono">WAITING ON REQUESTER</div>
+              <div className="stat__value">{data.totals.paused}</div>
+            </div>
           </div>
 
           <div className="section-title mono">BY PRIORITY</div>
@@ -83,6 +87,49 @@ export function Dashboard({ config, onAuthLost }: Props) {
               </div>
             ))}
           </div>
+
+          <div className="section-title mono">SATISFACTION · {data.csat.count} RATING{data.csat.count === 1 ? '' : 'S'}</div>
+          {data.csat.count === 0 ? (
+            <p className="resource__desc">No ratings yet. Switch them on in Settings; requesters rate a resolved ticket on its status page.</p>
+          ) : (
+            <>
+              <div className="stat-row">
+                <div className={`stat ${data.csat.csat_percent !== null && data.csat.csat_percent < 70 ? 'stat--warn' : ''}`}>
+                  <div className="stat__label mono">CSAT · 4–5 STARS</div>
+                  <div className="stat__value">{data.csat.csat_percent}%</div>
+                </div>
+                <div className="stat">
+                  <div className="stat__label mono">AVERAGE</div>
+                  <div className="stat__value">{data.csat.average?.toFixed(2)}</div>
+                </div>
+                {(['5', '4', '3', '2', '1'] as const).map((n) => (
+                  <div className="stat" key={n}>
+                    <div className="stat__label mono">{'★'.repeat(Number(n))}</div>
+                    <div className="stat__value">{data.csat.distribution[n]}</div>
+                  </div>
+                ))}
+              </div>
+              {data.csat.recent.some((r) => r.comment) && (
+                <div className="thread">
+                  {data.csat.recent
+                    .filter((r) => r.comment)
+                    .map((r) => (
+                      <div className="event" key={r.id}>
+                        <div className="event__meta">
+                          <span className="event__when mono">{r.created_at.slice(0, 16).replace('T', ' ')}</span>
+                          <span className="event__actor mono">
+                            {r.ref} · {'★'.repeat(r.score)}
+                          </span>
+                        </div>
+                        <div className="event__body">
+                          <div className="comment comment--requester">{r.comment}</div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </>
+          )}
 
           <div className="section-title mono">BY STATUS</div>
           <div className="stat-row">

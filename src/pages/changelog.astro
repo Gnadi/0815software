@@ -5,6 +5,18 @@ export const prerender = true;
 
 const releases = [
   {
+    version: 'v0.7.0',
+    date: '2026-10-29',
+    title: 'The help desk',
+    changes: [
+      { type: 'Added', text: 'Support Tickets: SLA in business hours with holidays, paused while a ticket waits on the requester — a versioned policy set in the UI, so a change never rewrites old verdicts' },
+      { type: 'Added', text: 'Support Tickets: attachments on the request, replies and follow-ups, never served to the requester from an internal note' },
+      { type: 'Added', text: 'Support Tickets: canned responses with placeholders, replies by email, and satisfaction ratings once per resolution' },
+      { type: 'Added', text: 'Integration Hub: IMAP mailboxes — unread mail parsed and handed over, marked read only once the module has it; Support Tickets reads its mailbox through it' },
+      { type: 'Fixed', text: 'Support Tickets: the sidebar no longer spreads its entries over the whole height' },
+    ],
+  },
+  {
     version: 'v0.6.0',
     date: '2026-10-29',
     title: 'Self-service',

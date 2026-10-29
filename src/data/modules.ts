@@ -388,14 +388,16 @@ const presentation: Record<string, ModulePresentation> = {
     },
   },
   'mod-12-support-tickets': {
-    body: 'Inbound queue, assignment, status tracking, and SLA timers. Email and web intake.',
+    body: 'Inbound queue, assignment, status tracking, and SLA timers in business hours. Web form, email and the support mailbox; attachments and ratings.',
     overview:
-      'An inbound support queue with assignment, a config-driven status workflow, an append-only timeline and derived SLA timers. Two intake channels — a public web form and an authenticated email-ingestion endpoint — feed a single self-contained app with no external services, no message broker and no cron.',
+      'An inbound support queue with assignment, a config-driven status workflow, an append-only timeline and derived SLA timers — around the clock or in business hours with holidays, paused while a ticket waits on the requester, from a versioned policy a manager sets in the UI, so a change never rewrites old verdicts. Requests come in through a public web form with attachments, an email-ingestion endpoint, or the support mailbox itself, read over IMAP through the Integration Hub: once per message, replies threaded by reference, auto-replies ignored. Agents answer with canned responses, by email if switched on; requesters rate the resolution. Standalone it needs no external service.',
     features: [
       'Inbound queue with assignment and config-driven statuses',
       'Append-only ticket timeline',
       'SLA timers derived, not stored',
       'Web-form and email intake in one app',
+      'Business-hours SLA with holidays and pause while waiting — versioned policy set in the UI',
+      'Support mailbox over IMAP, attachments, canned responses and satisfaction ratings',
     ],
     screen: {
       variant: 'board',
