@@ -17,6 +17,7 @@ import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { directoryCsv } from './csv.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
+import { decideRequest, employeeOf, erasePrivate, listRequests, ownProfile, privateOf, requestChange, requireOwn, updateOwnProfile, updatePrivateByHr, withdrawRequest, changesOf } from './profile.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import {
   createDepartment,
@@ -320,7 +321,8 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.get('/api/me', (_req, res) => {
-    res.json({ username: actorOf(res, auth), access: accessOf(res) });
+    const actor = actorOf(res, auth);
+    res.json({ username: actor, access: accessOf(res), employee_id: employeeOf(db, actor) });
   });
 
   // ── Departments ──────────────────────────────────────────────────────
@@ -420,6 +422,72 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     };
     if (errors.length > 0) fail(errors);
     res.json(setOnboardingFlags(db, Number(req.params.id), patch));
+  });
+
+  // ── Self-service: one's own record (server/profile.ts) ───────────────
+  // No id in these paths: they act on the signed-in person's own record and
+  // nobody else's, whatever the level (server/access.ts lets `view` in).
+  app.get('/api/me/profile', (_req, res) => {
+    res.json(ownProfile(db, requireOwn(db, actorOf(res, auth))));
+  });
+
+  app.put('/api/me/profile', (req, res) => {
+    const actor = actorOf(res, auth);
+    const own = requireOwn(db, actor);
+    const changed = updateOwnProfile(db, own, body(req), actor);
+    // Which fields, never their values: private data stays out of the audit trail.
+    if (changed.length > 0) void platform.audit({ actor, action: 'employee.profile_updated', resource: `employee:${own}`, metadata: { fields: changed, via: 'self' } });
+    res.json(ownProfile(db, own));
+  });
+
+  app.post('/api/me/profile/requests', (req, res) => {
+    const actor = actorOf(res, auth);
+    const own = requireOwn(db, actor);
+    const created = requestChange(db, own, body(req), actor);
+    void platform.audit({ actor, action: 'employee.change_requested', resource: `employee:${own}`, metadata: { field: created.field, request: created.id } });
+    res.status(201).json(created);
+  });
+
+  app.post('/api/me/profile/requests/:id/withdraw', (req, res) => {
+    const actor = actorOf(res, auth);
+    res.json(withdrawRequest(db, Number(req.params.id), requireOwn(db, actor), actor));
+  });
+
+  // ── HR's side of self-service ────────────────────────────────────────
+  app.get('/api/profile-requests', (req, res) => {
+    const status = typeof req.query.status === 'string' && ['pending', 'approved', 'rejected', 'withdrawn'].includes(req.query.status) ? (req.query.status as 'pending') : undefined;
+    res.json({ requests: listRequests(db, { status }) });
+  });
+
+  const decide = (decision: 'approved' | 'rejected') => (req: Request, res: Response) => {
+    const actor = actorOf(res, auth);
+    const note = typeof body(req).note === 'string' && (body(req).note as string).trim() !== '' ? (body(req).note as string).trim().slice(0, 300) : null;
+    const decided = decideRequest(db, Number(req.params.id), decision, note, actor, accessOf(res));
+    void platform.audit({ actor, action: `employee.change_${decision}`, resource: `employee:${decided.employee_id}`, metadata: { field: decided.field, request: decided.id } });
+    res.json(decided);
+  };
+  app.post('/api/profile-requests/:id/approve', decide('approved'));
+  app.post('/api/profile-requests/:id/reject', decide('rejected'));
+
+  app.get('/api/employees/:id/private', (req, res) => {
+    const id = Number(req.params.id);
+    res.json({ private: privateOf(db, id), changes: changesOf(db, id) });
+  });
+
+  app.put('/api/employees/:id/private', (req, res) => {
+    const actor = actorOf(res, auth);
+    const id = Number(req.params.id);
+    const changed = updatePrivateByHr(db, id, body(req), actor);
+    if (changed.length > 0) void platform.audit({ actor, action: 'employee.profile_updated', resource: `employee:${id}`, metadata: { fields: changed, via: 'hr' } });
+    res.json({ private: privateOf(db, id), changes: changesOf(db, id) });
+  });
+
+  app.delete('/api/employees/:id/private', (req, res) => {
+    const actor = actorOf(res, auth);
+    const id = Number(req.params.id);
+    erasePrivate(db, id, actor);
+    void platform.audit({ actor, action: 'employee.private_data_erased', resource: `employee:${id}` });
+    res.json({ private: privateOf(db, id), changes: changesOf(db, id) });
   });
 
   // ── Org chart & onboarding views ─────────────────────────────────────

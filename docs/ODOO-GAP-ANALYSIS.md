@@ -25,11 +25,14 @@ Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
   - **Eingangsseite:** 3-Way-Match (MOD-06 ↔ MOD-04) und Belegerkennung —
     PS-04 liest Eingangsrechnungen (E-Rechnung exakt, PDF über Labels, Scan
     per Vision-Modell), MOD-04 füllt daraus die Eingangsrechnung vor.
+  - **Self-Service:** Timer, Erinnerungen und „Mein Bereich“ in MOD-11;
+    eigene Kontaktdaten in MOD-05 (Name und Privatadresse mit HR-Freigabe).
 - **Größte verbleibende Lücken:**
   - **Projektplanung in der Tiefe:** Gantt, Abhängigkeiten, Kapazitätsblick
     (Board, Meilensteine und Budget sind in MOD-11 umgesetzt).
-  - **HR-Grundbedarf:** Mitarbeiter-Self-Service über Abwesenheiten und
-    Gleitzeit hinaus (beides ist in MOD-11 umgesetzt).
+  - **HR-Grundbedarf:** Recruitment und Dokumente zur Person
+    (Self-Service für Kontaktdaten ist in MOD-05, Timer und „Mein Bereich“ in
+    MOD-11 umgesetzt).
   - **Lagertiefe:** Lagerplätze, Kommissionierung, Bewertung (Barcode und
     Reservierung sind umgesetzt).
   - **Eingangsseite:** PEPPOL-Empfang/-Versand (3-Way-Match und
@@ -95,7 +98,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
-| Employees | ✅ MOD-05 (Verzeichnis, Org-Baum, Onboarding-Liste) | Mitarbeiter-Self-Service fehlt |
+| Employees | ✅ MOD-05 (Verzeichnis, Org-Baum, Onboarding-Liste, Self-Service: Kontaktdaten und Notfallkontakt selbst, Name/Privatadresse mit HR-Freigabe, private Daten nur für Person und HR) | Offen: Dokumente zur Person (PS-06), Bankdaten/Lohnstammdaten bewusst nicht |
 | Time Off | ✅ MOD-11 (Urlaub, Krankenstand, Sonderurlaub; Freigabe, Resturlaub abgeleitet, Feiertage AT/DE, Teamkalender) | Kein eigenes Modul: Abwesenheiten gehören zur Zeiterfassung. Zeitausgleich wird vom Gleitzeitkonto abgezogen. Offen: Verfall von Resturlaub |
 | Recruitment | ❌ | 🟡 neues Modul, mittlere Priorität (DSGVO-Löschfristen für Bewerbungen sind der Kern) |
 | Appraisals, Referrals (E) | ❌ | ⛔ |
@@ -118,7 +121,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
 | Project | ✅ MOD-11 (Board, Meilensteine, Zuständige, Fälligkeiten, Schätzung vs. gebuchte Zeit, Stundenbudget, „Meine Aufgaben“; Angebot → Projekt aus MOD-13) | Kein eigenes Modul: die Projekte lagen schon in MOD-11. Offen: Gantt/Abhängigkeiten, Kapazitätsblick gegen die Arbeitszeitmodelle |
-| Timesheet (Timer, Erinnerung, Freigabe) | 🟡 MOD-11 (Tageserfassung, Wochenfreigabe, „nur eigene Zeiten“, Gleitzeitkonto mit Soll aus datierten Arbeitszeitmodellen, Überstunden über der Obergrenze, Auszahlung, Monats-CSV für die Lohnverrechnung) | Timer, Erinnerungen ergänzen |
+| Timesheet (Timer, Erinnerung, Freigabe) | ✅ MOD-11 (Tageserfassung, Timer am Server mit Kappung an Mitternacht und Tageshöchstzeit, Erinnerungen über PS-03 für nicht eingereichte Woche und vergessenen Timer, „Mein Bereich“, Wochenfreigabe, „nur eigene Zeiten“, Gleitzeitkonto mit Soll aus datierten Arbeitszeitmodellen, Überstunden über der Obergrenze, Auszahlung, Monats-CSV für die Lohnverrechnung) | Offen: Stempeluhr (Kommen/Gehen), Pausenabzug |
 | Helpdesk (E) | ✅ MOD-12 | Anhänge (PS-06), Textbausteine, Geschäftszeiten-SLA, CSAT, IMAP-Brücke |
 | Planning (E) | ❌ | 🟡 als Kapazitätsblick in MOD-11 (Zuständige × Arbeitszeitmodelle), nicht separat |
 | Appointments (E) | ❌ | 🔜 **neues Modul „Terminbuchung“** — für KMU (Arzt, Handwerk, Beratung) einer der greifbarsten Nutzen |
@@ -170,7 +173,9 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    in MOD-03, Reservierung bei Auftragsbestätigung.
 6. 🟡 **MOD-03:** ✅ Barcode und Etiketten, ✅ Reservierungen. Offen:
    Lagerplätze, Kommissionierung, Bewertung.
-7. **MOD-11: Timer + Mitarbeiter-Self-Service.**
+7. ✅ **MOD-11: Timer + Mitarbeiter-Self-Service** — Timer, Erinnerungen und
+   „Mein Bereich“ in MOD-11; Self-Service für die eigenen Stammdaten in MOD-05
+   (dort gehören sie hin: es ist das Verzeichnis, nicht die Zeiterfassung).
 8. **MOD-12: Anhänge (PS-06), Textbausteine, Geschäftszeiten, CSAT,
    IMAP-Brücke über PS-05.**
 9. ✅ **MOD-06: 3-Way-Match** Bestellung ↔ Wareneingang (in MOD-06, Lagerzugang
@@ -195,8 +200,8 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 5. ✅ **PS-04 Dokumentextraktion** (umgesetzt — eine PS-04-Fähigkeit, kein
    Modul; erster Konsument MOD-04 Bills, die Rechnung wird eingelesen statt
    abgetippt).
-6. **MOD-11 Timer/Self-Service**, **MOD-12 Anhänge/CSAT** — Komfort in
-   bestehenden Modulen.
+6. ✅ **MOD-11 Timer/„Mein Bereich“ + MOD-05 Self-Service** (umgesetzt).
+7. **MOD-12 Anhänge/CSAT** — Komfort in einem bestehenden Modul.
 
 ## 3. Neue Module (Vorschlag)
 

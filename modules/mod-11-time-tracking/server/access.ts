@@ -60,6 +60,13 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'POST', path: '/api/projects/:id/milestones', access: 'manage' },
   { method: 'PUT', path: '/api/milestones/:id', access: 'manage' },
   { method: 'DELETE', path: '/api/milestones/:id', access: 'manage' },
+  // The timer and the reminders: starting, stopping and discarding a timer is
+  // `edit` (one's own — server/ownership.ts, as for an entry). Who is on the
+  // clock right now, the time zone and what reminders go out are the office's.
+  { method: 'GET', path: '/api/timers', access: 'manage' },
+  { method: 'PUT', path: '/api/settings/timer', access: 'manage' },
+  { method: 'GET', path: '/api/reminders', access: 'manage' },
+  { method: 'POST', path: '/api/reminders/run', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

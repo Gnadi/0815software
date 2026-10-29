@@ -218,12 +218,13 @@ const presentation: Record<string, ModulePresentation> = {
   'mod-05-employee-directory': {
     body: 'Org chart, roles, contact data, and department structure. Integrates with HR onboarding.',
     overview:
-      'A searchable directory with roles, contact data and department structure, plus a reporting hierarchy that is provably a forest — every employee has at most one manager, and nobody can manage themselves directly or transitively. The manager graph is validated on every write, and the test suite proves it stays acyclic.',
+      'A searchable directory with roles, contact data and department structure, plus a reporting hierarchy that is provably a forest — every employee has at most one manager, and nobody can manage themselves directly or transitively. The manager graph is validated on every write, and the test suite proves it stays acyclic. People keep their own record current themselves — phone and emergency contact directly, a new name or private address through HR’s approval — and private data is seen by the person and HR only.',
     features: [
       'Searchable directory of people, roles and departments',
       'Reporting hierarchy proven to be an acyclic forest',
       'Contact data and department structure',
       'Hooks for HR onboarding',
+      'Self-service: people update their own contact details; name and address changes approved by HR',
     ],
     screen: {
       variant: 'catalogue',
@@ -360,7 +361,7 @@ const presentation: Record<string, ModulePresentation> = {
   'mod-11-time-tracking': {
     body: 'Projects with a task board, daily entry, absences, flexitime, and export to payroll or billing. Works offline.',
     overview:
-      'Project allocation, daily entry, weekly approval, absences (vacation, sick leave, holidays AT/DE), flexitime and overtime, and export to payroll or billing. Time is integer minutes; money is derived, never stored — a time entry records a positive integer number of minutes, and cost is always recomputed from the rate. Works offline.',
+      'Project allocation, daily entry, weekly approval, absences (vacation, sick leave, holidays AT/DE), flexitime and overtime, and export to payroll or billing. Time is integer minutes; money is derived, never stored — a time entry records a positive integer number of minutes, and cost is always recomputed from the rate. A timer runs on the server and stops into an ordinary entry, capped at midnight and the daily maximum; reminders for an unsubmitted week or a forgotten timer go out through the notification hub; and My area shows each person their week, balances and tasks. Works offline.',
     features: [
       'Projects with board, milestones, estimates and budget',
       'Daily entry with project allocation',
@@ -368,6 +369,8 @@ const presentation: Record<string, ModulePresentation> = {
       'Leave and flexitime: approval, holidays AT/DE, balances and overtime derived',
       'Time stored as integer minutes; cost always derived',
       'Export to payroll or billing — works offline',
+      'Start/stop timer on the server, capped at midnight and the daily maximum',
+      'My area and reminders: own week, balances and tasks; unsubmitted week and forgotten timer',
     ],
     screen: {
       variant: 'table',

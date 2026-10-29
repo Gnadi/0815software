@@ -3,6 +3,7 @@ import type { DaySheet, Employee, Project } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { addDays, fmtEur, fmtHm } from '../format';
 import { Can, useCan } from '../access';
+import { TimerWidget } from './TimerWidget';
 
 interface Props {
   /**
@@ -192,6 +193,10 @@ export function DailyEntryView({ ownEmployeeId, onAuthLost }: Props) {
         <div className="resource__error mono">NO EMPLOYEE RECORD CARRIES YOUR EMAIL — ASK A MANAGER TO ADD IT</div>
       )}
 
+      {employeeId !== null && date === todayIso() && (
+        <TimerWidget key={employeeId} employeeId={employeeId} onStopped={() => void loadSheet()} onError={(err) => setError(err instanceof Error ? err.message : 'Request failed')} />
+      )}
+
       <div className="toolbar">
         <select
           className="field__input toolbar__filter"
@@ -251,7 +256,10 @@ export function DailyEntryView({ ownEmployeeId, onAuthLost }: Props) {
               <tr key={entry.id}>
                 <td>{entry.project_name}</td>
                 <td className="mono">{entry.task_name ?? '—'}</td>
-                <td className="mono">{fmtHm(entry.minutes)}</td>
+                <td className="mono" title={entry.timer ? `Timer ${entry.timer.started_at.slice(11, 16)}–${entry.timer.stopped_at.slice(11, 16)} UTC${entry.timer.capped ? ' · capped: the clock ran on past midnight or the daily maximum' : ''}` : undefined}>
+                  {fmtHm(entry.minutes)}
+                  {entry.timer && <span className={entry.timer.capped ? 'qty-neg' : 'table__id'}> ⏱{entry.timer.capped ? ' CAPPED' : ''}</span>}
+                </td>
                 <td>
                   {entry.billable ? (
                     <span className="badge badge--active">BILLABLE</span>

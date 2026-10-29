@@ -92,6 +92,8 @@ export interface TimeEntry {
   timesheet_status: TimesheetStatus;
   locked: boolean;
   created_at: string;
+  /** How the entry came from the timer, when it did: started, stopped, and whether it was capped. */
+  timer: { started_at: string; stopped_at: string; capped: boolean } | null;
 }
 
 /** A day's worth of entries for the daily-entry grid. */
@@ -392,4 +394,69 @@ export interface TaskEvent {
   actor: string;
   note: string | null;
   at: string;
+}
+
+// ── The timer, reminders and the person's own overview ─────────────────
+
+/** A running timer. Its elapsed time is derived from `started_at`, never stored. */
+export interface RunningTimer {
+  employee_id: number;
+  project_id: number;
+  project_name: string;
+  task_id: number | null;
+  task_name: string | null;
+  note: string | null;
+  /** null: the project's default. */
+  billable: boolean | null;
+  started_at: string;
+  started_by: string;
+  elapsed_minutes: number;
+}
+
+export interface TimerStopResult {
+  /** The entry the stop wrote; null when it ran under a minute. */
+  entry: TimeEntry | null;
+  minutes: number;
+  /** Ended at local midnight or the daily maximum rather than when it was stopped. */
+  capped: boolean;
+  discarded: boolean;
+}
+
+export interface TimerSettings {
+  /** Where the people work: what "today" and "midnight" mean for a timer and a reminder. */
+  timezone: string;
+  /** The PS-03 channel reminders go through. */
+  channel: string;
+  /** Remind whoever has not submitted last week, from this weekday and hour on. */
+  week_reminder: { enabled: boolean; weekday: number; hour: number };
+  /** Remind whoever has a timer running this long. */
+  timer_reminder: { enabled: boolean; after_minutes: number };
+}
+
+export type ReminderKind = 'week_not_submitted' | 'timer_running';
+
+export interface ReminderSent {
+  id: number;
+  kind: ReminderKind;
+  employee_id: number;
+  employee_name: string;
+  ref: string;
+  to_address: string;
+  channel: string;
+  sent_at: string;
+}
+
+/** "My area": one person's own figures, each derived by the function its own screen uses. */
+export interface MyOverview {
+  employee: { id: number; name: string };
+  today: string;
+  timer: RunningTimer | null;
+  week: { week_start: string; minutes: number; status: TimesheetStatus };
+  last_week: { week_start: string; minutes: number; status: TimesheetStatus };
+  /** null: no flexitime account (no weekly target). */
+  flex: { balance: number; over_cap: number; under_floor: number } | null;
+  leave: LeaveBalance;
+  pending_requests: number;
+  next_absence: { type: string; start_date: string; end_date: string; status: string } | null;
+  tasks: { open: number; overdue: number; next: BoardTask[] };
 }

@@ -5,6 +5,7 @@ import { AbsencesView } from './components/AbsencesView';
 import { DailyEntryView } from './components/DailyEntryView';
 import { EmployeesView } from './components/EmployeesView';
 import { MyTasksView } from './components/MyTasksView';
+import { MyAreaView } from './components/MyAreaView';
 import { FlexView } from './components/FlexView';
 import { ExportView } from './components/ExportView';
 import { Login } from './components/Login';
@@ -12,9 +13,10 @@ import { ProjectsView } from './components/ProjectsView';
 import { SummaryView } from './components/SummaryView';
 import { TimesheetsView } from './components/TimesheetsView';
 
-export type View = 'daily' | 'my-tasks' | 'absences' | 'flex' | 'projects' | 'employees' | 'timesheets' | 'summary' | 'export';
+export type View = 'my-area' | 'daily' | 'my-tasks' | 'absences' | 'flex' | 'projects' | 'employees' | 'timesheets' | 'summary' | 'export';
 
 const NAV: { view: View; label: string }[] = [
+  { view: 'my-area', label: 'My Area' },
   { view: 'daily', label: 'Daily Entry' },
   { view: 'my-tasks', label: 'My Tasks' },
   { view: 'timesheets', label: 'Timesheets' },
@@ -31,7 +33,7 @@ export function App() {
   const [loggedOut, setLoggedOut] = useState(false);
   const [access, setAccess] = useState<AccessLevel>('view');
   const [ownEmployeeId, setOwnEmployeeId] = useState<number | null>(null);
-  const [view, setView] = useState<View>('daily');
+  const [view, setView] = useState<View>('my-area');
 
   const load = useCallback(async () => {
     try {
@@ -52,7 +54,7 @@ export function App() {
 
   const onAuthLost = useCallback(() => {
     setReady(false);
-    setView('daily');
+    setView('my-area');
     setLoggedOut(true);
   }, []);
 
@@ -95,6 +97,7 @@ export function App() {
           </div>
         </aside>
         <main className="main">
+          {view === 'my-area' && <MyAreaView onNavigate={setView} onAuthLost={onAuthLost} />}
           {view === 'daily' && <DailyEntryView ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}
           {view === 'timesheets' && <TimesheetsView ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}
           {view === 'absences' && <AbsencesView ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}

@@ -742,3 +742,27 @@ select.field__input {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Self-service forms ─────────────────────────────────────────────── */
+.editor__meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.editbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+  margin: 10px 0 18px;
+}
+.editbar .field__input {
+  width: auto;
+  flex: 1 1 200px;
+  min-width: 200px;
+}
+.btn--danger {
+  border-color: var(--danger, #c0392b);
+  color: var(--danger, #c0392b);
+}

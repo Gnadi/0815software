@@ -9,6 +9,7 @@ import { buildLoginVerifier, loginModeOf } from './sso.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
+import { startReminderScheduler } from './reminders.js';
 
 const config = configFromEnv();
 assertProductionConfig([
@@ -28,11 +29,14 @@ const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
-const app = createApp({ db, hardening: hardeningFromEnv(), auth: config.auth, staticDir, platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso), loginMode: loginModeOf(config.sso), serviceToken: config.platform.serviceToken, shellOrigins: config.shellOrigins });
+const platform = buildPlatform(config.platform);
+const app = createApp({ db, hardening: hardeningFromEnv(), auth: config.auth, staticDir, platform, verifyLogin: buildLoginVerifier(config.sso), loginMode: loginModeOf(config.sso), serviceToken: config.platform.serviceToken, shellOrigins: config.shellOrigins });
 
 app.listen(config.port, () => {
   console.log(`[mod-11] time tracking API on http://localhost:${config.port}`);
   if (staticDir) console.log(`[mod-11] serving client from ${staticDir}`);
+  // Reminders tick only with PS-03 wired; what is sent is switched on in Settings.
+  startReminderScheduler(db, platform, config.reminderTickSeconds);
   if (config.auth.password === 'admin') {
     console.warn('[mod-11] WARNING: using default credentials (admin/admin) — set ADMIN_USERNAME/ADMIN_PASSWORD');
   }

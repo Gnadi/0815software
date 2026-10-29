@@ -216,6 +216,11 @@ is intentionally out of scope.
 
 ## Features
 
+- **My Area** — the signed-in person's own week and last week, flexitime
+  balance, leave left, pending requests and next due tasks, with the timer
+  on top; each figure is the one its own screen shows.
+- **Timer** — start on a project (and task), stop into an ordinary entry;
+  runs on the server. See [The timer](#the-timer).
 - **Daily Entry** — pick an employee and a day, add rows fast (flexible
   duration input, live billable-amount preview, per-day total and
   remaining-to-cap). Approved days are read-only. The in-progress row is
@@ -258,6 +263,8 @@ All via environment variables (see [`.env.example`](.env.example)):
 | `SESSION_SECRET`    | `dev-secret-change-me` | HMAC key for the session cookie     |
 | `SESSION_TTL_HOURS` | `12`                   | Session lifetime                    |
 | `COOKIE_SECURE`     | `false`                | Set `true` behind HTTPS             |
+| `NOTIFICATION_URL`  | —                      | PS-03 Notification Hub: send the reminders switched on in Settings |
+| `REMINDER_TICK_SECONDS` | `300`              | How often the reminder tick looks for what is due (30–86400) |
 
 The server prints a warning on startup while the default password is in
 use. The dev server does not load `.env` files by itself — export the
@@ -336,6 +343,20 @@ GET    /api/leave/settings
 PUT    /api/leave/settings                {country: AT|DE, extra_holidays: [{date, name}],
                                            flex_cap_minutes, flex_floor_minutes, daily_max_minutes}  (manage)
 
+GET    /api/my-overview                   the signed-in person's week, last week, flexitime, leave, tasks, timer
+
+GET    /api/timer                         ?employee_id= → the running timer or null (own without employee_id)
+POST   /api/timer/start                   {employee_id?, project_id, task_id?, note?, billable?}  stops a running one first
+PUT    /api/timer                         {employee_id?, project_id, task_id?, note?, billable?}  what it is for, clock unchanged
+POST   /api/timer/stop                    {employee_id?, stopped_at?} → {entry, minutes, capped, discarded}
+POST   /api/timer/discard                 {employee_id?}  nothing booked
+GET    /api/timers                        everyone on the clock now  (manage)
+GET    /api/settings/timer                time zone, PS-03 channel, reminders
+PUT    /api/settings/timer                {timezone, channel, week_reminder: {enabled, weekday, hour},
+                                           timer_reminder: {enabled, after_minutes}}  (manage)
+GET    /api/reminders                     sent (latest 100) and due now  (manage)
+POST   /api/reminders/run                 send what is due now  (manage; 501 without NOTIFICATION_URL)
+
 GET    /api/flex/account                  ?employee_id=&as_of= → balance, overtime, months  (own without employee_id)
 GET    /api/flex/days                     ?employee_id=&month=YYYY-MM → each day: target, due, worked, diff
 GET    /api/flex/overview                 everyone with an account, as of today
@@ -387,8 +408,11 @@ these, that's commissioned work — exactly the kind 0815software does:
 - **Delegates and team leads** — below `manage` a person records only their
   own time (see [Own time only](#own-time-only)); "may record for my team" is
   not a level, and would be an extension of `server/ownership.ts`.
-- **A running timer / punch clock** — you enter durations, you don't
-  start/stop a stopwatch.
+- **A punch clock** — the timer books time to projects; there is no
+  separate clock-in/clock-out record of attendance, no terminal, no
+  geofencing, and breaks are not deducted automatically.
+- **Reminders beyond the two** — last week not submitted and a timer left
+  running; no daily "you booked nothing today", no digest for managers.
 - **Full offline PWA / background sync** — the app is local-first and
   keeps an in-progress row locally, but there is no Service Worker and no
   offline write queue (see the "Works offline" section).
@@ -441,7 +465,7 @@ person signs in as themselves and gets the level PS-01 grants them here:
 | `module:time-tracking:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
 
 `module:*:<level>` grants a level in every module. Reads need `view`, any other
-method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) reserves approving and rejecting weeks, deciding leave, granting entitlements, the holiday calendar, working-time models and flexitime bookings, planning tasks (assignee, due date, estimate, milestone) and milestones, and maintaining employees, projects and tasks (including importing an offer as a project), for `manage`. A refused request answers **403**
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) reserves approving and rejecting weeks, deciding leave, granting entitlements, the holiday calendar, working-time models and flexitime bookings, planning tasks (assignee, due date, estimate, milestone) and milestones, maintaining employees, projects and tasks (including importing an offer as a project), and who is on the clock, the time zone and the reminders, for `manage`. A refused request answers **403**
 `{ error, required, access }`; `GET /api/me` reports the caller's `access`.
 Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
 manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
@@ -524,6 +548,51 @@ Pinned by `test/planning.test.ts` (planning and its refusals, the budget,
 who moves what and the event trail, deactivated tasks, spent and remaining,
 overdue, milestones reached and late, the portfolio figures, my tasks, kept
 history, and an existing database gaining the columns in place).
+
+## The timer
+
+A start/stop clock that writes ordinary time entries (`server/timer.ts`):
+
+- **On the server.** A running timer is a row (`timers`, one per person):
+  it survives a reload, a closed tab and a switch of device. How long it
+  has run is derived from `started_at`, never stored.
+- **One per person.** Starting another stops the running one first, in the
+  same transaction.
+- **The stop is an entry like any other** — the daily cap, an approved week
+  staying locked (the stop is refused with 409 and the timer kept, to be
+  discarded), own time only below `manage` (`server/ownership.ts`). The
+  entry keeps `timer: {started_at, stopped_at, capped}`; the daily grid
+  marks it ⏱.
+- **Local days.** The entry is dated the day the timer started where the
+  people work — the time zone in Settings (`Europe/Vienna` by default).
+- **A forgotten timer is capped, and says so**: at local midnight of the day
+  it started and at the daily maximum (`daily_max_minutes`, the ten hours of
+  AZG / ArbZG, from the calendar settings). A person who forgot may also
+  say when they finished (`stopped_at`: not before the start, not in the
+  future).
+- **Under a minute books nothing** — the log line stays.
+- Every start, stop and discard is logged with the person (`timer_events`).
+
+**Reminders** (`server/reminders.ts`) go through PS-03 — with
+`NOTIFICATION_URL` set, and each kind switched on in Settings (`manage`):
+*last week not submitted*, from a weekday and hour (local), to whoever
+still has it as a draft and booked time or had a weekly target; and *timer
+still running* after a set time. Each goes once per person and occasion
+(`reminders_sent`, and PS-03's idempotency key); a failed send is tried on
+the next tick. The tick runs in-process every `REMINDER_TICK_SECONDS` while
+the server is up; *Send due now* runs it at once.
+
+**My area** (`server/my-area.ts`) puts the person's own figures on one
+screen; each comes from the function its own screen reads, so they can
+never disagree.
+
+Pinned by `test/timer.test.ts` (start/stop/entry, one per person, under a
+minute, the local day across the clock change, the midnight and daily
+caps, the stop time, the locked week, own only, editing a running timer,
+the time zone), `test/reminders.test.ts` (who is reminded and who not, the
+weekday and hour, once, failure and retry, standalone, the running timer,
+the office's routes) and `test/my-area.test.ts` (the figures against their
+own screens' functions, own only, no flexitime account).
 
 ## Flexitime and overtime
 

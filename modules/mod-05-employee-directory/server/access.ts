@@ -23,6 +23,17 @@ export const MODULE_SLUG = 'employee-directory';
 export const ACCESS_RULES: readonly AccessRule[] = [
   // Signing out is never refused, whatever the level.
   { method: 'POST', path: '/api/logout', access: 'view' },
+  // Self-service: one's own record, whatever the level — keeping one's own
+  // phone number or emergency contact current is not editing the directory.
+  // The paths carry no id; server/profile.ts acts on the signed-in person only.
+  { method: 'PUT', path: '/api/me/profile', access: 'view' },
+  { method: 'POST', path: '/api/me/profile/requests', access: 'view' },
+  { method: 'POST', path: '/api/me/profile/requests/:id/withdraw', access: 'view' },
+  // Private data and the change requests are HR's to see and decide (`edit`,
+  // the level that maintains records); nobody decides their own request
+  // (server/profile.ts, mayDecide).
+  { method: 'GET', path: '/api/profile-requests', access: 'edit' },
+  { method: 'GET', path: '/api/employees/:id/private', access: 'edit' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

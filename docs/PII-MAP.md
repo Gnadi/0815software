@@ -47,6 +47,19 @@ bookings block deleting the employee, since working-time and leave records have 
 § 16 ArbZG); erase the person's name and email on the employee row instead
 once that period has passed.
 
+**Private data in MOD-05.** Self-service adds a person's private phone, private
+address and emergency contact (`employee_private`) — seen by the person and HR
+(`edit`), never by colleagues, not in the directory CSV. The change history
+(`profile_changes`) and the PS-07 events record field names and people, never
+values; a name or address change request keeps the value asked for, because
+that is what HR decided on. Lever: `DELETE /api/employees/:id/private` (HR)
+erases the private data and blanks the address in requests, once nothing needs
+it — typically after offboarding.
+
+**Reminders in MOD-11.** A reminder (unsubmitted week, timer left running) is a
+PS-03 message to the employee's email; `reminders_sent` keeps the address, the
+occasion and when — PS-03 retention covers the message body.
+
 ## Subject access & portability (Art. 15 / 20)
 
 "Send me everything you hold about me" arrives with a one-month deadline, and
