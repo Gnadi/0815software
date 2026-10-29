@@ -7,30 +7,41 @@ import { EmployeeDetailView } from './components/EmployeeDetail';
 import { Login } from './components/Login';
 import { OnboardingView } from './components/OnboardingView';
 import { OrgChartView } from './components/OrgChartView';
+import { MyProfileView } from './components/MyProfileView';
+import { ProfileRequestsView } from './components/ProfileRequestsView';
 
 export type View =
   | { name: 'directory' }
   | { name: 'employee'; id: number }
   | { name: 'orgchart' }
   | { name: 'departments' }
-  | { name: 'onboarding' };
+  | { name: 'onboarding' }
+  | { name: 'profile' }
+  | { name: 'requests' };
 
-const NAV: { view: View; label: string }[] = [
+/** `level`: the nav item shows from that level on — the server refuses below it anyway. */
+const NAV: { view: View; label: string; level?: AccessLevel }[] = [
+  { view: { name: 'profile' }, label: 'My Profile' },
   { view: { name: 'directory' }, label: 'Directory' },
   { view: { name: 'orgchart' }, label: 'Org Chart' },
   { view: { name: 'departments' }, label: 'Departments' },
   { view: { name: 'onboarding' }, label: 'Onboarding' },
+  { view: { name: 'requests' }, label: 'Change Requests', level: 'edit' },
 ];
+const RANK: Record<AccessLevel, number> = { view: 0, edit: 1, manage: 2 };
 
 export function App() {
   const [ready, setReady] = useState(false);
   const [loggedOut, setLoggedOut] = useState(false);
   const [access, setAccess] = useState<AccessLevel>('view');
+  const [ownEmployeeId, setOwnEmployeeId] = useState<number | null>(null);
   const [view, setView] = useState<View>({ name: 'directory' });
 
   const load = useCallback(async () => {
     try {
-      setAccess((await api.me()).access);
+      const me = await api.me();
+      setAccess(me.access);
+      setOwnEmployeeId(me.employee_id);
       setReady(true);
       setLoggedOut(false);
     } catch (err) {
@@ -68,7 +79,7 @@ export function App() {
             <span>EMPLOYEE DIRECTORY</span>
           </div>
           <nav className="sidebar__nav">
-            {NAV.map(({ view: target, label }) => (
+            {NAV.filter((n) => RANK[access] >= RANK[n.level ?? 'view']).map(({ view: target, label }) => (
               <button
                 key={target.name}
                 className={`sidebar__item mono ${target.name === activeNav ? 'is-active' : ''}`}
@@ -103,6 +114,8 @@ export function App() {
           {view.name === 'orgchart' && <OrgChartView onOpen={openEmployee} onAuthLost={onAuthLost} />}
           {view.name === 'departments' && <DepartmentsView onAuthLost={onAuthLost} />}
           {view.name === 'onboarding' && <OnboardingView onOpen={openEmployee} onAuthLost={onAuthLost} />}
+          {view.name === 'profile' && <MyProfileView onAuthLost={onAuthLost} />}
+          {view.name === 'requests' && <ProfileRequestsView ownEmployeeId={ownEmployeeId} onOpen={openEmployee} onAuthLost={onAuthLost} />}
         </main>
       </div>
     </AccessProvider>

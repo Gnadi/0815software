@@ -7,6 +7,10 @@ import type {
   OnboardingFlags,
   OnboardingLists,
   OrgNode,
+  OwnProfile,
+  PrivateData,
+  ProfileChange,
+  ProfileRequest,
 } from '../shared/types';
 
 export class ApiError extends Error {
@@ -57,7 +61,20 @@ export const api = {
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
   /** Which credentials this deployment accepts — readable before signing in. */
   authMode: () => request<AuthMode>('/api/auth-mode'),
-  me: () => request<{ username: string; access: AccessLevel }>('/api/me'),
+  me: () => request<{ username: string; access: AccessLevel; employee_id: number | null }>('/api/me'),
+
+  // Self-service (server/profile.ts): one's own record; HR's side below.
+  myProfile: () => request<OwnProfile>('/api/me/profile'),
+  updateMyProfile: (values: Record<string, unknown>) => request<OwnProfile>('/api/me/profile', { method: 'PUT', body: JSON.stringify(values) }),
+  requestChange: (values: { field: 'name' | 'address'; value: string; reason?: string }) => request<ProfileRequest>('/api/me/profile/requests', post(values)),
+  withdrawChange: (id: number) => request<ProfileRequest>(`/api/me/profile/requests/${id}/withdraw`, post()),
+  profileRequests: (status?: string) => request<{ requests: ProfileRequest[] }>(`/api/profile-requests${status ? `?status=${status}` : ''}`),
+  approveChange: (id: number) => request<ProfileRequest>(`/api/profile-requests/${id}/approve`, post()),
+  rejectChange: (id: number, note: string) => request<ProfileRequest>(`/api/profile-requests/${id}/reject`, post({ note })),
+  privateData: (id: number) => request<{ private: PrivateData; changes: ProfileChange[] }>(`/api/employees/${id}/private`),
+  updatePrivateData: (id: number, values: Record<string, unknown>) =>
+    request<{ private: PrivateData; changes: ProfileChange[] }>(`/api/employees/${id}/private`, { method: 'PUT', body: JSON.stringify(values) }),
+  erasePrivateData: (id: number) => request<{ private: PrivateData; changes: ProfileChange[] }>(`/api/employees/${id}/private`, { method: 'DELETE' }),
 
   departments: () => request<{ departments: DepartmentRow[] }>('/api/departments'),
   createDepartment: (values: Record<string, unknown>) =>

@@ -180,6 +180,7 @@ export function deleteProject(db: Database.Database, id: number): void {
     .prepare('SELECT COUNT(*) AS n FROM task_events e JOIN tasks t ON t.id = e.task_id WHERE t.project_id = ?')
     .get(id) as { n: number };
   if (moved.n > 0) throw new DomainError(409, 'Project has a history on the board and cannot be deleted — archive it instead');
+  if (db.prepare('SELECT 1 FROM timers WHERE project_id = ?').get(id)) throw new DomainError(409, 'A timer is running on this project — stop or discard it first');
   db.prepare('DELETE FROM projects WHERE id = ?').run(id); // cascades to tasks (all unused)
 }
 
@@ -209,6 +210,7 @@ export function deleteTask(db: Database.Database, id: number): void {
   // Its moves across the board are history; a task that has moved stays.
   const moved = db.prepare('SELECT COUNT(*) AS n FROM task_events WHERE task_id = ?').get(id) as { n: number };
   if (moved.n > 0) throw new DomainError(409, 'Task has a history on the board and cannot be deleted — deactivate it instead');
+  if (db.prepare('SELECT 1 FROM timers WHERE task_id = ?').get(id)) throw new DomainError(409, 'A timer is running on this task — stop or discard it first');
   db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
 }
 
@@ -280,10 +282,12 @@ export function deleteEmployee(db: Database.Database, id: number): void {
   const leave = db
     .prepare(
       `SELECT (SELECT COUNT(*) FROM leave_requests WHERE employee_id = ?) + (SELECT COUNT(*) FROM leave_entitlements WHERE employee_id = ?)
-            + (SELECT COUNT(*) FROM work_schedules WHERE employee_id = ?) + (SELECT COUNT(*) FROM flex_entries WHERE employee_id = ?) AS n`,
+            + (SELECT COUNT(*) FROM work_schedules WHERE employee_id = ?) + (SELECT COUNT(*) FROM flex_entries WHERE employee_id = ?)
+            + (SELECT COUNT(*) FROM timers WHERE employee_id = ?) + (SELECT COUNT(*) FROM timer_events WHERE employee_id = ?)
+            + (SELECT COUNT(*) FROM reminders_sent WHERE employee_id = ?) AS n`,
     )
-    .get(id, id, id, id) as { n: number };
-  if (leave.n > 0) throw new DomainError(409, 'Employee has leave or working-time records and cannot be deleted');
+    .get(id, id, id, id, id, id, id) as { n: number };
+  if (leave.n > 0) throw new DomainError(409, 'Employee has leave, working-time or timer records and cannot be deleted');
   db.prepare('DELETE FROM employees WHERE id = ?').run(id);
 }
 
@@ -322,6 +326,9 @@ interface EntryStored {
   billable: number;
   note: string | null;
   created_at: string;
+  timer_started_at: string | null;
+  timer_stopped_at: string | null;
+  timer_capped: number;
 }
 
 /** Join an entry row with its project/employee/task labels and derived money. */
@@ -357,6 +364,7 @@ function toEntry(db: Database.Database, row: EntryStored): TimeEntry {
     timesheet_status: status,
     locked: status === 'approved',
     created_at: row.created_at,
+    timer: row.timer_started_at && row.timer_stopped_at ? { started_at: row.timer_started_at, stopped_at: row.timer_stopped_at, capped: row.timer_capped === 1 } : null,
   };
 }
 
@@ -603,7 +611,7 @@ function weekEntries(db: Database.Database, employeeId: number, weekStart: strin
   );
 }
 
-function timesheetRow(db: Database.Database, employeeId: number, weekStart: string): TimesheetRow {
+export function timesheetRow(db: Database.Database, employeeId: number, weekStart: string): TimesheetRow {
   const entries = weekEntries(db, employeeId, weekStart);
   return {
     employee_id: employeeId,

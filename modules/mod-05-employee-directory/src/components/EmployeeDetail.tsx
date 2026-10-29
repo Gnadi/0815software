@@ -3,6 +3,7 @@ import type { EmployeeDetail } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDate } from '../format';
 import { EmployeeModal } from './EmployeeModal';
+import { PrivateDataPanel } from './PrivateDataPanel';
 import { Can } from '../access';
 
 interface Props {
@@ -130,6 +131,10 @@ export function EmployeeDetailView({ id, onBack, onOpen, onAuthLost }: Props) {
           <div className="stat__text mono">{fmtDate(employee.start_date)}</div>
         </div>
       </div>
+
+      <Can>
+        <PrivateDataPanel employeeId={employee.id} offboarded={offboarded} onError={(err) => setError(err instanceof Error ? err.message : 'Request failed')} />
+      </Can>
 
       <div className="section-title mono">REPORTS TO (UP TO ROOT)</div>
       {employee.manager_chain.length === 0 ? (

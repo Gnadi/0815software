@@ -570,12 +570,14 @@
         "required": [],
         "optional": [
           "ps-01-identity",
+          "ps-03-notification-hub",
           "ps-07-audit-log"
         ]
       },
       "env": {
         "required": [],
         "optional": [
+          "REMINDER_TICK_SECONDS",
           "SHELL_ORIGIN"
         ],
         "secrets": [

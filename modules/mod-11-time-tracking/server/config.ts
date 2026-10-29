@@ -17,6 +17,8 @@ export interface ServerConfig {
   auth: AuthConfig;
   platform: PlatformConfig;
   sso: SsoConfig;
+  /** How often the reminder tick looks for what is due (server/reminders.ts). */
+  reminderTickSeconds: number;
 }
 
 /**
@@ -55,6 +57,7 @@ function numberFromEnv(
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
     port: numberFromEnv('PORT', env.PORT, 3011, 1, 65535),
+    reminderTickSeconds: numberFromEnv('REMINDER_TICK_SECONDS', env.REMINDER_TICK_SECONDS, 300, 30, 86400),
     databasePath: env.DATABASE_PATH ?? './data.db',
     shellOrigins: shellOriginsFromEnv(env.SHELL_ORIGIN),
     auth: {
@@ -71,6 +74,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     },
     platform: {
       auditUrl: env.AUDIT_URL || undefined,
+      // PS-03 Notification Hub — when set, the reminders switched on in
+      // Settings (last week not submitted, a timer left running) are sent.
+      notificationUrl: env.NOTIFICATION_URL || undefined,
       // MOD-13 Offers — when set, an accepted offer can be planned as a project
       // to book time against. Unset, this module has no notion of offers and
       // the import route says so rather than failing obscurely.
