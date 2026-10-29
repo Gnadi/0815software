@@ -192,6 +192,24 @@ paths:
       responses:
         '201': { description: Success }
         '401': { description: Authentication required }
+  /api/extract/invoice:
+    post:
+      summary: Read a supplier invoice into fields
+      description: >-
+        `{content_base64, content_type?, filename?} | {text}`, plus `own` (the caller's names,
+        VAT IDs and IBANs, never taken as the supplier's) and an optional `provider`. An
+        e-invoice (CII, UBL, ebInterface — also embedded in a ZUGFeRD PDF) is read exactly; a
+        generated PDF or text by labelled patterns (or the named model); a scan only by a
+        configured vision model, else 422. Returns fields with a confidence each, lines,
+        warnings and the document's SHA-256. Saves nothing.
+      tags: [ps-04-ai-platform]
+      security: [{serviceToken: []}, {adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '413': { description: Document too large (10 MB) }
+        '415': { description: Not a PDF, XML, text or image }
+        '422': { description: Not readable without a vision model, or not an e-invoice }
 components:
   securitySchemes:
     serviceToken:

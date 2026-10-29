@@ -175,6 +175,33 @@ export function openDb(path: string): Database.Database {
   // every answer is kept — append-only, like everything a payment depends on.
   if (!columns('bills').includes('po_number')) db.exec('ALTER TABLE bills ADD COLUMN po_number TEXT');
   if (!columns('bills').includes('net_cents')) db.exec('ALTER TABLE bills ADD COLUMN net_cents INTEGER CHECK (net_cents IS NULL OR net_cents >= 0)');
+
+  // ── Reading a bill from its document (server/bill-reading.ts) ─────────
+  if (!columns('bills').includes('read_from')) db.exec('ALTER TABLE bills ADD COLUMN read_from TEXT');
+  if (!columns('bills').includes('document_sha256')) db.exec('ALTER TABLE bills ADD COLUMN document_sha256 TEXT');
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_bills_document ON bills (document_sha256);
+    -- The supplier's lines, as invoiced (BillLine in shared/types.ts).
+    CREATE TABLE IF NOT EXISTS bill_lines (
+      id               INTEGER PRIMARY KEY AUTOINCREMENT,
+      bill_id          INTEGER NOT NULL REFERENCES bills(id),
+      position         INTEGER NOT NULL CHECK (position >= 1),
+      description      TEXT    NOT NULL,
+      item_id          TEXT,
+      quantity         REAL,
+      unit_code        TEXT,
+      unit_price_cents INTEGER,
+      net_cents        INTEGER NOT NULL,
+      vat_rate         REAL,
+      UNIQUE (bill_id, position)
+    );
+    CREATE TABLE IF NOT EXISTS bill_reading_settings (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      settings   TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT
+    );
+  `);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_bills_po ON bills (po_number);
     CREATE TABLE IF NOT EXISTS bill_match_checks (
@@ -201,6 +228,10 @@ export function openDb(path: string): Database.Database {
       at       TEXT    NOT NULL
     );
   `);
+
+  // The line-by-line answer of a check: how many lines hold the bill, and MOD-06's verdicts.
+  if (!columns('bill_match_checks').includes('line_issues')) db.exec('ALTER TABLE bill_match_checks ADD COLUMN line_issues INTEGER NOT NULL DEFAULT 0');
+  if (!columns('bill_match_checks').includes('lines')) db.exec("ALTER TABLE bill_match_checks ADD COLUMN lines TEXT NOT NULL DEFAULT '[]'");
 
   // The PS-11 Customers party this customer is, when the master service is
   // wired. Null in a standalone deployment, which is why it is nullable.

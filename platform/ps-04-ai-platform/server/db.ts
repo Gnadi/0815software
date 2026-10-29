@@ -78,6 +78,28 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 2,
+    name: 'extractions',
+    up(db) {
+      // That a document was read and how — never what it said (extraction.ts).
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS extractions (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_sha256 TEXT    NOT NULL,
+        source          TEXT    NOT NULL,   -- e-invoice | text | model
+        syntax          TEXT,               -- cii | ubl | ebinterface
+        embedded        INTEGER NOT NULL DEFAULT 0,
+        provider        TEXT    NOT NULL,
+        model           TEXT,
+        fields_found    TEXT    NOT NULL,   -- comma-separated field names
+        warning_count   INTEGER NOT NULL,
+        created_at      TEXT    NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_extractions_at ON extractions(created_at, id);
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

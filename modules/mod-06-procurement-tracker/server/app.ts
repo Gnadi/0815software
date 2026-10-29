@@ -1,7 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
-import { PO_STATUSES, RFQ_STATUSES, type FieldError, type PoStatus, type RfqStatus } from '../shared/types.js';
+import { PO_STATUSES, RFQ_STATUSES, type FieldError, type InvoicedLine, type PoStatus, type RfqStatus } from '../shared/types.js';
 import { APPROVAL_RULES, APPROVAL_TIERS } from './approval-config.js';
 import {
   accessOf,
@@ -394,8 +394,25 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     if (poNumber === '' || poNumber.length > 40) errors.push({ field: 'po_number', message: 'po_number is required' });
     const invoiced = Number(input.invoiced_net_cents);
     if (!Number.isInteger(invoiced) || invoiced < 0) errors.push({ field: 'invoiced_net_cents', message: 'invoiced_net_cents is whole cents, 0 or more' });
+    // Optional: the invoice's lines, so far — matched line by line (server/receiving.ts).
+    const lines: InvoicedLine[] = [];
+    if (input.lines !== undefined) {
+      if (!Array.isArray(input.lines) || input.lines.length > 1000) errors.push({ field: 'lines', message: 'lines is a list of at most 1000' });
+      else
+        input.lines.forEach((raw: unknown, i: number) => {
+          const l = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+          const description = typeof l.description === 'string' ? l.description.trim().slice(0, 300) : '';
+          const itemId = typeof l.item_id === 'string' && l.item_id.trim() !== '' ? l.item_id.trim().slice(0, 64) : null;
+          const quantity = l.quantity === null || l.quantity === undefined ? null : Number(l.quantity);
+          const net = Number(l.net_cents);
+          if (description === '' && itemId === null) errors.push({ field: `lines[${i}]`, message: 'A line has a description or an article number' });
+          if (quantity !== null && !Number.isFinite(quantity)) errors.push({ field: `lines[${i}].quantity`, message: 'quantity is a number' });
+          if (!Number.isInteger(net)) errors.push({ field: `lines[${i}].net_cents`, message: 'net_cents is whole cents' });
+          lines.push({ item_id: itemId, description, quantity, net_cents: net });
+        });
+    }
     if (errors.length > 0) fail(errors);
-    res.json(matchVerdict(db, poNumber, invoiced));
+    res.json(matchVerdict(db, poNumber, invoiced, lines));
   });
 
   app.use('/api', requireAuth(auth));

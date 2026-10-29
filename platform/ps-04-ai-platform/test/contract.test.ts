@@ -54,5 +54,10 @@ describe('AiClient ↔ PS-04 contract', () => {
 
     const agent = await ai.runAgent({ goal: 'summarize the thread' });
     expect(typeof agent.output).toBe('string');
+
+    const read = await ai.extractInvoice({ text: 'Rechnungsnummer R-1\nGesamtbetrag 12,00\nFällig am 30.11.2026', own: { names: ['Kunde AG'] } });
+    expect(read).toMatchObject({ source: 'text', syntax: null, embedded: false });
+    expect(read.fields).toMatchObject({ invoice_number: 'R-1', gross_cents: 1200, due_date: '2026-11-30' });
+    expect(read.document_sha256).toMatch(/^[0-9a-f]{64}$/);
   });
 });

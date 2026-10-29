@@ -47,6 +47,9 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   // Paying a bill the three-way match holds — more than was received, or
   // than was ordered — is a decision someone answers for, with a reason.
   { method: 'POST', path: '/api/bills/:id/release-match', access: 'manage' },
+  // Whether supplier invoices may be sent to an outside model to be read is
+  // a data-protection decision, not daily work.
+  { method: 'PUT', path: '/api/settings/bill-reading', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

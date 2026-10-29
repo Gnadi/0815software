@@ -116,13 +116,14 @@ export const platform: PlatformService[] = [
     port: 4004,
     source: `${REPO}/ps-04-ai-platform`,
     overview:
-      'One API for AI features, provider-agnostic. The default provider is a deterministic built-in mock that makes zero external calls, so chat, embeddings and RAG are reproducible offline and in CI. Real adapters for Anthropic, OpenAI, Google Gemini, Kimi (Moonshot AI) and Ollama (the open-source, local option) activate only when configured and requested by name; an unconfigured vendor falls back to the mock. Prompts are versioned with an active-version pointer, embeddings are cached, and RAG offers cosine search over ingested documents.',
+      'One API for AI features, provider-agnostic. The default provider is a deterministic built-in mock that makes zero external calls, so chat, embeddings and RAG are reproducible offline and in CI. Real adapters for Anthropic, OpenAI, Google Gemini, Kimi (Moonshot AI) and Ollama (the open-source, local option) activate only when configured and requested by name; an unconfigured vendor falls back to the mock. Prompts are versioned with an active-version pointer, embeddings are cached, and RAG offers cosine search over ingested documents. It also reads supplier invoices into fields: an e-invoice (XRechnung, ZUGFeRD, UBL, ebInterface) exactly, a printed PDF from its labels, a scan only with a vision model — and without one it refuses rather than invent an invoice.',
     responsibilities: [
       'Chat completions with an append-only call log and idempotency',
       'Deterministic mock provider by default; falls back to it when a vendor is unconfigured',
       'Real adapters for Anthropic, OpenAI, Gemini, Kimi and Ollama (open-source, local)',
       'Embeddings from a local model, cached by (model, input hash); RAG cosine search',
       'Versioned prompt templates with an active-version pointer',
+      'Invoice extraction: e-invoices read exactly, printed PDFs from their labels, scans by a vision model',
     ],
     api: [
       'POST /api/chat/completions · POST /api/embeddings',
@@ -130,8 +131,9 @@ export const platform: PlatformService[] = [
       'POST /api/prompts/:key/render',
       'POST /api/rag/documents · POST /api/rag/search',
       'GET /api/completions',
+      'POST /api/extract/invoice',
     ],
-    consumers: 'Any module that needs chat, embeddings, retrieval or prompts.',
+    consumers: 'Any module that needs chat, embeddings, retrieval or prompts — MOD-12 for ticket replies, MOD-04 to read supplier invoices into bills.',
   },
   {
     n: 'PS-05',

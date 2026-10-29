@@ -23,7 +23,11 @@ let bob: number;
 let project: number;
 
 const as = (access: AccessLevel, actor: string) => `${COOKIE_NAME}=${createToken(auth, actor, Date.now(), access)}`;
-const entry = (employeeId: number) => ({ employee_id: employeeId, project_id: project, entry_date: '2026-10-19', minutes: 60 });
+// A week the seed never touches: it writes the three weeks before the day it
+// runs, so a fixed recent week turned into a seeded (submitted) one as the
+// calendar caught up with it.
+const WEEK = '2025-03-03';
+const entry = (employeeId: number) => ({ employee_id: employeeId, project_id: project, entry_date: WEEK, minutes: 60 });
 
 beforeEach(() => {
   db = openDb(':memory:');
@@ -60,8 +64,8 @@ describe('an editor records only their own time', () => {
 
   it('submits only their own week', async () => {
     await request(app).post('/api/entries').set('Cookie', annaEdits()).send(entry(anna)).expect(201);
-    await request(app).post('/api/timesheets/submit').set('Cookie', annaEdits()).send({ employee_id: bob, week_start: '2026-10-19' }).expect(403);
-    await request(app).post('/api/timesheets/submit').set('Cookie', annaEdits()).send({ employee_id: anna, week_start: '2026-10-19' }).expect(200);
+    await request(app).post('/api/timesheets/submit').set('Cookie', annaEdits()).send({ employee_id: bob, week_start: WEEK }).expect(403);
+    await request(app).post('/api/timesheets/submit').set('Cookie', annaEdits()).send({ employee_id: anna, week_start: WEEK }).expect(200);
   });
 
   it('is told, not guessed, when no employee carries their email', async () => {

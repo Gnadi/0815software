@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { BillMatchState, BillRow, BillStatus, CreditorRow, FieldError, PaymentConfig } from '../../shared/types';
-import { api, ApiError, type PayablesTotals } from '../api';
+import type { BillLine, BillMatchState, BillProposal, BillRow, BillStatus, CreditorRow, FieldError, PaymentConfig } from '../../shared/types';
+import { api, ApiError, type BillReadingState, type PayablesTotals } from '../api';
 import { centsToInput, fmtEur, parseEurToCents } from '../format';
 import { Can } from '../access';
 
@@ -31,6 +31,8 @@ interface BillForm {
   note: string;
   po_number: string;
   net: string;
+  /** The supplier's lines — read from the document or kept from the bill; never typed here. */
+  lines: BillLine[];
 }
 
 const EMPTY_BILL: BillForm = {
@@ -44,6 +46,7 @@ const EMPTY_BILL: BillForm = {
   note: '',
   po_number: '',
   net: '',
+  lines: [],
 };
 
 /** The three-way match, in one word; the reason is in the tooltip. */
@@ -53,6 +56,25 @@ const MATCH_LABEL: Record<Exclude<BillMatchState, 'not_linked'>, { text: string;
   held: { text: 'HELD', cls: 'badge--overdue' },
   released: { text: 'RELEASED', cls: 'badge--bill-scheduled' },
 };
+
+/** How a bill was read, for people: "e-invoice:cii:pdf" → "ZUGFeRD / Factur-X (CII in PDF)". */
+export function readFromText(readFrom: string): string {
+  if (readFrom === 'text') return 'the document text';
+  if (readFrom.startsWith('model:')) return `a model (${readFrom.slice(6)}) — check every field`;
+  const [, syntax, pdf] = readFrom.split(':');
+  const name = syntax === 'ubl' ? 'UBL' : syntax === 'ebinterface' ? 'ebInterface' : 'CII';
+  return pdf ? `the e-invoice inside the PDF (${name})` : `the e-invoice (${name})`;
+}
+
+const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  // In chunks: String.fromCharCode(...bytes) overflows the stack on a scan.
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
 
 const STATUS_LABEL: Record<BillStatus, string> = {
   open: 'OPEN',
@@ -84,6 +106,9 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
   const [form, setForm] = useState<BillForm | null>(null);
   const [formError, setFormError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldError[]>([]);
+  const [reading, setReading] = useState<BillReadingState | null>(null);
+  /** What PS-04 read for the bill in the form — null when it is typed. */
+  const [proposal, setProposal] = useState<BillProposal | null>(null);
 
   const handle = useCallback(
     (err: unknown, fallback: string) => {
@@ -126,6 +151,58 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
     return () => clearTimeout(t);
   }, [load]);
 
+  useEffect(() => {
+    api.billReading().then(setReading, () => setReading(null));
+  }, []);
+
+  async function readDocument(file: File): Promise<void> {
+    if (file.size > MAX_DOCUMENT_BYTES) {
+      setError('The document is larger than 10 MB');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const { proposal: p } = await api.readBill({ content_base64: await fileToBase64(file), content_type: file.type || 'application/octet-stream', filename: file.name });
+      setProposal(p);
+      setFormError('');
+      setFieldErrors([]);
+      setForm({
+        ...EMPTY_BILL,
+        creditor_id: p.creditor ? String(p.creditor.id) : '',
+        reference: p.reference ?? '',
+        remittance: p.remittance ?? '',
+        amount: p.amount_cents === null ? '' : centsToInput(p.amount_cents),
+        issue_date: p.issue_date ?? '',
+        due_date: p.due_date ?? '',
+        po_number: p.po_number ?? '',
+        net: p.net_cents === null ? '' : centsToInput(p.net_cents),
+        lines: p.lines,
+      });
+    } catch (err) {
+      handle(err, 'Could not read the document');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createProposedCreditor(): Promise<void> {
+    const wanted = proposal?.new_creditor;
+    if (!wanted || !form) return;
+    setBusy(true);
+    try {
+      const created = await api.createCreditor({ name: wanted.name, iban: wanted.iban, bic: wanted.bic });
+      setCreditors((await api.creditors()).creditors);
+      setForm({ ...form, creditor_id: String(created.id) });
+      setProposal({ ...proposal, new_creditor: null, creditor: { id: created.id, name: created.name, matched_by: 'iban' } });
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not create the creditor');
+      if (err instanceof ApiError) setFieldErrors(err.details);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const selectable = (rows ?? []).filter((b) => b.status === 'open');
   const chosen = (rows ?? []).filter((b) => selected.has(b.id));
   const selectedCents = chosen.reduce((sum, b) => sum + b.amount_cents, 0);
@@ -166,10 +243,14 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
         issue_date: form.issue_date || null,
         due_date: form.due_date,
         note: form.note.trim() || null,
+        // A bill read from its document says so, and which document it was.
+        ...(form.id === null && proposal ? { read_from: proposal.read_from, document_sha256: proposal.document_sha256 } : {}),
+        lines: form.lines.map(({ position: _position, ...line }) => line),
       };
       if (form.id === null) await api.createBill(values);
       else await api.updateBill(form.id, values);
       setForm(null);
+      setProposal(null);
       await load();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -222,12 +303,33 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
           </p>
         </div>
         <div className="resource__actions">
+          {reading?.available && (
+            <Can>
+              <label className="btn" title="An e-invoice (XRechnung, ZUGFeRD, ebInterface), a PDF, or — with a model set in Settings — a scan">
+                READ FROM DOCUMENT
+                <input
+                  type="file"
+                  accept=".pdf,.xml,.txt,image/png,image/jpeg,application/pdf,application/xml,text/xml,text/plain"
+                  hidden
+                  disabled={busy}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (file) void readDocument(file);
+                  }}
+                />
+              </label>
+            </Can>
+          )}
           <Can>
             <button
               className="btn btn--primary"
               disabled={creditors.length === 0}
               title={creditors.length === 0 ? 'Add a creditor first' : undefined}
-              onClick={() => setForm({ ...EMPTY_BILL, creditor_id: String(creditors[0]?.id ?? '') })}
+              onClick={() => {
+                setProposal(null);
+                setForm({ ...EMPTY_BILL, creditor_id: String(creditors[0]?.id ?? '') });
+              }}
             >
               + NEW BILL
             </button>
@@ -327,7 +429,13 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                   <div className="mono table__id">{b.creditor_iban}</div>
                 </td>
                 <td>
-                  <div className="mono">{b.reference}</div>
+                  <div
+                    className="mono"
+                    title={[b.read_from ? `Read from ${readFromText(b.read_from)}` : null, b.lines.length > 0 ? `${b.lines.length} lines` : null].filter(Boolean).join(' · ') || undefined}
+                  >
+                    {b.reference}
+                    {b.read_from && <span className="table__id"> ⎘</span>}
+                  </div>
                   {b.payment_reference !== b.reference && (
                     <div className="mono table__id">→ {b.payment_reference}</div>
                   )}
@@ -373,6 +481,7 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                                 note: b.note ?? '',
                                 po_number: b.po_number ?? '',
                                 net: b.net_cents === null ? '' : centsToInput(b.net_cents),
+                                lines: b.lines,
                               })
                             }
                           >
@@ -486,6 +595,29 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                 {fieldErrors.map((e) => `${e.field}: ${e.message}`).join(' · ')}
               </div>
             )}
+            {form.id === null && proposal && (
+              <div className="readbox mono">
+                <div>READ FROM {readFromText(proposal.read_from).toUpperCase()} — CHECK, THEN SAVE</div>
+                {proposal.creditor && (
+                  <div className="readbox__ok">
+                    Creditor {proposal.creditor.name}, found by {proposal.creditor.matched_by === 'iban' ? 'its IBAN' : 'its name'}
+                  </div>
+                )}
+                {proposal.new_creditor && (
+                  <div>
+                    Not a creditor yet: {proposal.new_creditor.name} · {proposal.new_creditor.iban}{' '}
+                    <button type="button" className="rowbtn mono" disabled={busy} onClick={() => void createProposedCreditor()}>
+                      CREATE CREDITOR
+                    </button>
+                  </div>
+                )}
+                {proposal.warnings.map((w) => (
+                  <div key={w} className="readbox__warn">
+                    ⚠ {w}
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="modal__fields">
               <label className="field" style={{ gridColumn: '1 / -1' }}>
                 <span className="field__label mono">
@@ -496,6 +628,7 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                   value={form.creditor_id}
                   onChange={(e) => setForm({ ...form, creditor_id: e.target.value })}
                 >
+                  {form.creditor_id === '' && <option value="">— choose a creditor —</option>}
                   {creditors.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name} — {c.iban}
@@ -584,6 +717,7 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                 />
               </label>
             </div>
+            {form.lines.length > 0 && <BillLines form={form} onChange={(lines) => setForm({ ...form, lines })} />}
             <div className="modal__actions">
               <button className="btn btn--ghost" type="button" onClick={() => setForm(null)}>
                 CANCEL
@@ -595,6 +729,75 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
           </form>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The supplier's lines in the form: shown as the document has them, with
+ * their sum beside the bill's net. A difference is not an error — an
+ * allowance or a charge on the whole invoice is legal — but a person sees it.
+ * Lines can be dropped, not typed: they are a copy of the document.
+ */
+function BillLines({ form, onChange }: { form: BillForm; onChange: (lines: BillLine[]) => void }) {
+  const sum = form.lines.reduce((acc, l) => acc + l.net_cents, 0);
+  const net = form.net.trim() === '' ? null : parseEurToCents(form.net);
+  const renumber = (lines: BillLine[]) => lines.map((l, i) => ({ ...l, position: i + 1 }));
+  return (
+    <div className="billlines">
+      <div className="billlines__head mono">
+        <span>THEIR LINES · {form.lines.length}</span>
+        <button type="button" className="rowbtn mono" onClick={() => onChange([])}>
+          REMOVE ALL
+        </button>
+      </div>
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th className="mono">POS</th>
+              <th className="mono">DESCRIPTION</th>
+              <th className="mono table__num">QTY</th>
+              <th className="mono table__num">PRICE</th>
+              <th className="mono table__num">VAT</th>
+              <th className="mono table__num">NET</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {form.lines.map((l) => (
+              <tr key={l.position}>
+                <td className="mono table__id">{l.position}</td>
+                <td>
+                  {l.description}
+                  {l.item_id && <div className="mono table__id">{l.item_id}</div>}
+                </td>
+                <td className="mono table__num">
+                  {l.quantity ?? '—'}
+                  {l.unit_code ? ` ${l.unit_code}` : ''}
+                </td>
+                <td className="mono table__num">{l.unit_price_cents === null ? '—' : fmtEur(l.unit_price_cents)}</td>
+                <td className="mono table__num">{l.vat_rate === null ? '—' : `${l.vat_rate}%`}</td>
+                <td className="mono table__num">{fmtEur(l.net_cents)}</td>
+                <td>
+                  <button
+                    type="button"
+                    className="rowbtn mono"
+                    title="Remove this line"
+                    onClick={() => onChange(renumber(form.lines.filter((x) => x.position !== l.position)))}
+                  >
+                    ×
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className={`billlines__sum mono ${net !== null && net !== sum ? 'readbox__warn' : ''}`}>
+        LINES {fmtEur(sum)} NET
+        {net !== null && (net === sum ? ' = THE BILL\'S NET' : ` · THE BILL SAYS ${fmtEur(net)} — AN ALLOWANCE OR CHARGE ON THE WHOLE INVOICE?`)}
+      </div>
     </div>
   );
 }

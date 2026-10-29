@@ -186,3 +186,54 @@ describe('the three-way match', () => {
     await request(app).post('/api/match').set('X-Service-Token', TOKEN).send({ po_number: po.number, invoiced_net_cents: -1 }).expect(422);
   });
 });
+
+describe('the three-way match, line by line', () => {
+  const lineMatch = (invoiced: number, lines: Record<string, unknown>[]) =>
+    request(app).post('/api/match').set('X-Service-Token', TOKEN).send({ po_number: po.number, invoiced_net_cents: invoiced, lines });
+  const widgets = (quantity: number, net: number) => ({ item_id: 'W-1', description: 'Widgets, blue', quantity, net_cents: net });
+
+  beforeEach(async () => {
+    await receive([[0, 4]]).expect(201); // 4 of 10 widgets arrived, no installation yet
+  });
+
+  it('the amount can match while the goods do not: invoiced for installation, widgets arrived', async () => {
+    const ok = (await lineMatch(20000, [widgets(4, 20000)]).expect(200)).body;
+    expect(ok).toMatchObject({ result: 'matched', line_issues: 0 });
+    expect(ok.lines[0]).toMatchObject({ po_position: 1, matched_by: 'sku', invoiced_quantity: 4, received_quantity: 4, ordered_quantity: 10, result: 'ok', issue: false });
+
+    // Same money, other goods: matched on the amount, held on the line.
+    const wrong = (await lineMatch(20000, [{ item_id: null, description: 'Installation', quantity: 2, net_cents: 20000 }]).expect(200)).body;
+    expect(wrong).toMatchObject({ result: 'matched', line_issues: 1 });
+    expect(wrong.lines[0]).toMatchObject({ po_position: 2, matched_by: 'description', result: 'awaiting_receipt', issue: true, message: 'Installation: 2 invoiced, 0 received so far (PO line 2)' });
+    expect(wrong.message).toContain('1 line does not match: Installation: 2 invoiced, 0 received so far');
+  });
+
+  it('more than ordered, and a unit price above the PO price plus the tolerance', async () => {
+    expect((await lineMatch(20000, [widgets(11, 20000)])).body.lines[0]).toMatchObject({ result: 'over_ordered', issue: true });
+    // 2 % tolerance on 50 €: 51 € a unit passes, 51.50 € does not.
+    expect((await lineMatch(20400, [widgets(4, 20400)])).body.lines[0]).toMatchObject({ result: 'ok', invoiced_unit_price_cents: 5100 });
+    expect((await lineMatch(20600, [widgets(4, 20600)])).body.lines[0]).toMatchObject({ result: 'price_above', issue: true, message: 'Widgets, blue (W-1): 51.50 a unit invoiced, 50.00 on the PO (PO line 1)' });
+  });
+
+  it('lines of earlier bills add up per PO line; a line not on the PO holds only above the cap', async () => {
+    const two = (await lineMatch(20000, [widgets(2, 10000), { item_id: 'w-1 ', description: 'Widgets', quantity: 3, net_cents: 15000 }])).body;
+    expect(two.lines).toHaveLength(1);
+    expect(two.lines[0]).toMatchObject({ invoiced_quantity: 5, invoiced_net_cents: 25000, result: 'awaiting_receipt' });
+
+    const freight = (q: number, net: number) => lineMatch(20000 + net, [widgets(4, 20000), { item_id: null, description: 'Freight', quantity: q, net_cents: net }]);
+    const small = (await freight(1, 3000)).body;
+    expect(small.lines[1]).toMatchObject({ result: 'not_on_po', issue: false, po_position: null });
+    expect(small.line_issues).toBe(0);
+    const large = (await freight(1, 8000)).body;
+    expect(large.lines[1]).toMatchObject({ result: 'not_on_po', issue: true });
+  });
+
+  it('a line without a quantity is unchecked; line matching off means header only; bad lines are refused', async () => {
+    expect((await lineMatch(20000, [{ item_id: null, description: 'Widget', quantity: null, net_cents: 20000 }])).body.lines[0]).toMatchObject({ result: 'unchecked', issue: false });
+    await request(app).put('/api/settings/matching').set('Cookie', ADMIN).send({ tolerance_percent: 2, tolerance_cap_cents: 5000, line_matching: false }).expect(200);
+    expect((await lineMatch(20000, [widgets(11, 20000)])).body).toMatchObject({ result: 'matched', lines: [], line_issues: 0 });
+    await request(app).put('/api/settings/matching').set('Cookie', ADMIN).send({ line_matching: 'yes' }).expect(422);
+    await lineMatch(1, [{ description: '', net_cents: 1 }]).expect(422);
+    await lineMatch(1, [{ description: 'X', net_cents: 1.5 }]).expect(422);
+  });
+});
