@@ -317,7 +317,8 @@ generated workbook with `xmllint` against the ECMA-376 schemas
 (Transitional SpreadsheetML and the Open Packaging Conventions, vendored
 in [`test/schema/ecma-376`](test/schema/ecma-376/README.md)), and check
 Excel's date serials against the published reference values. Like MOD-04's
-SEPA test, the schema check is skipped when `xmllint` is not installed.
+SEPA test, the schema check is skipped when `xmllint` is not installed; CI
+installs it, so there it always runs.
 
 ## Charts
 

@@ -19,7 +19,9 @@ Part 1 use other namespaces and are not what this module produces.
 part to `xmllint --schema`: the content types, both relationship parts, the
 workbook, the styles and every worksheet. A part that does not validate fails
 the test. Like the SEPA check in MOD-04, the test skips — and says so — when
-`xmllint` is not installed, rather than pass without having looked.
+`xmllint` is not installed, rather than pass without having looked. CI
+installs `libxml2-utils` for every package whose tests use it
+(`.github/workflows/test.yml`), so there the check always runs.
 
 One known gap between the schema and the standard's own text: §18.4.12 of
 Part 1 lists `xml:space` as an attribute of a cell's text element `<t>` (Excel
