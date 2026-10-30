@@ -250,6 +250,7 @@ textarea.sql-input {
 
 .sidebar__nav {
   display: grid;
+  align-content: start;
   padding: 12px 0;
   flex: 1;
 }
@@ -436,9 +437,16 @@ textarea.sql-input {
   letter-spacing: 0.8px;
 }
 
-.table__rowactions {
-  display: flex;
-  gap: 8px;
+/* Not display:flex — a flex cell stops being a table cell and its row's
+   borders no longer line up. */
+.table__rowactions > * + * {
+  margin-left: 8px;
+}
+
+/* A cell's own width is ignored by table layout; a block inside it is not. */
+.table__wrap {
+  white-space: normal;
+  max-width: 220px;
 }
 
 .rowbtn {

@@ -4,12 +4,16 @@ import type Database from 'better-sqlite3';
 import {
   AGGREGATIONS,
   CHART_KINDS,
+  EXPORT_FORMATS,
   SCHEDULE_INTERVALS,
   type Chart,
   type ChartConfig,
+  type ExportFormat,
   type FieldError,
+  type ParamValues,
   type PivotConfig,
   type Report,
+  type ReportParam,
   type Schedule,
 } from '../shared/types.js';
 import {
@@ -34,9 +38,12 @@ import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from '.
 import { DomainError, nowIso } from './errors.js';
 import { computePivot } from './pivot.js';
 import { checkReportSql, QUERY_POLICY, type PolicyOptions } from './query-policy.js';
-import { executeRun, type RunContext } from './runs.js';
+import { currentValues, executeRun, type RunContext } from './runs.js';
 import { nextDueAt } from './scheduler.js';
 import { describeSource, runReportQuery, sourcePolicy } from './source-db.js';
+import { parseParamDefs, parseParamValues, resolveParams, validateParamDefs, validateParamValues } from './params.js';
+import { readSettings, writeSettings } from './settings.js';
+import { buildXlsx, pivotSheet, resultSheet } from './xlsx.js';
 
 /** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
 function likeTerm(term: string): string {
@@ -74,22 +81,34 @@ function optText(raw: unknown, field: string, errors: FieldError[], maxLength: n
   return text === '' ? null : text;
 }
 
+type ReportRow = Omit<Report, 'params'> & { params: string };
+type ChartRow = Omit<Chart, 'param_values' | 'stacked'> & { param_values: string; stacked: number };
+type ScheduleRow = Omit<Schedule, 'param_values'> & { param_values: string };
+
+const toReport = (row: ReportRow): Report => ({ ...row, params: parseParamDefs(row.params) });
+const toChart = <T extends ChartRow>(row: T): Omit<T, 'stacked' | 'param_values'> & { stacked: boolean; param_values: ParamValues } => ({
+  ...row,
+  stacked: row.stacked === 1,
+  param_values: parseParamValues(row.param_values),
+});
+
 function getReport(db: Database.Database, id: number): Report {
-  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(id) as Report | undefined;
+  const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(id) as ReportRow | undefined;
   if (!report) throw new DomainError(404, 'Report not found');
-  return report;
+  return toReport(report);
 }
 
 function getChart(db: Database.Database, id: number): Chart {
-  const chart = db.prepare('SELECT * FROM charts WHERE id = ?').get(id) as Chart | undefined;
+  const chart = db.prepare('SELECT * FROM charts WHERE id = ?').get(id) as ChartRow | undefined;
   if (!chart) throw new DomainError(404, 'Chart not found');
-  return chart;
+  return toChart(chart);
 }
 
 interface ReportInput {
   name: string;
   description: string | null;
   sql: string;
+  params: ReportParam[];
 }
 
 function validateReport(input: Record<string, unknown>, policy: PolicyOptions): ReportInput {
@@ -104,7 +123,20 @@ function validateReport(input: Record<string, unknown>, policy: PolicyOptions): 
     if (!check.ok) errors.push({ field: 'sql', message: check.reason ?? 'Query rejected by policy' });
   }
   if (errors.length > 0) fail(errors);
-  return { name, description, sql };
+  return { name, description, sql, params: validateParamDefs(input.params, sql) };
+}
+
+/** The chart options shared by a saved chart and a preview. */
+function validateChartConfig(input: Record<string, unknown>, errors: FieldError[]): ChartConfig {
+  const kind = typeof input.kind === 'string' ? input.kind : '';
+  if (!(CHART_KINDS as readonly string[]).includes(kind)) {
+    errors.push({ field: 'kind', message: `kind must be one of: ${CHART_KINDS.join(', ')}` });
+  }
+  const x = reqText(input.x_column, 'x_column', errors, 120);
+  const y = reqText(input.y_column, 'y_column', errors, 120);
+  const series = optText(input.series_column, 'series_column', errors, 120);
+  if (series !== null && kind === 'pie') errors.push({ field: 'series_column', message: 'a pie chart has no series — its slices are the x column' });
+  return { kind: kind as ChartConfig['kind'], x, y, series, stacked: input.stacked === true };
 }
 
 function validateChart(input: Record<string, unknown>): {
@@ -118,15 +150,19 @@ function validateChart(input: Record<string, unknown>): {
     errors.push({ field: 'report_id', message: 'report_id must be a positive integer id' });
   }
   const name = reqText(input.name, 'name', errors, 160);
-  const kind = typeof input.kind === 'string' ? input.kind : '';
-  if (!(CHART_KINDS as readonly string[]).includes(kind)) {
-    errors.push({ field: 'kind', message: `kind must be one of: ${CHART_KINDS.join(', ')}` });
-  }
-  const x = reqText(input.x_column, 'x_column', errors, 120);
-  const y = reqText(input.y_column, 'y_column', errors, 120);
+  const config = validateChartConfig(input, errors);
   if (errors.length > 0) fail(errors);
-  return { reportId, name, config: { kind: kind as ChartConfig['kind'], x, y } };
+  return { reportId, name, config };
 }
+
+/** `?p_from=2026-01-01&p_region=Wien` — parameter values on a download link. */
+function queryParams(query: Record<string, unknown>): ParamValues {
+  const out: ParamValues = {};
+  for (const [key, value] of Object.entries(query)) if (key.startsWith('p_') && typeof value === 'string') out[key.slice(2)] = value;
+  return out;
+}
+
+const chartConfigOf = (chart: Chart): ChartConfig => ({ kind: chart.kind, x: chart.x_column, y: chart.y_column, series: chart.series_column, stacked: chart.stacked });
 
 function validatePivotConfig(input: Record<string, unknown>): PivotConfig {
   const errors: FieldError[] = [];
@@ -148,12 +184,13 @@ function validatePivotConfig(input: Record<string, unknown>): PivotConfig {
   return { row, col, measure, aggregation: aggregation as PivotConfig['aggregation'] };
 }
 
-function scheduleRow(db: Database.Database, schedule: Schedule): Record<string, unknown> {
+function scheduleRow(db: Database.Database, schedule: ScheduleRow): Record<string, unknown> {
   const report = db.prepare('SELECT name FROM reports WHERE id = ?').get(schedule.report_id) as
     | { name: string }
     | undefined;
   return {
     ...schedule,
+    param_values: parseParamValues(schedule.param_values),
     report_name: report?.name ?? '(deleted report)',
     next_due_at: nextDueAt(schedule),
   };
@@ -198,9 +235,11 @@ export interface AppOptions {
    * GET /api/auth-mode. Defaults to this module's own — the standalone case.
    */
   loginMode?: LoginMode;
+  /** The clock relative parameter dates are resolved against (tests inject one). */
+  now?: () => number;
 }
 
-export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, auth, exportsDir, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [] }: AppOptions): express.Express {
+export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, auth, exportsDir, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [], now = Date.now }: AppOptions): express.Express {
   const app = express();
   const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
   // The policy for THIS request, with the published view set read fresh from
@@ -220,7 +259,30 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
     app.use(hardeningMiddleware(hardening));
   }
   app.use(express.json({ limit: '1mb' }));
-  const runCtx: RunContext = { db, sourceDb, exportsDir, sourceViewsOnly };
+  const runCtx: RunContext = { db, sourceDb, exportsDir, sourceViewsOnly, now };
+
+  /** A report's result for the given parameter values — the one path every read takes. */
+  const resultOf = (report: Report, values: unknown, field = 'params') =>
+    runReportQuery(sourceDb, report.sql, policy(), resolveParams(report.params, values, now(), readSettings(db).timezone, field));
+
+  const withParams = <T extends { params: string | null }>(run: T) => ({ ...run, params: run.params ? (JSON.parse(run.params) as Record<string, unknown>) : null });
+  const runOf = (id: number) => withParams(db.prepare('SELECT * FROM runs WHERE id = ?').get(id) as { params: string | null });
+  const exportFormat = (raw: unknown): ExportFormat => {
+    if (raw === undefined || raw === null || raw === '') return 'csv';
+    if (typeof raw !== 'string' || !(EXPORT_FORMATS as readonly string[]).includes(raw)) fail([{ field: 'format', message: `format must be one of: ${EXPORT_FORMATS.join(', ')}` }]);
+    return raw as ExportFormat;
+  };
+
+  /** Query failures are the author's to see (422); anything else is ours (500). */
+  const queryFailure = (res: Response, err: unknown): void => {
+    if (err instanceof DomainError) throw err;
+    const status = (err as { status?: number }).status ?? 500;
+    if (status === 422) {
+      res.status(422).json({ error: (err as Error).message });
+      return;
+    }
+    throw err;
+  };
 
   // ── Public routes ────────────────────────────────────────────────────
   app.get('/api/health', (_req, res) => {
@@ -292,25 +354,25 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
       res.status(404).type('text/plain').send('Not found');
       return;
     }
-    const chart = db.prepare('SELECT * FROM charts WHERE id = ?').get(id) as Chart | undefined;
-    if (!chart) {
+    const chartRow = db.prepare('SELECT * FROM charts WHERE id = ?').get(id) as ChartRow | undefined;
+    if (!chartRow) {
       res.status(404).type('text/plain').send('Not found');
       return;
     }
-    const report = db.prepare('SELECT * FROM reports WHERE id = ?').get(chart.report_id) as
-      | Report
+    const chart = toChart(chartRow);
+    const reportRow = db.prepare('SELECT * FROM reports WHERE id = ?').get(chart.report_id) as
+      | ReportRow
       | undefined;
-    if (!report) {
+    if (!reportRow) {
       res.status(404).type('text/plain').send('Not found');
       return;
     }
+    const report = toReport(reportRow);
     try {
-      const result = runReportQuery(sourceDb, report.sql, policy());
-      const svg = renderChartSvg(result, {
-        kind: chart.kind,
-        x: chart.x_column,
-        y: chart.y_column,
-      });
+      // The chart's own saved values — the query string of an embed URL
+      // changes nothing; the token vouches for one chart as it was saved.
+      const result = resultOf(report, currentValues(report, chart.param_values));
+      const svg = renderChartSvg(result, chartConfigOf(chart));
       res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store');
       res.send(svg);
@@ -320,7 +382,7 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
         .status(status === 422 ? 422 : 500)
         .type('image/svg+xml')
         .send(
-          `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="120"><rect width="720" height="120" fill="#0a0a0a"/><text x="16" y="64" fill="#d98a7a" font-family="monospace" font-size="12">chart error: ${String((err as Error).message).replace(/[<>&]/g, '')}</text></svg>`,
+          `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="120"><rect width="720" height="120" fill="#0a0a0a"/><text x="16" y="64" fill="#d98a7a" font-family="monospace" font-size="12">chart error: ${String([(err as Error).message, ...((err as { details?: FieldError[] }).details ?? []).map((d) => d.message)].join(': ')).replace(/[<>&]/g, '')}</text></svg>`,
         );
     }
   });
@@ -429,18 +491,18 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
          ${search ? 'WHERE name LIKE @s ESCAPE \'\\\' OR description LIKE @s ESCAPE \'\\\'' : ''}
          ORDER BY name`,
       )
-      .all(search ? { s: likeTerm(search) } : {});
-    res.json({ reports });
+      .all(search ? { s: likeTerm(search) } : {}) as ReportRow[];
+    res.json({ reports: reports.map(toReport) });
   });
 
   app.post('/api/reports', (req, res) => {
     const input = validateReport(body(req), policy());
     const info = db
       .prepare(
-        `INSERT INTO reports (name, description, sql, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO reports (name, description, sql, params, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(input.name, input.description, input.sql, nowIso(), nowIso());
+      .run(input.name, input.description, input.sql, JSON.stringify(input.params), nowIso(), nowIso());
     res.status(201).json(getReport(db, Number(info.lastInsertRowid)));
   });
 
@@ -451,10 +513,11 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   app.put('/api/reports/:id', (req, res) => {
     const report = getReport(db, Number(req.params.id));
     const input = validateReport(body(req), policy());
-    db.prepare('UPDATE reports SET name = ?, description = ?, sql = ?, updated_at = ? WHERE id = ?').run(
+    db.prepare('UPDATE reports SET name = ?, description = ?, sql = ?, params = ?, updated_at = ? WHERE id = ?').run(
       input.name,
       input.description,
       input.sql,
+      JSON.stringify(input.params),
       nowIso(),
       report.id,
     );
@@ -471,18 +534,14 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   app.post('/api/reports/:id/run', (req, res) => {
     const report = getReport(db, Number(req.params.id));
     try {
-      res.json(runReportQuery(sourceDb, report.sql, policy()));
+      res.json(resultOf(report, body(req).params));
     } catch (err) {
-      const status = (err as { status?: number }).status ?? 500;
-      if (status === 422) {
-        res.status(422).json({ error: (err as Error).message });
-        return;
-      }
-      throw err;
+      queryFailure(res, err);
     }
   });
 
   // ── Ad-hoc SQL preview (edit-time, not yet saved) ────────────────────
+  // The editor sends the parameters it is declaring and the values to try.
   app.post('/api/preview', (req, res) => {
     const sql = typeof body(req).sql === 'string' ? (body(req).sql as string) : '';
     const check = checkReportSql(sql, policy());
@@ -490,15 +549,11 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
       res.status(422).json({ error: check.reason });
       return;
     }
+    const params = validateParamDefs(body(req).params, sql);
     try {
-      res.json(runReportQuery(sourceDb, sql, policy()));
+      res.json(runReportQuery(sourceDb, sql, policy(), resolveParams(params, body(req).values, now(), readSettings(db).timezone, 'values')));
     } catch (err) {
-      const status = (err as { status?: number }).status ?? 500;
-      if (status === 422) {
-        res.status(422).json({ error: (err as Error).message });
-        return;
-      }
-      throw err;
+      queryFailure(res, err);
     }
   });
 
@@ -506,7 +561,7 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   app.get('/api/reports/:id/export.csv', (req, res) => {
     const report = getReport(db, Number(req.params.id));
     try {
-      const result = runReportQuery(sourceDb, report.sql, policy());
+      const result = resultOf(report, queryParams(req.query as Record<string, unknown>));
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader(
         'Content-Disposition',
@@ -514,13 +569,38 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
       );
       res.send(resultToCsv(result));
     } catch (err) {
-      const status = (err as { status?: number }).status ?? 500;
-      if (status === 422) {
+      queryFailure(res, err);
+    }
+  });
+
+  // The same result as an Excel workbook; with ?pivot_row=… (and pivot_col,
+  // pivot_measure, pivot_aggregation) the pivot comes as a second sheet.
+  app.get('/api/reports/:id/export.xlsx', (req, res) => {
+    const report = getReport(db, Number(req.params.id));
+    const q = req.query as Record<string, unknown>;
+    const pivotConfig =
+      typeof q.pivot_row === 'string' && q.pivot_row !== ''
+        ? validatePivotConfig({ row: q.pivot_row, col: q.pivot_col, measure: q.pivot_measure, aggregation: q.pivot_aggregation })
+        : null;
+    let result;
+    try {
+      result = resultOf(report, queryParams(q));
+    } catch (err) {
+      queryFailure(res, err);
+      return;
+    }
+    const sheets = [resultSheet(report.name, result)];
+    if (pivotConfig) {
+      try {
+        sheets.push(pivotSheet('Pivot', pivotConfig, computePivot(result, pivotConfig)));
+      } catch (err) {
         res.status(422).json({ error: (err as Error).message });
         return;
       }
-      throw err;
     }
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="report-${report.id}.xlsx"`);
+    res.send(buildXlsx(sheets));
   });
 
   // ── Pivot a report result ────────────────────────────────────────────
@@ -529,14 +609,10 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
     const config = validatePivotConfig(body(req));
     let result;
     try {
-      result = runReportQuery(sourceDb, report.sql, policy());
+      result = resultOf(report, body(req).params);
     } catch (err) {
-      const status = (err as { status?: number }).status ?? 500;
-      if (status === 422) {
-        res.status(422).json({ error: (err as Error).message });
-        return;
-      }
-      throw err;
+      queryFailure(res, err);
+      return;
     }
     try {
       res.json(computePivot(result, config));
@@ -549,8 +625,13 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   // ── Manual "run now" export of a report ──────────────────────────────
   app.post('/api/reports/:id/run-now', (req, res) => {
     const report = getReport(db, Number(req.params.id));
-    const runId = executeRun(runCtx, report, 'manual', null);
-    const run = db.prepare('SELECT * FROM runs WHERE id = ?').get(runId);
+    const format = exportFormat(body(req).format);
+    const values = validateParamValues(report.params, body(req).params);
+    // A required value left out is the caller's 422, not a failed run in the
+    // history — the history is for what ran.
+    resolveParams(report.params, values, now(), readSettings(db).timezone);
+    const runId = executeRun(runCtx, report, 'manual', null, { format, params: values });
+    const run = runOf(runId);
     void platform.audit({ actor: actorOf(res, auth), action: 'report.run', resource: `report:${req.params.id}`, metadata: { run_id: runId } });
     res.status(201).json(run);
   });
@@ -560,19 +641,15 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
     const report = getReport(db, Number(req.params.id));
     const input = body(req);
     const errors: FieldError[] = [];
-    const kind = typeof input.kind === 'string' ? input.kind : '';
-    if (!(CHART_KINDS as readonly string[]).includes(kind)) {
-      errors.push({ field: 'kind', message: `kind must be one of: ${CHART_KINDS.join(', ')}` });
-    }
-    const x = reqText(input.x_column, 'x_column', errors, 120);
-    const y = reqText(input.y_column, 'y_column', errors, 120);
+    const config = validateChartConfig(input, errors);
     if (errors.length > 0) fail(errors);
     try {
-      const result = runReportQuery(sourceDb, report.sql, policy());
-      const svg = renderChartSvg(result, { kind: kind as ChartConfig['kind'], x, y });
+      const result = resultOf(report, input.params);
+      const svg = renderChartSvg(result, config);
       res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
       res.send(svg);
     } catch (err) {
+      if (err instanceof DomainError) throw err;
       const status = (err as { status?: number }).status ?? 500;
       res.status(status === 422 ? 422 : 500).json({ error: (err as Error).message });
     }
@@ -586,19 +663,22 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
          FROM charts c JOIN reports r ON r.id = c.report_id
          ORDER BY c.created_at DESC, c.id DESC`,
       )
-      .all();
-    res.json({ charts });
+      .all() as (ChartRow & { report_name: string })[];
+    res.json({ charts: charts.map(toChart) });
   });
 
   app.post('/api/charts', (req, res) => {
     const input = validateChart(body(req));
-    getReport(db, input.reportId); // 404 if the report doesn't exist
+    const report = getReport(db, input.reportId); // 404 if the report doesn't exist
+    // Stored as given — a relative date stays relative, so "this month"
+    // still means this month next month.
+    const values = validateParamValues(report.params, body(req).params);
     const info = db
       .prepare(
-        `INSERT INTO charts (report_id, name, kind, x_column, y_column, created_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO charts (report_id, name, kind, x_column, y_column, series_column, stacked, param_values, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(input.reportId, input.name, input.config.kind, input.config.x, input.config.y, nowIso());
+      .run(input.reportId, input.name, input.config.kind, input.config.x, input.config.y, input.config.series ?? null, input.config.stacked ? 1 : 0, JSON.stringify(values), nowIso());
     res.status(201).json(getChart(db, Number(info.lastInsertRowid)));
   });
 
@@ -617,11 +697,12 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
     const chart = getChart(db, Number(req.params.id));
     const report = getReport(db, chart.report_id);
     try {
-      const result = runReportQuery(sourceDb, report.sql, policy());
-      const svg = renderChartSvg(result, { kind: chart.kind, x: chart.x_column, y: chart.y_column });
+      const result = resultOf(report, currentValues(report, chart.param_values));
+      const svg = renderChartSvg(result, chartConfigOf(chart));
       res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
       res.send(svg);
     } catch (err) {
+      if (err instanceof DomainError) throw err;
       const status = (err as { status?: number }).status ?? 500;
       res.status(status === 422 ? 422 : 500).json({ error: (err as Error).message });
     }
@@ -640,7 +721,7 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
 
   // ── Schedules ────────────────────────────────────────────────────────
   app.get('/api/schedules', (_req, res) => {
-    const schedules = db.prepare('SELECT * FROM schedules ORDER BY id').all() as Schedule[];
+    const schedules = db.prepare('SELECT * FROM schedules ORDER BY id').all() as ScheduleRow[];
     res.json({ schedules: schedules.map((s) => scheduleRow(db, s)) });
   });
 
@@ -655,23 +736,29 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
     }
     const enabled = input.enabled === undefined ? 1 : input.enabled ? 1 : 0;
     if (errors.length > 0) fail(errors);
-
     const existing = db.prepare('SELECT * FROM schedules WHERE report_id = ?').get(report.id) as
-      | Schedule
+      | ScheduleRow
       | undefined;
+    // Left out means "as it is": switching a schedule off must not quietly
+    // reset its format or the values it runs with.
+    const format = input.format === undefined && existing ? existing.format : exportFormat(input.format);
+    const values = input.params === undefined && existing ? existing.param_values : JSON.stringify(validateParamValues(report.params, input.params));
+
     if (existing) {
-      db.prepare('UPDATE schedules SET interval = ?, enabled = ? WHERE id = ?').run(
+      db.prepare('UPDATE schedules SET interval = ?, enabled = ?, format = ?, param_values = ? WHERE id = ?').run(
         interval,
         enabled,
+        format,
+        values,
         existing.id,
       );
     } else {
       db.prepare(
-        `INSERT INTO schedules (report_id, interval, format, enabled, last_run_at, created_at)
-         VALUES (?, ?, 'csv', ?, NULL, ?)`,
-      ).run(report.id, interval, enabled, nowIso());
+        `INSERT INTO schedules (report_id, interval, format, enabled, param_values, last_run_at, created_at)
+         VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+      ).run(report.id, interval, format, enabled, values, nowIso());
     }
-    const saved = db.prepare('SELECT * FROM schedules WHERE report_id = ?').get(report.id) as Schedule;
+    const saved = db.prepare('SELECT * FROM schedules WHERE report_id = ?').get(report.id) as ScheduleRow;
     res.json(scheduleRow(db, saved));
   });
 
@@ -687,13 +774,13 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   // Manual "run now" of a schedule (stamps last_run_at, like a tick).
   app.post('/api/schedules/:id/run-now', (req, res) => {
     const schedule = db.prepare('SELECT * FROM schedules WHERE id = ?').get(Number(req.params.id)) as
-      | Schedule
+      | ScheduleRow
       | undefined;
     if (!schedule) throw new DomainError(404, 'Schedule not found');
     const report = getReport(db, schedule.report_id);
-    const runId = executeRun(runCtx, report, 'manual', schedule.id);
+    const runId = executeRun(runCtx, report, 'manual', schedule.id, { format: schedule.format, params: parseParamValues(schedule.param_values) });
     db.prepare('UPDATE schedules SET last_run_at = ? WHERE id = ?').run(nowIso(), schedule.id);
-    res.status(201).json(db.prepare('SELECT * FROM runs WHERE id = ?').get(runId));
+    res.status(201).json(runOf(runId));
   });
 
   // ── Run history (append-only) ────────────────────────────────────────
@@ -708,8 +795,17 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
          ORDER BY run.id DESC
          LIMIT 200`,
       )
-      .all(hasFilter ? { id: reportId } : {});
-    res.json({ runs });
+      .all(hasFilter ? { id: reportId } : {}) as { params: string | null }[];
+    res.json({ runs: runs.map(withParams) });
+  });
+
+  // ── Settings (writing is `manage`) ───────────────────────────────────
+  app.get('/api/settings', (_req, res) => {
+    res.json(readSettings(db));
+  });
+
+  app.put('/api/settings', (req, res) => {
+    res.json(writeSettings(db, body(req), actorOf(res, auth)));
   });
 
   // ── Static client (production build) ─────────────────────────────────

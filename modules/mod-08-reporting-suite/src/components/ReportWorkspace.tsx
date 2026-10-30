@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { PivotResult, QueryResult, Report } from '../../shared/types';
-import { api, ApiError, exportCsvUrl } from '../api';
+import type { ExportFormat, ParamValues, PivotConfig, PivotResult, QueryResult, Report } from '../../shared/types';
+import { CHART_KINDS } from '../../shared/types';
+import { api, ApiError, errorText, exportCsvUrl, exportXlsxUrl, missingRequired } from '../api';
 import { pivotCell } from '../format';
 import { ResultTable } from './ReportEditor';
+import { ParamForm, describeValues, given } from './ParamForm';
 import { Can } from '../access';
 
 type Tab = 'preview' | 'pivot' | 'chart';
@@ -19,19 +21,43 @@ export function ReportWorkspace({ id, onBack, onEdit, onAuthLost }: Props) {
   const [result, setResult] = useState<QueryResult | null>(null);
   const [tab, setTab] = useState<Tab>('preview');
   const [error, setError] = useState('');
+  const [runError, setRunError] = useState('');
   const [runMsg, setRunMsg] = useState('');
+  const [format, setFormat] = useState<ExportFormat>('xlsx');
+  // What the form says, and what the result on screen was run with.
+  const [values, setValues] = useState<ParamValues>({});
+  const [applied, setApplied] = useState<ParamValues>({});
+
+  const run = useCallback(
+    async (r: Report, v: ParamValues) => {
+      setRunError('');
+      setApplied(v);
+      if (missingRequired(r.params, v).length > 0) {
+        setResult(null);
+        return;
+      }
+      try {
+        setResult(await api.runReport(r.id, v));
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) return onAuthLost();
+        setResult(null);
+        setRunError(errorText(err, 'Failed to run report'));
+      }
+    },
+    [onAuthLost],
+  );
 
   const load = useCallback(async () => {
     setError('');
     try {
       const r = await api.report(id);
       setReport(r);
-      setResult(await api.runReport(id));
+      await run(r, {});
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return onAuthLost();
-      setError(err instanceof Error ? err.message : 'Failed to run report');
+      setError(errorText(err, 'Failed to load report'));
     }
-  }, [id, onAuthLost]);
+  }, [id, onAuthLost, run]);
 
   useEffect(() => {
     void load();
@@ -40,20 +66,21 @@ export function ReportWorkspace({ id, onBack, onEdit, onAuthLost }: Props) {
   async function runNow() {
     setRunMsg('');
     try {
-      const run = await api.runNow(id);
+      const r = await api.runNow(id, format, applied);
       setRunMsg(
-        run.status === 'ok'
-          ? `Export ok — ${run.row_count} rows → ${run.file_path}`
-          : `Export failed: ${run.error}`,
+        r.status === 'ok'
+          ? `Export ok — ${r.row_count} rows → ${r.file_path}`
+          : `Export failed: ${r.error}`,
       );
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return onAuthLost();
-      setRunMsg(err instanceof Error ? err.message : 'Run failed');
+      setRunMsg(errorText(err, 'Run failed'));
     }
   }
 
   if (error) return <div className="resource__error mono">{error}</div>;
-  if (!report || !result) return <div className="boot mono">RUNNING…</div>;
+  if (!report) return <div className="boot mono">RUNNING…</div>;
+  const missing = missingRequired(report.params, applied);
 
   return (
     <div>
@@ -72,16 +99,29 @@ export function ReportWorkspace({ id, onBack, onEdit, onAuthLost }: Props) {
               EDIT SQL
             </button>
           </Can>
-          <a className="btn btn--ghost" href={exportCsvUrl(report.id)}>
-            DOWNLOAD CSV
+          <a className="btn btn--ghost" href={exportCsvUrl(report.id, applied)}>
+            CSV
+          </a>
+          <a className="btn btn--ghost" href={exportXlsxUrl(report.id, applied)}>
+            EXCEL
           </a>
           <Can>
-            <button className="btn btn--primary" onClick={() => void runNow()}>
+            <select className="field__input" style={{ width: 90 }} value={format} onChange={(e) => setFormat(e.target.value as ExportFormat)} aria-label="Export format">
+              <option value="xlsx">xlsx</option>
+              <option value="csv">csv</option>
+            </select>
+            <button className="btn btn--primary" onClick={() => void runNow()} disabled={missing.length > 0}>
               RUN EXPORT NOW
             </button>
           </Can>
         </div>
       </div>
+
+      <ParamForm params={report.params} values={values} onChange={setValues}>
+        <button className="btn btn--primary" onClick={() => void run(report, given(values))}>
+          RUN
+        </button>
+      </ParamForm>
 
       {runMsg && <div className="resource__error mono" style={{ borderColor: 'var(--line-strong)', color: 'var(--fg-dim)' }}>{runMsg}</div>}
 
@@ -93,7 +133,15 @@ export function ReportWorkspace({ id, onBack, onEdit, onAuthLost }: Props) {
         ))}
       </div>
 
-      {tab === 'preview' && (
+      {runError && <div className="resource__error mono">{runError}</div>}
+      {!result && !runError && missing.length > 0 && (
+        <div className="table-wrap">
+          <div className="table__empty mono">
+            FILL IN {missing.map((p) => p.label.toUpperCase()).join(', ')} AND RUN
+          </div>
+        </div>
+      )}
+      {result && tab === 'preview' && (
         <>
           <div className="section-title mono">
             {result.rows.length} ROWS · {result.elapsed_ms}MS{result.truncated ? ' · TRUNCATED' : ''}
@@ -101,8 +149,8 @@ export function ReportWorkspace({ id, onBack, onEdit, onAuthLost }: Props) {
           <ResultTable result={result} />
         </>
       )}
-      {tab === 'pivot' && <PivotBuilder reportId={report.id} result={result} onAuthLost={onAuthLost} />}
-      {tab === 'chart' && <ChartBuilder reportId={report.id} result={result} onAuthLost={onAuthLost} />}
+      {result && tab === 'pivot' && <PivotBuilder reportId={report.id} result={result} values={applied} onAuthLost={onAuthLost} />}
+      {result && tab === 'chart' && <ChartBuilder reportId={report.id} result={result} values={applied} onAuthLost={onAuthLost} />}
     </div>
   );
 }
@@ -112,10 +160,12 @@ export function ReportWorkspace({ id, onBack, onEdit, onAuthLost }: Props) {
 function PivotBuilder({
   reportId,
   result,
+  values,
   onAuthLost,
 }: {
   reportId: number;
   result: QueryResult;
+  values: ParamValues;
   onAuthLost: () => void;
 }) {
   const cols = result.columns;
@@ -124,22 +174,25 @@ function PivotBuilder({
   const [measure, setMeasure] = useState(cols[cols.length - 1] ?? '');
   const [aggregation, setAggregation] = useState('sum');
   const [pivot, setPivot] = useState<PivotResult | null>(null);
+  const [built, setBuilt] = useState<PivotConfig | null>(null);
   const [error, setError] = useState('');
 
   async function build() {
     setError('');
     try {
-      const config = {
+      const config: PivotConfig = {
         row,
         col: col || null,
         measure: aggregation === 'count' && !measure ? '*' : measure,
-        aggregation,
+        aggregation: aggregation as PivotConfig['aggregation'],
       };
-      setPivot(await api.pivot(reportId, config));
+      setPivot(await api.pivot(reportId, config, values));
+      setBuilt(config);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return onAuthLost();
       setPivot(null);
-      setError(err instanceof Error ? err.message : 'Pivot failed');
+      setBuilt(null);
+      setError(errorText(err, 'Pivot failed'));
     }
   }
 
@@ -195,6 +248,11 @@ function PivotBuilder({
         <button className="btn btn--primary" onClick={() => void build()}>
           BUILD PIVOT
         </button>
+        {built && (
+          <a className="btn btn--ghost" href={exportXlsxUrl(reportId, values, built)} title="The result and this pivot, as two sheets">
+            EXCEL WITH PIVOT
+          </a>
+        )}
       </div>
 
       {error && <div className="resource__error mono">{error}</div>}
@@ -247,30 +305,36 @@ function PivotBuilder({
 function ChartBuilder({
   reportId,
   result,
+  values,
   onAuthLost,
 }: {
   reportId: number;
   result: QueryResult;
+  values: ParamValues;
   onAuthLost: () => void;
 }) {
   const cols = result.columns;
-  const [kind, setKind] = useState('bar');
+  const [kind, setKind] = useState<string>('bar');
   const [x, setX] = useState(cols[0] ?? '');
   const [y, setY] = useState(cols[cols.length - 1] ?? '');
+  const [series, setSeries] = useState('');
+  const [stacked, setStacked] = useState(false);
   const [name, setName] = useState('');
   const [svg, setSvg] = useState('');
   const [embed, setEmbed] = useState('');
   const [error, setError] = useState('');
+  // A pie's slices are the x column; it has no series to split by.
+  const config = () => ({ kind, x_column: x, y_column: y, series_column: kind === 'pie' ? null : series || null, stacked: kind !== 'pie' && kind !== 'line' && series !== '' && stacked });
 
   async function preview() {
     setError('');
     setEmbed('');
     try {
-      setSvg(await api.chartPreview(reportId, { kind, x_column: x, y_column: y }));
+      setSvg(await api.chartPreview(reportId, { ...config(), params: values }));
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return onAuthLost();
       setSvg('');
-      setError(err instanceof Error ? err.message : 'Chart preview failed');
+      setError(errorText(err, 'Chart preview failed'));
     }
   }
 
@@ -280,15 +344,14 @@ function ChartBuilder({
       const chart = await api.createChart({
         report_id: reportId,
         name: name || `${kind} of ${y}`,
-        kind,
-        x_column: x,
-        y_column: y,
+        ...config(),
+        params: values,
       });
       const e = await api.chartEmbed(chart.id);
       setEmbed(`${window.location.origin}${e.path}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) return onAuthLost();
-      setError(err instanceof Error ? err.message : 'Save failed');
+      setError(errorText(err, 'Save failed'));
     }
   }
 
@@ -298,8 +361,11 @@ function ChartBuilder({
         <label className="field">
           <span className="field__label mono">KIND</span>
           <select className="field__input" value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="bar">bar</option>
-            <option value="line">line</option>
+            {CHART_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {k === 'pie' ? 'pie (donut)' : k}
+              </option>
+            ))}
           </select>
         </label>
         <label className="field">
@@ -322,6 +388,25 @@ function ChartBuilder({
             ))}
           </select>
         </label>
+        {kind !== 'pie' && (
+          <label className="field">
+            <span className="field__label mono">SERIES (ONE LINE / BAR PER VALUE)</span>
+            <select className="field__input" value={series} onChange={(e) => setSeries(e.target.value)}>
+              <option value="">(none)</option>
+              {cols.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {series !== '' && (kind === 'bar' || kind === 'area') && (
+          <label className="field" style={{ minWidth: 0 }}>
+            <span className="field__label mono">STACKED</span>
+            <input type="checkbox" checked={stacked} onChange={(e) => setStacked(e.target.checked)} style={{ height: 38 }} />
+          </label>
+        )}
         <label className="field">
           <span className="field__label mono">CHART NAME</span>
           <input className="field__input" value={name} onChange={(e) => setName(e.target.value)} />
@@ -337,6 +422,10 @@ function ChartBuilder({
       </div>
 
       {error && <div className="resource__error mono">{error}</div>}
+
+      {Object.keys(values).length > 0 && (
+        <p className="hint mono">Saved with these values — an embed always shows them: {describeValues(values)}</p>
+      )}
 
       {svg && <div className="chart-panel" dangerouslySetInnerHTML={{ __html: svg }} />}
 

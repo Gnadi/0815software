@@ -6,13 +6,14 @@ module catalogue — standard business software, MIT-licensed, always
 free.
 
 The point of this module is to let one trusted admin turn a SQLite
-database into saved reports, server-computed pivots, hand-rolled SVG
-charts (with signed, session-free embed URLs) and scheduled CSV exports —
-**without ever writing to the database it reports on.** That read-only
+database into saved reports — with parameters such as "from" and "to" —
+server-computed pivots, hand-rolled SVG charts (bar, line, area, pie; one
+series or several; with signed, session-free embed URLs) and scheduled CSV
+or Excel exports — **without ever writing to the database it reports on.** That read-only
 guarantee is the core safety property, and the test suite proves it from
 several angles.
 
-Three properties are the reason this module exists, and each is pinned by
+Four properties are the reason this module exists, and each is pinned by
 a test:
 
 1. **Reports are SELECT-only, enforced in depth.** A report is a name +
@@ -29,6 +30,11 @@ a test:
    saved chart has an HMAC-signed embed token bound to that chart id.
    `/embed/chart/:id?token=…` renders the SVG standalone; a missing,
    tampered or cross-chart token is a `404`.
+4. **A parameter value is bound, never spliced.** A report names its
+   placeholders (`:from`, `:region`) and SQLite binds the values, so a
+   value cannot change what the query does — `North' OR '1'='1` is a
+   region nobody has. Declarations and SQL must agree before a report is
+   saved.
 
 ## Stack
 
@@ -40,11 +46,13 @@ Deliberately standard and boring (same as MOD-01 … MOD-07):
 | API      | Node + Express 5                            |
 | Storage  | better-sqlite3 (single file, zero services) |
 | Charts   | Hand-rolled SVG — **no chart library**      |
+| Excel    | Hand-built OOXML + Node's zlib — **no library** |
 | Styling  | Hand-rolled CSS, no framework               |
 | Tests    | Vitest + Supertest                          |
 
 Runtime dependencies: `express`, `better-sqlite3`, `react`, `react-dom`.
-That's all — no CDN, no external services, no chart library.
+That's all — no CDN, no external services, no chart or spreadsheet
+library.
 
 ## Quickstart
 
@@ -200,7 +208,56 @@ in that file; a startup self-check keeps them sane.
 
 Run a report at `POST /api/reports/:id/run` → `{ columns, rows,
 truncated, elapsed_ms }`. Download the same result as CSV at
-`GET /api/reports/:id/export.csv`.
+`GET /api/reports/:id/export.csv`, or as Excel at
+`GET /api/reports/:id/export.xlsx` (see [Excel export](#excel-export)).
+
+### Parameters
+
+A report may name placeholders in its SQL and declare each one:
+
+```sql
+SELECT r.name AS region, SUM(ol.quantity * ol.unit_price_cents) AS revenue_cents
+FROM orders o JOIN regions r ON r.id = o.region_id JOIN order_lines ol ON ol.order_id = o.id
+WHERE o.order_date BETWEEN :from AND :to
+  AND (:region IS NULL OR r.name = :region)
+GROUP BY r.id
+```
+
+```jsonc
+"params": [
+  { "name": "from",   "label": "From",   "type": "date",   "required": true, "default": "prev_month_start" },
+  { "name": "to",     "label": "To",     "type": "date",   "required": true, "default": "prev_month_end" },
+  { "name": "region", "label": "Region", "type": "choice", "choices": ["North", "South"] }
+]
+```
+
+- **Types:** `text`, `number`, `date`, `choice` (one of a fixed list). At
+  most 20 per report. A `required` one with neither value nor default is a
+  `422` naming it — before anything runs, so the run history only holds
+  what ran. An optional one left empty binds `NULL`; write the SQL for it
+  as above.
+- **Values are bound by SQLite** (`server/params.ts`), never written into
+  the SQL text; the SELECT-only policy and the read-only connection stand
+  as before.
+- **Declarations and SQL agree, or the report is not saved.** A `:name`
+  nobody declared, a declaration the SQL never uses, a positional `?`, or
+  an `@name`/`$name` spelling is a `422` with a message saying which.
+  Placeholders inside string literals and comments are not placeholders.
+- **Relative dates.** A date value or default may be `today`, `yesterday`,
+  `today-7` / `today+30`, `week_start` (Monday), `month_start`,
+  `month_end`, `prev_month_start`, `prev_month_end`, `year_start`,
+  `prev_year_start`, `prev_year_end`. They are resolved **when the report
+  runs**, in the time zone set under [Settings](#settings) — so a schedule
+  saved with "start of last month" always exports the month before, and
+  the export just after midnight on the 1st reports the right month.
+- **Who chooses the values.** Anyone who can run a report (`view`) fills
+  in the values when running, downloading or pivoting; a link carries them
+  as `?p_from=2026-09-01&p_region=North`. Declaring parameters is part of
+  the report's SQL and needs `manage`, like the SQL itself.
+- **Saved values.** A schedule and a chart store their own values,
+  relative dates kept relative. A stored value for a parameter the report
+  has since dropped is ignored, not fatal; the run history records the
+  values each run bound, relative dates resolved.
 
 ## Pivot tables
 
@@ -230,11 +287,59 @@ The tests hand-compute a small fixture (including an empty cell and grand
 totals) for `sum`, `count` and `avg`, and cross-check an API pivot cell
 against the source database directly.
 
+A built pivot downloads with the result as a second Excel sheet ("Excel
+with pivot" in the Pivot tab).
+
+## Excel export
+
+`GET /api/reports/:id/export.xlsx` returns the result as an Excel workbook
+— the same rows as the CSV, with the parameter values from `p_<name>`.
+Add `pivot_row`, `pivot_col`, `pivot_measure` and `pivot_aggregation` and
+the pivot comes as a second sheet, with its totals row. Scheduled and
+manual exports can be written as `.xlsx` too.
+
+The file is written by hand (`server/xlsx.ts`, `server/zip.ts`, ~400
+lines): SpreadsheetML parts in a ZIP package, compressed with Node's own
+zlib. What a reader gets:
+
+- **numbers as numbers, text as text** — `01067` stays a postcode, not
+  1067; integers past 2^53 stay exact, as text;
+- **dates as dates** — a column whose every value is an ISO date or
+  date-time becomes Excel dates (formatted, sortable, filterable); one
+  stray text value keeps the column as text rather than guessing;
+- **no formulas, ever** — every string is an inline string, so a value
+  such as `=HYPERLINK(…)` is shown as text and never evaluated (the
+  injection the CSV export has to escape cannot occur here);
+- a bold, frozen header row with an autofilter.
+
+**Evidence, not plausibility:** the tests validate every part of a
+generated workbook with `xmllint` against the ECMA-376 schemas
+(Transitional SpreadsheetML and the Open Packaging Conventions, vendored
+in [`test/schema/ecma-376`](test/schema/ecma-376/README.md)), and check
+Excel's date serials against the published reference values. Like MOD-04's
+SEPA test, the schema check is skipped when `xmllint` is not installed.
+
 ## Charts
 
-Bar and line charts are rendered as **hand-rolled SVG on the server** from
-a report result and a `{ kind, x, y }` config — no chart library. The y
-axis uses a linear scale with "nice" 1/2/5 tick steps; x labels are
+Charts are rendered as **hand-rolled SVG on the server** from a report
+result and a config — no chart library:
+
+| Kind   | What it draws |
+| ------ | ------------- |
+| `bar`  | one bar per row; with a series column, grouped bars — or `stacked` |
+| `line` | one line; with a series column, one line per series |
+| `area` | a filled line; with a series column, one area per series — or `stacked` |
+| `pie`  | a donut: one slice per x value, the total in the middle, each share in the legend |
+
+A **series column** (`series_column`) turns long rows — `month, category,
+revenue` — into one series per distinct value, with a legend. Rows that
+share an x and a series are summed; past eight series the lightest are
+summed into a grey "Other". A series with no row for an x is a gap: a
+line breaks there instead of dropping to zero. A pie sums by label and
+leaves out values of zero or less — and says how many. Each bar, point
+and slice carries a `<title>`, so hovering shows its value.
+
+The y axis uses a linear scale with "nice" 1/2/5 tick steps; x labels are
 thinned so they don't overlap. The SVG inlines its own colours (the 0815
 token palette) so it needs no external stylesheet, which is what makes it
 safe to drop into an `<img>` or `<iframe>`.
@@ -244,8 +349,12 @@ save), or:
 
 ```
 GET  /api/charts/:id/svg              authed SVG of a saved chart
-POST /api/reports/:id/chart-preview   { kind, x_column, y_column } → SVG (unsaved)
+POST /api/reports/:id/chart-preview   { kind, x_column, y_column, series_column?, stacked?, params? } → SVG (unsaved)
 ```
+
+A chart saved from a report with parameters keeps the values it was saved
+with (`param_values`) — relative dates stay relative, so "this month" is
+still this month next month.
 
 ## Chart embeds
 
@@ -265,7 +374,8 @@ dashboard or wiki iframe:
 ```
 
 The token is bound to that specific chart id, so it only ever renders
-chart 7. A missing, tampered or foreign token (a token minted for a
+chart 7 — with its saved parameter values: the query string of an embed
+URL cannot change them. A missing, tampered or foreign token (a token minted for a
 different chart) returns **404** — the URL either resolves to exactly its
 chart or it doesn't exist. Embed tokens carry no expiry (an embed URL is a
 long-lived capability); **rotating `SESSION_SECRET` invalidates every
@@ -273,20 +383,24 @@ embed URL** (and logs everyone out).
 
 ## Scheduled exports
 
-Each report can have one schedule: an interval (`hourly` or `daily`) and a
-format (`csv`). An **in-process scheduler** (a plain `setInterval`, tick
+Each report can have one schedule: an interval (`hourly` or `daily`), a
+format (`csv` or `xlsx`) and, for a report with parameters, the values to
+run with. An **in-process scheduler** (a plain `setInterval`, tick
 period `SCHEDULER_TICK_SECONDS`) runs due schedules while the server is
 up. Each run:
 
+- resolves the parameter values (relative dates in the module's time zone),
 - executes the report against the read-only source db,
-- writes a CSV into the exports directory (`EXPORTS_DIR`, gitignored),
+- writes a CSV or Excel file into the exports directory (`EXPORTS_DIR`,
+  gitignored),
 - appends **one immutable row** to the append-only `runs` history
-  (report, trigger, status, started/finished, row count, file path, or
-  error).
+  (report, trigger, status, started/finished, row count, file path or
+  error, and the values it bound).
 
 The row count written to history is exactly the number of data rows in
-the CSV, so a run's history row and its file can never disagree (a test
-pins this).
+the file, so a run's history row and its file can never disagree (a test
+pins this). Updating a schedule without `format` or `params` keeps the
+ones it has — switching it off does not reset what it runs with.
 
 **Honest scheduling — the limitations, stated plainly:**
 
@@ -305,19 +419,35 @@ pins this).
 ## UI
 
 - **Reports** — list/search, create/edit with a live-preview table and
-  the source schema; per-report CSV download and delete.
-- **Report workspace** — Preview / Pivot / Chart tabs over one report,
-  plus "Run export now".
+  the source schema, and the parameter declarations (one click declares a
+  `:name` the SQL uses); per-report CSV and Excel download and delete.
+- **Report workspace** — the parameter form, Preview / Pivot / Chart tabs
+  over one report, CSV and Excel downloads with the values entered, and
+  "Run export now" as CSV or Excel.
 - **Pivot builder** — pick row/column/measure/aggregation, see the pivot
-  with row, column and grand totals rendered.
-- **Chart builder** — pick kind/x/y, live SVG preview, save, copy the
-  embed URL + ready-made `<iframe>` snippet.
-- **Charts** — all saved charts with their rendered SVG and embed URLs.
-- **Schedules** — per-report schedule config, next-due, "Run now", and
-  the append-only run history.
+  with row, column and grand totals rendered; download it with the result
+  as Excel.
+- **Chart builder** — pick kind (bar, line, area, pie), x/y, an optional
+  series column and stacking, live SVG preview, save with the current
+  parameter values, copy the embed URL + ready-made `<iframe>` snippet.
+- **Charts** — all saved charts with their rendered SVG, saved values and
+  embed URLs.
+- **Schedules** — per-report interval, format and parameter values,
+  next-due, "Run now", and the append-only run history with the values
+  each run used.
+- **Settings** — the time zone relative dates are resolved in (changing
+  it needs `manage`).
 - **Auth** — single staff login from env vars; stateless HMAC-signed
   session cookie (`mod08_session`, HttpOnly, SameSite=Lax, optional
   Secure), exactly as in MOD-02 … MOD-07.
+
+## Settings
+
+What an administrator sets in the UI (**Settings**, `manage` to change):
+
+| Setting   | Default         | Purpose |
+| --------- | --------------- | ------- |
+| Time zone | `Europe/Vienna` | When "today" begins for relative parameter dates — any IANA zone; an unknown one is a `422`. The change records who made it. |
 
 ## Configuration
 
@@ -330,7 +460,7 @@ All runtime settings via environment variables (see
 | `DATABASE_PATH`          | `./data.db`            | Module's own metadata db (created on demand)               |
 | `SOURCE_DB_PATH`         | `./source.db` (demo)   | Database to report on — opened **read-only**; must exist if set |
 | `SOURCE_VIEWS_ONLY`      | `false`                | `true` restricts every report to the source's published `report_*` views |
-| `EXPORTS_DIR`            | `./exports`            | Where scheduled/manual export CSVs are written (gitignored) |
+| `EXPORTS_DIR`            | `./exports`            | Where scheduled/manual export files (CSV, XLSX) are written (gitignored) |
 | `SCHEDULER_TICK_SECONDS` | `60`                   | How often the in-process scheduler checks for due schedules |
 | `ADMIN_USERNAME`         | `admin`                | Login user                                                 |
 | `ADMIN_PASSWORD`         | `admin`                | Login password — **change in prod**                        |
@@ -358,30 +488,36 @@ GET    /api/source                       source schema (tables/columns) + query 
                                          (report_* only when SOURCE_VIEWS_ONLY=true)
 
 GET    /api/reports                      ?search= → saved reports
-POST   /api/reports                      {name, description?, sql}  (SELECT-only → 422)
+POST   /api/reports                      {name, description?, sql, params?}  (SELECT-only → 422)
 GET    /api/reports/:id
-PUT    /api/reports/:id                  {name, description?, sql}
+PUT    /api/reports/:id                  {name, description?, sql, params?}
 DELETE /api/reports/:id                  cascades charts/schedule/history
-POST   /api/reports/:id/run              → {columns, rows, truncated, elapsed_ms}
-POST   /api/preview                      {sql} → run ad-hoc SQL (edit-time preview)
-GET    /api/reports/:id/export.csv       result as a CSV download
-POST   /api/reports/:id/pivot            {row, col?, measure, aggregation} → pivot
-POST   /api/reports/:id/chart-preview    {kind, x_column, y_column} → SVG (unsaved)
-POST   /api/reports/:id/run-now          run an export now → runs row
+POST   /api/reports/:id/run              {params?} → {columns, rows, truncated, elapsed_ms}
+POST   /api/preview                      {sql, params?, values?} → run ad-hoc SQL (edit-time preview)
+GET    /api/reports/:id/export.csv       ?p_<name>= → result as a CSV download
+GET    /api/reports/:id/export.xlsx      ?p_<name>=&pivot_row=&pivot_col=&pivot_measure=&pivot_aggregation=
+                                         → Excel workbook (pivot as a second sheet)
+POST   /api/reports/:id/pivot            {row, col?, measure, aggregation, params?} → pivot
+POST   /api/reports/:id/chart-preview    {kind, x_column, y_column, series_column?, stacked?, params?} → SVG
+POST   /api/reports/:id/run-now          {format?, params?} run an export now → runs row
 
 GET    /api/charts
-POST   /api/charts                       {report_id, name, kind, x_column, y_column}
+POST   /api/charts                       {report_id, name, kind, x_column, y_column,
+                                          series_column?, stacked?, params?}
 GET    /api/charts/:id
 DELETE /api/charts/:id
 GET    /api/charts/:id/svg               authed SVG
 GET    /api/charts/:id/embed             → {chart_id, token, path}
 
 GET    /api/schedules                    with derived next_due_at
-PUT    /api/schedules/report/:reportId   {interval, enabled?} — upsert (one per report)
+PUT    /api/schedules/report/:reportId   {interval, enabled?, format?, params?} — upsert (one per report)
 DELETE /api/schedules/:id
 POST   /api/schedules/:id/run-now        run this schedule's report now
 
-GET    /api/runs                         ?report_id= → append-only run history
+GET    /api/runs                         ?report_id= → append-only run history (with bound values)
+
+GET    /api/settings                     time zone for relative dates
+PUT    /api/settings                     {timezone}  (manage)
 
 GET    /embed/chart/:id?token=…          PUBLIC signed SVG; bad/foreign token → 404
 GET    /api/health                       liveness
@@ -406,9 +542,20 @@ DROP/PRAGMA/ATTACH/multi-statement) at the validator and over the API; the
 read-only connection as backstop; the 10,000-row cap with truncation;
 pivot correctness (sum/count/avg/min/max, empty cells, row/column/grand
 totals) against hand-computed values and the source db; chart SVG element
-counts for a known dataset; embed token valid/invalid/cross-chart; a
-schedule/manual run appending history and writing a CSV whose row count
-matches the query; the scheduler tick firing a due schedule once (no
+counts for a known dataset, and for every new kind what a reader takes
+from it (grouped and stacked bars summing to their total, a line breaking
+at a gap, pie shares, "Other" past eight series, well-formed SVG with
+hostile labels); embed token valid/invalid/cross-chart, and an embed
+ignoring parameter values in its URL; a schedule/manual run appending
+history and writing a CSV whose row count matches the query; parameters
+(`test/params.test.ts`) — declarations and SQL agreeing, literals and
+comments ignored, values bound so SQL in a value is inert, relative dates
+against an injected clock in Vienna, UTC and New York, across year ends
+and leap days, a scheduled Excel export of "last month" recording the
+dates it bound; the Excel file (`test/xlsx.test.ts`) — every part
+validated against ECMA-376, Excel serial reference values, numbers/text/
+dates/no formulas; an installation from the previous release
+(`test/migration.test.ts`) opening with every row and id kept; the scheduler tick firing a due schedule once (no
 backfill); `SOURCE_VIEWS_ONLY` in both modes — off changes nothing, on
 refuses a private table and cannot be evaded by an alias, a CTE, a
 subquery, a comma-join, a parenthesised table list, a quoted identifier or a
@@ -449,16 +596,18 @@ these, that's commissioned work — exactly the kind 0815software does:
 - **External cron / distributed scheduling.** The scheduler is in-process
   with no catch-up backfill (documented above). Cron-grade guarantees are
   an extension.
-- **Formats beyond CSV.** Exports are CSV; XLSX/Parquet/JSON exports and
-  emailed/pushed deliveries (SMTP, S3, webhooks) are out — this module has
-  zero external services.
-- **Charts beyond bar/line.** Two hand-rolled SVG chart types. Pie,
-  stacked, scatter, multi-series, tooltips and interactivity are an
-  extension of the same no-library renderer.
+- **Formats beyond CSV and Excel.** Parquet/JSON/PDF exports, Excel
+  formulas, formatting beyond a bold header and date cells, and Excel
+  charts are out. So are emailed/pushed deliveries (SMTP, S3, webhooks) —
+  this module has zero external services.
+- **Charts beyond bar/line/area/pie.** Scatter, horizontal bars, dual
+  axes, zoom and other interactivity beyond hover titles are an extension
+  of the same no-library renderer.
 - **Query builder / visual SQL.** Reports are hand-written SELECTs; a
   drag-and-drop query designer is a separate product.
-- **Parameterised / scheduled-with-parameters reports.** A report is a
-  fixed SELECT; runtime parameters and prompt-driven filters are out.
+- **Parameters beyond single values.** A parameter is one text, number,
+  date or choice; multi-select lists, choices read from a query, and
+  parameters that depend on each other are out.
 
 ## License
 
@@ -484,7 +633,7 @@ person signs in as themselves and gets the level PS-01 grants them here:
 | `module:reporting-suite:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
 
 `module:*:<level>` grants a level in every module. Reads need `view`, any other
-method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/reports` → `manage`; `PUT /api/reports/:id` → `manage`; `DELETE /api/reports/:id` → `manage`; `POST /api/preview` → `manage`; `POST /api/reports/:id/run` → `view`; `POST /api/reports/:id/pivot` → `view`; `POST /api/reports/:id/chart-preview` → `view`. A refused request answers **403**
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/reports` → `manage`; `PUT /api/reports/:id` → `manage`; `DELETE /api/reports/:id` → `manage`; `POST /api/preview` → `manage`; `POST /api/reports/:id/run` → `view`; `POST /api/reports/:id/pivot` → `view`; `POST /api/reports/:id/chart-preview` → `view`; `PUT /api/settings` → `manage`. A refused request answers **403**
 `{ error, required, access }`; `GET /api/me` reports the caller's `access`.
 Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
 manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).

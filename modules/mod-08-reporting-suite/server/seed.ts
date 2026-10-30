@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { openDb } from './db.js';
+import type { ReportParam } from '../shared/types.js';
 
 /**
  * Deterministic PRNG (mulberry32) so the demo source database is
@@ -153,7 +154,7 @@ export function ensureSourceDb(path: string): void {
   console.log(`[seed] generated demo source db at ${path}`);
 }
 
-const REPORTS: { name: string; description: string; sql: string }[] = [
+const REPORTS: { name: string; description: string; sql: string; params?: ReportParam[] }[] = [
   {
     name: 'Revenue by month',
     description: 'Total net revenue (cents) per calendar month across all regions.',
@@ -211,10 +212,43 @@ FROM orders o
 GROUP BY o.order_date
 ORDER BY o.order_date`,
   },
+  {
+    name: 'Revenue by region in a period',
+    description: 'Revenue per region between two dates, optionally for one category — a report with parameters.',
+    sql: `SELECT r.name AS region,
+       COUNT(DISTINCT o.id) AS orders,
+       SUM(ol.quantity * ol.unit_price_cents) AS revenue_cents
+FROM orders o
+JOIN regions r ON r.id = o.region_id
+JOIN order_lines ol ON ol.order_id = o.id
+JOIN products p ON p.id = ol.product_id
+WHERE o.order_date BETWEEN :from AND :to
+  AND (:category IS NULL OR p.category = :category)
+GROUP BY r.id
+ORDER BY revenue_cents DESC`,
+    params: [
+      { name: 'from', label: 'From', type: 'date', required: true, default: '2025-01-01', choices: [] },
+      { name: 'to', label: 'To', type: 'date', required: true, default: '2025-12-31', choices: [] },
+      { name: 'category', label: 'Category', type: 'choice', required: false, default: null, choices: ['Hardware', 'Software', 'Services', 'Accessories'] },
+    ],
+  },
+  {
+    name: 'Monthly revenue by category',
+    description: 'One row per month and category — a series for a stacked chart.',
+    sql: `SELECT strftime('%Y-%m', o.order_date) AS month,
+       p.category AS category,
+       SUM(ol.quantity * ol.unit_price_cents) AS revenue_cents
+FROM orders o
+JOIN order_lines ol ON ol.order_id = o.id
+JOIN products p ON p.id = ol.product_id
+GROUP BY month, p.category
+ORDER BY month, p.category`,
+  },
 ];
 
 /**
- * Seed the module's OWN metadata db: the example reports, two charts and
+ * Seed the module's OWN metadata db: the example reports (one with
+ * parameters), four charts (one a pie, one stacked by a series) and
  * one schedule with a couple of historical run rows. Idempotent — skips
  * a metadata db that already contains reports. History rows are written
  * directly (no files touched): they model runs whose CSV files have since
@@ -229,22 +263,24 @@ export function seedMeta(db: Database.Database, exportsDir = './exports'): void 
 
   db.transaction(() => {
     const insReport = db.prepare(
-      `INSERT INTO reports (name, description, sql, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO reports (name, description, sql, params, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
     );
     const at = '2026-01-05T09:00:00.000Z';
     const ids: Record<string, number> = {};
     for (const r of REPORTS) {
-      const info = insReport.run(r.name, r.description, r.sql, at, at);
+      const info = insReport.run(r.name, r.description, r.sql, JSON.stringify(r.params ?? []), at, at);
       ids[r.name] = Number(info.lastInsertRowid);
     }
 
     const insChart = db.prepare(
-      `INSERT INTO charts (report_id, name, kind, x_column, y_column, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO charts (report_id, name, kind, x_column, y_column, series_column, stacked, param_values, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
-    insChart.run(ids['Revenue by month'], 'Monthly revenue', 'bar', 'month', 'revenue_cents', at);
-    insChart.run(ids['Daily order volume'], 'Daily order volume', 'line', 'day', 'orders', at);
+    insChart.run(ids['Revenue by month'], 'Monthly revenue', 'bar', 'month', 'revenue_cents', null, 0, '{}', at);
+    insChart.run(ids['Daily order volume'], 'Daily order volume', 'line', 'day', 'orders', null, 0, '{}', at);
+    insChart.run(ids['Monthly revenue by category'], 'Revenue by category, stacked', 'bar', 'month', 'revenue_cents', 'category', 1, '{}', at);
+    insChart.run(ids['Revenue by region in a period'], 'Hardware share by region, H1', 'pie', 'region', 'revenue_cents', null, 0, JSON.stringify({ from: '2025-01-01', to: '2025-06-30', category: 'Hardware' }), at);
 
     const insSchedule = db.prepare(
       `INSERT INTO schedules (report_id, interval, format, enabled, last_run_at, created_at)
@@ -282,7 +318,7 @@ export function seedMeta(db: Database.Database, exportsDir = './exports'): void 
     );
   })();
 
-  console.log(`[seed] metadata db: ${REPORTS.length} reports, 2 charts, 1 schedule, 2 run-history rows`);
+  console.log(`[seed] metadata db: ${REPORTS.length} reports, 4 charts, 1 schedule, 2 run-history rows`);
 }
 
 // CLI entry: npm run seed

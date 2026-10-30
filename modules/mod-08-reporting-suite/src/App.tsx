@@ -7,18 +7,21 @@ import { ReportEditor } from './components/ReportEditor';
 import { ReportWorkspace } from './components/ReportWorkspace';
 import { ChartsView } from './components/ChartsView';
 import { SchedulesView } from './components/SchedulesView';
+import { SettingsView } from './components/SettingsView';
 
 export type View =
   | { name: 'reports' }
   | { name: 'report'; id: number }
   | { name: 'report-editor'; id: number | null }
   | { name: 'charts' }
-  | { name: 'schedules' };
+  | { name: 'schedules' }
+  | { name: 'settings' };
 
 const NAV: { view: View; label: string }[] = [
   { view: { name: 'reports' }, label: 'Reports' },
   { view: { name: 'charts' }, label: 'Charts' },
   { view: { name: 'schedules' }, label: 'Schedules' },
+  { view: { name: 'settings' }, label: 'Settings' },
 ];
 
 export function App() {
@@ -115,6 +118,7 @@ export function App() {
           )}
           {view.name === 'charts' && <ChartsView onAuthLost={onAuthLost} />}
           {view.name === 'schedules' && <SchedulesView onAuthLost={onAuthLost} />}
+          {view.name === 'settings' && <SettingsView onAuthLost={onAuthLost} />}
         </main>
       </div>
     </AccessProvider>

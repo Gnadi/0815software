@@ -290,13 +290,14 @@ const presentation: Record<string, ModulePresentation> = {
     },
   },
   'mod-08-reporting-suite': {
-    body: 'Scheduled exports, pivot tables, and chart embeds built on top of your existing database.',
+    body: 'Scheduled Excel and CSV exports, pivot tables, and chart embeds built on top of your existing database.',
     overview:
-      'Turn a SQLite database into saved reports, server-computed pivots, hand-rolled SVG charts with signed, session-free embed URLs and scheduled CSV exports — without ever writing to the database it reports on. That read-only guarantee is the core safety property, and the test suite proves it end to end.',
+      'Turn a SQLite database into saved reports with parameters, server-computed pivots, hand-rolled SVG charts with signed, session-free embed URLs and scheduled Excel or CSV exports — without ever writing to the database it reports on. Parameter values are bound, never pasted into the SQL; the Excel files are checked against the published ECMA-376 schemas; and the read-only guarantee is proven end to end by the test suite.',
     features: [
       'Saved reports and server-computed pivot tables',
-      'Hand-rolled SVG charts with signed, session-free embed URLs',
-      'Scheduled CSV exports',
+      'Parameters with relative dates — "last month" stays last month on a schedule',
+      'SVG charts: bar, line, area and pie, several series or stacked, with signed embed URLs',
+      'Excel and CSV exports, scheduled or on demand — the pivot as a second sheet',
       'Provably read-only against the source database',
     ],
     screen: {

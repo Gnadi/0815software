@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Report } from '../../shared/types';
-import { api, ApiError, exportCsvUrl } from '../api';
+import { api, ApiError, exportCsvUrl, exportXlsxUrl } from '../api';
 import { Can } from '../access';
 
 interface Props {
@@ -86,6 +86,9 @@ export function ReportsView({ onOpen, onNew, onEdit, onAuthLost }: Props) {
                   {r.name}
                 </button>
                 <div className="reportcard__desc">{r.description ?? 'No description'}</div>
+                {r.params.length > 0 && (
+                  <div className="reportcard__desc mono">PARAMETERS · {r.params.map((p) => `:${p.name}`).join(' ')}</div>
+                )}
               </div>
               <div className="reportcard__actions">
                 <button className="rowbtn" onClick={() => onOpen(r.id)}>
@@ -98,6 +101,9 @@ export function ReportsView({ onOpen, onNew, onEdit, onAuthLost }: Props) {
                 </Can>
                 <a className="rowbtn" href={exportCsvUrl(r.id)}>
                   CSV
+                </a>
+                <a className="rowbtn" href={exportXlsxUrl(r.id)}>
+                  EXCEL
                 </a>
                 <Can level="manage">
                   <button className="rowbtn rowbtn--danger" onClick={() => void remove(r.id)}>
