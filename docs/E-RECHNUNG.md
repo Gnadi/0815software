@@ -412,9 +412,11 @@ if a customer needs it.
   wired, the archive gets what the customer receives: the e-invoice in the
   format set on the customer, the bytes every download serves, else the PDF.
   Delivering the file itself over a channel is a separate integration.
-- **Receiving.** The bills side does not read incoming XRechnung or ZUGFeRD.
-  The receiving obligation is met by any mailbox that keeps the XML; reading
-  it into a bill is a feature still to build.
+- **Receiving.** With PS-04 wired (`AI_URL`), the Bills screen reads an
+  incoming XRechnung, ZUGFeRD or ebInterface file into the bill form, lines
+  included (MOD-04 README, *Read from the document*). The bill keeps the
+  file's SHA-256, not the file: keeping the received XML as it came, as
+  § 14b UStG and the GoBD require, is left to the mailbox or an archive.
 - **UBL.** The PEPPOL UBL syntax is not written; it would be a new renderer
   over the same `EInvoiceModel`, as ebInterface is.
 - **Allowances, charges, discounts.** Lines carry no allowances or charges.
@@ -429,7 +431,7 @@ if a customer needs it.
   delivered, with their SHA-256, append-only (see *The invoice as issued*),
   but not signed, not timestamped by a third party and not copied to an
   archive outside the module's database; backups carry them. PS-06 archives,
-  when wired, the document in the customer's format. Revision-proof long-term storage is still open
-  (`docs/PLATFORM-READINESS.md`, D2).
+  when wired, the document in the customer's format. Revision-proof
+  long-term storage is still open (`docs/PLATFORM-READINESS.md`, D2).
 - **Debtor master data for DATEV / BMD.** Only bookings are exported. The
   adviser creates or imports the personal accounts.

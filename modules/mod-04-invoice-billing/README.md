@@ -1273,7 +1273,9 @@ these, that's commissioned work — exactly the kind 0815software does:
   MT940 and PSP settlement files are not read.
 - **UBL and PEPPOL transport** — the e-invoices are downloaded; nothing is
   sent over PEPPOL, and the UBL syntax is not written. Incoming e-invoices are
-  not read on the bills side. See [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
+  read into a bill only with PS-04 wired (see
+  [Read from the document](#read-from-the-document-ps-04)), and the received
+  file is not kept. See [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
 - **Bank transport other than EBICS** — standalone the module produces the
   file and stops there; PS-12 Banking sends it over EBICS. See
   [Bills and the SEPA payment file](#bills-and-the-sepa-payment-file).

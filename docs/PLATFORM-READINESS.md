@@ -433,8 +433,10 @@ exports ([`E-RECHNUNG.md`](./E-RECHNUNG.md)). MOD-04 also keeps every
 e-invoice it delivered as the bytes that went out, with their SHA-256,
 append-only (`issued_documents`). **Still open:** revision-proof long-term
 archival beyond the module's database (signatures or trusted timestamps, an
-archive of its own; PS-07 covers events, not documents; PS-06 archives the
-plain PDF only), and reading incoming e-invoices on the bills side.
+archive of its own; PS-07 covers events, not documents; PS-06, when wired,
+archives the document each customer receives, but its objects can be
+overwritten and deleted), and keeping incoming e-invoices: with PS-04 the
+bills side reads them, but keeps only their SHA-256, not the file.
 
 ---
 
