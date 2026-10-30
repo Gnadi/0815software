@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { BillReadingSettings } from './BillReadingSettings';
 import type { FieldError } from '../../shared/types';
 import {
   api,
@@ -246,6 +247,8 @@ export function SettingsView({ onAuthLost }: Props) {
           </button>
         </div>
       </Can>
+
+      <BillReadingSettings onError={handle} />
 
       {/* ── DATEV ── */}
       <div className="section-title mono">DATEV</div>

@@ -1,5 +1,5 @@
 import { BaseClient } from './http.js';
-import type { ChatInput, ChatResult, EmbedResult, RagResult, RagSearchInput } from './types.js';
+import type { ChatInput, ChatResult, EmbedResult, ExtractInvoiceInput, InvoiceExtraction, RagResult, RagSearchInput } from './types.js';
 
 /** Client for PS-04 AI Platform (default port 4004). */
 export class AiClient extends BaseClient {
@@ -27,5 +27,14 @@ export class AiClient extends BaseClient {
     steps: number;
   }> {
     return this.apiPost('/api/agents/run', input);
+  }
+
+  /**
+   * Read a supplier invoice into fields: an e-invoice exactly, a generated
+   * PDF or text by labelled patterns, a scan only by a vision model. A
+   * proposal for a person to check — nothing is saved.
+   */
+  extractInvoice(input: ExtractInvoiceInput): Promise<InvoiceExtraction> {
+    return this.apiPost<InvoiceExtraction>('/api/extract/invoice', input);
   }
 }

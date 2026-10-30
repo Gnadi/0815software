@@ -128,6 +128,12 @@ see below.
 
 ## Features
 
+- **My Profile** — the signed-in person's own record: work phone, private
+  phone and emergency contact changed directly; a new name or private
+  address sent to HR; their requests and the history of changes. See
+  [Self-service](#self-service).
+- **Change requests** — HR's queue (`edit`): approve, or reject with a
+  reason. **Private data** on the employee detail, for HR only, with *erase*.
 - **Directory** — searchable list (name, email, title) with department,
   location, and status filters; report counts; offboarded rows dimmed.
 - **Employee detail** — contact card, manager chain up to the root,
@@ -190,6 +196,18 @@ POST   /api/employees/:id/reactivate     stale manager link is cleared
 PATCH  /api/employees/:id/onboarding     {account_created?, hardware_issued?,
                                           intro_meeting_booked?} — partial
 
+GET    /api/me/profile                   own record, private data, requests, history  (any level)
+PUT    /api/me/profile                   {phone?, private_phone?, emergency_name?, emergency_relation?,
+                                          emergency_phone?}  name/address → 422, use a request
+POST   /api/me/profile/requests          {field: name|address, value, reason?}  one pending per field
+POST   /api/me/profile/requests/:id/withdraw
+GET    /api/profile-requests             ?status=pending|approved|rejected|withdrawn  (edit)
+POST   /api/profile-requests/:id/approve applies the value  (edit; never one's own)
+POST   /api/profile-requests/:id/reject  {note}  (edit; never one's own)
+GET    /api/employees/:id/private        private data + history  (edit)
+PUT    /api/employees/:id/private        {private_phone?, address?, emergency_*?}  (edit)
+DELETE /api/employees/:id/private        erase it — after offboarding  (edit)
+
 GET    /api/orgchart                     {roots: [...]} — active employees only
 GET    /api/onboarding                   {today, upcoming, recent} — ±30/14-day window
 GET    /api/locations                    distinct locations (filter dropdown)
@@ -241,9 +259,10 @@ exactly the kind 0815software does:
   webhooks, no SCIM. "Integrates with HR onboarding" means the built-in
   starting-soon list and checklist; the clean REST API is the hook for
   anything deeper.
-- **Employee self-service** — staff get their own logins and levels from
-  PS-01 (see [Users and access levels](#users-and-access-levels)), but there
-  is no "edit only my own entry" rule: `edit` edits the directory.
+- **Self-service beyond contact data** — people keep their phone,
+  emergency contact, name and private address current (see
+  [Self-service](#self-service)); bank details, tax and social-security
+  numbers, documents and a staff-only manager view are not held here.
 - **Photos and file uploads** — contact data is text; an avatar/photo
   pipeline (storage, resizing) is an extension.
 - **Leave, payroll, and performance** — this is a directory, not an
@@ -251,11 +270,44 @@ exactly the kind 0815software does:
 - **Matrix / dotted-line reporting** — exactly one manager per
   employee; the forest invariant is the point of the module.
 - **Employee history timelines** — the current state plus the
-  offboarded flag is stored, not an audit trail of every change.
+  offboarded flag is stored; self-service changes are logged by field
+  and person (never values), HR's own edits to the directory are not.
 
 ## License
 
 MIT © 0815software — see [LICENSE](LICENSE).
+
+## Self-service
+
+A person keeps their own record current instead of mailing HR
+(`server/profile.ts` — the one place where what may be written depends on
+the row, so the rule lives there as named functions):
+
+- **Whose record.** The employee whose email is the signed-in identity,
+  case-insensitively. The `/api/me/...` routes carry no id, so nobody can
+  aim them at a colleague, and any level may use them — keeping one's own
+  phone number current is not editing the directory.
+- **Directly**: the work phone (in the directory), the private phone and the
+  emergency contact (private). **Through HR** (`edit`): the name — the legal
+  identity every other record uses — and the private address, which payroll
+  and letters go to. A request holds the proposed value; approving applies
+  it, rejecting says why; one pending request per field; nobody decides
+  their own.
+- **Private stays private.** Private data (`employee_private`) is seen by the
+  person and HR, never by colleagues browsing the directory, and is not in
+  the CSV export.
+- **History without values.** `profile_changes` records which field changed,
+  how (themselves, request, HR, erased) and by whom — never what it was or
+  became, so the log is not a second copy of private data. PS-07 gets the
+  same: field names only.
+- **Erasable.** HR erases the private data once nothing needs it (after
+  offboarding); a pending or decided address request loses its value too.
+- **Offboarded is read-only** for the person.
+
+Pinned by `test/self-service.test.ts` (direct fields and the value-free
+log, refused fields, no record and offboarded, request → approve, reject
+with a reason, withdraw, never one's own, the same value, private data for
+HR only, maintained and erased, `/api/me`).
 
 ## Platform integration (optional)
 
@@ -278,7 +330,7 @@ person signs in as themselves and gets the level PS-01 grants them here:
 | `module:employee-directory:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
 
 `module:*:<level>` grants a level in every module. Reads need `view`, any other
-method needs `edit`. This module needs no rule beyond the method default and sign-out; the policy is still one file, [`server/access.ts`](./server/access.ts). A refused request answers **403**
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) lets every level change its *own* record (`/api/me/profile…`) and reserves the change-request queue and private data for `edit`; whose record and who may decide are [`server/profile.ts`](./server/profile.ts). A refused request answers **403**
 `{ error, required, access }`; `GET /api/me` reports the caller's `access`.
 Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
 manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).

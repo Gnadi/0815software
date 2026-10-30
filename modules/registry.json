@@ -285,6 +285,7 @@
         "optional": [
           "ps-01-identity",
           "ps-03-notification-hub",
+          "ps-04-ai-platform",
           "ps-06-file-storage",
           "ps-07-audit-log",
           "ps-08-payments",
@@ -295,6 +296,10 @@
       },
       "peers": {
         "optional": [
+          {
+            "id": "mod-06-procurement-tracker",
+            "urlEnv": "PROCUREMENT_URL"
+          },
           {
             "id": "mod-13-offers",
             "urlEnv": "OFFERS_URL"
@@ -412,6 +417,14 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false
+      },
+      "peers": {
+        "optional": [
+          {
+            "id": "mod-03-inventory-management",
+            "urlEnv": "INVENTORY_URL"
+          }
+        ]
       }
     },
     {
@@ -560,12 +573,14 @@
         "required": [],
         "optional": [
           "ps-01-identity",
+          "ps-03-notification-hub",
           "ps-07-audit-log"
         ]
       },
       "env": {
         "required": [],
         "optional": [
+          "REMINDER_TICK_SECONDS",
           "SHELL_ORIGIN"
         ],
         "secrets": [
@@ -603,6 +618,8 @@
           "ps-01-identity",
           "ps-03-notification-hub",
           "ps-04-ai-platform",
+          "ps-05-integration-hub",
+          "ps-06-file-storage",
           "ps-07-audit-log"
         ]
       },
@@ -610,7 +627,9 @@
         "required": [],
         "optional": [
           "NOTIFICATION_ACK_CHANNEL",
-          "SHELL_ORIGIN"
+          "SHELL_ORIGIN",
+          "ATTACHMENT_MAX_BYTES",
+          "ATTACHMENTS_PER_MESSAGE"
         ],
         "secrets": [
           "ADMIN_PASSWORD",
@@ -621,7 +640,7 @@
       "constraints": {
         "supportsSso": true,
         "embeddable": true,
-        "needsPublicBaseUrl": false,
+        "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
         "publishesReportViews": false
       }

@@ -2,15 +2,17 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import type Database from 'better-sqlite3';
 import {
   checkCredentials,
+  checkServiceToken,
   clearedCookie,
   createToken,
   nowIso,
   requireAuth,
+  SERVICE_HEADER,
   sessionCookie,
   type AuthConfig,
   type SeamFetch,
 } from './auth.js';
-import { DomainError, fail, reqText } from './errors.js';
+import { DomainError, fail, optionalInt, reqText } from './errors.js';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import { MIGRATIONS } from './db.js';
 import { pendingCount } from './migrations.js';
@@ -22,6 +24,8 @@ import { storeWebhookEvent, verifySignature } from './webhooks.js';
 import { defaultFetch, guardedFetch, proxyGraphql, proxyRest, type FetchLike } from './proxy.js';
 import { OPEN_EGRESS, type EgressPolicy, type ResolveHost } from './egress.js';
 import { withRetry } from './retry-fetch.js';
+import { DEFAULT_IMAP_LIMITS, defaultMailTransport, type ImapLimits, type MailTransport } from './imap.js';
+import { acknowledge, fetchMail, mailboxCredentials, mailboxFailure, mailboxTarget, probe, type MailboxDeps } from './mailbox.js';
 import { createSyncJob, listSyncJobs, mapSyncJob, runSyncJobs } from './sync.js';
 import {
   beginAuthorize,
@@ -31,7 +35,7 @@ import {
   refreshToken,
   type OAuthConfig,
 } from './oauth.js';
-import type { WebhookEvent } from '../shared/types.js';
+import type { FieldError, WebhookEvent } from '../shared/types.js';
 
 export interface AppOptions {
   db: Database.Database;
@@ -52,6 +56,10 @@ export interface AppOptions {
   hardening?: HardeningConfig;
   /** Emit one JSON log line per request (default false; index.ts passes true). */
   logRequests?: boolean;
+  /** How mailbox sockets are opened (tests trust their own certificate). */
+  mailTransport?: MailTransport;
+  /** Timeouts and size limits for mailbox fetches (MAIL_* env vars). */
+  mailLimits?: ImapLimits;
 }
 
 function idParam(req: Request): number | null {
@@ -75,6 +83,12 @@ export function createApp(opts: AppOptions): express.Express {
     opts.egress ?? OPEN_EGRESS,
     opts.resolveHost,
   );
+  const mail: MailboxDeps = {
+    transport: opts.mailTransport ?? defaultMailTransport(),
+    limits: opts.mailLimits ?? DEFAULT_IMAP_LIMITS,
+    egress: opts.egress ?? OPEN_EGRESS,
+    resolveHost: opts.resolveHost,
+  };
   const oauth: OAuthConfig = opts.oauth ?? {};
   const selfBaseUrl = opts.selfBaseUrl ?? 'http://localhost:4005';
 
@@ -172,7 +186,8 @@ export function createApp(opts: AppOptions): express.Express {
   // Inbound webhook receiver — verifies the provider signature.
   app.post('/api/webhooks/:provider', (req, res) => {
     const entry = providerEntry(req.params.provider as string);
-    if (!entry) fail(404, 'Unknown provider');
+    // A mailbox has no webhooks: an "imap" delivery is someone guessing.
+    if (!entry || entry.transport === 'imap') fail(404, 'Unknown provider');
     const b = body(req);
     const eventType = typeof b.type === 'string' ? b.type : (typeof req.headers['x-event-type'] === 'string' ? (req.headers['x-event-type'] as string) : null);
 
@@ -201,15 +216,32 @@ export function createApp(opts: AppOptions): express.Express {
   });
 
   // ── Admin gate ─────────────────────────────────────────────────────
-  app.use('/api', requireAuth(auth, { fetch: opts.identityFetch }));
+  // One exception: a module reads its mailbox as a machine, with the platform
+  // service token — the mail routes, and the redacted list of MAILBOXES it
+  // picks one from (not the other connections). Creating, revoking and
+  // proxying stay an administrator's.
+  const adminGate = requireAuth(auth, { fetch: opts.identityFetch });
+  const machineRoute = (req: Request): boolean =>
+    (req.method === 'POST' && /^\/connections\/\d+\/mail\/(probe|fetch|ack)$/.test(req.path)) ||
+    (req.method === 'GET' && req.path === '/connections' && req.query.provider === 'imap');
+  app.use('/api', (req, res, next) => {
+    if (machineRoute(req) && checkServiceToken(auth, req.headers[SERVICE_HEADER]) === 'ok') {
+      next();
+      return;
+    }
+    adminGate(req, res, next);
+  });
 
   app.get('/api/providers', (_req, res) => {
     res.json({ providers: publicRegistry() });
   });
 
   // ── Connections ────────────────────────────────────────────────────
-  app.get('/api/connections', (_req, res) => {
-    const rows = db.prepare('SELECT * FROM connections ORDER BY id').all() as ConnectionRow[];
+  app.get('/api/connections', (req, res) => {
+    const provider = typeof req.query.provider === 'string' ? req.query.provider : null;
+    const rows = (provider
+      ? db.prepare('SELECT * FROM connections WHERE provider = ? ORDER BY id').all(provider)
+      : db.prepare('SELECT * FROM connections ORDER BY id').all()) as ConnectionRow[];
     res.json({ connections: rows.map(mapConnection) });
   });
 
@@ -218,19 +250,18 @@ export function createApp(opts: AppOptions): express.Express {
     const provider = reqText(b, 'provider', 60);
     if (!providerEntry(provider)) fail(422, 'Validation failed', [{ field: 'provider', message: 'unknown provider' }]);
     const name = reqText(b, 'name', 200);
-    const credentials = (b.credentials ?? {}) as Record<string, unknown>;
-    const row = createConnection(
-      db,
-      encryptionKey,
-      {
-        provider,
-        name,
-        credentials,
-        scopes: typeof b.scopes === 'string' ? b.scopes : '',
-        externalAccount: typeof b.external_account === 'string' ? b.external_account : null,
-      },
-      now(),
-    );
+    let credentials = (b.credentials ?? {}) as Record<string, unknown>;
+    let scopes = typeof b.scopes === 'string' ? b.scopes : '';
+    let externalAccount = typeof b.external_account === 'string' ? b.external_account : null;
+    if (providerEntry(provider)!.transport === 'imap') {
+      // A mailbox is refused at creation if it could never be opened —
+      // plaintext, no host, no password — not at the first fetch.
+      const target = mailboxCredentials(credentials);
+      credentials = { ...target };
+      scopes = target.mailbox;
+      externalAccount = `${target.username} @ ${target.host}`;
+    }
+    const row = createConnection(db, encryptionKey, { provider, name, credentials, scopes, externalAccount }, now());
     res.status(201).json({ connection: mapConnection(row) });
   });
 
@@ -307,10 +338,16 @@ export function createApp(opts: AppOptions): express.Express {
   });
 
   // ── Proxy (REST + GraphQL) ─────────────────────────────────────────
-  app.post('/api/connections/:id/proxy', async (req, res) => {
-    const row = loadConnection(idParam(req));
+  const httpEntry = (row: ConnectionRow) => {
     const entry = providerEntry(row.provider);
     if (!entry) fail(404, 'Unknown provider');
+    if (entry.transport === 'imap') fail(422, 'Connection is a mailbox, not an HTTP API — use /mail/fetch');
+    return entry;
+  };
+
+  app.post('/api/connections/:id/proxy', async (req, res) => {
+    const row = loadConnection(idParam(req));
+    const entry = httpEntry(row);
     const b = body(req);
     const result = await proxyRest(
       entry,
@@ -328,8 +365,7 @@ export function createApp(opts: AppOptions): express.Express {
 
   app.post('/api/connections/:id/graphql', async (req, res) => {
     const row = loadConnection(idParam(req));
-    const entry = providerEntry(row.provider);
-    if (!entry) fail(404, 'Unknown provider');
+    const entry = httpEntry(row);
     const b = body(req);
     const query = reqText(b, 'query', 20000);
     const result = await proxyGraphql(
@@ -339,6 +375,45 @@ export function createApp(opts: AppOptions): express.Express {
       fetchImpl,
     );
     res.status(result.ok ? 200 : 502).json({ status: result.status, body: result.body });
+  });
+
+  // ── Mailboxes (provider imap) ──────────────────────────────────────
+  // A failure is recorded on the connection (what failed, never the
+  // content) and answered 502: the mailbox failed, not this service.
+  const withMailbox = async <T>(req: Request, operation: string, run: (target: ReturnType<typeof mailboxTarget>) => Promise<T>): Promise<T> => {
+    const row = loadConnection(idParam(req));
+    if (providerEntry(row.provider)?.transport !== 'imap') fail(422, 'Connection is not a mailbox');
+    if (row.status !== 'connected') fail(409, `Connection is ${row.status}`);
+    try {
+      return await run(mailboxTarget(credentialsOf(encryptionKey, row)));
+    } catch (err) {
+      const mapped = mailboxFailure(err);
+      if (mapped.status === 502 || mapped.status === 403) connectionEvent(db, row.id, 'error', { operation, error: mapped.message, reason: mapped.details[0]?.message ?? null }, now());
+      throw mapped;
+    }
+  };
+
+  app.post('/api/connections/:id/mail/probe', async (req, res) => {
+    res.json(await withMailbox(req, 'probe', (target) => probe(target, mail)));
+  });
+
+  app.post('/api/connections/:id/mail/fetch', async (req, res) => {
+    const limit = optionalInt(body(req), 'limit', 1, 100) ?? 20;
+    res.json(await withMailbox(req, 'fetch', (target) => fetchMail(target, mail, limit)));
+  });
+
+  app.post('/api/connections/:id/mail/ack', async (req, res) => {
+    const b = body(req);
+    const uidvalidity = optionalInt(b, 'uidvalidity', 1, 4294967295);
+    const uids = b.uids;
+    const errors: FieldError[] = [];
+    if (uidvalidity === undefined) errors.push({ field: 'uidvalidity', message: 'is required — the value the fetch returned' });
+    if (!Array.isArray(uids) || uids.length > 500 || !uids.every((u) => Number.isInteger(u) && u > 0 && u <= 4294967295)) {
+      errors.push({ field: 'uids', message: 'must be a list of up to 500 message UIDs' });
+    }
+    if (errors.length > 0) fail(422, 'Validation failed', errors);
+    const acknowledged = await withMailbox(req, 'ack', (target) => acknowledge(target, mail, uidvalidity!, uids as number[]));
+    res.json({ acknowledged });
   });
 
   // ── Webhook event log ──────────────────────────────────────────────

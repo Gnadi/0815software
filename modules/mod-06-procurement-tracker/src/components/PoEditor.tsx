@@ -17,9 +17,10 @@ interface LineForm {
   quantity: string;
   unit: string;
   price: string;
+  sku: string;
 }
 
-const EMPTY_LINE: LineForm = { description: '', quantity: '1', unit: 'pc', price: '' };
+const EMPTY_LINE: LineForm = { description: '', quantity: '1', unit: 'pc', price: '', sku: '' };
 
 export function PoEditor({ id, config, onDone, onAuthLost }: Props) {
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
@@ -44,6 +45,7 @@ export function PoEditor({ id, config, onDone, onAuthLost }: Props) {
             quantity: String(l.quantity),
             unit: l.unit,
             price: centsToInput(l.unit_price_cents),
+            sku: l.sku ?? '',
           })),
         );
       }
@@ -84,6 +86,7 @@ export function PoEditor({ id, config, onDone, onAuthLost }: Props) {
           quantity: Number(l.quantity.replace(',', '.')),
           unit: l.unit,
           unit_price_cents: parseEurToCents(l.price) ?? -1,
+          sku: l.sku.trim() || null,
         })),
       };
       const po = id === null ? await api.createPo(values) : await api.updatePo(id, values);
@@ -178,6 +181,15 @@ export function PoEditor({ id, config, onDone, onAuthLost }: Props) {
                 placeholder="0,00"
                 value={line.price}
                 onChange={(e) => setLines(lines.map((l, j) => (j === i ? { ...l, price: e.target.value } : l)))}
+              />
+            </label>
+            <label className="field">
+              <span className="field__label mono">SKU (MOD-03)</span>
+              <input
+                className="field__input"
+                placeholder="stock only"
+                value={line.sku}
+                onChange={(e) => setLines(lines.map((l, j) => (j === i ? { ...l, sku: e.target.value } : l)))}
               />
             </label>
             <button

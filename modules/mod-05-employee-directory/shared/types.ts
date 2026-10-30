@@ -114,3 +114,57 @@ export interface FieldError {
   field: string;
   message: string;
 }
+
+// ── Self-service (server/profile.ts) ───────────────────────────────────
+
+/** What only the person and HR see — never the directory. */
+export interface PrivateData {
+  employee_id: number;
+  private_phone: string | null;
+  /** Changed through a request HR approves. */
+  address: string | null;
+  emergency_name: string | null;
+  emergency_relation: string | null;
+  emergency_phone: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+/** Fields that change only with HR's approval. */
+export type RequestField = 'name' | 'address';
+
+export type ProfileField = 'phone' | 'private_phone' | 'emergency_name' | 'emergency_relation' | 'emergency_phone' | RequestField | 'private_data';
+
+export interface ProfileRequest {
+  id: number;
+  employee_id: number;
+  employee_name: string;
+  field: RequestField;
+  /** What it is now — derived from the record, so it is always today's. */
+  current: string | null;
+  proposed: string;
+  reason: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'withdrawn';
+  requested_by: string;
+  requested_at: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+}
+
+/** One change to a record: which field, how and by whom — never the values. */
+export interface ProfileChange {
+  id: number;
+  field: ProfileField;
+  via: 'self' | 'request' | 'hr' | 'erased';
+  request_id: number | null;
+  actor: string;
+  at: string;
+}
+
+export interface OwnProfile {
+  employee: EmployeeRow;
+  private: PrivateData;
+  requests: ProfileRequest[];
+  changes: ProfileChange[];
+}

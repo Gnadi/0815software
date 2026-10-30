@@ -81,6 +81,18 @@ export function openDb(path: string): Database.Database {
       created_at   TEXT NOT NULL,
       UNIQUE (source, reference)
     );
+
+    -- Goods received against a purchase order in another module (MOD-06),
+    -- one row per receipt; the same idempotency as goods_issues.
+    CREATE TABLE IF NOT EXISTS goods_receipts (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      source       TEXT NOT NULL,
+      reference    TEXT NOT NULL,
+      warehouse_id INTEGER NOT NULL REFERENCES warehouses(id),
+      actor        TEXT NOT NULL,
+      created_at   TEXT NOT NULL,
+      UNIQUE (source, reference)
+    );
   `);
 
   // Reservations: stock promised to an order in another module (MOD-17), per

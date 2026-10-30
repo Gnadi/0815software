@@ -19,6 +19,11 @@ export interface ProviderEntry extends ProviderInfo {
   signature_header: string | null;
   signature_encoding: 'hex' | 'base64';
   signature_prefix: string;
+  /**
+   * `imap`: a mailbox, reached over IMAP rather than HTTP — no proxy, no
+   * webhooks; its routes are /api/connections/:id/mail/* (server/mailbox.ts).
+   */
+  transport?: 'imap';
 }
 
 const AUTH_TYPES: AuthType[] = ['bearer', 'basic', 'apikey', 'oauth2'];
@@ -32,6 +37,7 @@ export const REGISTRY: readonly ProviderEntry[] = [
   { key: 'shopify', name: 'Shopify', base_url: 'https://example.myshopify.com/admin/api', auth_type: 'apikey', signature_scheme: 'shopify', signature_header: 'x-shopify-hmac-sha256', signature_encoding: 'base64', signature_prefix: '' },
   { key: 'rest', name: 'Generic REST', base_url: '', auth_type: 'bearer', signature_scheme: 'hmac-sha256', signature_header: 'x-signature', signature_encoding: 'hex', signature_prefix: '' },
   { key: 'graphql', name: 'Generic GraphQL', base_url: '', auth_type: 'bearer', signature_scheme: 'hmac-sha256', signature_header: 'x-signature', signature_encoding: 'hex', signature_prefix: '' },
+  { key: 'imap', name: 'IMAP mailbox', base_url: '', auth_type: 'basic', signature_scheme: 'none', signature_header: null, signature_encoding: 'hex', signature_prefix: '', transport: 'imap' },
 ];
 
 export function providerEntry(key: string): ProviderEntry | undefined {

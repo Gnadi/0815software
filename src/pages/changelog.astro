@@ -5,6 +5,55 @@ export const prerender = true;
 
 const releases = [
   {
+    version: 'v0.7.0',
+    date: '2026-10-29',
+    title: 'The help desk',
+    changes: [
+      { type: 'Added', text: 'Support Tickets: SLA in business hours with holidays, paused while a ticket waits on the requester — a versioned policy set in the UI, so a change never rewrites old verdicts' },
+      { type: 'Added', text: 'Support Tickets: attachments on the request, replies and follow-ups, never served to the requester from an internal note' },
+      { type: 'Added', text: 'Support Tickets: canned responses with placeholders, replies by email, and satisfaction ratings once per resolution' },
+      { type: 'Added', text: 'Integration Hub: IMAP mailboxes — unread mail parsed and handed over, marked read only once the module has it; Support Tickets reads its mailbox through it' },
+      { type: 'Fixed', text: 'Support Tickets: the sidebar no longer spreads its entries over the whole height' },
+    ],
+  },
+  {
+    version: 'v0.6.0',
+    date: '2026-10-29',
+    title: 'Self-service',
+    changes: [
+      { type: 'Added', text: 'Time Tracking: a start/stop timer that runs on the server and stops into an ordinary entry, capped at midnight and the daily maximum' },
+      { type: 'Added', text: 'Time Tracking: My area — the own week, flexitime, leave and tasks on one screen' },
+      { type: 'Added', text: 'Time Tracking: reminders for an unsubmitted week and a forgotten timer, through the notification hub' },
+      { type: 'Added', text: 'Employee Directory: people keep their own contact details current; name and address changes are approved by HR' },
+      { type: 'Fixed', text: 'A Time Tracking test that failed once the calendar reached its fixed week' },
+    ],
+  },
+  {
+    version: 'v0.5.0',
+    date: '2026-10-24',
+    title: 'The incoming side',
+    changes: [
+      { type: 'Added', text: 'Three-way match: a bill for a purchase order is paid only once the goods have arrived (Procurement ↔ Inventory ↔ Invoice & Billing)' },
+      { type: 'Added', text: 'Procurement Tracker: goods receipts against ordered POs, booked into Inventory Management' },
+      { type: 'Added', text: 'AI Platform: invoice extraction — e-invoices read exactly, printed PDFs from their labels, scans by a vision model' },
+      { type: 'Added', text: 'Invoice & Billing: read a supplier invoice into a bill, with its lines, instead of typing it; the same document twice is flagged' },
+      { type: 'Added', text: 'Three-way match line by line: the supplier’s article number against the PO line, quantity against what arrived, price against the order' },
+    ],
+  },
+  {
+    version: 'v0.4.0',
+    date: '2026-10-22',
+    title: 'Many users, and the order chain',
+    changes: [
+      { type: 'Added',   text: 'Per-person access levels (view, edit, manage) in every module, through PS-01 sign-in' },
+      { type: 'Added',   text: 'Orders & Delivery Notes module — order confirmations, partial deliveries, one invoice per delivery' },
+      { type: 'Added',   text: 'Invoice & Billing: dunning in levels, recurring invoices, partial credit notes, billing a delivery note' },
+      { type: 'Added',   text: 'Inventory Management: barcodes and labels, reservations for confirmed orders' },
+      { type: 'Added',   text: 'Time Tracking: absences with approval, flexitime and overtime, a task board per project' },
+      { type: 'Changed', text: 'The module generator first checks whether a topic belongs in an existing module' },
+    ],
+  },
+  {
     version: 'v0.3.0',
     date: '2026-04-01',
     title: 'Spring clean',

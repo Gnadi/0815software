@@ -26,8 +26,13 @@ import {
 import { createHandoff, isRedeemPath, requestedAccess, safeServiceTokenEqual } from './handoff.js';
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
-import { SLA_POLICIES, AT_RISK_MINUTES } from './sla-config.js';
+import { SLA_POLICIES } from './sla-config.js';
 import { TRANSITIONS } from './status-config.js';
+import { DEFAULT_ATTACHMENT_LIMITS, parseUploads, readAttachment, type AttachmentLimits } from './attachments.js';
+import { createCanned, deleteCanned, getCanned, listCanned, renderTemplate, updateCanned } from './canned.js';
+import { rateTicket, rateableResolution } from './csat.js';
+import { createMailboxPoller } from './mailbox.js';
+import { currentPolicy, policyVersions, readSettings, savePolicy, settingsStamp, writeSettings } from './policy.js';
 import {
   addComment,
   assignTicket,
@@ -36,6 +41,7 @@ import {
   createTicket,
   dashboard,
   DomainError,
+  eventsOf,
   listAgents,
   listTickets,
   nowIso,
@@ -101,6 +107,31 @@ function validateWebIntake(input: Record<string, unknown>): WebIntakeInput {
   return { requesterName, requesterEmail, subject, bodyText, priority };
 }
 
+function numericId(raw: string, what: string): number {
+  if (!/^\d+$/.test(raw)) throw new DomainError(404, `${what} not found`);
+  return Number(raw);
+}
+
+function attachmentId(req: Request): number {
+  return numericId(req.params.id as string, 'Attachment');
+}
+
+/**
+ * Serve a stored file as a download, never inline: an uploaded HTML or SVG
+ * file opened in this origin would run its script with the agent's session.
+ * Attachment disposition, nosniff and a sandboxing CSP make sure it does not.
+ */
+function sendFile(res: Response, info: { filename: string; content_type: string; size: number }, content: Buffer): void {
+  const ascii = info.filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  res.setHeader('Content-Type', info.content_type);
+  res.setHeader('Content-Length', String(content.length));
+  res.setHeader('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(info.filename)}`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.end(content);
+}
+
 export interface AppOptions {
   /** Optional transport hardening; omit it (as the tests do) to run unthrottled. */
   hardening?: HardeningConfig;
@@ -132,9 +163,13 @@ export interface AppOptions {
    * GET /api/auth-mode. Defaults to this module's own — the standalone case.
    */
   loginMode?: LoginMode;
+  /** Per-file size and files-per-message (ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_MESSAGE). */
+  attachmentLimits?: AttachmentLimits;
+  /** Where requesters reach this module — the links in mails (PUBLIC_BASE_URL). */
+  publicBaseUrl?: string;
 }
 
-export function createApp({ db, hardening, auth, now = Date.now, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [] }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, now = Date.now, staticDir, platform = noopPlatform, verifyLogin = nullVerifier, loginMode = LOCAL_LOGIN, serviceToken, shellOrigins = [], attachmentLimits = DEFAULT_ATTACHMENT_LIMITS, publicBaseUrl = 'http://localhost:3012' }: AppOptions): express.Express {
   const app = express();
   const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
 
@@ -147,9 +182,14 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
     app.use(hardeningMiddleware(hardening));
   }
+  // The routes that carry files take base64 in their JSON — a third larger
+  // than the files themselves. Everything else keeps the small limit.
+  const withFiles = express.json({ limit: Math.ceil((attachmentLimits.maxBytes * 4) / 3) * attachmentLimits.perMessage + 512 * 1024 });
+  app.use(['/api/intake/web', '/api/intake/email', '/api/public/tickets/:ref/comment', '/api/tickets/:ref/comment'], withFiles);
   app.use(express.json({ limit: '512kb' }));
 
   const stamp = (): string => nowIso(now());
+  const statusUrl = (ref: string): string => `${publicBaseUrl.replace(/\/+$/, '')}/ticket/${encodeURIComponent(ref)}?token=${lookupToken(auth, ref)}`;
 
   // Best-effort platform notification on ticket creation — never fails intake.
   const notifyCreated = async (info: {
@@ -159,11 +199,55 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     requesterEmail: string;
   }): Promise<void> => {
     try {
-      await platform.ticketCreated(info);
+      await platform.ticketCreated({ ...info, statusUrl: statusUrl(info.ref) });
     } catch (err) {
       console.warn('[mod-12] platform.ticketCreated failed:', err);
     }
   };
+
+  // A copy of a new event's files to PS-06 — best-effort; the local row is
+  // the one that is served, so an outage there loses nothing here.
+  const mirrorFiles = async (ref: string, eventId: number): Promise<void> => {
+    if (!platform.attachmentStored) return;
+    const rows = db.prepare('SELECT id, filename, content_type, content FROM attachments WHERE event_id = ? ORDER BY id').all(eventId) as {
+      id: number;
+      filename: string;
+      content_type: string;
+      content: Buffer;
+    }[];
+    for (const r of rows) {
+      try {
+        await platform.attachmentStored({ ref, id: r.id, filename: r.filename, contentType: r.content_type, bytes: r.content });
+      } catch (err) {
+        console.warn(`[mod-12] copying attachment ${r.id} to PS-06 failed:`, err);
+      }
+    }
+  };
+  const createdEventOf = (ref: string): number =>
+    (db.prepare("SELECT e.id FROM ticket_events e JOIN tickets t ON t.id = e.ticket_id WHERE t.ref = ? AND e.type = 'created'").get(ref) as { id: number }).id;
+
+  // Mail to a requester through PS-03, when the settings ask for it —
+  // best-effort: the reply or the resolution is recorded either way.
+  const mailRequester = async (mail: { to: string; subject: string; body: string; idempotencyKey: string }): Promise<void> => {
+    if (!platform.mailRequester) return;
+    try {
+      await platform.mailRequester(mail);
+    } catch (err) {
+      console.warn('[mod-12] mail to the requester failed:', err);
+    }
+  };
+
+  const poller = createMailboxPoller({
+    db,
+    platform,
+    now,
+    limits: attachmentLimits,
+    ticketCreated: async (info) => {
+      await notifyCreated(info);
+      await mirrorFiles(info.ref, createdEventOf(info.ref));
+    },
+  });
+  app.locals.mailboxPoller = poller;
 
   // ══ PUBLIC — web & email intake, requester status page (no login) ═════
 
@@ -186,6 +270,7 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
   // lookup token the requester uses to check status later.
   app.post('/api/intake/web', async (req, res) => {
     const input = validateWebIntake(body(req));
+    const files = parseUploads(body(req).attachments, attachmentLimits);
     const ref = createTicket(db, {
       requesterName: input.requesterName,
       requesterEmail: input.requesterEmail,
@@ -196,8 +281,10 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
       actor: input.requesterEmail,
       actorType: 'requester',
       at: stamp(),
+      attachments: files,
     });
     await notifyCreated({ ref, subject: input.subject, requesterName: input.requesterName, requesterEmail: input.requesterEmail });
+    if (files.length > 0) await mirrorFiles(ref, createdEventOf(ref));
     res.status(201).json({ ref, token: lookupToken(auth, ref), status: 'new' });
   });
 
@@ -221,17 +308,20 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     const subject = reqText(input.subject, 'subject', errors, 200);
     const bodyText = reqText(input.body, 'body', errors, 8000);
     if (errors.length > 0) fail(errors);
+    const files = parseUploads(input.attachments, attachmentLimits);
     const inReplyTo = typeof input.in_reply_to === 'string' ? input.in_reply_to.trim() : '';
 
     const existing = inReplyTo ? openTicketByRef(db, inReplyTo) : null;
     if (existing) {
-      addComment(db, existing.ref, {
+      const eventId = addComment(db, existing.ref, {
         body: bodyText,
         visibility: 'public',
         actor: from,
         actorType: 'requester',
         at: stamp(),
+        attachments: files,
       });
+      if (files.length > 0) await mirrorFiles(existing.ref, eventId);
       res.status(200).json({ ref: existing.ref, action: 'appended' });
       return;
     }
@@ -245,8 +335,10 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
       actor: from,
       actorType: 'requester',
       at: stamp(),
+      attachments: files,
     });
     await notifyCreated({ ref, subject, requesterName: from, requesterEmail: from });
+    if (files.length > 0) await mirrorFiles(ref, createdEventOf(ref));
     res.status(201).json({ ref, action: 'created' });
   });
 
@@ -267,13 +359,20 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     return ref;
   };
 
+  const publicOf = (ref: string) => publicView(db, ref, { ratings: readSettings(db).csat.enabled });
+
+  // What the public forms need to know before they send: the file limits.
+  app.get('/api/public/config', (_req, res) => {
+    res.json({ attachments: { max_bytes: attachmentLimits.maxBytes, per_message: attachmentLimits.perMessage } });
+  });
+
   app.get('/api/public/tickets/:ref', (req, res) => {
     const ref = requireLookup(req, res);
     if (ref === null) return;
-    res.json(publicView(db, ref));
+    res.json(publicOf(ref));
   });
 
-  app.post('/api/public/tickets/:ref/comment', (req, res) => {
+  app.post('/api/public/tickets/:ref/comment', async (req, res) => {
     const ref = requireLookup(req, res);
     if (ref === null) return;
     const ticket = db.prepare('SELECT requester_email FROM tickets WHERE ref = ?').get(ref) as {
@@ -282,14 +381,39 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     const errors: FieldError[] = [];
     const text = reqText(body(req).body, 'body', errors, 8000);
     if (errors.length > 0) fail(errors);
-    addComment(db, ref, {
+    const files = parseUploads(body(req).attachments, attachmentLimits);
+    const eventId = addComment(db, ref, {
       body: text,
       visibility: 'public',
       actor: ticket.requester_email,
       actorType: 'requester',
       at: stamp(),
+      attachments: files,
     });
-    res.json(publicView(db, ref));
+    if (files.length > 0) await mirrorFiles(ref, eventId);
+    res.json(publicOf(ref));
+  });
+
+  // A file the requester may see: on the opening request or a public reply.
+  // One on an internal note answers exactly as a file that does not exist.
+  app.get('/api/public/tickets/:ref/attachments/:id', (req, res) => {
+    const ref = requireLookup(req, res);
+    if (ref === null) return;
+    const file = readAttachment(db, ref, attachmentId(req));
+    if (file.visibility !== 'public') throw new DomainError(404, 'Attachment not found');
+    sendFile(res, file.info, file.content);
+  });
+
+  // The requester rates a resolved ticket, once per resolution.
+  app.post('/api/public/tickets/:ref/rating', (req, res) => {
+    const ref = requireLookup(req, res);
+    if (ref === null) return;
+    if (!readSettings(db).csat.enabled) throw new DomainError(409, 'Ratings are not collected');
+    const ticket = db.prepare('SELECT id, created_at FROM tickets WHERE ref = ?').get(ref) as { id: number; created_at: string };
+    const events = eventsOf(db, ticket.id);
+    const detail = ticketDetail(db, ref, now());
+    rateTicket(db, ticket.id, rateableResolution(db, ticket.id, events, detail.status), body(req), stamp());
+    res.status(201).json(publicOf(ref));
   });
 
   // Which credentials this deployment accepts, read by the login form before
@@ -426,19 +550,99 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
 
   // Config: the ONE source the UI renders the workflow + SLA policy from.
   app.get('/api/config', (_req, res) => {
+    const { policy } = currentPolicy(db);
     res.json({
       agent: actorOf(res, auth),
       statuses: Object.keys(TRANSITIONS),
       priorities: Object.keys(SLA_POLICIES),
       transitions: TRANSITIONS,
-      sla: Object.fromEntries(
-        Object.entries(SLA_POLICIES).map(([p, v]) => [
-          p,
-          { first_response_minutes: v.firstResponseMinutes, resolution_minutes: v.resolutionMinutes },
-        ]),
-      ),
-      at_risk_minutes: AT_RISK_MINUTES,
+      sla: policy.targets,
+      at_risk_minutes: policy.at_risk_minutes,
+      attachments: { max_bytes: attachmentLimits.maxBytes, per_message: attachmentLimits.perMessage },
     });
+  });
+
+  // ── The SLA policy (versions; writes are `manage`) ───────────────────
+  app.get('/api/sla-policy', (_req, res) => {
+    res.json({ current: currentPolicy(db), versions: policyVersions(db).reverse() });
+  });
+
+  app.put('/api/sla-policy', (req, res) => {
+    savePolicy(db, body(req), actorOf(res, auth), stamp());
+    res.json({ current: currentPolicy(db), versions: policyVersions(db).reverse() });
+  });
+
+  // ── Settings (writes are `manage`) ───────────────────────────────────
+  const settingsView = () => ({
+    settings: readSettings(db),
+    ...settingsStamp(db),
+    notification_configured: platform.notificationConfigured === true,
+    mailbox_configured: platform.mailbox !== undefined,
+    files_configured: platform.attachmentStored !== undefined,
+    public_base_url: publicBaseUrl,
+  });
+
+  app.get('/api/settings', (_req, res) => {
+    res.json(settingsView());
+  });
+
+  app.put('/api/settings', (req, res) => {
+    writeSettings(db, body(req), actorOf(res, auth), stamp());
+    res.json(settingsView());
+  });
+
+  // ── The mailbox (PS-05; `manage`) ────────────────────────────────────
+  app.get('/api/mailbox', async (_req, res) => {
+    res.json(await poller.status());
+  });
+
+  app.post('/api/mailbox/test', async (_req, res) => {
+    if (!platform.mailbox) throw new DomainError(501, 'The mailbox needs PS-05 — set INTEGRATION_URL and PLATFORM_SERVICE_TOKEN');
+    const { connection_id } = readSettings(db).mailbox;
+    if (connection_id === null) throw new DomainError(409, 'Choose the mailbox to read first');
+    try {
+      res.json(await platform.mailbox.probe(connection_id));
+    } catch (err) {
+      throw new DomainError(502, `The mailbox could not be read: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
+
+  app.post('/api/mailbox/poll', async (_req, res) => {
+    res.json(await poller.poll());
+  });
+
+  // ── Canned responses (writes are `manage`) ───────────────────────────
+  app.get('/api/canned-responses', (_req, res) => {
+    res.json({ canned_responses: listCanned(db) });
+  });
+
+  app.post('/api/canned-responses', (req, res) => {
+    res.status(201).json(createCanned(db, body(req), actorOf(res, auth), stamp()));
+  });
+
+  app.put('/api/canned-responses/:id', (req, res) => {
+    res.json(updateCanned(db, numericId(req.params.id as string, 'Canned response'), body(req), actorOf(res, auth), stamp()));
+  });
+
+  app.delete('/api/canned-responses/:id', (req, res) => {
+    deleteCanned(db, numericId(req.params.id as string, 'Canned response'));
+    res.json({ ok: true });
+  });
+
+  // The template filled for one ticket — the text the reply box starts from.
+  app.post('/api/tickets/:ref/canned/:id/render', (req, res) => {
+    const ticket = ticketDetail(db, req.params.ref as string, now());
+    const canned = getCanned(db, numericId(req.params.id as string, 'Canned response'));
+    if (!canned.active) throw new DomainError(409, 'This canned response is switched off');
+    res.json({
+      canned_id: canned.id,
+      body: renderTemplate(canned.body, { requesterName: ticket.requester_name, ticketRef: ticket.ref, subject: ticket.subject, agentName: actorOf(res, auth) }),
+    });
+  });
+
+  app.get('/api/tickets/:ref/attachments/:id', (req, res) => {
+    const file = readAttachment(db, req.params.ref as string, attachmentId(req));
+    sendFile(res, file.info, file.content);
   });
 
   app.get('/api/agents', (_req, res) => {
@@ -481,13 +685,23 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     res.json(ticketDetail(db, req.params.ref, now()));
   });
 
-  app.post('/api/tickets/:ref/status', (req, res) => {
+  app.post('/api/tickets/:ref/status', async (req, res) => {
     const raw = body(req).to;
     if (!isStatus(raw)) {
       fail([{ field: 'to', message: `to must be one of: ${Object.keys(TRANSITIONS).join(', ')}` }]);
     }
-    changeStatus(db, req.params.ref, raw, actorOf(res, auth), 'agent', stamp());
-    res.json(ticketDetail(db, req.params.ref, now()));
+    const eventId = changeStatus(db, req.params.ref, raw, actorOf(res, auth), 'agent', stamp());
+    const detail = ticketDetail(db, req.params.ref, now());
+    const { csat } = readSettings(db);
+    if (raw === 'resolved' && csat.enabled && csat.invite_by_email) {
+      await mailRequester({
+        to: detail.requester_email,
+        subject: `How did we do? [${detail.ref}]`,
+        body: `Hi ${detail.requester_name},\n\nyour request "${detail.subject}" (${detail.ref}) is resolved. Would you tell us how we did? It takes one click:\n\n${statusUrl(detail.ref)}#rating\n\nThank you.`,
+        idempotencyKey: `mod-12:csat:${eventId}`,
+      });
+    }
+    res.json(detail);
   });
 
   // AI-drafted reply suggestion (PS-04). 501 when no AI platform is configured.
@@ -529,7 +743,7 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     res.json(ticketDetail(db, req.params.ref, now()));
   });
 
-  app.post('/api/tickets/:ref/comment', (req, res) => {
+  app.post('/api/tickets/:ref/comment', async (req, res) => {
     const input = body(req);
     const errors: FieldError[] = [];
     const text = reqText(input.body, 'body', errors, 8000);
@@ -537,15 +751,36 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     if (input.visibility !== undefined && input.visibility !== 'internal' && input.visibility !== 'public') {
       errors.push({ field: 'visibility', message: "visibility must be 'public' or 'internal'" });
     }
+    let cannedId: number | undefined;
+    if (input.canned_id !== undefined && input.canned_id !== null) {
+      if (typeof input.canned_id !== 'number' || !Number.isInteger(input.canned_id)) errors.push({ field: 'canned_id', message: 'must be a canned response id' });
+      else cannedId = getCanned(db, input.canned_id).id;
+    }
     if (errors.length > 0) fail(errors);
-    addComment(db, req.params.ref, {
-      body: text,
-      visibility,
-      actor: actorOf(res, auth),
-      actorType: 'agent',
-      at: stamp(),
-    });
-    res.json(ticketDetail(db, req.params.ref, now()));
+    const files = parseUploads(input.attachments, attachmentLimits);
+    const ref = req.params.ref as string;
+    const actor = actorOf(res, auth);
+    const eventId = addComment(db, ref, { body: text, visibility, actor, actorType: 'agent', at: stamp(), attachments: files, cannedId });
+    if (files.length > 0) await mirrorFiles(ref, eventId);
+    const detail = ticketDetail(db, ref, now());
+    if (visibility === 'public' && readSettings(db).reply_by_email) {
+      const mailbox = readSettings(db).mailbox;
+      const names = files.map((f) => f.filename);
+      await mailRequester({
+        to: detail.requester_email,
+        subject: `Re: [${detail.ref}] ${detail.subject}`,
+        body: [
+          text,
+          names.length > 0 ? `\nAttached on your status page: ${names.join(', ')}` : '',
+          `\n—\nYour request ${detail.ref}: ${statusUrl(detail.ref)}`,
+          mailbox.enabled ? `Reply to this email to answer — keep [${detail.ref}] in the subject.` : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+        idempotencyKey: `mod-12:reply:${eventId}`,
+      });
+    }
+    res.json(detail);
   });
 
   // ── Static client (production build) ─────────────────────────────────

@@ -14,6 +14,11 @@ import type {
   LeaveEntitlement,
   LeaveRequest,
   LeaveSettings,
+  MyOverview,
+  ReminderSent,
+  RunningTimer,
+  TimerSettings,
+  TimerStopResult,
   Milestone,
   Project,
   ProjectProgress,
@@ -163,6 +168,23 @@ export const api = {
   flexEntries: (employeeId: number) => request<{ entries: FlexEntry[] }>(`/api/employees/${employeeId}/flex-entries`),
   addFlexEntry: (employeeId: number, v: Record<string, unknown>) =>
     request<FlexEntry>(`/api/employees/${employeeId}/flex-entries`, post(v)),
+};
+
+/** The timer, the person's overview, and the office's reminder settings. */
+export const timer = {
+  get: (employeeId?: number) => request<{ timer: RunningTimer | null }>(`/api/timer${employeeId ? `?employee_id=${employeeId}` : ''}`),
+  start: (v: Record<string, unknown>) => request<{ timer: RunningTimer; stopped: TimerStopResult | null }>('/api/timer/start', post(v)),
+  update: (v: Record<string, unknown>) => request<{ timer: RunningTimer }>('/api/timer', put(v)),
+  stop: (v: Record<string, unknown>) => request<TimerStopResult>('/api/timer/stop', post(v)),
+  discard: (v: Record<string, unknown>) => request<{ ok: true }>('/api/timer/discard', post(v)),
+  overview: () => request<MyOverview>('/api/my-overview'),
+  settings: () =>
+    request<{ settings: TimerSettings; updated_at: string | null; updated_by: string | null; notification_configured: boolean }>('/api/settings/timer'),
+  saveSettings: (v: TimerSettings) =>
+    request<{ settings: TimerSettings; updated_at: string | null; updated_by: string | null; notification_configured: boolean }>('/api/settings/timer', put(v as unknown as Record<string, unknown>)),
+  reminders: () =>
+    request<{ sent: ReminderSent[]; due: { kind: string; name: string; email: string; ref: string; subject: string }[]; notification_configured: boolean }>('/api/reminders'),
+  runReminders: () => request<{ sent: ReminderSent[] }>('/api/reminders/run', post()),
 };
 
 export const planning = {

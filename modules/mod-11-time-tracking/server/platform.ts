@@ -1,4 +1,4 @@
-import { AuditClient } from '@0815software/platform-clients';
+import { AuditClient, NotificationClient } from '@0815software/platform-clients';
 
 /**
  * Optional integration with PS-07 Audit Log. When AUDIT_URL is configured,
@@ -32,6 +32,8 @@ const OFFER_FETCH_TIMEOUT_MS = 10_000;
 
 export interface PlatformConfig {
   auditUrl?: string;
+  /** Base URL of PS-03 Notification Hub, for reminders (server/reminders.ts). */
+  notificationUrl?: string;
   /** Base URL of MOD-13 Offers, for planning an accepted offer as a project. */
   offersUrl?: string;
   serviceToken?: string;
@@ -54,6 +56,13 @@ export interface PlatformHooks {
    * no notion of offers.
    */
   fetchOffer(offerNumber: string): Promise<unknown | null>;
+  /** Whether PS-03 is wired — decided by configuration, not by asking it. */
+  notificationConfigured?: boolean;
+  /**
+   * Send one message through PS-03. THROWS when it fails, so the reminder is
+   * not recorded as sent and goes again on the next tick.
+   */
+  notify?(message: { channel: string; to: string; subject: string; body: string; idempotencyKey: string }): Promise<void>;
 }
 
 export const noopPlatform: PlatformHooks = {
@@ -69,8 +78,14 @@ export const noopPlatform: PlatformHooks = {
 export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const client = cfg.auditUrl ? new AuditClient({ baseUrl: cfg.auditUrl, serviceToken: cfg.serviceToken }) : null;
   const offersUrl = cfg.offersUrl ? cfg.offersUrl.replace(/\/+$/, '') : null;
-  if (!client && !offersUrl) return noopPlatform;
+  const notifier = cfg.notificationUrl ? new NotificationClient({ baseUrl: cfg.notificationUrl, serviceToken: cfg.serviceToken }) : null;
+  if (!client && !offersUrl && !notifier) return noopPlatform;
   return {
+    notificationConfigured: Boolean(notifier),
+    async notify(message) {
+      if (!notifier) throw new Error('No notification hub is configured');
+      await notifier.send({ channel: message.channel, to: message.to, subject: message.subject, body: message.body, idempotency_key: message.idempotencyKey });
+    },
     async audit(info: AuditInfo): Promise<void> {
       if (!client) return;
       try {

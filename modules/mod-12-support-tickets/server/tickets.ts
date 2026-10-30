@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import {
   isPriority,
   type ActorType,
+  type SlaPolicyVersion,
   type Agent,
   type Channel,
   type CommentVisibility,
@@ -20,6 +21,9 @@ import {
 } from '../shared/types.js';
 import { evaluateSla, AT_RISK_MINUTES } from './sla-config.js';
 import { allowedTransitions, canTransition, INITIAL_STATUS } from './status-config.js';
+import { attachmentsByEvent, storeAttachments, type NewAttachment } from './attachments.js';
+import { policyVersions, versionAt } from './policy.js';
+import { csatStats, ratingsOf, rateableResolution } from './csat.js';
 
 /** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
 function likeTerm(term: string): string {
@@ -81,10 +85,11 @@ function getTicketRow(db: Database.Database, ref: string): TicketStoredRow {
   );
 }
 
-function eventsOf(db: Database.Database, ticketId: number): TicketEvent[] {
+export function eventsOf(db: Database.Database, ticketId: number): TicketEvent[] {
   const rows = db
     .prepare('SELECT * FROM ticket_events WHERE ticket_id = ? ORDER BY created_at, id')
     .all(ticketId) as EventStoredRow[];
+  const files = attachmentsByEvent(db, ticketId);
   return rows.map((row) => ({
     id: row.id,
     type: row.type,
@@ -93,6 +98,7 @@ function eventsOf(db: Database.Database, ticketId: number): TicketEvent[] {
     visibility: row.visibility,
     created_at: row.created_at,
     payload: JSON.parse(row.payload) as EventPayload,
+    attachments: files.get(row.id) ?? [],
   }));
 }
 
@@ -105,6 +111,8 @@ export interface DerivedState {
   first_response_at: string | null;
   resolved_at: string | null;
   updated_at: string;
+  /** When it waited on the requester: [entered pending, left it — null while it still does]. */
+  pending: [string, string | null][];
 }
 
 /**
@@ -124,6 +132,7 @@ export function deriveState(events: TicketEvent[], createdAt: string): DerivedSt
   let firstResponseAt: string | null = null;
   let resolvedAt: string | null = null;
   let updatedAt = createdAt;
+  const pending: [string, string | null][] = [];
 
   for (const ev of events) {
     updatedAt = ev.created_at;
@@ -134,6 +143,8 @@ export function deriveState(events: TicketEvent[], createdAt: string): DerivedSt
         break;
       case 'status_change':
         if (ev.payload.to) {
+          if (status === 'pending' && ev.payload.to !== 'pending') pending[pending.length - 1]![1] = ev.created_at;
+          if (ev.payload.to === 'pending' && status !== 'pending') pending.push([ev.created_at, null]);
           status = ev.payload.to;
           if (ev.payload.to === 'resolved' && resolvedAt === null) resolvedAt = ev.created_at;
         }
@@ -162,6 +173,7 @@ export function deriveState(events: TicketEvent[], createdAt: string): DerivedSt
     first_response_at: firstResponseAt,
     resolved_at: resolvedAt,
     updated_at: updatedAt,
+    pending,
   };
 }
 
@@ -171,14 +183,19 @@ function agentName(db: Database.Database, id: number | null): string | null {
   return row?.name ?? null;
 }
 
-function buildRow(db: Database.Database, ticket: TicketStoredRow, events: TicketEvent[], nowMs: number): TicketRow {
+function buildRow(db: Database.Database, ticket: TicketStoredRow, events: TicketEvent[], nowMs: number, versions: readonly SlaPolicyVersion[] = policyVersions(db)): TicketRow {
   const state = deriveState(events, ticket.created_at);
+  // Held to the policy in force when it came in — see server/policy.ts.
+  const version = versionAt(versions, ticket.created_at);
   const sla = evaluateSla({
     createdMs: toMs(ticket.created_at),
     priority: state.priority,
     firstResponseMs: state.first_response_at ? toMs(state.first_response_at) : null,
     resolvedMs: state.resolved_at ? toMs(state.resolved_at) : null,
     nowMs,
+    policy: version.policy,
+    policyVersion: version.id,
+    pending: state.pending.map(([a, b]) => [toMs(a), b === null ? null : toMs(b)] as const),
   });
   return {
     id: ticket.id,
@@ -201,13 +218,15 @@ export function ticketDetail(db: Database.Database, ref: string, nowMs: number):
   const ticket = getTicketRow(db, ref);
   const events = eventsOf(db, ticket.id);
   const row = buildRow(db, ticket, events, nowMs);
+  const state = deriveState(events, ticket.created_at);
   return {
     ...row,
     body: ticket.body,
-    first_response_at: deriveState(events, ticket.created_at).first_response_at,
-    resolved_at: deriveState(events, ticket.created_at).resolved_at,
+    first_response_at: state.first_response_at,
+    resolved_at: state.resolved_at,
     events,
     allowed_transitions: allowedTransitions(row.status),
+    ratings: ratingsOf(db, ticket.id),
   };
 }
 
@@ -228,7 +247,8 @@ export function listTickets(db: Database.Database, opts: ListOpts, nowMs: number
     )
     .all(search ? { s: likeTerm(search) } : {}) as TicketStoredRow[];
 
-  let rows = tickets.map((t) => buildRow(db, t, eventsOf(db, t.id), nowMs));
+  const versions = policyVersions(db);
+  let rows = tickets.map((t) => buildRow(db, t, eventsOf(db, t.id), nowMs, versions));
   if (opts.status) rows = rows.filter((r) => r.status === opts.status);
   if (opts.priority) rows = rows.filter((r) => r.priority === opts.priority);
   if (opts.assignee === 'unassigned') rows = rows.filter((r) => r.assignee_id === null);
@@ -239,7 +259,7 @@ export function listTickets(db: Database.Database, opts: ListOpts, nowMs: number
 // ── Public (requester-facing) projection ───────────────────────────────
 // Only the created event, PUBLIC comments and status changes are exposed.
 // Internal notes, assignments and priority changes never leave the queue.
-export function publicView(db: Database.Database, ref: string): PublicTicket {
+export function publicView(db: Database.Database, ref: string, opts: { ratings: boolean } = { ratings: false }): PublicTicket {
   const ticket = getTicketRow(db, ref);
   const events = eventsOf(db, ticket.id);
   const state = deriveState(events, ticket.created_at);
@@ -251,6 +271,7 @@ export function publicView(db: Database.Database, ref: string): PublicTicket {
         author: ticket.requester_name,
         author_type: 'requester',
         created_at: ev.created_at,
+        attachments: ev.attachments,
       });
     } else if (ev.type === 'status_change' && ev.payload.to) {
       publicEvents.push({
@@ -259,6 +280,7 @@ export function publicView(db: Database.Database, ref: string): PublicTicket {
         author_type: ev.actor_type,
         to: ev.payload.to,
         created_at: ev.created_at,
+        attachments: [],
       });
     } else if (ev.type === 'comment' && ev.visibility === 'public') {
       publicEvents.push({
@@ -267,8 +289,17 @@ export function publicView(db: Database.Database, ref: string): PublicTicket {
         author_type: ev.actor_type,
         body: ev.payload.body,
         created_at: ev.created_at,
+        attachments: ev.attachments,
       });
     }
+  }
+  let rating: PublicTicket['rating'] = null;
+  if (opts.ratings) {
+    const given = ratingsOf(db, ticket.id).at(-1);
+    rating = {
+      can_rate: rateableResolution(db, ticket.id, events, state.status) !== null,
+      given: given ? { score: given.score, comment: given.comment, created_at: given.created_at } : null,
+    };
   }
   return {
     ref: ticket.ref,
@@ -278,6 +309,7 @@ export function publicView(db: Database.Database, ref: string): PublicTicket {
     created_at: ticket.created_at,
     updated_at: state.updated_at,
     events: publicEvents,
+    rating,
   };
 }
 
@@ -293,8 +325,8 @@ function appendEvent(
     payload: EventPayload;
     at: string;
   },
-): void {
-  db.prepare(
+): number {
+  const info = db.prepare(
     `INSERT INTO ticket_events (ticket_id, type, actor, actor_type, visibility, payload, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(
@@ -306,6 +338,7 @@ function appendEvent(
     JSON.stringify(ev.payload),
     ev.at,
   );
+  return Number(info.lastInsertRowid);
 }
 
 export interface NewTicketInput {
@@ -318,6 +351,7 @@ export interface NewTicketInput {
   actor: string;
   actorType: ActorType;
   at: string;
+  attachments?: readonly NewAttachment[];
 }
 
 /**
@@ -343,13 +377,15 @@ export function createTicket(db: Database.Database, input: NewTicketInput): stri
          VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .run(ref, input.requesterName, input.requesterEmail, input.subject, input.body, input.at);
-    appendEvent(db, Number(info.lastInsertRowid), {
+    const ticketId = Number(info.lastInsertRowid);
+    const eventId = appendEvent(db, ticketId, {
       type: 'created',
       actor: input.actor,
       actorType: input.actorType,
       payload: { channel: input.channel, to_priority: input.priority },
       at: input.at,
     });
+    if (input.attachments?.length) storeAttachments(db, ticketId, eventId, input.attachments, input.at);
     return ref;
   })();
 }
@@ -362,7 +398,7 @@ export function changeStatus(
   actor: string,
   actorType: ActorType,
   at: string,
-): void {
+): number {
   const ticket = getTicketRow(db, ref);
   const state = deriveState(eventsOf(db, ticket.id), ticket.created_at);
   if (to === state.status) {
@@ -378,7 +414,7 @@ export function changeStatus(
       },
     ]);
   }
-  appendEvent(db, ticket.id, {
+  return appendEvent(db, ticket.id, {
     type: 'status_change',
     actor,
     actorType,
@@ -456,32 +492,46 @@ export interface CommentInput {
   actor: string;
   actorType: ActorType;
   at: string;
+  attachments?: readonly NewAttachment[];
+  /** The canned response the text started from. */
+  cannedId?: number;
+  /** Arrived by email from someone other than the requester (server/mailbox.ts). */
+  otherSender?: string;
 }
 
 /**
- * Append a comment. A requester follow-up (actorType 'requester') on a
+ * Append a comment, with its files. A public requester follow-up on a
  * resolved or closed ticket REOPENS it: a status_change to `open` is
  * appended right after the comment, tagged reopened. Internal notes are
- * agent-only.
+ * agent-only — but for mail from someone other than the requester, which
+ * the mailbox keeps internal. Returns the comment's event id.
  */
-export function addComment(db: Database.Database, ref: string, input: CommentInput): void {
+export function addComment(db: Database.Database, ref: string, input: CommentInput): number {
   const ticket = getTicketRow(db, ref);
   const state = deriveState(eventsOf(db, ticket.id), ticket.created_at);
-  if (input.visibility === 'internal' && input.actorType !== 'agent') {
+  // A note from someone other than the requester is the one exception: it is
+  // an agent's to judge, so it stays internal whoever wrote it.
+  if (input.visibility === 'internal' && input.actorType !== 'agent' && input.otherSender === undefined) {
     throw new DomainError(422, 'Validation failed', [
       { field: 'visibility', message: 'Only agents can add internal notes' },
     ]);
   }
-  db.transaction(() => {
-    appendEvent(db, ticket.id, {
+  const payload: EventPayload = { body: input.body };
+  if (input.cannedId !== undefined) payload.canned_id = input.cannedId;
+  if (input.otherSender !== undefined) payload.other_sender = input.otherSender;
+  return db.transaction(() => {
+    const eventId = appendEvent(db, ticket.id, {
       type: 'comment',
       actor: input.actor,
       actorType: input.actorType,
       visibility: input.visibility,
-      payload: { body: input.body },
+      payload,
       at: input.at,
     });
-    if (input.actorType === 'requester' && (state.status === 'resolved' || state.status === 'closed')) {
+    if (input.attachments?.length) storeAttachments(db, ticket.id, eventId, input.attachments, input.at);
+    // Only what the requester says publicly reopens: a note kept internal
+    // (mail from another sender) is an agent's to act on.
+    if (input.actorType === 'requester' && input.visibility === 'public' && (state.status === 'resolved' || state.status === 'closed')) {
       appendEvent(db, ticket.id, {
         type: 'status_change',
         actor: input.actor,
@@ -490,6 +540,7 @@ export function addComment(db: Database.Database, ref: string, input: CommentInp
         at: input.at,
       });
     }
+    return eventId;
   })();
 }
 
@@ -512,13 +563,14 @@ export function listAgents(db: Database.Database): Agent[] {
 // ── SLA dashboard (all derived) ────────────────────────────────────────
 export function dashboard(db: Database.Database, nowMs: number): Dashboard {
   const tickets = db.prepare('SELECT * FROM tickets').all() as TicketStoredRow[];
-  const rows = tickets.map((t) => buildRow(db, t, eventsOf(db, t.id), nowMs));
+  const versions = policyVersions(db);
+  const rows = tickets.map((t) => buildRow(db, t, eventsOf(db, t.id), nowMs, versions));
 
   const byStatus = Object.fromEntries(STATUSES.map((s) => [s, 0])) as Record<Status, number>;
   const byPriority = new Map<Priority, PriorityBucket>(
     PRIORITIES.map((p) => [p, { priority: p, open: 0, at_risk: 0, breached: 0 }]),
   );
-  const totals = { open: 0, at_risk: 0, breached: 0, unassigned: 0 };
+  const totals = { open: 0, at_risk: 0, breached: 0, unassigned: 0, paused: 0 };
 
   for (const row of rows) {
     byStatus[row.status] += 1;
@@ -528,6 +580,7 @@ export function dashboard(db: Database.Database, nowMs: number): Dashboard {
     bucket.open += 1;
     totals.open += 1;
     if (row.assignee_id === null) totals.unassigned += 1;
+    if (row.sla.resolution.state === 'paused') totals.paused += 1;
     const breached = row.sla.first_response.breached || row.sla.resolution.breached;
     const atRisk =
       !breached &&
@@ -545,6 +598,7 @@ export function dashboard(db: Database.Database, nowMs: number): Dashboard {
     by_priority: PRIORITIES.map((p) => byPriority.get(p)!),
     by_status: byStatus,
     totals,
+    csat: csatStats(db),
   };
 }
 

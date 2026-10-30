@@ -23,6 +23,21 @@ export const MODULE_SLUG = 'support-tickets';
 export const ACCESS_RULES: readonly AccessRule[] = [
   // Signing out is never refused, whatever the level.
   { method: 'POST', path: '/api/logout', access: 'view' },
+  // Filling a canned response for a ticket only reads.
+  { method: 'POST', path: '/api/tickets/:ref/canned/:id/render', access: 'view' },
+  // How the desk runs is a manager's: the SLA policy, the settings (ratings,
+  // replies by email, the mailbox), the team's canned responses. Agents
+  // (`edit`) work tickets within them.
+  { method: 'PUT', path: '/api/sla-policy', access: 'manage' },
+  { method: 'PUT', path: '/api/settings', access: 'manage' },
+  { method: 'POST', path: '/api/canned-responses', access: 'manage' },
+  { method: 'PUT', path: '/api/canned-responses/:id', access: 'manage' },
+  { method: 'DELETE', path: '/api/canned-responses/:id', access: 'manage' },
+  // The mailbox page lists PS-05's mailbox connections, and polling or
+  // testing it reaches the mail server.
+  { method: 'GET', path: '/api/mailbox', access: 'manage' },
+  { method: 'POST', path: '/api/mailbox/test', access: 'manage' },
+  { method: 'POST', path: '/api/mailbox/poll', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

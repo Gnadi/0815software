@@ -106,6 +106,7 @@ describe('service resolution', () => {
     expect(idsOf(planStack(twoModules()))).toEqual([
       'ps-01-identity',
       'ps-03-notification-hub',
+      'ps-04-ai-platform',
       'ps-06-file-storage',
       'ps-07-audit-log',
       'ps-08-payments',
@@ -484,7 +485,7 @@ describe('rendered artifacts', () => {
       supportsSso: true,
       sourceDb: null,
     });
-    expect(manifest.services).toHaveLength(8);
+    expect(manifest.services).toHaveLength(9);
     expect(manifest.services[0]).toMatchObject({ id: 'ps-01-identity', internalUrl: 'http://ps01:4001' });
     expect(manifest.placeholders).toEqual(plan.placeholders);
     expect(Date.parse(manifest.generatedAt)).not.toBeNaN();

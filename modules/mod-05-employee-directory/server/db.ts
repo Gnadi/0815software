@@ -55,6 +55,43 @@ export function openDb(path: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_employees_department ON employees (department_id);
     CREATE INDEX IF NOT EXISTS idx_employees_manager ON employees (manager_id);
 
+    -- Self-service (server/profile.ts). What only the person and HR see.
+    CREATE TABLE IF NOT EXISTS employee_private (
+      employee_id        INTEGER PRIMARY KEY REFERENCES employees(id),
+      private_phone      TEXT,
+      address            TEXT,
+      emergency_name     TEXT,
+      emergency_relation TEXT,
+      emergency_phone    TEXT,
+      updated_at         TEXT NOT NULL,
+      updated_by         TEXT NOT NULL
+    );
+    -- A name or address change waiting for HR, and what HR decided.
+    CREATE TABLE IF NOT EXISTS profile_requests (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id   INTEGER NOT NULL REFERENCES employees(id),
+      field         TEXT NOT NULL CHECK (field IN ('name', 'address')),
+      proposed      TEXT NOT NULL,
+      reason        TEXT,
+      status        TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected', 'withdrawn')),
+      requested_by  TEXT NOT NULL,
+      requested_at  TEXT NOT NULL,
+      decided_by    TEXT,
+      decided_at    TEXT,
+      decision_note TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_profile_requests_employee ON profile_requests (employee_id, status);
+    -- Which field changed, how, by whom — append-only, and without the values.
+    CREATE TABLE IF NOT EXISTS profile_changes (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL REFERENCES employees(id),
+      field       TEXT NOT NULL,
+      via         TEXT NOT NULL CHECK (via IN ('self', 'request', 'hr', 'erased')),
+      request_id  INTEGER REFERENCES profile_requests(id),
+      actor       TEXT NOT NULL,
+      at          TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS onboarding_checklists (
       employee_id          INTEGER PRIMARY KEY
                              REFERENCES employees(id) ON DELETE CASCADE,

@@ -18,6 +18,7 @@ import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { stockCsv } from './csv.js';
 import { recordGoodsIssue } from './goods-issues.js';
+import { recordGoodsReceipt } from './goods-receipts.js';
 import { listReservations, releaseReservations, setReservations } from './reservations.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
@@ -290,6 +291,38 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       void platform.audit({ actor, action: 'stock.goods_issue', resource: `goods_issue:${source}:${reference}`, metadata: { warehouse: warehouseCode, lines: issue.lines } });
     }
     res.status(replayed ? 200 : 201).json({ ...issue, replayed });
+  });
+
+  // Receive goods for a purchase order in another module (MOD-06). The mirror
+  // of the goods issue above: idempotent on (source, reference), all or nothing.
+  app.post('/api/goods-receipts', (req, res) => {
+    requireServiceToken(req);
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const text = (field: string, max: number): string => {
+      const v = input[field];
+      if (typeof v !== 'string' || v.trim() === '' || v.length > max) {
+        errors.push({ field, message: `${field} is required (max ${max} characters)` });
+        return '';
+      }
+      return v.trim();
+    };
+    const source = text('source', 60);
+    const reference = text('reference', 60);
+    const warehouseCode = text('warehouse_code', 30);
+    const actor = text('actor', 200);
+    const raw = Array.isArray(input.lines) ? (input.lines as Record<string, unknown>[]) : [];
+    const lines = raw.map((line, i) => {
+      const sku = typeof line.sku === 'string' ? line.sku.trim() : '';
+      if (sku === '') errors.push({ field: `lines[${i}].sku`, message: 'sku is required' });
+      return { sku, quantity: quantity(line.quantity, `lines[${i}].quantity`, errors) };
+    });
+    if (errors.length > 0) fail(errors);
+    const { receipt, replayed } = recordGoodsReceipt(db, { source, reference, warehouseCode, actor, lines });
+    if (!replayed) {
+      void platform.audit({ actor, action: 'stock.goods_receipt', resource: `goods_receipt:${source}:${reference}`, metadata: { warehouse: warehouseCode, lines: receipt.lines } });
+    }
+    res.status(replayed ? 200 : 201).json({ ...receipt, replayed });
   });
 
   // Reserve stock for an order (MOD-17): PUT the order's article lines, as a

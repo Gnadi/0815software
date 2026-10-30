@@ -100,7 +100,7 @@ describe('config endpoint', () => {
     expect(res.status).toBe(200);
     expect(res.body.transitions.new).toEqual(['open', 'pending', 'resolved']);
     expect(res.body.transitions.closed).toEqual(['open']);
-    expect(res.body.sla.urgent).toEqual({ first_response_minutes: 30, resolution_minutes: 240 });
+    expect(res.body.sla.urgent).toEqual({ first_response_minutes: 30, resolution_minutes: 240, business_hours: false });
     expect(res.body.at_risk_minutes).toBe(AT_RISK_MINUTES);
   });
 });

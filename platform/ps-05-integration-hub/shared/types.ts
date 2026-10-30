@@ -65,3 +65,57 @@ export interface FieldError {
   field: string;
   message: string;
 }
+
+// ── Mailbox connections (provider `imap`) ──────────────────────────────
+
+export interface MailAddress {
+  name: string | null;
+  address: string;
+}
+
+export interface MailAttachment {
+  filename: string;
+  content_type: string;
+  size: number;
+  /** Shown inside the message (an embedded image) rather than attached to it. */
+  inline: boolean;
+  content_id: string | null;
+  content_base64: string;
+}
+
+/** One unread message, parsed. Fetching does not mark it read — acknowledge it. */
+export interface MailMessage {
+  uid: number;
+  size: number;
+  /** Larger than the per-message limit: headers only, no text, no attachments. */
+  body_omitted: boolean;
+  /** Without angle brackets — the key a consumer deduplicates on. */
+  message_id: string | null;
+  from: MailAddress | null;
+  reply_to: MailAddress | null;
+  to: MailAddress[];
+  subject: string;
+  date: string | null;
+  in_reply_to: string | null;
+  references: string[];
+  text: string;
+  /** Why the message looks machine-sent (auto-reply, bounce, list), or null for a person. */
+  automated: string | null;
+  attachments: MailAttachment[];
+}
+
+export interface MailFetchResult {
+  mailbox: string;
+  /** UIDs are only valid within this value; pass it back when acknowledging. */
+  uidvalidity: number;
+  messages: MailMessage[];
+  /** Unread messages left for the next fetch. */
+  remaining: number;
+}
+
+export interface MailboxProbeResult {
+  mailbox: string;
+  uidvalidity: number;
+  exists: number;
+  unseen: number;
+}

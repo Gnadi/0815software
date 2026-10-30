@@ -1,7 +1,7 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
-import { PO_STATUSES, RFQ_STATUSES, type FieldError, type PoStatus, type RfqStatus } from '../shared/types.js';
+import { PO_STATUSES, RFQ_STATUSES, type FieldError, type InvoicedLine, type PoStatus, type RfqStatus } from '../shared/types.js';
 import { APPROVAL_RULES, APPROVAL_TIERS } from './approval-config.js';
 import {
   accessOf,
@@ -18,7 +18,17 @@ import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { exportOrderedPos } from './csv.js';
 import { EXPORT_PROFILES, getProfile } from './export-profiles.js';
-import { noopPlatform, type PlatformHooks } from './platform.js';
+import { noopPlatform, PeerError, type PlatformHooks } from './platform.js';
+import {
+  getReceipt,
+  matchSettingsStamp,
+  matchVerdict,
+  readMatchSettings,
+  receiveGoods,
+  recordStockOutcome,
+  validateMatchSettings,
+  writeMatchSettings,
+} from './receiving.js';
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import {
   approvePo,
@@ -33,6 +43,7 @@ import {
   poDetail,
   rejectPo,
   returnToDraft,
+  setLineSku,
   submitPo,
   updatePo,
   type PoInput,
@@ -175,6 +186,7 @@ function validatePo(input: Record<string, unknown>): PoInput {
     quantity: quantity(line.quantity, `lines[${i}].quantity`, errors),
     unit: unit(line.unit, `lines[${i}].unit`, errors),
     unitPriceCents: priceCents(line.unit_price_cents, `lines[${i}].unit_price_cents`, errors),
+    sku: optText(line.sku, `lines[${i}].sku`, errors, 60),
   }));
   if (errors.length > 0) fail(errors);
   return { supplierId, note, lines };
@@ -372,6 +384,37 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   }
 
   // ── Everything below requires a valid session ────────────────────────
+  // The three-way match, for the module that pays the invoice (MOD-04): the
+  // net amount invoiced against a PO so far → may it be paid? A machine call.
+  app.post('/api/match', (req, res) => {
+    requireServiceToken(req);
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const poNumber = typeof input.po_number === 'string' ? input.po_number.trim() : '';
+    if (poNumber === '' || poNumber.length > 40) errors.push({ field: 'po_number', message: 'po_number is required' });
+    const invoiced = Number(input.invoiced_net_cents);
+    if (!Number.isInteger(invoiced) || invoiced < 0) errors.push({ field: 'invoiced_net_cents', message: 'invoiced_net_cents is whole cents, 0 or more' });
+    // Optional: the invoice's lines, so far — matched line by line (server/receiving.ts).
+    const lines: InvoicedLine[] = [];
+    if (input.lines !== undefined) {
+      if (!Array.isArray(input.lines) || input.lines.length > 1000) errors.push({ field: 'lines', message: 'lines is a list of at most 1000' });
+      else
+        input.lines.forEach((raw: unknown, i: number) => {
+          const l = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+          const description = typeof l.description === 'string' ? l.description.trim().slice(0, 300) : '';
+          const itemId = typeof l.item_id === 'string' && l.item_id.trim() !== '' ? l.item_id.trim().slice(0, 64) : null;
+          const quantity = l.quantity === null || l.quantity === undefined ? null : Number(l.quantity);
+          const net = Number(l.net_cents);
+          if (description === '' && itemId === null) errors.push({ field: `lines[${i}]`, message: 'A line has a description or an article number' });
+          if (quantity !== null && !Number.isFinite(quantity)) errors.push({ field: `lines[${i}].quantity`, message: 'quantity is a number' });
+          if (!Number.isInteger(net)) errors.push({ field: `lines[${i}].net_cents`, message: 'net_cents is whole cents' });
+          lines.push({ item_id: itemId, description, quantity, net_cents: net });
+        });
+    }
+    if (errors.length > 0) fail(errors);
+    res.json(matchVerdict(db, poNumber, invoiced, lines));
+  });
+
   app.use('/api', requireAuth(auth));
 
   app.post('/api/logout', (_req, res) => {
@@ -597,6 +640,93 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   app.post('/api/pos/:id/close', (req, res) => {
     closePo(db, Number(req.params.id));
     res.json(poDetail(db, Number(req.params.id)));
+  });
+
+  // ── Receiving and the three-way match (server/receiving.ts) ──────────
+
+  /**
+   * Book a receipt's article lines into MOD-03, best-effort: whatever MOD-03
+   * answers is recorded on the receipt, and a failure is retried from there —
+   * the goods have arrived either way.
+   */
+  async function bookStock(receiptId: number): Promise<void> {
+    const receipt = getReceipt(db, receiptId);
+    const stockLines = receipt.lines.filter((l) => l.sku).map((l) => ({ sku: l.sku!, quantity: l.quantity }));
+    if (!platform.inventoryConfigured || stockLines.length === 0) return;
+    const warehouse = readMatchSettings(db).receiving_warehouse;
+    if (receipt.kind === 'correction') {
+      // MOD-03 counts goods in, never out, from here; a miscount is its stock to correct.
+      recordStockOutcome(db, receiptId, 'not_booked', null, 'A correction is not booked — adjust the stock in MOD-03');
+      return;
+    }
+    if (!warehouse) {
+      recordStockOutcome(db, receiptId, 'not_booked', null, 'No receiving warehouse is set in Settings');
+      return;
+    }
+    try {
+      await platform.receiveGoods({ reference: receipt.number, warehouseCode: warehouse, actor: receipt.actor, lines: stockLines });
+      recordStockOutcome(db, receiptId, 'booked', warehouse, null);
+    } catch (err) {
+      recordStockOutcome(db, receiptId, 'failed', warehouse, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  app.post('/api/pos/:id/receipts', async (req, res) => {
+    const input = body(req);
+    const errors: FieldError[] = [];
+    const kind = input.kind === undefined ? 'receipt' : input.kind;
+    if (kind !== 'receipt' && kind !== 'correction') errors.push({ field: 'kind', message: 'kind is receipt or correction' });
+    const receivedOn = optDate(input.received_on, 'received_on', errors) ?? new Date().toISOString().slice(0, 10);
+    const note = optText(input.note, 'note', errors, 300);
+    const raw = Array.isArray(input.lines) ? (input.lines as Record<string, unknown>[]) : [];
+    const lines = raw.map((line, i) => {
+      const q = Number(line.quantity);
+      if (!Number.isFinite(q) || q === 0 || Math.abs(q) > 1_000_000) errors.push({ field: `lines[${i}].quantity`, message: 'Quantity must be a non-zero number' });
+      return { poLineId: id(line.po_line_id, `lines[${i}].po_line_id`, errors), quantity: q };
+    });
+    if (errors.length > 0) fail(errors);
+    const actor = actorOf(res, auth);
+    const receipt = receiveGoods(db, Number(req.params.id), { kind: kind as 'receipt' | 'correction', receivedOn, note, lines }, actor);
+    await bookStock(receipt.id);
+    void platform.audit({ actor, action: `po.${kind}`, resource: `po:${req.params.id}`, metadata: { receipt: receipt.number, lines: receipt.lines } });
+    res.status(201).json(poDetail(db, Number(req.params.id)));
+  });
+
+  app.post('/api/receipts/:id/book-stock', async (req, res) => {
+    const receipt = getReceipt(db, Number(req.params.id));
+    if (!platform.inventoryConfigured) throw new DomainError(501, 'No inventory is configured — set INVENTORY_URL to book received goods in MOD-03');
+    if (receipt.stock_status === 'booked') throw new DomainError(409, 'This receipt is already booked');
+    await bookStock(receipt.id);
+    res.json(poDetail(db, receipt.po_id));
+  });
+
+  app.put('/api/pos/:id/lines/:lineId/sku', (req, res) => {
+    const errors: FieldError[] = [];
+    const sku = optText(body(req).sku, 'sku', errors, 60);
+    if (errors.length > 0) fail(errors);
+    setLineSku(db, Number(req.params.id), Number(req.params.lineId), sku);
+    res.json(poDetail(db, Number(req.params.id)));
+  });
+
+  app.get('/api/settings/matching', async (_req, res) => {
+    // The warehouses are a convenience for the screen; MOD-03 being down is not a reason to hide the rules.
+    let warehouses: { code: string; name: string }[] | null = null;
+    if (platform.inventoryConfigured) {
+      try {
+        warehouses = await platform.inventoryWarehouses();
+      } catch (err) {
+        if (!(err instanceof PeerError)) throw err;
+      }
+    }
+    res.json({ settings: readMatchSettings(db), ...matchSettingsStamp(db), inventory_configured: platform.inventoryConfigured, warehouses });
+  });
+
+  app.put('/api/settings/matching', (req, res) => {
+    const settings = validateMatchSettings(body(req));
+    const actor = actorOf(res, auth);
+    writeMatchSettings(db, settings, actor);
+    void platform.audit({ actor, action: 'settings.matching', resource: 'procurement-settings', after: settings });
+    res.json({ settings, ...matchSettingsStamp(db), inventory_configured: platform.inventoryConfigured, warehouses: null });
   });
 
   // ── ERP CSV export ───────────────────────────────────────────────────

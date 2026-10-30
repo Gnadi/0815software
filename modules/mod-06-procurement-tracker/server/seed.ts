@@ -4,10 +4,12 @@ import {
   closePo,
   createPo,
   markOrdered,
+  poLines,
   rejectPo,
   submitPo,
   type PoLineInput,
 } from './purchase-orders.js';
+import { receiveGoods } from './receiving.js';
 import { awardRfq, createRfq, inviteSupplier, upsertQuote, rfqLines } from './rfqs.js';
 
 /**
@@ -260,6 +262,9 @@ export function seed(db: Database.Database): void {
     approvePo(db, poOrdered, { tier: 1, approver: 'M. Huber', note: null, at: '2026-06-20T11:00:00Z' });
     approvePo(db, poOrdered, { tier: 2, approver: 'S. Wagner', note: null, at: '2026-06-21T08:30:00Z' });
     markOrdered(db, poOrdered, '2026-06-21T09:00:00Z');
+    // Part of it has arrived: ten of the fourteen bays, all the anchors.
+    const [bays, anchors] = poLines(db, poOrdered);
+    receiveGoods(db, poOrdered, { kind: 'receipt', receivedOn: '2026-07-02', note: 'Delivery note 88213', lines: [{ poLineId: bays!.id, quantity: 10 }, { poLineId: anchors!.id, quantity: 14 }] }, 'lager@steiner.example');
 
     // ORDERED, top bracket — shows up in the ERP exports too.
     const poOrderedBig = createPo(db, {
@@ -291,6 +296,7 @@ export function seed(db: Database.Database): void {
     submitPo(db, poClosed, '2026-05-18T10:05:00Z');
     approvePo(db, poClosed, { tier: 1, approver: 'M. Huber', note: null, at: '2026-05-18T12:00:00Z' });
     markOrdered(db, poClosed, '2026-05-19T08:00:00Z');
+    receiveGoods(db, poClosed, { kind: 'receipt', receivedOn: '2026-05-28', note: null, lines: poLines(db, poClosed).map((l) => ({ poLineId: l.id, quantity: l.quantity })) }, 'admin');
     closePo(db, poClosed, '2026-06-02T09:30:00Z');
 
     // Draft, top bracket: big one still being put together.

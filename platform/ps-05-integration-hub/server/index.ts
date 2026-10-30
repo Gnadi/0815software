@@ -26,6 +26,7 @@ const app = createApp({
   oauth: config.oauth,
   selfBaseUrl: config.selfBaseUrl,
   egress: config.egress,
+  mailLimits: config.mailLimits,
   hardening: hardeningFromEnv(), logRequests: true,
 });
 

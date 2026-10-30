@@ -1,5 +1,7 @@
 import type { AccessLevel } from './access';
 import type {
+  BillProposal,
+  BillReadingSettings,
   BillRow,
   Creditor,
   CreditorRow,
@@ -246,6 +248,14 @@ export const api = {
   deleteBill: (id: number) => request<{ ok: true }>(`/api/bills/${id}`, { method: 'DELETE' }),
   cancelBill: (id: number) => request<BillRow>(`/api/bills/${id}/cancel`, post()),
   markBillPaid: (id: number) => request<BillRow>(`/api/bills/${id}/mark-paid`, post()),
+  checkBillMatch: (id: number) => request<BillRow>(`/api/bills/${id}/check-match`, post()),
+  releaseBillMatch: (id: number, reason: string) => request<BillRow>(`/api/bills/${id}/release-match`, post({ reason })),
+  /** Have PS-04 read a supplier invoice into a proposal for the form. Saves nothing. */
+  readBill: (document: { content_base64: string; content_type: string; filename: string }) =>
+    request<{ extraction: { source: string; syntax: string | null; embedded: boolean; provider: string }; proposal: BillProposal }>('/api/bills/read', post(document)),
+  billReading: () => request<BillReadingState>('/api/settings/bill-reading'),
+  saveBillReading: (model: BillReadingSettings['model']) =>
+    request<BillReadingState>('/api/settings/bill-reading', { method: 'PUT', body: JSON.stringify({ model }) }),
 
   paymentRuns: () =>
     request<{ runs: PaymentRunRow[]; config: PaymentConfig }>('/api/payment-runs'),
@@ -400,4 +410,12 @@ export function invoicePdfUrl(id: number): string {
  */
 export function paymentRunXmlUrl(id: number): string {
   return `/api/payment-runs/${id}/sepa.xml`;
+}
+
+/** Who may read bills in, and with what (server/bill-reading.ts). */
+export interface BillReadingState extends BillReadingSettings {
+  /** False when AI_URL is unset: the form is typed, as before. */
+  available: boolean;
+  updated_at: string | null;
+  updated_by: string | null;
 }

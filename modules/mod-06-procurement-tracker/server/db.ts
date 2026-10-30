@@ -161,5 +161,50 @@ export function openDb(path: string): Database.Database {
     db.exec('CREATE INDEX IF NOT EXISTS idx_suppliers_party ON suppliers (party_id)');
   }
 
+  // ── Receiving and matching (server/receiving.ts) ────────────────────
+  // The MOD-03 article number a line is, when it is stock: the goods
+  // received on it are then booked into MOD-03 as well. Null for services.
+  if (!columns('po_lines').includes('sku')) db.exec('ALTER TABLE po_lines ADD COLUMN sku TEXT');
+  db.exec(`
+    -- What arrived, against an ordered PO, append-only. How much of a line has
+    -- arrived is derived — the sum of its receipt lines — never stored. A
+    -- miscounted receipt is corrected by a correction receipt (negative
+    -- quantities, with a reason), never by editing or deleting the first.
+    CREATE TABLE IF NOT EXISTS goods_receipts (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      po_id           INTEGER NOT NULL REFERENCES purchase_orders(id),
+      number          TEXT    NOT NULL UNIQUE,
+      kind            TEXT    NOT NULL DEFAULT 'receipt' CHECK (kind IN ('receipt', 'correction')),
+      received_on     TEXT    NOT NULL,
+      note            TEXT,
+      actor           TEXT    NOT NULL,
+      created_at      TEXT    NOT NULL,
+      -- The outcome of booking it into MOD-03, when that is wired: a record of
+      -- what the other module answered, so a failure can be seen and retried.
+      stock_status    TEXT    CHECK (stock_status IS NULL OR stock_status IN ('booked', 'failed', 'not_booked')),
+      stock_error     TEXT,
+      stock_warehouse TEXT,
+      CHECK (kind = 'receipt' OR note IS NOT NULL)
+    );
+    CREATE INDEX IF NOT EXISTS idx_goods_receipts_po ON goods_receipts (po_id);
+
+    CREATE TABLE IF NOT EXISTS goods_receipt_lines (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      receipt_id INTEGER NOT NULL REFERENCES goods_receipts(id),
+      po_line_id INTEGER NOT NULL REFERENCES po_lines(id),
+      quantity   REAL    NOT NULL CHECK (quantity <> 0)
+    );
+    CREATE INDEX IF NOT EXISTS idx_goods_receipt_lines_receipt ON goods_receipt_lines (receipt_id);
+    CREATE INDEX IF NOT EXISTS idx_goods_receipt_lines_line ON goods_receipt_lines (po_line_id);
+
+    -- The office's matching rules and receiving warehouse, one row of JSON.
+    CREATE TABLE IF NOT EXISTS procurement_settings (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      settings   TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL
+    );
+  `);
+
   return db;
 }

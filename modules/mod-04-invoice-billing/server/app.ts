@@ -109,7 +109,9 @@ import { BILL_STATUSES, type BillStatus } from '../shared/types.js';
 import { renderCreditNotePdf, renderInvoicePdf } from './pdf.js';
 import { issueCreditNote } from './credit-notes.js';
 import { fmtEur } from '../shared/money.js';
+import { checkBill, releaseMatch } from './bill-match.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
+import { proposeBill, readReadingSettings, validateReadingSettings, writeReadingSettings } from './bill-reading.js';
 import { apply as applyReceivables, suggest } from './receivables.js';
 import { importTransfer, MODULE_ID } from './transfer-import.js';
 import type { DocumentTransfer } from '../shared/transfer.js';
@@ -320,8 +322,72 @@ function validateBill(input: Record<string, unknown>): BillInput {
   if (dueDate === null) errors.push({ field: 'due_date', message: 'A due date is required' });
   const note = optText(input.note, 'note', errors, 500);
 
+  // A purchase order makes the bill matchable — which needs its net amount,
+  // since a PO is priced net and the bill's amount is gross.
+  const poNumber = optText(input.po_number, 'po_number', errors, 40);
+  let netCents: number | null = null;
+  if (input.net_cents !== undefined && input.net_cents !== null && input.net_cents !== '') {
+    netCents = Number(input.net_cents);
+    if (!Number.isInteger(netCents) || netCents < 0) errors.push({ field: 'net_cents', message: 'The net amount is whole cents, 0 or more' });
+    else if (Number.isInteger(amountCents) && netCents > amountCents) errors.push({ field: 'net_cents', message: 'The net amount cannot exceed the gross amount' });
+  }
+  if (poNumber !== null && netCents === null) errors.push({ field: 'net_cents', message: 'A bill for a purchase order needs its net amount to be matched' });
+
+  // Where it was read from — kept on create only (server/bill-reading.ts).
+  const readFrom = optText(input.read_from, 'read_from', errors, 40);
+  if (readFrom !== null && !/^(e-invoice:(cii|ubl|ebinterface)(:pdf)?|text|model:[a-z]+)$/.test(readFrom)) errors.push({ field: 'read_from', message: 'read_from is what /api/bills/read answered' });
+  const documentSha256 = optText(input.document_sha256, 'document_sha256', errors, 64);
+  if (documentSha256 !== null && !/^[0-9a-f]{64}$/.test(documentSha256)) errors.push({ field: 'document_sha256', message: 'document_sha256 is a SHA-256 in hex' });
+
+  const lines = validateBillLines(input.lines, errors);
+
   if (errors.length > 0) fail(errors);
-  return { creditorId, reference, remittance, amountCents, issueDate, dueDate: dueDate!, note };
+  return { creditorId, reference, remittance, amountCents, issueDate, dueDate: dueDate!, note, poNumber, netCents, readFrom, documentSha256, lines };
+}
+
+const MAX_BILL_LINES = 500;
+
+/**
+ * The supplier's lines, as invoiced — optional, and only their shape is
+ * checked: they are a copy of the document, so a discount line may be
+ * negative and the lines need not add up to the net (an allowance on the
+ * whole invoice is legal). The screen shows the difference instead.
+ * Undefined keeps what an edited bill has; an array, even empty, replaces it.
+ */
+function validateBillLines(raw: unknown, errors: FieldError[]): BillInput['lines'] {
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || raw.length > MAX_BILL_LINES) {
+    errors.push({ field: 'lines', message: `lines is a list of at most ${MAX_BILL_LINES}` });
+    return undefined;
+  }
+  const out: NonNullable<BillInput['lines']> = [];
+  raw.forEach((line, i) => {
+    const l = (typeof line === 'object' && line !== null ? line : {}) as Record<string, unknown>;
+    const at = (f: string) => `lines[${i}].${f}`;
+    const description = typeof l.description === 'string' ? l.description.trim() : '';
+    if (description === '' || description.length > 300) errors.push({ field: at('description'), message: 'Each line names what was invoiced (max 300 characters)' });
+    const netCents = Number(l.net_cents);
+    if (!Number.isInteger(netCents) || Math.abs(netCents) > MAX_AMOUNT_CENTS) errors.push({ field: at('net_cents'), message: 'The line net is whole cents' });
+    const optNumber = (f: string, ok: (n: number) => boolean, message: string): number | null => {
+      if (l[f] === undefined || l[f] === null || l[f] === '') return null;
+      const n = Number(l[f]);
+      if (!ok(n)) errors.push({ field: at(f), message });
+      return n;
+    };
+    const quantity = optNumber('quantity', Number.isFinite, 'quantity is a number');
+    const unitPriceCents = optNumber('unit_price_cents', Number.isInteger, 'unit_price_cents is whole cents');
+    const vatRate = optNumber('vat_rate', (n) => Number.isFinite(n) && n >= 0 && n <= 100, 'vat_rate is 0 to 100');
+    out.push({
+      description,
+      item_id: optText(l.item_id, at('item_id'), errors, 64),
+      quantity,
+      unit_code: optText(l.unit_code, at('unit_code'), errors, 10),
+      unit_price_cents: unitPriceCents,
+      net_cents: netCents,
+      vat_rate: vatRate,
+    });
+  });
+  return out;
 }
 
 function validateDraft(input: Record<string, unknown>): DraftInput {
@@ -505,6 +571,8 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     if (hardening.trustProxy > 0) app.set('trust proxy', hardening.trustProxy);
     app.use(hardeningMiddleware(hardening));
   }
+  // A supplier's PDF or scan, base64: only the route that reads one takes that much.
+  app.use('/api/bills/read', express.json({ limit: '14mb' }));
   app.use(express.json({ limit: '1mb' }));
 
   // ── Public routes ────────────────────────────────────────────────────
@@ -1431,18 +1499,81 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     });
   });
 
-  app.post('/api/bills', (req, res) => {
+  app.post('/api/bills', async (req, res) => {
     const billId = createBill(db, validateBill(body(req)));
+    await checkBill(db, platform, billId, actorOf(res, auth));
     res.status(201).json(getBill(db, billId));
+  });
+
+  // Read a supplier invoice into a proposal for the bill form (PS-04 reads,
+  // server/bill-reading.ts proposes). Saves nothing: the person checks and
+  // saves, and the bill keeps where it was read from.
+  app.post('/api/bills/read', async (req, res) => {
+    if (!platform.aiConfigured || !platform.extractInvoice) {
+      throw new DomainError(501, 'No AI platform is configured — set AI_URL to read bills from their documents');
+    }
+    const b = body(req);
+    const content = typeof b.content_base64 === 'string' ? b.content_base64 : '';
+    if (content === '') fail([{ field: 'content_base64', message: 'The document is required' }]);
+    const settings = readReadingSettings(db);
+    const own = (v: string | undefined) => (v && v.trim() !== '' ? [v] : []);
+    let extraction;
+    try {
+      extraction = await platform.extractInvoice({
+        content_base64: content,
+        content_type: typeof b.content_type === 'string' ? b.content_type : undefined,
+        filename: typeof b.filename === 'string' ? b.filename.slice(0, 200) : undefined,
+        // Our own name, VAT ID and IBAN are on every invoice we receive — as the buyer's.
+        own: { names: own(seller?.name), vat_ids: own(seller?.vatId), ibans: own(seller?.iban?.replace(/\s+/g, '')) },
+        provider: settings.model ?? undefined,
+      });
+    } catch (err) {
+      if (err instanceof OfferFetchError) throw new DomainError([413, 415, 422].includes(err.status) ? err.status : 502, err.message);
+      throw err;
+    }
+    res.json({ extraction, proposal: proposeBill(db, extraction) });
+  });
+
+  app.get('/api/settings/bill-reading', (_req, res) => {
+    res.json({ ...readReadingSettings(db), available: Boolean(platform.aiConfigured) });
+  });
+
+  app.put('/api/settings/bill-reading', (req, res) => {
+    writeReadingSettings(db, validateReadingSettings(body(req)), actorOf(res, auth));
+    res.json({ ...readReadingSettings(db), available: Boolean(platform.aiConfigured) });
   });
 
   app.get('/api/bills/:id', (req, res) => {
     res.json(getBill(db, Number(req.params.id)));
   });
 
-  app.put('/api/bills/:id', (req, res) => {
+  app.put('/api/bills/:id', async (req, res) => {
     updateBill(db, Number(req.params.id), validateBill(body(req)));
+    // An edit changes what is invoiced: ask again, so an earlier release no longer covers it.
+    await checkBill(db, platform, Number(req.params.id), actorOf(res, auth));
     res.json(getBill(db, Number(req.params.id)));
+  });
+
+  // Ask MOD-06 again — after goods arrived, or once it is reachable.
+  app.post('/api/bills/:id/check-match', async (req, res) => {
+    const bill = getBill(db, Number(req.params.id));
+    if (!bill.po_number) throw new DomainError(409, 'This bill names no purchase order');
+    if (!platform.procurementConfigured) throw new DomainError(501, 'No procurement is configured — set PROCUREMENT_URL to match bills against purchase orders');
+    await checkBill(db, platform, bill.id, actorOf(res, auth));
+    res.json(getBill(db, bill.id));
+  });
+
+  // A manager pays a held bill anyway, and says why — kept with the verdict it overrides.
+  app.post('/api/bills/:id/release-match', async (req, res) => {
+    const errors: FieldError[] = [];
+    const reason = optText(body(req).reason, 'reason', errors, 300);
+    if (!reason) errors.push({ field: 'reason', message: 'A release says why' });
+    if (errors.length > 0) fail(errors);
+    const actor = actorOf(res, auth);
+    releaseMatch(db, Number(req.params.id), reason!, actor);
+    const bill = getBill(db, Number(req.params.id));
+    await platform.matchReleased?.({ actor, billId: bill.id, poNumber: bill.po_number ?? '', reason: reason! });
+    res.json(bill);
   });
 
   app.delete('/api/bills/:id', (req, res) => {
@@ -1489,7 +1620,18 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     if (errors.length > 0) fail(errors);
     const categoryPurpose = rawPurpose === '' ? undefined : ('TAXS' as const);
 
+    // The last word before money leaves: ask MOD-06 about every bill that
+    // names a PO and has no release, then let the run refuse what is held.
+    const matchRequired = Boolean(platform.procurementConfigured);
+    if (matchRequired) {
+      for (const billId of new Set(billIds)) {
+        const match = getBill(db, billId).match;
+        if (match.state !== 'not_linked' && match.state !== 'released') await checkBill(db, platform, billId, actorOf(res, auth));
+      }
+    }
+
     const runId = createPaymentRun(db, seller, {
+      matchRequired,
       billIds,
       executionDate: executionDate ?? undefined,
       createdBy: actorOf(res, auth),
@@ -1642,6 +1784,13 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     }
     if (err instanceof DomainError) {
       res.status(err.status).json({ error: err.message, details: err.details });
+      return;
+    }
+    // The JSON parser's own refusals — a scan over the limit, a malformed
+    // body — are the caller's, and say so rather than reading as a crash.
+    const status = (err as { status?: unknown }).status;
+    if (typeof status === 'number' && status >= 400 && status < 500) {
+      res.status(status).json({ error: status === 413 ? 'The request is too large' : 'The request body is not valid JSON' });
       return;
     }
     console.error(err);

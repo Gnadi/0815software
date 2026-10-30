@@ -105,7 +105,10 @@ Hiding is courtesy, not protection: the server still answers **403**
 **Rules that depend on the row.** A level covers routes; "may write THIS row"
 cannot be said in `access.ts`. Where a module needs it, the rule is one named
 function beside the policy, called by the routes it governs — MOD-11's
-`server/ownership.ts` (below `manage`, only your own time) is the pattern.
+`server/ownership.ts` (below `manage`, only your own time) is the pattern;
+MOD-05's `server/profile.ts` follows it (the `/api/me/profile` routes act on
+the signed-in person's own record only, at any level; nobody decides their own
+change request).
 
 ## Compatibility
 
@@ -119,7 +122,8 @@ function beside the policy, called by the routes it governs — MOD-11's
 
 ## Not yet
 
-- **More per-record rules.** MOD-11 has "own time only"; others ("only this
+- **More per-record rules.** MOD-11 has "own time only", MOD-05 "own record
+  only"; others ("only this
   warehouse", "only my tickets") would follow the same pattern when needed.
 - **MOD-01, MOD-07, MOD-09** have their own user models (customers, the public
   shop, matter members) and are not part of this contract.

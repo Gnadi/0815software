@@ -3,6 +3,53 @@ import type { PublicTicket } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { fmtDateTime } from '../format';
 import { PriorityBadge, StatusBadge } from './Badges';
+import { AttachmentList, FilePicker, toUploads } from './Files';
+
+/**
+ * Rate a resolved ticket: five stars and an optional word. Once per
+ * resolution — afterwards the page shows what was given.
+ */
+function Rating({ ticket, onRate }: { ticket: PublicTicket; onRate: (score: number, comment: string) => Promise<void> }) {
+  const [score, setScore] = useState(0);
+  const [comment, setComment] = useState('');
+  const [busy, setBusy] = useState(false);
+  if (!ticket.rating) return null;
+  const { can_rate, given } = ticket.rating;
+  if (!can_rate && !given) return null;
+  return (
+    <div className="public__panel" id="rating">
+      <div className="panel__title mono">HOW DID WE DO?</div>
+      {can_rate ? (
+        <>
+          <div className="stars" role="radiogroup" aria-label="Your rating">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button key={n} type="button" role="radio" aria-checked={score === n} aria-label={`${n} of 5`} className={`stars__star ${n <= score ? 'is-on' : ''}`} onClick={() => setScore(n)}>
+                ★
+              </button>
+            ))}
+          </div>
+          <textarea className="field__input" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Anything you want to tell us? (optional)" maxLength={2000} />
+          <button
+            className="btn btn--primary"
+            disabled={busy || score === 0}
+            onClick={() => {
+              setBusy(true);
+              void onRate(score, comment).finally(() => setBusy(false));
+            }}
+          >
+            SEND RATING →
+          </button>
+        </>
+      ) : (
+        given && (
+          <p className="public__lede">
+            You rated this {given.score} of 5{given.comment ? ` — “${given.comment}”` : ''}. Thank you.
+          </p>
+        )
+      )}
+    </div>
+  );
+}
 
 interface Props {
   ticketRef: string;
@@ -20,7 +67,16 @@ export function PublicStatus({ ticketRef, token }: Props) {
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState('');
   const [reply, setReply] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [limits, setLimits] = useState<{ max_bytes: number; per_message: number } | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api
+      .publicConfig()
+      .then((c) => setLimits(c.attachments))
+      .catch(() => setLimits(null));
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -40,9 +96,10 @@ export function PublicStatus({ ticketRef, token }: Props) {
     setBusy(true);
     setError('');
     try {
-      const updated = await api.publicComment(ticketRef, token, reply);
+      const updated = await api.publicComment(ticketRef, token, reply, await toUploads(files));
       setTicket(updated);
       setReply('');
+      setFiles([]);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not add your follow-up');
     } finally {
@@ -102,13 +159,19 @@ export function PublicStatus({ ticketRef, token }: Props) {
                   <span className="event__actor">{authorLabel(ev.author_type, ev.author)}</span>
                 </div>
                 <div className="event__body">
-                  {ev.type === 'created' && <span className="event__line">Ticket submitted.</span>}
+                  {ev.type === 'created' && (
+                    <>
+                      <span className="event__line">Ticket submitted.</span>
+                      <AttachmentList attachments={ev.attachments} href={(id) => api.publicAttachmentUrl(ticket.ref, token, id)} />
+                    </>
+                  )}
                   {ev.type === 'status_change' && (
                     <span className="event__line">Status changed to {ev.to?.toUpperCase()}.</span>
                   )}
                   {ev.type === 'comment' && (
                     <div className={`comment comment--${ev.author_type === 'agent' ? 'agent' : 'requester'}`}>
                       {ev.body}
+                      <AttachmentList attachments={ev.attachments} href={(id) => api.publicAttachmentUrl(ticket.ref, token, id)} />
                     </div>
                   )}
                 </div>
@@ -116,6 +179,17 @@ export function PublicStatus({ ticketRef, token }: Props) {
             ))}
           </div>
         </div>
+
+        <Rating
+          ticket={ticket}
+          onRate={async (score, comment) => {
+            try {
+              setTicket(await api.publicRate(ticketRef, token, score, comment));
+            } catch (err) {
+              setError(err instanceof ApiError ? err.message : 'Could not send your rating');
+            }
+          }}
+        />
 
         <form className="public__panel" onSubmit={(e) => void submit(e)}>
           <div className="panel__title mono">ADD A FOLLOW-UP</div>
@@ -130,6 +204,7 @@ export function PublicStatus({ ticketRef, token }: Props) {
             onChange={(e) => setReply(e.target.value)}
             placeholder="Add more detail or reply to support…"
           />
+          {limits && <FilePicker files={files} onChange={setFiles} maxBytes={limits.max_bytes} perMessage={limits.per_message} disabled={busy} />}
           <button className="btn btn--primary" type="submit" disabled={busy || reply.trim() === ''}>
             {busy ? 'SENDING…' : 'SEND FOLLOW-UP →'}
           </button>

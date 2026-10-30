@@ -22,14 +22,24 @@ Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
     → Rechnung je Lieferung (MOD-04).
   - **MOD-04:** E-Rechnung (XRechnung, ZUGFeRD, ebInterface 6.1), Mahnwesen,
     wiederkehrende Rechnungen, Teilgutschriften, BMD-/DATEV-Export.
+  - **Eingangsseite:** 3-Way-Match (MOD-06 ↔ MOD-04) und Belegerkennung —
+    PS-04 liest Eingangsrechnungen (E-Rechnung exakt, PDF über Labels, Scan
+    per Vision-Modell), MOD-04 füllt daraus die Eingangsrechnung vor.
+  - **Self-Service:** Timer, Erinnerungen und „Mein Bereich“ in MOD-11;
+    eigene Kontaktdaten in MOD-05 (Name und Privatadresse mit HR-Freigabe).
+  - **Helpdesk:** Anhänge, Textbausteine, Geschäftszeiten-SLA mit Feiertagen
+    und Pause während „pending“ (versionierte Richtlinie), Zufriedenheit
+    (CSAT) in MOD-12; das echte Support-Postfach über IMAP liest PS-05.
 - **Größte verbleibende Lücken:**
   - **Projektplanung in der Tiefe:** Gantt, Abhängigkeiten, Kapazitätsblick
     (Board, Meilensteine und Budget sind in MOD-11 umgesetzt).
-  - **HR-Grundbedarf:** Mitarbeiter-Self-Service über Abwesenheiten und
-    Gleitzeit hinaus (beides ist in MOD-11 umgesetzt).
+  - **HR-Grundbedarf:** Recruitment und Dokumente zur Person
+    (Self-Service für Kontaktdaten ist in MOD-05, Timer und „Mein Bereich“ in
+    MOD-11 umgesetzt).
   - **Lagertiefe:** Lagerplätze, Kommissionierung, Bewertung (Barcode und
     Reservierung sind umgesetzt).
-  - **Eingangsseite:** Belegerkennung (OCR), 3-Way-Match, PEPPOL.
+  - **Eingangsseite:** PEPPOL-Empfang/-Versand (3-Way-Match und
+    Belegerkennung sind umgesetzt).
 - **Sinnvollste neue Module** (Abschnitt 3): Terminbuchung, Spesen, Formulare/Umfragen, Wissen.
   **Nicht bauen:** Finanzbuchhaltung, Lohnverrechnung, Kasse (RKSV), MRP,
   Website-Builder, VoIP, IoT, Social Marketing.
@@ -50,7 +60,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Bankabgleich (E) | ✅ PS-12 EBICS, camt.053 → Zuordnung zu offenen Rechnungen | **stärker als Odoo Community**, real-bank-ungetestet |
 | SEPA-Zahlungen | ✅ MOD-04 pain.001, Finanzamtszahlung, EACT | DACH-Vorsprung |
 | Hauptbuch, Analytik, Budgets, Konsolidierung (E) | ❌ | ⛔ Volle FiBu nicht bauen — Steuerberater nutzt BMD/DATEV. Stattdessen **Export** (siehe 2.) |
-| Vendor-Bill-OCR (E) | ❌ (PS-04 hat kein OCR/Extraktion) | 🔜 als PS-04-Fähigkeit, dann in MOD-04 Bills |
+| Vendor-Bill-OCR (E) | ✅ PS-04 `/api/extract/invoice` (XRechnung/ZUGFeRD/UBL/ebInterface exakt, PDF-Textlayer über Labels, Scans per Vision-Modell nur wenn vom Admin freigegeben) → MOD-04 *Read from document* (Kreditor per IBAN, Duplikat per Datei-Hash, Positionen samt Lieferanten-Artikelnummer übernommen) und **3-Way-Match auf Positionsebene** (Artikelnummer ↔ SKU der Bestellposition, Menge gegen Eingang und Bestellung, Preis gegen Bestellpreis) | Offen: Spesen-Modul als zweiter Konsument |
 | Expenses (E: OCR) | ❌ | 🔜 **neues Modul** (siehe 3.) |
 | Documents (E) | 🟡 MOD-09 (Matters, Versionen) | Vorschau, Volltextsuche via PS-09, Freigabelinks fehlen |
 | Spreadsheet/BI (E) | 🟡 MOD-08 (SQL-Reports, Pivot, SVG-Charts) | ⛔ kein Spreadsheet nachbauen; XLSX-Export ergänzen |
@@ -74,7 +84,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | --- | --- | --- |
 | Website Builder, Blog, Forum | ❌ (Marketing-Site ist Astro) | ⛔ Astro/Headless-CMS sind besser; Kunden-Website ist Auftragsarbeit |
 | eCommerce | ✅ MOD-07 | Varianten, Gutscheine, Versandregeln, MOD-03-Bestandskopplung prüfen |
-| Live Chat | ❌ | 🟡 optional als Intake-Kanal von MOD-12 |
+| Live Chat | ❌ | 🟡 optional als Intake-Kanal von MOD-12 (Postfach über PS-05 und Webformular gibt es) |
 | eLearning | ❌ | ⛔ (Moodle/ILIAS existieren, Open Source) |
 
 ### Supply Chain
@@ -83,7 +93,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | --- | --- | --- |
 | Inventory | ✅ MOD-03 (Ledger, Lager, PO-Wareneingang, Inventur, Warenausgang je Lieferschein, Reservierung je Auftrag aus MOD-17) | Lagerplätze, Kommissionierung, Bewertung (gleitender Ø), mehrere Ausgangslager je Auftrag fehlen |
 | Barcode (E) | ✅ MOD-03: GTIN mit Prüfziffer, Scan per Handscanner oder Kamera (BarcodeDetector), Etiketten EAN/UPC bzw. Code 128 — gegen python-barcode geprüft | Etikettendrucker-Sprachen (ZPL), GS1-128 mit AIs offen |
-| Purchase | ✅ MOD-06 (RFQ, PO, Freigabestufen, ERP-CSV) | 3-Way-Match mit MOD-03/MOD-04, Lieferanten-Mail via PS-03 |
+| Purchase | ✅ MOD-06 (RFQ, PO, Freigabestufen, Wareneingang mit Lagerzugang in MOD-03, 3-Way-Match mit Zahlungssperre in MOD-04 — auf Betrag und je Position, ERP-CSV) | Lieferanten-Mail via PS-03; Bestellabweichung über die Toleranz hinaus automatisch an den Lieferanten melden |
 | Manufacturing/MRP, PLM, Quality (E) | ❌ | ⛔ eigener Markt; höchstens ein schlankes Stücklisten-/Fertigungsauftragsmodul auf Anfrage |
 | Maintenance | ❌ | 🟡 **neues kleines Modul „Anlagen & Wartung“** (Geräte, Intervalle, Prüfprotokolle) — passt zum Ethos (Fälligkeit abgeleitet, nie gespeichert) |
 
@@ -91,7 +101,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
-| Employees | ✅ MOD-05 (Verzeichnis, Org-Baum, Onboarding-Liste) | Mitarbeiter-Self-Service fehlt |
+| Employees | ✅ MOD-05 (Verzeichnis, Org-Baum, Onboarding-Liste, Self-Service: Kontaktdaten und Notfallkontakt selbst, Name/Privatadresse mit HR-Freigabe, private Daten nur für Person und HR) | Offen: Dokumente zur Person (PS-06), Bankdaten/Lohnstammdaten bewusst nicht |
 | Time Off | ✅ MOD-11 (Urlaub, Krankenstand, Sonderurlaub; Freigabe, Resturlaub abgeleitet, Feiertage AT/DE, Teamkalender) | Kein eigenes Modul: Abwesenheiten gehören zur Zeiterfassung. Zeitausgleich wird vom Gleitzeitkonto abgezogen. Offen: Verfall von Resturlaub |
 | Recruitment | ❌ | 🟡 neues Modul, mittlere Priorität (DSGVO-Löschfristen für Bewerbungen sind der Kern) |
 | Appraisals, Referrals (E) | ❌ | ⛔ |
@@ -106,7 +116,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | SMS Marketing | ❌ (PS-03 kann SMS) | Teil des Newsletter-Moduls |
 | Marketing Automation (E) | ❌ (PS-02 kann Abläufe) | ⛔ als Modul; PS-02-Vorlagen reichen |
 | Events | ❌ | 🟡 über Terminbuchung + Formulare abdecken |
-| Surveys | ❌ | 🔜 **neues Modul „Formulare & Umfragen“** — dient auch CSAT in MOD-12, Lead-Formular für MOD-10, Antrag für MOD-14 |
+| Surveys | ❌ | 🔜 **neues Modul „Formulare & Umfragen“** — Lead-Formular für MOD-10, Antrag für MOD-14; die einfache CSAT-Bewertung hat MOD-12 schon selbst |
 | Social Marketing (E) | ❌ | ⛔ |
 
 ### Services
@@ -114,8 +124,8 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
 | Project | ✅ MOD-11 (Board, Meilensteine, Zuständige, Fälligkeiten, Schätzung vs. gebuchte Zeit, Stundenbudget, „Meine Aufgaben“; Angebot → Projekt aus MOD-13) | Kein eigenes Modul: die Projekte lagen schon in MOD-11. Offen: Gantt/Abhängigkeiten, Kapazitätsblick gegen die Arbeitszeitmodelle |
-| Timesheet (Timer, Erinnerung, Freigabe) | 🟡 MOD-11 (Tageserfassung, Wochenfreigabe, „nur eigene Zeiten“, Gleitzeitkonto mit Soll aus datierten Arbeitszeitmodellen, Überstunden über der Obergrenze, Auszahlung, Monats-CSV für die Lohnverrechnung) | Timer, Erinnerungen ergänzen |
-| Helpdesk (E) | ✅ MOD-12 | Anhänge (PS-06), Textbausteine, Geschäftszeiten-SLA, CSAT, IMAP-Brücke |
+| Timesheet (Timer, Erinnerung, Freigabe) | ✅ MOD-11 (Tageserfassung, Timer am Server mit Kappung an Mitternacht und Tageshöchstzeit, Erinnerungen über PS-03 für nicht eingereichte Woche und vergessenen Timer, „Mein Bereich“, Wochenfreigabe, „nur eigene Zeiten“, Gleitzeitkonto mit Soll aus datierten Arbeitszeitmodellen, Überstunden über der Obergrenze, Auszahlung, Monats-CSV für die Lohnverrechnung) | Offen: Stempeluhr (Kommen/Gehen), Pausenabzug |
+| Helpdesk (E) | ✅ MOD-12 (Queue, Workflow, abgeleitete SLA in Geschäftszeiten mit Feiertagen und Pause bei „pending“, versionierte Richtlinie, Anhänge mit Kopie in PS-06, Textbausteine, CSAT, Antworten per E-Mail, Support-Postfach über PS-05/IMAP) | Offen: Tickets zusammenführen, Teams/Warteschlangen mit eigener SLA, Wissensdatenbank (MOD-23) |
 | Planning (E) | ❌ | 🟡 als Kapazitätsblick in MOD-11 (Zuständige × Arbeitszeitmodelle), nicht separat |
 | Appointments (E) | ❌ | 🔜 **neues Modul „Terminbuchung“** — für KMU (Arzt, Handwerk, Beratung) einer der greifbarsten Nutzen |
 | Field Service (E) | ❌ | 🟡 später: Projekte + Terminbuchung + Mobile-Ansicht |
@@ -150,7 +160,8 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    die Stufe weiter; der lokale Admin bleibt der Standalone-Modus.
 2. ✅ **MOD-04: E-Rechnung.** XRechnung/ZUGFeRD (DE, PR #37) und
    ebInterface 6.1 (AT, Bund), jeweils gegen das offizielle Schema geprüft
-   (`docs/E-RECHNUNG.md`). Offen: UBL/PEPPOL-Versand, Eingangsrechnungen lesen.
+   (`docs/E-RECHNUNG.md`). Eingangsrechnungen lesen: ✅ über PS-04 (UBL, CII,
+   ebInterface). Offen: UBL/PEPPOL-Versand.
 3. ✅ **MOD-04: Wiederkehrende Rechnungen** (= Odoo Subscriptions light:
    Vorlage → höchstens ein Entwurf je Periode). ✅ **Teilgutschriften** als
    eigener Beleg (`-GS<n>`, je Steuersatz gedeckelt, als 381 / CreditMemo).
@@ -165,14 +176,20 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    in MOD-03, Reservierung bei Auftragsbestätigung.
 6. 🟡 **MOD-03:** ✅ Barcode und Etiketten, ✅ Reservierungen. Offen:
    Lagerplätze, Kommissionierung, Bewertung.
-7. **MOD-11: Timer + Mitarbeiter-Self-Service.**
-8. **MOD-12: Anhänge (PS-06), Textbausteine, Geschäftszeiten, CSAT,
-   IMAP-Brücke über PS-05.**
-9. **MOD-06: 3-Way-Match** Bestellung ↔ Wareneingang (MOD-03) ↔
-   Eingangsrechnung (MOD-04 Bills).
-10. **PS-04: Dokumentextraktion** (Rechnung/Beleg → strukturierte Felder),
-    mit Mock-Provider wie die übrigen Fähigkeiten. Konsumenten: MOD-04 Bills,
-    Spesen, MOD-09.
+7. ✅ **MOD-11: Timer + Mitarbeiter-Self-Service** — Timer, Erinnerungen und
+   „Mein Bereich“ in MOD-11; Self-Service für die eigenen Stammdaten in MOD-05
+   (dort gehören sie hin: es ist das Verzeichnis, nicht die Zeiterfassung).
+8. ✅ **MOD-12: Anhänge, Textbausteine, Geschäftszeiten, CSAT, IMAP-Brücke**
+   — Anhänge in MOD-12 (Kopie in PS-06), SLA-Richtlinie versioniert in der
+   Oberfläche, IMAP-Client und MIME-Parser in PS-05 (Passwort verschlüsselt,
+   auch für andere Module nutzbar), MOD-12 holt die Post als Maschine ab.
+9. ✅ **MOD-06: 3-Way-Match** Bestellung ↔ Wareneingang (in MOD-06, Lagerzugang
+   in MOD-03) ↔ Eingangsrechnung (MOD-04 Bills, Zahlungssperre mit Freigabe).
+10. ✅ **PS-04: Dokumentextraktion** (Rechnung/Beleg → strukturierte Felder),
+    deterministisch ohne Modell als Standard (E-Rechnung exakt, PDF-Textlayer
+    über Labels); ein Scan nur mit Vision-Modell, sonst eine ehrliche
+    Ablehnung statt Platzhalterwerten. Konsument: MOD-04 Bills; offen: Spesen,
+    MOD-09.
 11. **MOD-08: XLSX-Export, Parameter, weitere Charttypen.**
 12. **MOD-09: Vorschau, Volltext via PS-09, Freigabelinks, Löschfristen.**
 
@@ -183,9 +200,16 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    zur Zeiterfassung).
 3. ✅ **Projekte & Aufgaben in MOD-11** (umgesetzt — die Projekte und Aufgaben
    lagen schon dort; Board, Meilensteine, Zuständige, Schätzungen, Budget).
-4. **PS-04 Dokumentextraktion** + **MOD-06 3-Way-Match** — die Eingangsseite.
-5. **MOD-11 Timer/Self-Service**, **MOD-12 Anhänge/CSAT** — Komfort in
-   bestehenden Modulen.
+4. ✅ **3-Way-Match** (umgesetzt — Wareneingang in MOD-06, Prüfung in MOD-06,
+   Zahlungssperre in MOD-04).
+5. ✅ **PS-04 Dokumentextraktion** (umgesetzt — eine PS-04-Fähigkeit, kein
+   Modul; erster Konsument MOD-04 Bills, die Rechnung wird eingelesen statt
+   abgetippt).
+6. ✅ **MOD-11 Timer/„Mein Bereich“ + MOD-05 Self-Service** (umgesetzt).
+7. ✅ **MOD-12 Helpdesk-Ausbau + PS-05 Postfach** (umgesetzt).
+8. **MOD-08 XLSX/Parameter** und **MOD-09 Vorschau/Volltext** — die
+   verbleibenden Punkte aus Abschnitt 2; danach die neuen Module aus
+   Abschnitt 3.
 
 ## 3. Neue Module (Vorschlag)
 

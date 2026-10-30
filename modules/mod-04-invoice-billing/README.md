@@ -29,6 +29,9 @@ suite proves each of them:
    payment run, enforced by a unique index rather than by care, and a
    produced file never changes afterwards. See
    [Bills and the SEPA payment file](#bills-and-the-sepa-payment-file).
+   A bill for a MOD-06 purchase order is paid only when the three-way match
+   says what arrived covers it — or a manager released it with a reason. See
+   [Matched against the purchase order](#matched-against-the-purchase-order-mod-06).
 5. **An issued invoice keeps saying what it said.** Finalizing freezes the
    seller and the buyer into the invoice; the PDF, the XRechnung and the
    ZUGFeRD file are rendered from that copy, so a later address change never
@@ -132,8 +135,12 @@ issued_documents     invoice, document (invoice | cancellation |
 
 creditors          name, iban (validated), bic, note         (who we pay)
 bills              creditor, reference, remittance, amount_cents (GROSS),
-                   issue_date, due_date, note, paid_at, cancelled_at
+                   issue_date, due_date, note, paid_at, cancelled_at,
+                   po_number?, net_cents?            (the MOD-06 PO it is for)
                    UNIQUE (creditor, reference)
+bill_match_checks  APPEND-ONLY: bill, result, message, ordered/received/invoiced/
+                   tolerance cents, actor, checked_at   (every answer MOD-06 gave)
+bill_match_releases APPEND-ONLY: bill, check, reason, actor  (a held verdict released)
 payment_runs       message_id (the pain.001 MsgId), execution_date,
                    FROZEN debtor name/IBAN/BIC, executed_at, discarded_at,
                    submitted_at, rejected_at, banking_order_id, bank_status
@@ -350,6 +357,8 @@ the Settings screen by whoever holds `manage`, and what is saved there wins (see
 | `SELLER_CONTACT_NAME` · `SELLER_PHONE` · `SELLER_EMAIL` | — | E-invoice: seller contact — mandatory for XRechnung (BT-41/42/43) |
 | `SELLER_EINVOICE_ADDRESS` | *(`SELLER_EMAIL`)* | E-invoice: seller electronic address (BT-34) |
 | `SELLER_LEGAL_INFORMATION` | — | Geschäftsbriefangaben: registered office, register court, managing directors (§ 35a GmbHG, § 14 UGB). Footer of invoices and dunning letters; BT-33 in the XML |
+| `PROCUREMENT_URL` | — | MOD-06 Procurement: match bills naming a PO before they are paid |
+| `AI_URL` | — | PS-04 AI Platform: read a supplier invoice (e-invoice, PDF, scan) into the bill form |
 
 The server prints a warning on startup while the default password is in
 use. The dev server does not load `.env` files by itself — export the
@@ -434,12 +443,22 @@ DELETE /api/creditors/:id              409 if the creditor has bills
 GET    /api/bills                      ?search=&status=&overdue=1
                                        (status: open|scheduled|paid|cancelled — derived)
 POST   /api/bills                      {creditor_id, reference, amount_cents,
-                                        due_date, issue_date?, remittance?, note?}
+                                        due_date, issue_date?, remittance?, note?,
+                                        po_number?, net_cents?, lines?}
+                                        lines: [{description, net_cents, item_id?,
+                                        quantity?, unit_code?, unit_price_cents?, vat_rate?}]
+                                        — on PUT: omitted keeps them, [] removes them
 GET    /api/bills/:id
 PUT    /api/bills/:id                  open bills only — scheduled/paid → 409
 DELETE /api/bills/:id                  never-run open bills only → 409
 POST   /api/bills/:id/cancel           open only — kept, never deleted
 POST   /api/bills/:id/mark-paid        settled outside a run; scheduled → 409
+POST   /api/bills/:id/check-match      ask MOD-06 again (501 without PROCUREMENT_URL)
+POST   /api/bills/:id/release-match    {reason} — pay a held bill anyway (manage)
+POST   /api/bills/read                 {content_base64, content_type, filename} → {extraction,
+                                        proposal} — PS-04 reads, nothing saved (501 without AI_URL)
+GET    /api/settings/bill-reading      {model, available} — which model may read documents
+PUT    /api/settings/bill-reading      {model: null|anthropic|openai|gemini|ollama|kimi} (manage)
 
 GET    /api/payment-runs               the runs + the debtor config
 POST   /api/payment-runs               {bill_ids: [], execution_date?} → the run
@@ -1073,13 +1092,103 @@ export profiles are examples rather than certifications.
    about it wins: a run accepted at upload and refused by a `pain.002` two days
    later ends up `rejected`, with its bills released, not quietly "sent".
 
+### Matched against the purchase order (MOD-06)
+
+A bill may name the MOD-06 purchase order it is for (`po_number`) and its
+**net** amount (`net_cents` — POs are priced net). With `PROCUREMENT_URL`
+set, this module asks MOD-06 whether it may be paid, sending what has been
+invoiced against the PO so far: this bill and the earlier ones, not
+cancelled. MOD-06 compares that with what was ordered and what has arrived
+(its README has the rule and the tolerance) and this module keeps every
+answer, append-only.
+
+- It asks when a bill is entered or edited, on *Check again*, and once more
+  for every selected bill when a payment run is created — the last word
+  before money leaves. A run refuses a bill that is **held** (its latest
+  answer is anything but `matched`) or **not checked** (MOD-06 never
+  answered).
+- An outage of MOD-06 is recorded and decides nothing: the last real answer
+  stands, so it neither pays a held bill nor holds a matched one.
+- A manager may **release** a held bill with a reason (`manage`); the
+  release covers the verdict it answered. An edit asks again, and a new
+  held verdict needs a new release.
+- **Line by line**, when the bill has the supplier's lines (read from its
+  document): they go to MOD-06 with the lines of the earlier bills on the
+  PO, and MOD-06 matches each to a PO line by article number or
+  description. A line it counts as an issue — more than arrived or was
+  ordered, above the PO price, a sizeable line not on the PO — holds the
+  bill even when the amount matched, because the same money can be the
+  wrong goods. Each check keeps the line verdicts; this module counts the
+  issues itself. A release covers the line issues of the verdict it
+  answers, like the rest. A bill without lines is matched on its amount.
+- Without `PROCUREMENT_URL` nothing is asked and nothing held; the PO
+  number is then a reference like any other. *Mark paid* records a payment
+  made elsewhere and is not held — it is a fact, not an instruction.
+
+Pinned by `test/bill-match.test.ts` (the net amount, the cumulative
+amount and that a later bill never changes an earlier verdict, unknown POs,
+the run refusing and then paying, asking again before paying, the outage,
+standalone, the release and its scope; line by line: the lines sent so far
+and only with lines, a line issue holding a matched amount, the issue
+counted here, the release).
+
+### Read from the document (PS-04)
+
+With `AI_URL`, *Read from document* on the Bills screen takes the supplier's
+invoice — an XRechnung, a ZUGFeRD PDF, an ebInterface file, a printed PDF,
+or (with a model set in Settings) a scan — and fills the bill form from it.
+PS-04 does the reading ([its README](../../platform/ps-04-ai-platform/README.md#document-extraction));
+`server/bill-reading.ts` turns what it read into a proposal:
+
+- **The creditor** by IBAN (the account the money goes to), else by exact
+  name; neither → *Create creditor* with the name, IBAN and BIC from the
+  document. A name match whose IBAN differs from the one on file is the
+  classic invoice-fraud letter and says so first, before anything else.
+- **The amount** is what is still to pay (EN 16931 BT-115), not the gross
+  of a part-paid invoice; net, dates, the PO (BT-13) and the payment
+  reference come along.
+- **The lines come along** — description, the supplier's article number
+  (BT-155), quantity, unit price, VAT rate, net — from an e-invoice exactly,
+  from a model when one read the document; the labelled-pattern reader of a
+  printed PDF reads no lines. Lines without a net amount (a text note in
+  the invoice) are left out. In the form they can be dropped, not typed;
+  the bill keeps them, an edit keeps them unless it sends new ones.
+- **Twice is flagged.** The same file again (its SHA-256 is kept on the
+  bill), or the same supplier number for that creditor, answers *Already
+  entered as bill #n* — the unique key would refuse the save anyway, but
+  a reprint with another file is caught before anyone types.
+- **Our own identity goes along** (`SELLER_*` / Settings): our name, VAT ID
+  and IBAN are on every invoice we receive, as the buyer's, and are never
+  taken for the supplier's.
+- **Nothing is saved.** The person checks, corrects and saves; the bill then
+  records how it was read (`read_from`: `e-invoice:cii:pdf`, `text`,
+  `model:anthropic` …) and from which document (`document_sha256`). Warnings
+  from PS-04 (totals that do not add up, a failing IBAN check, a credit
+  note) stand above the form.
+- **Which model may read is the administrator's** (Settings → *Bills ·
+  reading them from the document*, `manage`): none by default, so nothing
+  leaves PS-04; a model reads scans and photos and means the invoice is
+  sent to that provider.
+- Without `AI_URL` the button is not shown and the form is typed as before.
+
+Pinned by `test/bill-reading.test.ts` (the proposal and our own identity
+sent along, the lines proposed, saved, kept, replaced, removed and
+validated, creditor by IBAN and the changed-IBAN warning, read-from kept
+and both duplicate paths, a part-paid invoice, PS-04's refusals and outage,
+standalone, and the settings with their level).
+
 ### Money, and what a bill is not
 
 A bill's `amount_cents` is the **gross amount to transfer** — what the
-supplier's invoice says is due. Bills carry no VAT split, no line items and
-no tax logic: a bill is a payment instruction, not a tax document, and
-inventing a VAT breakdown in the screen least qualified to choose a rate
-would be worse than not having one. Your bookkeeping is where the split
+supplier's invoice says is due. Bills carry no VAT split and no tax logic:
+a bill is a payment instruction, not a tax document, and inventing a VAT
+breakdown in the screen least qualified to choose a rate would be worse
+than not having one. A bill may keep the supplier's **lines** (`bill_lines`)
+— but only as a copy of the document, read from it (see *Read from the
+document*): nothing is summed from them into what is paid or matched. Their
+net sum (`lines_net_cents`) is derived and shown beside the bill's net; a
+difference is not refused, because EN 16931 allows allowances and charges
+on the whole invoice (BT-107/108). Your bookkeeping is where the split
 belongs. Money stays integer cents until the two-decimal string the schema
 demands, and the file's `CtrlSum` is summed from those same integers, so it
 can never be a rounding of a rounding.
@@ -1194,7 +1303,7 @@ person signs in as themselves and gets the level PS-01 grants them here:
 | `module:invoice-billing:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
 
 `module:*:<level>` grants a level in every module. Reads need `view`, any other
-method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/payment-runs` → `manage`; `POST /api/payment-runs/:id/submit` → `manage`; `POST /api/payment-runs/:id/mark-executed` → `manage`; `POST /api/payment-runs/:id/discard` → `manage`; `PUT /api/settings/seller` → `manage`; `PUT /api/accounting-settings` → `manage`. A refused request answers **403**
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) names: `POST /api/payment-runs` → `manage`; `POST /api/payment-runs/:id/submit` → `manage`; `POST /api/payment-runs/:id/mark-executed` → `manage`; `POST /api/payment-runs/:id/discard` → `manage`; `PUT /api/settings/seller` → `manage`; `PUT /api/accounting-settings` → `manage`; `POST /api/bills/:id/release-match` → `manage`. A refused request answers **403**
 `{ error, required, access }`; `GET /api/me` reports the caller's `access`.
 Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
 manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).

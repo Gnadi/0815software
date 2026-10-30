@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
+import type { MailboxPoller } from './mailbox.js';
 import { hardeningFromEnv } from './hardening.js';
 import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
@@ -29,9 +30,12 @@ const here = dirname(fileURLToPath(import.meta.url));
 const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/client')];
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
-const app = createApp({ db, hardening: hardeningFromEnv(), auth: config.auth, staticDir, platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso), loginMode: loginModeOf(config.sso), serviceToken: config.platform.serviceToken, shellOrigins: config.shellOrigins });
+const app = createApp({ db, hardening: hardeningFromEnv(), auth: config.auth, staticDir, platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso), loginMode: loginModeOf(config.sso), serviceToken: config.platform.serviceToken, shellOrigins: config.shellOrigins, attachmentLimits: config.attachments, publicBaseUrl: config.publicBaseUrl });
 
 app.listen(config.port, () => {
+  // Reads the mailbox while the server runs, once it is switched on in the
+  // settings — and only with PS-05 wired; there is no external cron.
+  (app.locals.mailboxPoller as MailboxPoller).start();
   console.log(`[mod-12] support ticket system API on http://localhost:${config.port}`);
   if (staticDir) console.log(`[mod-12] serving client from ${staticDir}`);
   if (config.auth.password === 'agent') {

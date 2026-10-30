@@ -7,8 +7,7 @@ import type {
   RfqDetail,
   RfqRow,
   Supplier,
-  SupplierRow,
-} from '../shared/types';
+  SupplierRow, MatchSettings } from '../shared/types';
 
 export class ApiError extends Error {
   status: number;
@@ -56,6 +55,14 @@ function put(values: Record<string, unknown>): RequestInit & { method: string } 
  */
 export type AuthMode = { sso: false } | { sso: true; org: string };
 
+export interface MatchingSettingsResponse {
+  settings: MatchSettings;
+  updated_at: string | null;
+  updated_by: string | null;
+  inventory_configured: boolean;
+  warehouses: { code: string; name: string }[] | null;
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<{ ok: true }>('/api/login', post({ username, password })),
@@ -101,6 +108,11 @@ export const api = {
     request<PoDetail>(`/api/pos/${id}/reject`, post(values)),
   markOrdered: (id: number) => request<PoDetail>(`/api/pos/${id}/mark-ordered`, post()),
   closePo: (id: number) => request<PoDetail>(`/api/pos/${id}/close`, post()),
+  receive: (id: number, values: Record<string, unknown>) => request<PoDetail>(`/api/pos/${id}/receipts`, post(values)),
+  bookStock: (receiptId: number) => request<PoDetail>(`/api/receipts/${receiptId}/book-stock`, post()),
+  setSku: (poId: number, lineId: number, sku: string | null) => request<PoDetail>(`/api/pos/${poId}/lines/${lineId}/sku`, put({ sku })),
+  matchingSettings: () => request<MatchingSettingsResponse>('/api/settings/matching'),
+  saveMatchingSettings: (values: MatchSettings) => request<MatchingSettingsResponse>('/api/settings/matching', put({ ...values })),
 };
 
 /** URL of a CSV export through a profile (triggers a download). */

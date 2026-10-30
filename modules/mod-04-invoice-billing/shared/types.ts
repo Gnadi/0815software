@@ -317,6 +317,33 @@ export interface Bill {
   paid_at: string | null;
   cancelled_at: string | null;
   created_at: string;
+  /** The MOD-06 purchase order this bill is for — matched before it is paid. */
+  po_number: string | null;
+  /** The net amount, needed to match: purchase orders are priced net. */
+  net_cents: number | null;
+  /** How the bill was read from its document (null = typed): "e-invoice:cii", "text", "model:anthropic" … */
+  read_from: string | null;
+  /** SHA-256 of the document it was read from — the same file uploaded again is recognised. */
+  document_sha256: string | null;
+}
+
+/**
+ * One line of the supplier's invoice, as it was invoiced — a copy of the
+ * document, kept so the bill can be checked against it and, later, matched
+ * line by line. The bill's amounts are its own fields; nothing is summed
+ * from these into what is paid.
+ */
+export interface BillLine {
+  position: number;
+  description: string;
+  /** The supplier's article number (EN 16931 BT-155). */
+  item_id: string | null;
+  quantity: number | null;
+  unit_code: string | null;
+  unit_price_cents: number | null;
+  /** May be negative: a discount line. */
+  net_cents: number;
+  vat_rate: number | null;
 }
 
 /** One row of the bills list — status, creditor and overdue are all derived. */
@@ -331,6 +358,90 @@ export interface BillRow extends Bill {
   payment_run_id: number | null;
   /** What the payment file will say — the remittance, or the reference. */
   payment_reference: string;
+  /** Derived: where the three-way match stands for this bill. */
+  match: BillMatch;
+  /** The supplier's lines, in order; empty when the bill was typed without them. */
+  lines: BillLine[];
+  /** Derived: the lines' net, summed — null without lines. Compared with `net_cents`, never replacing it. */
+  lines_net_cents: number | null;
+}
+
+// ── The three-way match (server/bill-match.ts; the verdict is MOD-06's) ──
+
+/** MOD-06's answer, as it sends it. */
+export interface MatchVerdict {
+  po_number: string;
+  supplier_name: string;
+  po_status: string;
+  ordered_cents: number;
+  received_cents: number;
+  invoiced_cents: number;
+  tolerance_cents: number;
+  result: 'matched' | 'awaiting_receipt' | 'over_invoiced' | 'not_ordered';
+  difference_cents: number;
+  message: string;
+  /** MOD-06's line-by-line answer, when the bill had lines; absent from an older MOD-06. */
+  lines?: MatchLineVerdict[];
+  /** How many lines hold the bill on their own. */
+  line_issues?: number;
+}
+
+/** One invoiced line against its PO line, as MOD-06 answers it. */
+export interface MatchLineVerdict {
+  item_id: string | null;
+  description: string;
+  po_position: number | null;
+  matched_by: 'sku' | 'description' | null;
+  invoiced_quantity: number | null;
+  received_quantity: number | null;
+  ordered_quantity: number | null;
+  invoiced_net_cents: number;
+  invoiced_unit_price_cents: number | null;
+  ordered_unit_price_cents: number | null;
+  result: 'ok' | 'awaiting_receipt' | 'over_ordered' | 'price_above' | 'not_on_po' | 'unchecked';
+  issue: boolean;
+  message: string;
+}
+
+/** One recorded check, append-only. `unknown_po` and `error` are this module's. */
+export interface BillMatchCheck {
+  id: number;
+  result: MatchVerdict['result'] | 'unknown_po' | 'error';
+  message: string;
+  ordered_cents: number | null;
+  received_cents: number | null;
+  invoiced_cents: number;
+  tolerance_cents: number | null;
+  /** Lines that hold the bill even when the amount matched. */
+  line_issues: number;
+  lines: MatchLineVerdict[];
+  actor: string;
+  checked_at: string;
+}
+
+export interface BillMatchRelease {
+  check_id: number;
+  reason: string;
+  actor: string;
+  at: string;
+}
+
+/**
+ * - `not_linked` — no purchase order named; nothing to match.
+ * - `not_checked` — named, but MOD-06 never answered (or is not wired).
+ * - `matched` — the latest answer says it may be paid.
+ * - `held` — the latest answer says it may not; a payment run refuses it.
+ * - `released` — held, and a manager released that verdict with a reason.
+ */
+export type BillMatchState = 'not_linked' | 'not_checked' | 'matched' | 'held' | 'released';
+
+export interface BillMatch {
+  state: BillMatchState;
+  /** The latest answer MOD-06 gave (errors aside — an outage keeps it). */
+  check: BillMatchCheck | null;
+  /** The latest failed attempt after it, if any — shown, never decisive. */
+  last_error: BillMatchCheck | null;
+  release: BillMatchRelease | null;
 }
 
 /**
@@ -587,4 +698,32 @@ export interface RecurringTemplate {
   /** The latest generated periods, newest first. */
   recent: { period_start: string; period_end: string; invoice_id: number | null; number: string | null; status: string | null }[];
   created_by: string;
+}
+
+// ── Reading a bill from its document (server/bill-reading.ts; PS-04 reads) ──
+
+export interface BillReadingSettings {
+  /** The model PS-04 may ask for documents without structured data; null = patterns only, offline. */
+  model: 'anthropic' | 'openai' | 'gemini' | 'ollama' | 'kimi' | null;
+}
+
+/** What the bill form is pre-filled with. A person checks it and saves. */
+export interface BillProposal {
+  creditor: { id: number; name: string; matched_by: 'iban' | 'name' } | null;
+  /** No creditor matched: the one to create, from the document. */
+  new_creditor: { name: string; iban: string; bic: string | null } | null;
+  reference: string | null;
+  amount_cents: number | null;
+  net_cents: number | null;
+  issue_date: string | null;
+  due_date: string | null;
+  po_number: string | null;
+  remittance: string | null;
+  /** The invoice's lines, as read — taken over into the bill when it is saved. */
+  lines: BillLine[];
+  /** A bill already entered from this document, or with this supplier's number. */
+  duplicate_of: number | null;
+  read_from: string;
+  document_sha256: string;
+  warnings: string[];
 }

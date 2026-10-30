@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import type {
+  BillLine,
   Bill,
   BillRow,
   BillStatus,
@@ -35,6 +36,7 @@ import { buildEactRemittance } from '../shared/eact.js';
 import { finanzamtFor } from '../shared/finanzamt.js';
 import { DomainError, likeTerm, nowIso, todayIso } from './invoices.js';
 import type { SellerConfig } from './config.js';
+import { billMatch } from './bill-match.js';
 
 /**
  * PAYABLES — the bills we owe, and the bank file that pays them.
@@ -129,13 +131,17 @@ export function paymentReference(bill: { remittance: string | null; reference: s
   return text.trim();
 }
 
-function toBillRow(row: BillJoinRow, today: string): BillRow {
+function toBillRow(db: Database.Database, row: BillJoinRow, today: string): BillRow {
   const status = billStatus(row, row.payment_run_id);
+  const lines = billLines(db, row.id);
   return {
     ...row,
     status,
     overdue: status === 'open' && row.due_date < today,
     payment_reference: paymentReference(row),
+    match: billMatch(db, row),
+    lines,
+    lines_net_cents: lines.length === 0 ? null : lines.reduce((sum, l) => sum + l.net_cents, 0),
   };
 }
 
@@ -170,7 +176,7 @@ export function listBills(
     )
     .all(...(search ? [likeTerm(search), likeTerm(search)] : [])) as BillJoinRow[];
 
-  let bills = rows.map((row) => toBillRow(row, today));
+  let bills = rows.map((row) => toBillRow(db, row, today));
   if (opts.status) bills = bills.filter((b) => b.status === opts.status);
   if (opts.overdueOnly) bills = bills.filter((b) => b.overdue);
   return bills;
@@ -179,7 +185,7 @@ export function listBills(
 export function getBill(db: Database.Database, id: number, today = todayIso()): BillRow {
   const row = db.prepare(`${BILL_SELECT} WHERE b.id = ?`).get(id) as BillJoinRow | undefined;
   if (row === undefined) throw new DomainError(404, 'Bill not found');
-  return toBillRow(row, today);
+  return toBillRow(db, row, today);
 }
 
 // ── Creditors ─────────────────────────────────────────────────────────
@@ -261,7 +267,30 @@ export interface BillInput {
   issueDate: string | null;
   dueDate: string;
   note: string | null;
+  /** The MOD-06 purchase order and the net amount it is matched with. */
+  poNumber?: string | null;
+  netCents?: number | null;
+  /** Set when the bill was read from a document rather than typed. */
+  readFrom?: string | null;
+  documentSha256?: string | null;
+  /** The supplier's lines. Undefined on an edit keeps the ones the bill has; an array replaces them. */
+  lines?: Omit<BillLine, 'position'>[];
   createdAt?: string;
+}
+
+function writeLines(db: Database.Database, billId: number, lines: Omit<BillLine, 'position'>[]): void {
+  db.prepare('DELETE FROM bill_lines WHERE bill_id = ?').run(billId);
+  const insert = db.prepare(
+    `INSERT INTO bill_lines (bill_id, position, description, item_id, quantity, unit_code, unit_price_cents, net_cents, vat_rate)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  lines.forEach((l, i) => insert.run(billId, i + 1, l.description, l.item_id, l.quantity, l.unit_code, l.unit_price_cents, l.net_cents, l.vat_rate));
+}
+
+export function billLines(db: Database.Database, billId: number): BillLine[] {
+  return db
+    .prepare('SELECT position, description, item_id, quantity, unit_code, unit_price_cents, net_cents, vat_rate FROM bill_lines WHERE bill_id = ? ORDER BY position')
+    .all(billId) as BillLine[];
 }
 
 /** A bill is only editable while it is open — see the status ladder above. */
@@ -291,12 +320,13 @@ function withDuplicateCheck<T>(db: Database.Database, creditorId: number, refere
 
 export function createBill(db: Database.Database, input: BillInput): number {
   getCreditor(db, input.creditorId);
-  return withDuplicateCheck(db, input.creditorId, input.reference, () => {
+  // One transaction: a bill never exists without the lines it was saved with.
+  return withDuplicateCheck(db, input.creditorId, input.reference, db.transaction(() => {
     const info = db
       .prepare(
         `INSERT INTO bills
-           (creditor_id, reference, remittance, amount_cents, issue_date, due_date, note, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (creditor_id, reference, remittance, amount_cents, issue_date, due_date, note, created_at, po_number, net_cents, read_from, document_sha256)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.creditorId,
@@ -307,9 +337,15 @@ export function createBill(db: Database.Database, input: BillInput): number {
         input.dueDate,
         input.note,
         input.createdAt ?? nowIso(),
+        input.poNumber ?? null,
+        input.netCents ?? null,
+        input.readFrom ?? null,
+        input.documentSha256 ?? null,
       );
-    return Number(info.lastInsertRowid);
-  });
+    const billId = Number(info.lastInsertRowid);
+    if (input.lines && input.lines.length > 0) writeLines(db, billId, input.lines);
+    return billId;
+  }));
 }
 
 export function updateBill(db: Database.Database, id: number, input: BillInput): void {
@@ -317,10 +353,10 @@ export function updateBill(db: Database.Database, id: number, input: BillInput):
   requireOpen(bill, 'edit');
   getCreditor(db, input.creditorId);
   const changedKey = bill.creditor_id !== input.creditorId || bill.reference !== input.reference;
-  const write = (): void => {
+  const write = db.transaction((): void => {
     db.prepare(
       `UPDATE bills SET creditor_id = ?, reference = ?, remittance = ?, amount_cents = ?,
-                        issue_date = ?, due_date = ?, note = ?
+                        issue_date = ?, due_date = ?, note = ?, po_number = ?, net_cents = ?
        WHERE id = ?`,
     ).run(
       input.creditorId,
@@ -330,9 +366,12 @@ export function updateBill(db: Database.Database, id: number, input: BillInput):
       input.issueDate,
       input.dueDate,
       input.note,
+      input.poNumber ?? null,
+      input.netCents ?? null,
       id,
     );
-  };
+    if (input.lines !== undefined) writeLines(db, id, input.lines);
+  });
   if (changedKey) withDuplicateCheck(db, input.creditorId, input.reference, write);
   else write();
 }
@@ -351,7 +390,10 @@ export function deleteBill(db: Database.Database, id: number): void {
   if (count > 0) {
     throw new DomainError(409, 'This bill has been in a payment run — cancel it instead of deleting it');
   }
-  db.prepare('DELETE FROM bills WHERE id = ?').run(id);
+  db.transaction(() => {
+    db.prepare('DELETE FROM bill_lines WHERE bill_id = ?').run(id);
+    db.prepare('DELETE FROM bills WHERE id = ?').run(id);
+  })();
 }
 
 export function cancelBill(db: Database.Database, id: number, at?: string): void {
@@ -446,6 +488,11 @@ export interface RunInput {
    * Finanzamtszahlung, whose Ustrd has its own grammar.
    */
   structuredRemittance?: boolean;
+  /**
+   * MOD-06 is wired: a bill naming a purchase order is paid only when its
+   * match is `matched` or `released` (server/bill-match.ts).
+   */
+  matchRequired?: boolean;
   createdAt?: string;
   today?: string;
 }
@@ -561,6 +608,17 @@ export function createPaymentRun(db: Database.Database, seller: SellerConfig, in
         .map((b) => `${b.reference} is ${b.status}`)
         .join(', ')}`,
     );
+  }
+  if (input.matchRequired) {
+    const held = bills.filter((b) => b.match.state === 'held' || b.match.state === 'not_checked');
+    if (held.length > 0) {
+      throw new DomainError(
+        409,
+        `Held by the three-way match — ${held
+          .map((b) => `${b.reference} (${b.po_number}): ${b.match.check?.message ?? b.match.last_error?.message ?? 'not checked yet'}`)
+          .join('; ')}. Wait for the goods, or release it with a reason.`,
+      );
+    }
   }
 
   const items = bills.map((bill, index) => ({

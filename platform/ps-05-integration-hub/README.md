@@ -31,6 +31,49 @@ only).
   Sync jobs advance `pending → done` on `POST /api/tick` via a pluggable
   per-provider adapter (mock by default).
 
+## Mailboxes (provider `imap`)
+
+A connection can be a mailbox: `POST /api/connections` with
+`{ provider: "imap", name, credentials: { host, port?, security?, username,
+password, mailbox? } }`. `security` is `tls` (port 993, the default) or
+`starttls` (143) — there is no plaintext option, because the password would
+travel in the clear. The credentials are validated on creation (a mailbox that
+could never be opened is refused then, not at the first fetch) and stored
+encrypted like every other connection's. The host goes through the same egress
+check as the proxy, and the socket is opened to exactly the address the check
+approved — so, unlike `fetch`, a DNS answer that changes in between cannot
+redirect it.
+
+| Route | What it does |
+| --- | --- |
+| `POST /api/connections/:id/mail/probe` | Log in, select the folder, count what is unread — the "test connection" button. |
+| `POST /api/connections/:id/mail/fetch` `{ limit? }` | The oldest unread messages (default 20, at most 100), **parsed**: sender, subject, threading ids, readable text, attachments (base64), and `automated` — why it looks machine-sent (RFC 3834 auto-reply, bounce, mailing list), or null. **Nothing is marked read.** |
+| `POST /api/connections/:id/mail/ack` `{ uidvalidity, uids }` | Mark messages read once the consumer stored them. UIDs mean something only within one UIDVALIDITY; if the folder was rebuilt since the fetch, nothing is marked and the answer is **409**. |
+
+Read and acknowledge are separate on purpose: should anything fail between
+the two, the message is still unread and comes back — and the consumer
+recognises it by its `message_id`. Nothing is lost and nothing is taken twice.
+
+These three routes, and the redacted `GET /api/connections?provider=imap`
+list, also accept the platform **service token** (`X-Service-Token`): a module
+reads its mailbox as a machine. Creating, revoking and proxying stay an
+administrator's.
+
+Limits: a message over `MAIL_MAX_MESSAGE_BYTES` (10 MiB) comes as headers only
+(`body_omitted: true`); one fetch carries at most `MAIL_MAX_FETCH_BYTES`
+(25 MiB) and leaves the rest for the next (`remaining`); the mail server gets
+`MAIL_TIMEOUT_SECONDS` (30) to answer. A refused login or an unreachable
+server is **502** and recorded on the connection's events — what failed,
+never a password or a message.
+
+The parser (`server/mime.ts`) covers RFC 5322 headers, MIME multipart
+(RFC 2045/2046), encoded words (RFC 2047) and parameters (RFC 2231), quoted-
+printable and base64, and charsets including windows-1252. It is tested
+against the RFCs' own examples (`test/mime.test.ts`); the IMAP client
+(`server/imap.ts`, RFC 3501) against a local server over real TLS and STARTTLS
+(`test/mailbox.test.ts`). It does not render HTML, verify signatures or
+decrypt: a signed message's signature is one more attachment.
+
 ## Stack
 
 | Layer   | Choice                                      |
@@ -94,8 +137,8 @@ receiver is public but signature-verified. Errors are `{ error, details? }`.
 
 ## Consumed by
 
-Business Modules, over this API. The Integration Hub depends on no Business
-Module. Set `IDENTITY_URL` (see [`.env.example`](./.env.example)) to verify
+Business Modules, over this API — MOD-12 reads its support mailbox through
+the mail routes. The Integration Hub depends on no Business Module. Set `IDENTITY_URL` (see [`.env.example`](./.env.example)) to verify
 end-user callers against PS-01's `POST /api/tokens/verify`; unset, the
 service runs standalone on its own admin/service-token.
 

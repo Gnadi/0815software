@@ -80,6 +80,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       // PS-11 Customers — when set, a supplier created here is registered with
       // the stack's party master data as a `supplier` party.
       customersUrl: env.CUSTOMERS_URL || undefined,
+      // MOD-03 Inventory — when set, goods received on a line with an article
+      // number are booked into its stock.
+      inventoryUrl: env.INVENTORY_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
   };

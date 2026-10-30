@@ -245,6 +245,51 @@ export function openDb(path: string): Database.Database {
     );
 
     -- The holiday calendar: the country, and regional or company days off.
+    -- A running timer, one per person; how long it has run is derived from
+    -- started_at. Stopping it writes an ordinary time entry (server/timer.ts).
+    CREATE TABLE IF NOT EXISTS timers (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL UNIQUE REFERENCES employees(id),
+      project_id  INTEGER NOT NULL REFERENCES projects(id),
+      task_id     INTEGER REFERENCES tasks(id),
+      note        TEXT,
+      billable    INTEGER CHECK (billable IS NULL OR billable IN (0, 1)),
+      started_at  TEXT NOT NULL,
+      started_by  TEXT NOT NULL
+    );
+    -- Every start, stop and discard, with the person — append-only.
+    CREATE TABLE IF NOT EXISTS timer_events (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL REFERENCES employees(id),
+      kind        TEXT NOT NULL CHECK (kind IN ('start', 'stop', 'discard')),
+      project_id  INTEGER NOT NULL,
+      task_id     INTEGER,
+      started_at  TEXT NOT NULL,
+      minutes     INTEGER,
+      entry_id    INTEGER,
+      capped      INTEGER NOT NULL DEFAULT 0,
+      actor       TEXT NOT NULL,
+      at          TEXT NOT NULL
+    );
+    -- Each reminder sent, once per (kind, person, what it is about) — append-only.
+    CREATE TABLE IF NOT EXISTS reminders_sent (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind        TEXT NOT NULL CHECK (kind IN ('week_not_submitted', 'timer_running')),
+      employee_id INTEGER NOT NULL REFERENCES employees(id),
+      ref         TEXT NOT NULL,
+      to_address  TEXT NOT NULL,
+      channel     TEXT NOT NULL,
+      sent_at     TEXT NOT NULL,
+      UNIQUE (kind, employee_id, ref)
+    );
+    -- The timer's time zone and the reminders (server/timer.ts, server/reminders.ts).
+    CREATE TABLE IF NOT EXISTS timer_settings (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      settings   TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS leave_settings (
       id         INTEGER PRIMARY KEY CHECK (id = 1),
       settings   TEXT NOT NULL,
@@ -252,6 +297,12 @@ export function openDb(path: string): Database.Database {
       updated_by TEXT NOT NULL
     );
   `);
+
+  // An entry the timer wrote keeps when it ran, and whether it was capped.
+  const entryColumns = columns('time_entries');
+  if (!entryColumns.includes('timer_started_at')) db.exec('ALTER TABLE time_entries ADD COLUMN timer_started_at TEXT');
+  if (!entryColumns.includes('timer_stopped_at')) db.exec('ALTER TABLE time_entries ADD COLUMN timer_stopped_at TEXT');
+  if (!entryColumns.includes('timer_capped')) db.exec('ALTER TABLE time_entries ADD COLUMN timer_capped INTEGER NOT NULL DEFAULT 0');
 
   return db;
 }

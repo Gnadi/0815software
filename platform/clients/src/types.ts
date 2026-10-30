@@ -124,6 +124,55 @@ export interface EmbedResult {
   usage: { prompt_tokens: number; completion_tokens: number };
 }
 
+/** How sure an extracted field is — see PS-04 `shared/types.ts`. */
+export type ExtractionConfidence = 'exact' | 'found' | 'derived' | 'guess' | 'model';
+export interface ExtractedInvoiceFields {
+  document_type: 'invoice' | 'credit_note';
+  supplier_name: string | null;
+  supplier_vat_id: string | null;
+  iban: string | null;
+  bic: string | null;
+  invoice_number: string | null;
+  issue_date: string | null;
+  due_date: string | null;
+  currency: string | null;
+  net_cents: number | null;
+  tax_cents: number | null;
+  gross_cents: number | null;
+  payable_cents: number | null;
+  po_number: string | null;
+  payment_reference: string | null;
+}
+export interface ExtractedInvoiceLine {
+  description: string;
+  item_id: string | null;
+  quantity: number | null;
+  unit_code: string | null;
+  unit_price_cents: number | null;
+  net_cents: number | null;
+  vat_rate: number | null;
+}
+export interface InvoiceExtraction {
+  source: 'e-invoice' | 'text' | 'model';
+  syntax: 'cii' | 'ubl' | 'ebinterface' | null;
+  embedded: boolean;
+  provider: string;
+  model: string | null;
+  fields: ExtractedInvoiceFields;
+  confidence: Partial<Record<keyof ExtractedInvoiceFields, ExtractionConfidence>>;
+  lines: ExtractedInvoiceLine[];
+  warnings: string[];
+  document_sha256: string;
+}
+export interface ExtractInvoiceInput {
+  content_base64?: string;
+  content_type?: string;
+  filename?: string;
+  text?: string;
+  own?: { names?: string[]; vat_ids?: string[]; ibans?: string[] };
+  provider?: string;
+}
+
 // ── PS-05 Integration Hub ──────────────────────────────────────────────
 export interface ProxyInput {
   method?: string;
@@ -139,6 +188,63 @@ export interface SyncJob {
   records: number;
   created_at: string;
   updated_at: string;
+}
+
+/** A mailbox connection's unread mail, parsed by PS-05 (provider `imap`). */
+export interface MailAddress {
+  name: string | null;
+  address: string;
+}
+export interface MailAttachment {
+  filename: string;
+  content_type: string;
+  size: number;
+  inline: boolean;
+  content_id: string | null;
+  content_base64: string;
+}
+export interface MailMessage {
+  uid: number;
+  size: number;
+  /** Too large to fetch whole: headers only. */
+  body_omitted: boolean;
+  /** Without angle brackets; deduplicate on it. */
+  message_id: string | null;
+  from: MailAddress | null;
+  reply_to: MailAddress | null;
+  to: MailAddress[];
+  subject: string;
+  date: string | null;
+  in_reply_to: string | null;
+  references: string[];
+  text: string;
+  /** Why it looks machine-sent (auto-reply, bounce, list), or null. */
+  automated: string | null;
+  attachments: MailAttachment[];
+}
+export interface MailFetchResult {
+  mailbox: string;
+  uidvalidity: number;
+  messages: MailMessage[];
+  remaining: number;
+}
+/** A connection as PS-05 lists it — credentials never included. */
+export interface IntegrationConnection {
+  id: number;
+  provider: string;
+  name: string;
+  status: string;
+  scopes: string;
+  external_account: string | null;
+  expires_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface MailboxProbeResult {
+  mailbox: string;
+  uidvalidity: number;
+  exists: number;
+  unseen: number;
 }
 
 // ── PS-06 Files ────────────────────────────────────────────────────────

@@ -22,6 +22,9 @@ import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js
 import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
 import { EXPORT_PROFILES, getProfile } from './export-profiles.js';
 import { assertMayRecordFor, employeeOf } from './ownership.js';
+import { discardTimer, readTimerSettings, runningTimer, runningTimers, startTimer, stopTimer, timerSettingsStamp, updateTimer, validateTimerSettings, writeTimerSettings, type TimerInput } from './timer.js';
+import { dueReminders, listReminders, runReminders } from './reminders.js';
+import { myOverview } from './my-area.js';
 import {
   addEntitlement,
   balance,
@@ -823,6 +826,96 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     assertMayRecordFor(db, actorOf(res, auth), accessOf(res), getEntry(db, Number(req.params.id)).employee_id);
     deleteEntry(db, Number(req.params.id));
     res.json({ ok: true });
+  });
+
+  // ── The timer (server/timer.ts) ──────────────────────────────────────
+  // Whose timer: the one named, else the signed-in person's own. Held to the
+  // same rule as an entry (server/ownership.ts) — below `manage`, only one's own.
+  const timerHolder = (raw: unknown, res: Response, write: boolean): number => {
+    if (raw !== undefined && raw !== null && raw !== '') {
+      const errors: FieldError[] = [];
+      const id = reqId(raw, 'employee_id', errors);
+      if (errors.length > 0) fail(errors);
+      if (write) assertMayRecordFor(db, actorOf(res, auth), accessOf(res), id);
+      return id;
+    }
+    const own = employeeOf(db, actorOf(res, auth));
+    if (own === null) throw new DomainError(404, 'No employee record carries this login — name the employee');
+    if (write) assertMayRecordFor(db, actorOf(res, auth), accessOf(res), own);
+    return own;
+  };
+  const validateTimer = (input: Record<string, unknown>, employeeId: number): TimerInput => {
+    const errors: FieldError[] = [];
+    const projectId = reqId(input.project_id, 'project_id', errors);
+    const taskId = input.task_id === undefined || input.task_id === null || input.task_id === '' ? null : reqId(input.task_id, 'task_id', errors);
+    const billable = optBool(input.billable, 'billable', errors);
+    const note = optText(input.note, 'note', errors, 500);
+    if (errors.length > 0) fail(errors);
+    return { employeeId, projectId, taskId, note, billable };
+  };
+
+  app.get('/api/timer', (req, res) => {
+    res.json({ timer: runningTimer(db, timerHolder(req.query.employee_id, res, false)) });
+  });
+
+  // Who is on the clock right now — the office's view (server/access.ts).
+  app.get('/api/timers', (_req, res) => {
+    res.json({ timers: runningTimers(db) });
+  });
+
+  app.post('/api/timer/start', (req, res) => {
+    const input = validateTimer(body(req), timerHolder(body(req).employee_id, res, true));
+    res.status(201).json(startTimer(db, input, actorOf(res, auth)));
+  });
+
+  app.put('/api/timer', (req, res) => {
+    res.json({ timer: updateTimer(db, validateTimer(body(req), timerHolder(body(req).employee_id, res, true))) });
+  });
+
+  app.post('/api/timer/stop', (req, res) => {
+    const b = body(req);
+    const employeeId = timerHolder(b.employee_id, res, true);
+    let stoppedAt: number | undefined;
+    if (b.stopped_at !== undefined && b.stopped_at !== null && b.stopped_at !== '') {
+      stoppedAt = typeof b.stopped_at === 'string' ? Date.parse(b.stopped_at) : NaN;
+      if (Number.isNaN(stoppedAt)) fail([{ field: 'stopped_at', message: 'stopped_at is an ISO date-time' }]);
+    }
+    res.json(stopTimer(db, employeeId, actorOf(res, auth), Date.now(), stoppedAt));
+  });
+
+  app.post('/api/timer/discard', (req, res) => {
+    discardTimer(db, timerHolder(body(req).employee_id, res, true), actorOf(res, auth));
+    res.json({ ok: true });
+  });
+
+  // ── Timer & reminder settings, reminders (server/reminders.ts) ────────
+  const timerSettingsResponse = () => ({ settings: readTimerSettings(db), ...timerSettingsStamp(db), notification_configured: Boolean(platform.notificationConfigured) });
+
+  app.get('/api/settings/timer', (_req, res) => {
+    res.json(timerSettingsResponse());
+  });
+
+  app.put('/api/settings/timer', (req, res) => {
+    writeTimerSettings(db, validateTimerSettings(body(req)), actorOf(res, auth));
+    res.json(timerSettingsResponse());
+  });
+
+  app.get('/api/reminders', (_req, res) => {
+    res.json({ sent: listReminders(db), due: dueReminders(db).map(({ body: _b, ...r }) => r), notification_configured: Boolean(platform.notificationConfigured) });
+  });
+
+  // Send what is due now, without waiting for the tick.
+  app.post('/api/reminders/run', async (_req, res) => {
+    if (!platform.notificationConfigured) throw new DomainError(501, 'No notification hub is configured — set NOTIFICATION_URL to send reminders');
+    res.json({ sent: await runReminders(db, platform) });
+  });
+
+  // ── My area (server/my-area.ts) ──────────────────────────────────────
+  app.get('/api/my-overview', (_req, res) => {
+    const viewer = viewerOf(res);
+    const own = employeeOf(db, viewer.actor);
+    if (own === null) throw new DomainError(404, 'No employee record carries this login — ask a manager to add your email to one');
+    res.json(myOverview(db, own, viewer));
   });
 
   // ── Weekly timesheets & approval ──────────────────────────────────────
