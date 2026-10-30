@@ -116,6 +116,8 @@ export function runReportQuery(
   db: Database.Database,
   sql: string,
   policy: PolicyOptions = {},
+  /** Parameter values, bound by SQLite by name — never spliced into the SQL. */
+  bind: Record<string, unknown> = {},
 ): QueryResult {
   // A restricted policy that arrived without its published set gets one from
   // this very connection's catalog, so an execution path can never be checked
@@ -154,7 +156,15 @@ export function runReportQuery(
 
   // Use an iterator so we can stop at the cap without materialising more
   // than maxRows + 1 rows.
-  const iter = stmt.iterate() as IterableIterator<Record<string, unknown>>;
+  // better-sqlite3 refuses an empty object for a statement without
+  // parameters, so one is passed only when there is something to bind.
+  const args = Object.keys(bind).length > 0 ? [bind] : [];
+  let iter: IterableIterator<Record<string, unknown>>;
+  try {
+    iter = stmt.iterate(...args) as IterableIterator<Record<string, unknown>>;
+  } catch (err) {
+    throw new QueryError(422, `Query could not run: ${(err as Error).message}`);
+  }
   try {
     for (const row of iter) {
       if (Date.now() > deadline) {

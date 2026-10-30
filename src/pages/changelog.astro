@@ -5,6 +5,18 @@ export const prerender = true;
 
 const releases = [
   {
+    version: 'v0.8.0',
+    date: '2026-10-30',
+    title: 'Reports that ask',
+    changes: [
+      { type: 'Added', text: 'Reporting Suite: Excel downloads and scheduled Excel exports, the pivot as a second sheet — written without a library and checked against the published ECMA-376 schemas' },
+      { type: 'Added', text: 'Reporting Suite: report parameters — from, to, region — bound by the database, never pasted into the SQL; relative dates such as “start of last month” resolved in the office’s time zone' },
+      { type: 'Added', text: 'Reporting Suite: schedules and charts keep their parameter values; an embedded chart always shows the values it was saved with' },
+      { type: 'Added', text: 'Reporting Suite: pie, area, grouped and stacked bar charts and several lines, with a legend and values on hover' },
+      { type: 'Fixed', text: 'Reporting Suite: the sidebar no longer spreads its entries over the whole height, and table rows with buttons line up again' },
+    ],
+  },
+  {
     version: 'v0.7.0',
     date: '2026-10-29',
     title: 'The help desk',

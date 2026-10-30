@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ChartRow } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { Can } from '../access';
+import { describeValues } from './ParamForm';
 
 interface Props {
   onAuthLost: () => void;
@@ -51,9 +52,10 @@ export function ChartsView({ onAuthLost }: Props) {
           <div className="resource__eyebrow mono">SAVED CHARTS</div>
           <h1 className="resource__title">Charts</h1>
           <p className="resource__desc">
-            Hand-rolled SVG charts, rendered server-side from a report. Each has a signed embed URL
-            that renders standalone — no login — for use in an iframe. Build new charts from a
-            report&rsquo;s Chart tab.
+            Hand-rolled SVG charts — bar, line, area and pie, one series or several — rendered
+            server-side from a report. Each has a signed embed URL that renders standalone — no
+            login — for use in an iframe, always with the parameter values it was saved with. Build
+            new charts from a report&rsquo;s Chart tab.
           </p>
         </div>
       </div>
@@ -72,8 +74,12 @@ export function ChartsView({ onAuthLost }: Props) {
                 <div>
                   <div className="reportcard__name">{c.name}</div>
                   <div className="reportcard__desc mono">
-                    {c.kind.toUpperCase()} · {c.report_name} · {c.x_column} × {c.y_column}
+                    {c.kind === 'pie' ? 'PIE' : c.kind.toUpperCase()}
+                    {c.series_column ? ` · BY ${c.series_column}${c.stacked ? ', STACKED' : ''}` : ''} · {c.report_name} · {c.x_column} × {c.y_column}
                   </div>
+                  {Object.keys(c.param_values).length > 0 && (
+                    <div className="reportcard__desc mono">{describeValues(c.param_values)}</div>
+                  )}
                 </div>
                 <div className="reportcard__actions">
                   <Can>

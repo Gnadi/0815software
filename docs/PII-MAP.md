@@ -78,6 +78,15 @@ the body (that is in the ticket). PS-06 holds a copy of each attachment when
 means erasing their tickets' rows in MOD-12 (no route yet — see below) and the
 PS-06 objects under `mod-12-attachments/<ref>/`.
 
+**Exports and parameter values in MOD-08.** A report reads whatever its SQL
+selects, so a CSV or Excel export (`EXPORTS_DIR`) holds whatever personal data
+the source holds — as files, outside any module's erasure. The run history
+(`runs.params`, append-only) and saved schedules and charts keep the
+parameter values they used, which can be a name if a report filters by one.
+Rotate `EXPORTS_DIR` by your retention period, and prefer reports over a
+module's published `report_*` views (`SOURCE_VIEWS_ONLY`), which expose what
+that module chose to publish rather than its whole schema.
+
 ## Subject access & portability (Art. 15 / 20)
 
 "Send me everything you hold about me" arrives with a one-month deadline, and

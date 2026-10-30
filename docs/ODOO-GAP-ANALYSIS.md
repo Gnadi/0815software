@@ -63,7 +63,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Vendor-Bill-OCR (E) | ✅ PS-04 `/api/extract/invoice` (XRechnung/ZUGFeRD/UBL/ebInterface exakt, PDF-Textlayer über Labels, Scans per Vision-Modell nur wenn vom Admin freigegeben) → MOD-04 *Read from document* (Kreditor per IBAN, Duplikat per Datei-Hash, Positionen samt Lieferanten-Artikelnummer übernommen) und **3-Way-Match auf Positionsebene** (Artikelnummer ↔ SKU der Bestellposition, Menge gegen Eingang und Bestellung, Preis gegen Bestellpreis) | Offen: Spesen-Modul als zweiter Konsument |
 | Expenses (E: OCR) | ❌ | 🔜 **neues Modul** (siehe 3.) |
 | Documents (E) | 🟡 MOD-09 (Matters, Versionen) | Vorschau, Volltextsuche via PS-09, Freigabelinks fehlen |
-| Spreadsheet/BI (E) | 🟡 MOD-08 (SQL-Reports, Pivot, SVG-Charts) | ⛔ kein Spreadsheet nachbauen; XLSX-Export ergänzen |
+| Spreadsheet/BI (E) | ✅ MOD-08 (SQL-Reports mit Parametern und relativen Daten, Pivot, SVG-Charts Balken/Linie/Fläche/Kreis mit mehreren Reihen, XLSX-Export inkl. Pivot-Blatt — gegen ECMA-376 validiert, geplant und manuell) | ⛔ kein Spreadsheet nachbauen. Offen: Mehrfachauswahl-Parameter, Versand per Mail |
 | Sign (E) | 🟡 MOD-13 Annahme per signiertem Link | 🔜 einfache E-Signatur als Platform Service; qualifiziert (ID Austria) über PS-05 |
 | ESG (E) | ❌ | ⛔ |
 
@@ -190,7 +190,13 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
     über Labels); ein Scan nur mit Vision-Modell, sonst eine ehrliche
     Ablehnung statt Platzhalterwerten. Konsument: MOD-04 Bills; offen: Spesen,
     MOD-09.
-11. **MOD-08: XLSX-Export, Parameter, weitere Charttypen.**
+11. ✅ **MOD-08: XLSX-Export, Parameter, weitere Charttypen.** XLSX ohne
+    Bibliothek (gegen die ECMA-376-Schemas geprüft), Ergebnis und Pivot als
+    zwei Blätter, geplante Exporte wahlweise als XLSX; Parameter `:name`
+    von SQLite gebunden, mit relativen Daten (z. B. „Anfang letzter Monat“)
+    in der Zeitzone aus den Einstellungen, gespeichert an Zeitplan und
+    Diagramm; Kreis/Donut, Fläche, gruppierte/gestapelte Balken, mehrere
+    Linien mit Legende.
 12. **MOD-09: Vorschau, Volltext via PS-09, Freigabelinks, Löschfristen.**
 
 ### Empfohlene Reihenfolge ab hier
@@ -207,9 +213,9 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
    abgetippt).
 6. ✅ **MOD-11 Timer/„Mein Bereich“ + MOD-05 Self-Service** (umgesetzt).
 7. ✅ **MOD-12 Helpdesk-Ausbau + PS-05 Postfach** (umgesetzt).
-8. **MOD-08 XLSX/Parameter** und **MOD-09 Vorschau/Volltext** — die
-   verbleibenden Punkte aus Abschnitt 2; danach die neuen Module aus
-   Abschnitt 3.
+8. ✅ **MOD-08 XLSX/Parameter/Charttypen** (umgesetzt).
+9. **MOD-09 Vorschau/Volltext** — der verbleibende Punkt aus Abschnitt 2;
+   danach die neuen Module aus Abschnitt 3.
 
 ## 3. Neue Module (Vorschlag)
 

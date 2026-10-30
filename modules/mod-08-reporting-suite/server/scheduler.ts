@@ -1,5 +1,6 @@
 import type { Report, Schedule, ScheduleInterval } from '../shared/types.js';
 import { executeRun, type RunContext } from './runs.js';
+import { parseParamDefs, parseParamValues } from './params.js';
 
 const INTERVAL_MS: Record<ScheduleInterval, number> = {
   hourly: 3600_000,
@@ -32,18 +33,19 @@ export function isDue(
  * stamping `last_run_at`. Exposed (not just the interval timer) so tests
  * can drive it deterministically. Returns the ids of the runs it created.
  */
-export function tick(ctx: RunContext, now = Date.now()): number[] {
+export function tick(ctx: RunContext, now = (ctx.now ?? Date.now)()): number[] {
   const schedules = ctx.db
     .prepare('SELECT * FROM schedules WHERE enabled = 1')
-    .all() as Schedule[];
+    .all() as (Omit<Schedule, 'param_values'> & { param_values: string })[];
   const created: number[] = [];
   for (const schedule of schedules) {
     if (!isDue(schedule, now)) continue;
-    const report = ctx.db.prepare('SELECT * FROM reports WHERE id = ?').get(schedule.report_id) as
-      | Report
+    const row = ctx.db.prepare('SELECT * FROM reports WHERE id = ?').get(schedule.report_id) as
+      | (Omit<Report, 'params'> & { params: string })
       | undefined;
-    if (!report) continue;
-    const runId = executeRun(ctx, report, 'scheduled', schedule.id);
+    if (!row) continue;
+    const report: Report = { ...row, params: parseParamDefs(row.params) };
+    const runId = executeRun(ctx, report, 'scheduled', schedule.id, { format: schedule.format, params: parseParamValues(schedule.param_values) });
     ctx.db
       .prepare('UPDATE schedules SET last_run_at = ? WHERE id = ?')
       .run(new Date(now).toISOString(), schedule.id);

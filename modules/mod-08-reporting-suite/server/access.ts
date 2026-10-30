@@ -37,6 +37,8 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'POST', path: '/api/reports/:id/pivot', access: 'view' },
   // Renders a chart of a saved report; reads only.
   { method: 'POST', path: '/api/reports/:id/chart-preview', access: 'view' },
+  // The time zone every relative date and every schedule is read in.
+  { method: 'PUT', path: '/api/settings', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

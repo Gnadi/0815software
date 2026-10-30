@@ -162,6 +162,22 @@ function stripLiteralsAndComments(sql: string): string {
 }
 
 /**
+ * The named parameters a query uses — `:name`, as SQLite binds them — read
+ * from the code only, so `':not_a_param'` in a string literal or a comment is
+ * not one. `positional` flags a bare `?`, which a report cannot use: its
+ * values are matched by name, never by position. `otherStyle` lists `@name`
+ * and `$name`, which SQLite would also bind: one spelling keeps "declared"
+ * and "used" comparable, and the author hears it when saving, not when the
+ * run fails.
+ */
+export function queryParameters(sql: string): { names: string[]; positional: boolean; otherStyle: string[] } {
+  const code = stripLiteralsAndComments(sql);
+  const names = [...new Set([...code.matchAll(/(?<![A-Za-z0-9_$:]):([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]!))];
+  const otherStyle = [...new Set([...code.matchAll(/(?<![A-Za-z0-9_$])[@$][A-Za-z_][A-Za-z0-9_]*/g)].map((m) => m[0]))];
+  return { names, positional: /\?/.test(code), otherStyle };
+}
+
+/**
  * Return the SQL split into statements on top-level semicolons, ignoring
  * the trailing empty fragment after a single trailing semicolon. Uses
  * the literal/comment-stripped form so semicolons inside strings don't

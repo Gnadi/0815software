@@ -9,13 +9,13 @@
 export const AGGREGATIONS = ['sum', 'count', 'avg', 'min', 'max'] as const;
 export type Aggregation = (typeof AGGREGATIONS)[number];
 
-export const CHART_KINDS = ['bar', 'line'] as const;
+export const CHART_KINDS = ['bar', 'line', 'area', 'pie'] as const;
 export type ChartKind = (typeof CHART_KINDS)[number];
 
 export const SCHEDULE_INTERVALS = ['hourly', 'daily'] as const;
 export type ScheduleInterval = (typeof SCHEDULE_INTERVALS)[number];
 
-export const EXPORT_FORMATS = ['csv'] as const;
+export const EXPORT_FORMATS = ['csv', 'xlsx'] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 export const RUN_STATUSES = ['ok', 'error'] as const;
@@ -24,6 +24,40 @@ export type RunStatus = (typeof RUN_STATUSES)[number];
 export const RUN_TRIGGERS = ['manual', 'scheduled'] as const;
 export type RunTrigger = (typeof RUN_TRIGGERS)[number];
 
+// ── Parameters ────────────────────────────────────────────────────────
+
+export const PARAM_TYPES = ['text', 'number', 'date', 'choice'] as const;
+export type ParamType = (typeof PARAM_TYPES)[number];
+
+/** Dates a parameter may be given relative to the day it runs (plus today±N). */
+export const RELATIVE_DATES = [
+  'today',
+  'yesterday',
+  'week_start',
+  'month_start',
+  'month_end',
+  'prev_month_start',
+  'prev_month_end',
+  'year_start',
+  'prev_year_start',
+  'prev_year_end',
+] as const;
+
+/** A placeholder a report's SQL names (`:name`), declared with the report. */
+export interface ReportParam {
+  name: string;
+  label: string;
+  type: ParamType;
+  required: boolean;
+  /** A value of the type; for a date also a relative date. */
+  default: string | null;
+  /** The options of a choice; empty otherwise. */
+  choices: string[];
+}
+
+/** Values given for parameters, by name — relative dates kept relative. */
+export type ParamValues = Record<string, string>;
+
 // ── Reports ───────────────────────────────────────────────────────────
 
 export interface Report {
@@ -31,6 +65,7 @@ export interface Report {
   name: string;
   description: string | null;
   sql: string;
+  params: ReportParam[];
   created_at: string;
   updated_at: string;
 }
@@ -79,10 +114,14 @@ export interface PivotResult {
 
 export interface ChartConfig {
   kind: ChartKind;
-  /** Column used for the category / x axis (rendered as labels). */
+  /** Column used for the category / x axis (rendered as labels); a pie's slices. */
   x: string;
-  /** Column used for the numeric y axis. */
+  /** Column used for the numeric y axis; a pie's sizes. */
   y: string;
+  /** Optional column whose values split the data into series (one per value). */
+  series?: string | null;
+  /** Bars and areas of several series stacked rather than side by side. */
+  stacked?: boolean;
 }
 
 export interface Chart {
@@ -92,6 +131,10 @@ export interface Chart {
   kind: ChartKind;
   x_column: string;
   y_column: string;
+  series_column: string | null;
+  stacked: boolean;
+  /** The report's parameters as this chart shows them — an embed cannot change them. */
+  param_values: ParamValues;
   created_at: string;
 }
 
@@ -107,6 +150,8 @@ export interface Schedule {
   interval: ScheduleInterval;
   format: ExportFormat;
   enabled: number; // 0 | 1 (SQLite boolean)
+  /** The report's parameters for every scheduled run — relative dates stay relative. */
+  param_values: ParamValues;
   last_run_at: string | null;
   created_at: string;
 }
@@ -127,10 +172,21 @@ export interface Run {
   row_count: number | null;
   file_path: string | null;
   error: string | null;
+  /** The parameter values the run bound (relative dates resolved), or null. */
+  params: Record<string, string | number | null> | null;
 }
 
 export interface RunRow extends Run {
   report_name: string;
+}
+
+// ── Settings ──────────────────────────────────────────────────────────
+
+export interface ReportSettings {
+  /** IANA zone relative dates are resolved in. */
+  timezone: string;
+  updated_by: string | null;
+  updated_at: string | null;
 }
 
 // ── Validation error shape (shared by every 422 response) ─────────────

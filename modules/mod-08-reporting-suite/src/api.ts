@@ -2,10 +2,15 @@ import type { AccessLevel } from './access';
 import type {
   Chart,
   ChartRow,
+  ExportFormat,
   FieldError,
+  ParamValues,
+  PivotConfig,
   PivotResult,
   QueryResult,
   Report,
+  ReportParam,
+  ReportSettings,
   Run,
   RunRow,
   ScheduleRow,
@@ -99,13 +104,16 @@ export const api = {
   updateReport: (id: number, values: Record<string, unknown>) =>
     request<Report>(`/api/reports/${id}`, put(values)),
   deleteReport: (id: number) => request<{ ok: true }>(`/api/reports/${id}`, { method: 'DELETE' }),
-  runReport: (id: number) => request<QueryResult>(`/api/reports/${id}/run`, post()),
-  preview: (sql: string) => request<QueryResult>('/api/preview', post({ sql })),
-  pivot: (id: number, config: Record<string, unknown>) =>
-    request<PivotResult>(`/api/reports/${id}/pivot`, post(config)),
+  runReport: (id: number, params: ParamValues = {}) => request<QueryResult>(`/api/reports/${id}/run`, post({ params })),
+  /** Unsaved SQL, with the parameters being declared and the values to try. */
+  preview: (sql: string, params: unknown[] = [], values: ParamValues = {}) =>
+    request<QueryResult>('/api/preview', post({ sql, params, values })),
+  pivot: (id: number, config: PivotConfig, params: ParamValues = {}) =>
+    request<PivotResult>(`/api/reports/${id}/pivot`, post({ ...config, params })),
   chartPreview: (id: number, config: Record<string, unknown>) =>
     requestText(`/api/reports/${id}/chart-preview`, post(config)),
-  runNow: (id: number) => request<Run>(`/api/reports/${id}/run-now`, post()),
+  runNow: (id: number, format: ExportFormat, params: ParamValues = {}) =>
+    request<Run>(`/api/reports/${id}/run-now`, post({ format, params })),
 
   charts: () => request<{ charts: ChartRow[] }>('/api/charts'),
   createChart: (values: Record<string, unknown>) => request<Chart>('/api/charts', post(values)),
@@ -121,9 +129,40 @@ export const api = {
 
   runs: (reportId?: number) =>
     request<{ runs: RunRow[] }>(`/api/runs${reportId ? `?report_id=${reportId}` : ''}`),
+
+  settings: () => request<ReportSettings>('/api/settings'),
+  saveSettings: (values: Record<string, unknown>) => request<ReportSettings>('/api/settings', put(values)),
 };
 
+/** `p_<name>=value` for each given value — how a download link carries them. */
+function query(values: ParamValues, extra: Record<string, string> = {}): string {
+  const q = new URLSearchParams(extra);
+  for (const [name, value] of Object.entries(values)) if (value !== '') q.set(`p_${name}`, value);
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
+
 /** URL to download a report's result as CSV (triggers a download). */
-export function exportCsvUrl(reportId: number): string {
-  return `/api/reports/${reportId}/export.csv`;
+export function exportCsvUrl(reportId: number, values: ParamValues = {}): string {
+  return `/api/reports/${reportId}/export.csv${query(values)}`;
+}
+
+/** The same as an Excel workbook; with a pivot, as a second sheet. */
+export function exportXlsxUrl(reportId: number, values: ParamValues = {}, pivot?: PivotConfig): string {
+  const extra: Record<string, string> = pivot
+    ? { pivot_row: pivot.row, pivot_measure: pivot.measure, pivot_aggregation: pivot.aggregation, ...(pivot.col ? { pivot_col: pivot.col } : {}) }
+    : {};
+  return `/api/reports/${reportId}/export.xlsx${query(values, extra)}`;
+}
+
+/** A report's parameters that must be given before it can run. */
+export function missingRequired(params: ReportParam[], values: ParamValues): ReportParam[] {
+  return params.filter((p) => p.required && !p.default && !values[p.name]);
+}
+
+/** An error as a person reads it: the message and what each field got wrong. */
+export function errorText(err: unknown, fallback: string): string {
+  if (!(err instanceof Error)) return fallback;
+  const details = err instanceof ApiError ? err.details.map((d) => d.message) : [];
+  return [err.message, ...details].join(' — ');
 }
