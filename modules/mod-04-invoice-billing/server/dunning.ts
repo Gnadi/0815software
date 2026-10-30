@@ -3,7 +3,7 @@ import { fmtEur } from '../shared/money.js';
 import type { DunningLevel, DunningNotice, DunningRow, DunningSettings } from '../shared/types.js';
 import type { SellerConfig } from './config.js';
 import { addDays, DomainError, getCustomer, listInvoices, nowIso, todayIso } from './invoices.js';
-import { A4, buildPdf, Page } from './pdf.js';
+import { A4, buildPdf, Page, wrapText } from './pdf.js';
 
 /**
  * Mahnwesen — reminding customers of invoices they have not paid.
@@ -312,6 +312,15 @@ export function renderDunningLetter(
   page.text('F1', 9.5, M, y, 'Mit freundlichen Grüßen');
   y += 14;
   page.text('F1', 9.5, M, y, seller.name);
+
+  // A dunning letter is a business letter too: it names the company as the
+  // invoice footer does — its Geschäftsbriefangaben (§ 35a GmbHG and its kin)
+  // and register number.
+  const legal = seller.legalInformation?.trim() ? wrapText('F3', 7, seller.legalInformation.trim(), R - M) : [];
+  const footer = [seller.name, ...legal, seller.registration?.trim() ?? ''].filter((line) => line !== '');
+  const fy = A4.height - 42 - (footer.length - 1) * 11;
+  page.line(M, fy - 14, R, 0.5, 0.6);
+  footer.forEach((line, i) => page.text('F3', 7, M, fy + i * 11, line, 0.45));
 
   return buildPdf([page]);
 }

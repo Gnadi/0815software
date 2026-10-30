@@ -43,7 +43,7 @@
       </ram:SpecifiedLineTradeSettlement>
     </ram:IncludedSupplyChainTradeLineItem>
     <ram:ApplicableHeaderTradeAgreement>
-      <ram:BuyerReference>991-12345-06</ram:BuyerReference>
+      <ram:BuyerReference>991-12345-73</ram:BuyerReference>
       <ram:SellerTradeParty>
         <ram:Name>Beispiel GmbH</ram:Name>
         <ram:DefinedTradeContact>
@@ -69,19 +69,16 @@
         </ram:SpecifiedTaxRegistration>
       </ram:SellerTradeParty>
       <ram:BuyerTradeParty>
-        <ram:Name>Kunde GmbH</ram:Name>
+        <ram:Name>Stadt Musterhausen</ram:Name>
         <ram:PostalTradeAddress>
-          <ram:PostcodeCode>1010</ram:PostcodeCode>
-          <ram:LineOne>Ring 5</ram:LineOne>
-          <ram:CityName>Wien</ram:CityName>
+          <ram:PostcodeCode>12345</ram:PostcodeCode>
+          <ram:LineOne>Rathausplatz 1</ram:LineOne>
+          <ram:CityName>Musterhausen</ram:CityName>
           <ram:CountryID>DE</ram:CountryID>
         </ram:PostalTradeAddress>
         <ram:URIUniversalCommunication>
-          <ram:URIID schemeID="0204">991-12345-06</ram:URIID>
+          <ram:URIID schemeID="0204">991-12345-73</ram:URIID>
         </ram:URIUniversalCommunication>
-        <ram:SpecifiedTaxRegistration>
-          <ram:ID schemeID="VA">ATU12345678</ram:ID>
-        </ram:SpecifiedTaxRegistration>
       </ram:BuyerTradeParty>
     </ram:ApplicableHeaderTradeAgreement>
     <ram:ApplicableHeaderTradeDelivery>

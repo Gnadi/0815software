@@ -101,7 +101,8 @@ export function IncomingPaymentsView({ onAuthLost }: { onAuthLost: () => void })
             booking_key: p.booking.key,
             invoice_id: p.invoice.id,
             amount_cents: p.amount_cents,
-            date: p.booking.booking_date ?? new Date().toISOString().slice(0, 10),
+            // Without a booking date the server takes today in the business time zone.
+            date: p.booking.booking_date ?? undefined,
             note: p.booking.counterparty_name ?? undefined,
           })),
       );

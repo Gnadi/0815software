@@ -97,12 +97,24 @@ export interface PlatformConfig {
   numberScope?: string;
 }
 
+/** A file as the archive (PS-06) takes it. */
+export interface ArchivedDocument {
+  filename: string;
+  contentType: string;
+  content: Buffer;
+}
+
 export interface InvoiceIssuedInfo {
   number: string;
   customerEmail: string | null;
   customerName: string;
   totalFormatted: string;
-  pdf: Buffer;
+  /**
+   * What the customer receives, to archive: its e-invoice when it takes one —
+   * stored as every later download serves it — else the PDF. Built only when
+   * an archive is wired, because building an e-invoice records its delivery.
+   */
+  document: () => ArchivedDocument;
   actor: string;
 }
 
@@ -414,12 +426,21 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
             channel,
             to: info.customerEmail,
             subject: `Invoice ${info.number}`,
-            body: `Dear ${info.customerName},\n\nyour invoice ${info.number} for ${info.totalFormatted} is attached.`,
+            // PS-03 carries no attachments: saying "attached" sent customers
+            // looking for a file that was never there.
+            body: `Dear ${info.customerName},\n\nyour invoice ${info.number} for ${info.totalFormatted} has been issued.`,
           }),
         );
       }
       if (files) {
-        tasks.push(files.put('invoices', `${info.number}.pdf`, info.pdf, { content_type: 'application/pdf' }));
+        // Built inside the task: a file that cannot be built must not stop the
+        // email or the audit event.
+        tasks.push(
+          (async () => {
+            const document = info.document();
+            return files.put('invoices', document.filename, document.content, { content_type: document.contentType });
+          })(),
+        );
       }
       if (audit) {
         tasks.push(

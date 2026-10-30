@@ -8,6 +8,7 @@ import { SellerSource } from './seller-settings.js';
 import { assertProductionConfig } from './guard.js';
 import { buildPlatform } from './platform.js';
 import { buildLoginVerifier, loginModeOf } from './sso.js';
+import { setBusinessTimeZone } from './business-date.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
@@ -17,6 +18,8 @@ assertProductionConfig([
   { name: 'SESSION_SECRET', value: config.auth.secret },
   { name: 'ADMIN_PASSWORD', value: config.auth.password },
 ]);
+// Before the database: the report views count overdue days in this zone.
+setBusinessTimeZone(config.businessTimeZone);
 const db = openDb(config.databasePath);
 
 // When running the compiled server (dist/server/server/index.js), the built

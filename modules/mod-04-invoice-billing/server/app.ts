@@ -1,27 +1,38 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
-import { VAT_RATES, vatRatesFor } from '../shared/money.js';
+import { fitsQuantityDecimals, LINE_ROUNDING, QUANTITY_DECIMALS, VAT_RATES, vatRatesFor } from '../shared/money.js';
 import {
+  EINVOICE_FORMAT_CHOICES,
   STATUSES,
   TAX_EXEMPTION_CATEGORIES,
+  type EInvoiceFormatChoice,
   type FieldError,
   type InvoiceStatus,
   type TaxExemptionCategory,
 } from '../shared/types.js';
-import { COUNTRY_RE } from '../shared/address.js';
+import { isCountryCode } from '../shared/countries.js';
+import { DEFAULT_UNIT, isUnitCode, UNIT_CODES, UNITS, type UnitCode } from '../shared/units.js';
 import {
+  assertIssuable,
+  eInvoiceFile,
   eInvoiceReadiness,
   freezeParties,
   invoiceParties,
   pdfParties,
   sellerParty,
-  ebInterfaceFile,
-  xrechnungFile,
-  zugferdFile,
   type EInvoiceDocument,
 } from './einvoice-data.js';
-import { eInvoiceProblems, type EInvoiceModel } from '../shared/einvoice.js';
+import { issuedDocumentsOf, type IssuedDocument } from './issued-documents.js';
+import type { EInvoiceFormat } from '../shared/ebinterface.js';
+import {
+  eInvoiceProblems,
+  isCalendarDate,
+  MISTYPED_LEITWEG,
+  mistypedLeitweg,
+  parseElectronicAddress,
+  type EInvoiceModel,
+} from '../shared/einvoice.js';
 import { ebInterfaceProblems } from '../shared/ebinterface.js';
 import {
   bmdExport,
@@ -162,7 +173,9 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function optDate(raw: unknown, field: string, errors: FieldError[]): string | null {
   if (raw === undefined || raw === null || raw === '') return null;
-  if (typeof raw !== 'string' || !DATE_RE.test(raw) || Number.isNaN(Date.parse(`${raw}T00:00:00Z`))) {
+  // Date.parse alone rolls 2026-02-30 over to 2 March, and the impossible date
+  // went into the invoice and its e-invoice, which no validator checks.
+  if (typeof raw !== 'string' || !DATE_RE.test(raw) || !isCalendarDate(raw)) {
     errors.push({ field, message: `${field} must be a date in YYYY-MM-DD format` });
     return null;
   }
@@ -182,11 +195,14 @@ interface CustomerInput {
   einvoice_address: string | null;
   debtor_account: number | null;
   supplier_number: string | null;
+  registration: string | null;
+  einvoice_format: EInvoiceFormatChoice | null;
 }
 
 const CUSTOMER_COLUMNS = [
   'name', 'email', 'vat_id', 'address', 'street', 'postcode', 'city',
   'country_code', 'buyer_reference', 'einvoice_address', 'debtor_account', 'supplier_number',
+  'einvoice_format', 'registration',
 ] as const;
 
 function validateCustomer(input: Record<string, unknown>): CustomerInput {
@@ -205,13 +221,39 @@ function validateCustomer(input: Record<string, unknown>): CustomerInput {
   let country_code = optText(input.country_code, 'country_code', errors, 40);
   if (country_code !== null) {
     country_code = country_code.trim().toUpperCase();
-    if (!COUNTRY_RE.test(country_code)) {
-      errors.push({ field: 'country_code', message: 'Country must be an ISO 3166 code such as DE or AT' });
+    if (!isCountryCode(country_code)) {
+      errors.push({
+        field: 'country_code',
+        message: country_code === 'UK' ? 'The ISO 3166 code of the United Kingdom is GB' : 'Country must be an ISO 3166 code such as DE or AT',
+      });
     }
   }
   const buyer_reference = optText(input.buyer_reference, 'buyer_reference', errors, 200);
   const einvoice_address = optText(input.einvoice_address, 'einvoice_address', errors, 200);
+  // Checked when it is saved, not when the first XRechnung is rendered: by
+  // then an invoice may have been sent and frozen with the mistake in it.
+  const parsedAddress = einvoice_address === null ? null : parseElectronicAddress(einvoice_address);
+  if (einvoice_address !== null && parsedAddress === null) {
+    errors.push({
+      field: 'einvoice_address',
+      message: 'An e-invoice address is an email address, a Leitweg-ID or a Peppol ID written scheme:identifier, e.g. 0088:4000001000005',
+    });
+  } else if (parsedAddress?.scheme === '0204' && mistypedLeitweg(parsedAddress.value)) {
+    errors.push({ field: 'einvoice_address', message: `Leitweg-ID ${MISTYPED_LEITWEG}` });
+  }
+  if (parsedAddress?.scheme === '0204' && mistypedLeitweg(buyer_reference)) {
+    errors.push({ field: 'buyer_reference', message: `Leitweg-ID ${MISTYPED_LEITWEG}` });
+  }
   const supplier_number = optText(input.supplier_number, 'supplier_number', errors, 100);
+  const registration = optText(input.registration, 'registration', errors, 80);
+  let einvoice_format: EInvoiceFormatChoice | null = null;
+  if (input.einvoice_format !== undefined && input.einvoice_format !== null && input.einvoice_format !== '') {
+    if ((EINVOICE_FORMAT_CHOICES as readonly unknown[]).includes(input.einvoice_format)) {
+      einvoice_format = input.einvoice_format as EInvoiceFormatChoice;
+    } else {
+      errors.push({ field: 'einvoice_format', message: `E-invoice format must be one of: ${EINVOICE_FORMAT_CHOICES.join(', ')}` });
+    }
+  }
   let debtor_account: number | null = null;
   if (input.debtor_account !== undefined && input.debtor_account !== null && input.debtor_account !== '') {
     debtor_account = Number(input.debtor_account);
@@ -222,7 +264,7 @@ function validateCustomer(input: Record<string, unknown>): CustomerInput {
   if (errors.length > 0) fail(errors);
   return {
     name, email, vat_id, address, street, postcode, city, country_code,
-    buyer_reference, einvoice_address, debtor_account, supplier_number,
+    buyer_reference, einvoice_address, debtor_account, supplier_number, registration, einvoice_format,
   };
 }
 
@@ -362,6 +404,15 @@ function validateDraft(input: Record<string, unknown>): DraftInput {
   const note = optText(input.note, 'note', errors, 500);
   const buyerReference = optText(input.buyer_reference, 'buyer_reference', errors, 200);
   const deliveryDate = optDate(input.delivery_date, 'delivery_date', errors);
+  // The service period (BG-14): both days or neither. EN 16931 would take one
+  // end alone (BR-CO-19), but an invoice bills a span that has both.
+  const periodStart = optDate(input.period_start, 'period_start', errors);
+  const periodEnd = optDate(input.period_end, 'period_end', errors);
+  if ((periodStart === null) !== (periodEnd === null)) {
+    errors.push({ field: periodStart === null ? 'period_start' : 'period_end', message: 'A service period needs its first and its last day' });
+  } else if (periodStart !== null && periodEnd! < periodStart) {
+    errors.push({ field: 'period_end', message: 'The service period ends before it starts' });
+  }
   let taxExemptionCategory: TaxExemptionCategory | null = null;
   if (input.tax_exemption_category !== undefined && input.tax_exemption_category !== null && input.tax_exemption_category !== '') {
     if ((TAX_EXEMPTION_CATEGORIES as readonly unknown[]).includes(input.tax_exemption_category)) {
@@ -377,7 +428,7 @@ function validateDraft(input: Record<string, unknown>): DraftInput {
 
   const lines = validateLines(input.lines, errors);
   if (errors.length > 0) fail(errors);
-  return { customerId, paymentTermsDays, note, lines, buyerReference, deliveryDate, taxExemptionCategory, taxExemptionReason };
+  return { customerId, paymentTermsDays, note, lines, buyerReference, deliveryDate, periodStart, periodEnd, taxExemptionCategory, taxExemptionReason };
 }
 
 /** Line items as a draft and a credit note take them — every error into `errors`. */
@@ -389,10 +440,16 @@ function validateLines(raw: unknown, errors: FieldError[]): LineInput[] {
     if (description === '' || description.length > 200) {
       errors.push({ field: `lines[${i}].description`, message: 'Description is required (max 200 characters)' });
     }
-    const quantity = Number(line.quantity);
+    let quantity = Number(line.quantity);
     if (typeof line.quantity === 'boolean' || line.quantity === '' || line.quantity === null || line.quantity === undefined ||
         Number.isNaN(quantity) || !Number.isFinite(quantity) || quantity <= 0 || quantity > 1_000_000) {
       errors.push({ field: `lines[${i}].quantity`, message: 'Quantity must be a number greater than zero' });
+    } else if (!fitsQuantityDecimals(quantity)) {
+      // The e-invoice states four decimals and the amount is computed from
+      // them; a fifth would make the file say one quantity and charge another.
+      errors.push({ field: `lines[${i}].quantity`, message: `Quantity has at most ${QUANTITY_DECIMALS} decimal places` });
+    } else {
+      quantity = Math.round(quantity * 10 ** QUANTITY_DECIMALS) / 10 ** QUANTITY_DECIMALS; // 0.1 + 0.2 → 0.3
     }
     const unitPriceCents = Number(line.unit_price_cents);
     if (!Number.isInteger(unitPriceCents) || unitPriceCents < 0 || unitPriceCents > 100_000_000) {
@@ -402,7 +459,13 @@ function validateLines(raw: unknown, errors: FieldError[]): LineInput[] {
     if (!(VAT_RATES as readonly number[]).includes(vatRate)) {
       errors.push({ field: `lines[${i}].vat_rate`, message: `VAT rate must be one of: ${VAT_RATES.join(', ')}` });
     }
-    return { description, quantity, unitPriceCents, vatRate };
+    // Optional: a client that knows nothing of units bills pieces, as before.
+    let unit: UnitCode = DEFAULT_UNIT;
+    if (line.unit !== undefined && line.unit !== null && line.unit !== '') {
+      if (isUnitCode(line.unit)) unit = line.unit;
+      else errors.push({ field: `lines[${i}].unit`, message: `Unit must be one of: ${UNIT_CODES.map((c) => `${c} (${UNITS[c].name})`).join(', ')}` });
+    }
+    return { description, quantity, unit, unitPriceCents, vatRate };
   });
 }
 
@@ -435,7 +498,8 @@ function validateTemplate(input: Record<string, unknown>): TemplateInput {
     errors.push(...err.details);
   }
   if (errors.length > 0 || draft === null) fail(errors);
-  const { customerId, createdAt: _createdAt, deliveryDate: _deliveryDate, ...rest } = draft;
+  // Dates come from each run's period, not from the template.
+  const { customerId, createdAt: _createdAt, deliveryDate: _deliveryDate, periodStart: _start, periodEnd: _end, ...rest } = draft;
   return { name, customerId, interval, startDate: startDate!, endDate, active, draft: rest };
 }
 
@@ -877,6 +941,9 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     const pending = invoiceDetail(db, Number(req.params.id));
     if (pending.status === 'draft') {
       assertSellerRates(pending.lines.map((l) => l.vat_rate), (i) => `lines[${i}].vat_rate`);
+      // The customer's e-invoice format must render from what is about to be
+      // frozen — checked before a number is drawn, so a refusal costs none.
+      assertIssuable(db, pending.id, seller, issueDate ?? undefined);
     }
     // When PS-10 Number is configured, source the invoice number from it
     // (authoritative, gapless); otherwise the local per-year counter assigns it.
@@ -886,21 +953,33 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     );
     const detail = invoiceDetail(db, Number(req.params.id));
 
-    // Fan the freshly-issued invoice out to the Platform Services (email the
-    // customer, archive the PDF, record the audit event). Best-effort and a
-    // no-op when nothing is configured, so mod-04 still works standalone.
+    // Fan the freshly-issued invoice out to the Platform Services (tell the
+    // customer, archive what it receives, record the audit event). Best-effort
+    // and a no-op when nothing is configured, so mod-04 still works standalone.
     const customer = getCustomer(db, detail.customer_id);
-    const issued = pdfParties(invoiceParties(db, detail.id, seller));
+    const number = detail.number ?? `draft-${detail.id}`;
+    // Was `res.locals.username`, which nothing ever set — so every issued
+    // invoice reached PS-07 as the literal "admin".
+    const actor = actorOf(res, auth);
+    const format = customer.einvoice_format;
     try {
       await platform.invoiceIssued({
-        number: detail.number ?? `draft-${detail.id}`,
+        number,
         customerEmail: customer.email,
         customerName: detail.customer_name,
         totalFormatted: fmtEur(detail.gross_cents),
-        pdf: renderInvoicePdf(detail, issued.customer, issued.seller),
-        // Was `res.locals.username`, which nothing ever set — so every issued
-        // invoice reached PS-07 as the literal "admin".
-        actor: actorOf(res, auth),
+        // The archive used to get the plain PDF even for a customer that
+        // receives an e-invoice, whose XML is the invoice to keep (§ 14b UStG,
+        // GoBD). Now it gets that file, the bytes every download serves.
+        document: () => {
+          if (format === 'xrechnung' || format === 'zugferd' || format === 'ebinterface') {
+            const file = eInvoiceFile(db, detail.id, seller, format, 'invoice', actor);
+            return { filename: file.filename, contentType: file.content_type, content: file.content };
+          }
+          const issued = pdfParties(invoiceParties(db, detail.id, seller));
+          return { filename: `${number}.pdf`, contentType: 'application/pdf', content: renderInvoicePdf(detail, issued.customer, issued.seller) };
+        },
+        actor,
       });
     } catch (err) {
       // A platform side-effect must never fail the invoice itself.
@@ -1113,43 +1192,52 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
     res.json(sellerReadiness());
   });
 
+  // For a draft: what each format would refuse if it were sent now, so the
+  // missing fields are filled in while that is still possible.
   app.get('/api/invoices/:id/einvoice', (req, res) => {
     const id = Number(req.params.id);
     const detail = invoiceDetail(db, id);
+    const format = getCustomer(db, detail.customer_id).einvoice_format ?? null;
     if (detail.status === 'draft') {
-      res.json({ available: false, reason: 'Drafts have no number — send the invoice first', parties_frozen: false });
+      res.json({
+        available: false,
+        reason: 'Drafts have no number — send the invoice first',
+        parties_frozen: false,
+        format,
+        problems: eInvoiceReadiness(db, id, seller),
+      });
       return;
     }
     res.json({
       available: true,
+      format,
       parties_frozen: detail.parties_frozen,
       cancellation: detail.status === 'cancelled',
       problems: eInvoiceReadiness(db, id, seller),
+      issued: issuedDocumentsOf(db, id),
     });
   });
 
-  app.get('/api/invoices/:id/xrechnung.xml', (req, res) => {
-    const file = xrechnungFile(db, Number(req.params.id), seller, documentOf(req.query));
-    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+  // Each download goes through eInvoiceFile: the first one renders and stores
+  // the file, every later one serves exactly those bytes
+  // (server/issued-documents.ts). The ETag is the stored SHA-256. Storing
+  // records a delivery rather than changing anything — the bytes are what any
+  // download at that moment would get — so a download stays a read (`view`).
+  const sendIssued = (res: Response, file: IssuedDocument): void => {
+    res.setHeader('Content-Type', file.content_type);
     res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
-    res.send(file.xml);
-  });
+    res.setHeader('ETag', `"${file.sha256}"`);
+    res.send(file.content);
+  };
+  const download = (format: EInvoiceFormat) => (req: Request, res: Response) => {
+    sendIssued(res, eInvoiceFile(db, Number(req.params.id), seller, format, documentOf(req.query), actorOf(res, auth)));
+  };
 
+  app.get('/api/invoices/:id/xrechnung.xml', download('xrechnung'));
   // ebInterface 6.1 — the Austrian format, for e-rechnung.gv.at and Austrian
   // recipients (shared/ebinterface.ts). Same model, same 422-before-wrong rule.
-  app.get('/api/invoices/:id/ebinterface.xml', (req, res) => {
-    const file = ebInterfaceFile(db, Number(req.params.id), seller, documentOf(req.query));
-    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
-    res.send(file.xml);
-  });
-
-  app.get('/api/invoices/:id/zugferd.pdf', (req, res) => {
-    const file = zugferdFile(db, Number(req.params.id), seller, documentOf(req.query));
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
-    res.send(file.pdf);
-  });
+  app.get('/api/invoices/:id/ebinterface.xml', download('ebinterface'));
+  app.get('/api/invoices/:id/zugferd.pdf', download('zugferd'));
 
   // ── Bookkeeping exports: DATEV and BMD ──────────────────────────────
   // The issued invoices of a period as a booking batch for the tax adviser
@@ -1283,10 +1371,11 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
   const sellerReadiness = () => {
     const party = sellerParty(seller);
     const probe: EInvoiceModel = {
-      type_code: '380', number: 'PROBE', issue_date: todayIso(), due_date: todayIso(), delivery_date: todayIso(),
+      type_code: '380', number: 'PROBE', issue_date: todayIso(), due_date: todayIso(), delivery_date: todayIso(), period: null,
       payment_terms_days: 14, buyer_reference: 'PROBE', note: null, preceding: null, exemption: null, seller: party,
       buyer: { name: 'PROBE', address: null, street: 'x', postcode: '1', city: 'x', country: 'DE', vat_id: null, email: 'probe@example.com', einvoice_address: null },
       lines: [{ position: 1, description: 'x', quantity: 1, unit_price_cents: 100, vat_rate: party.country === 'AT' ? 20 : 19 }],
+      line_rounding: LINE_ROUNDING,
     };
     return {
       seller: party,

@@ -1,4 +1,6 @@
+import { PLACEHOLDER_BIC, PLACEHOLDER_IBAN } from '../shared/sepa.js';
 import type { AuthConfig } from './auth.js';
+import { DEFAULT_BUSINESS_TIMEZONE, timeZoneProblem } from './business-date.js';
 import { shellOriginsFromEnv } from './hardening.js';
 import type { PlatformConfig } from './platform.js';
 import type { SsoConfig } from './sso.js';
@@ -22,12 +24,24 @@ export interface SellerConfig {
   taxNumber?: string | undefined;
   /** BT-30 — Handelsregister / Firmenbuch number. Needed when there is no VAT id. */
   registration?: string | undefined;
+  /**
+   * BT-29 — an identifier with its ISO 6523 scheme, e.g. `0088:4000001000005`
+   * for a GLN. Identifies a seller that has neither VAT id nor register number.
+   */
+  identifier?: string | undefined;
   /** BG-6 — XRechnung makes name, phone and email of a contact mandatory. */
   contactName?: string | undefined;
   phone?: string | undefined;
   email?: string | undefined;
   /** BT-34 — the address e-invoice replies go to. Defaults to `email`. */
   einvoiceAddress?: string | undefined;
+  /**
+   * BT-33 — what a business letter of this company must state beside its
+   * name and register number: registered office, register court, managing
+   * directors (§ 35a GmbHG, § 80 AktG, § 125a and § 37a HGB, § 14 UGB).
+   * Printed in the PDF footer and written to the XML.
+   */
+  legalInformation?: string | undefined;
 }
 
 export interface ServerConfig {
@@ -46,6 +60,12 @@ export interface ServerConfig {
    * refuses a malformed value rather than dropping it.
    */
   shellOrigins: string[];
+  /**
+   * The IANA zone business dates are days in (server/business-date.ts): issue
+   * and due dates, payments, cancellations, overdue days. BUSINESS_TIMEZONE,
+   * Europe/Berlin when unset.
+   */
+  businessTimeZone: string;
   auth: AuthConfig;
   seller: SellerConfig;
   /**
@@ -113,6 +133,18 @@ function numberFromEnv(
   return value;
 }
 
+/**
+ * Read the business time zone, refusing one Intl does not know: a typo such as
+ * "Europe/Berlinn" would otherwise date every invoice in UTC, and the day is
+ * off only around midnight, where nobody looks.
+ */
+function timeZoneFromEnv(raw: string | undefined): string {
+  if (raw === undefined || raw.trim() === '') return DEFAULT_BUSINESS_TIMEZONE;
+  const problem = timeZoneProblem(raw.trim());
+  if (problem !== null) throw new Error(`BUSINESS_TIMEZONE: ${problem}`);
+  return raw.trim();
+}
+
 /** Read configuration from the environment, with local-dev defaults. */
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
@@ -120,6 +152,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     databasePath: env.DATABASE_PATH ?? './data.db',
     sellerRefreshMs: numberFromEnv('SELLER_REFRESH_MS', env.SELLER_REFRESH_MS, 300_000, 0, 86400000),
     shellOrigins: shellOriginsFromEnv(env.SHELL_ORIGIN),
+    businessTimeZone: timeZoneFromEnv(env.BUSINESS_TIMEZONE),
     auth: {
       username: env.ADMIN_USERNAME ?? 'admin',
       password: env.ADMIN_PASSWORD ?? 'admin',
@@ -131,18 +164,21 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       name: env.SELLER_NAME ?? '0815software GmbH',
       addressLines: (env.SELLER_ADDRESS ?? 'Beispielgasse 8/15|1010 Wien|Austria').split('|'),
       vatId: env.SELLER_VAT_ID ?? 'ATU00000000',
-      iban: env.SELLER_IBAN ?? 'AT00 0000 0000 0000 0000',
-      bic: env.SELLER_BIC ?? 'EXAMPLEX',
+      // Placeholders every e-invoice refuses (shared/einvoice.ts) — a demo needs no bank account.
+      iban: env.SELLER_IBAN ?? PLACEHOLDER_IBAN,
+      bic: env.SELLER_BIC ?? PLACEHOLDER_BIC,
       street: env.SELLER_STREET || undefined,
       postcode: env.SELLER_POSTCODE || undefined,
       city: env.SELLER_CITY || undefined,
       country: env.SELLER_COUNTRY ? env.SELLER_COUNTRY.trim().toUpperCase() : undefined,
       taxNumber: env.SELLER_TAX_NUMBER || undefined,
       registration: env.SELLER_REGISTRATION || undefined,
+      identifier: env.SELLER_IDENTIFIER || undefined,
       contactName: env.SELLER_CONTACT_NAME || undefined,
       phone: env.SELLER_PHONE || undefined,
       email: env.SELLER_EMAIL || undefined,
       einvoiceAddress: env.SELLER_EINVOICE_ADDRESS || undefined,
+      legalInformation: env.SELLER_LEGAL_INFORMATION || undefined,
     },
     austrianRemittance: {
       TAXS: patternFromEnv('AT_TAXS_REMITTANCE_PATTERN', env.AT_TAXS_REMITTANCE_PATTERN),

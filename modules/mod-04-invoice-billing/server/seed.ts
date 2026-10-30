@@ -6,6 +6,7 @@ import {
   recordPayment,
   type LineInput,
 } from './invoices.js';
+import type { UnitCode } from '../shared/units.js';
 import { cancelBill, createBill, createCreditor, markBillPaid } from './bills.js';
 import type { SellerConfig } from './config.js';
 import { freezeParties } from './einvoice-data.js';
@@ -84,10 +85,12 @@ export function seed(db: Database.Database, seller?: SellerConfig): void {
     const EBNER = cust('Ebner');
 
     // Shorthand: line item as [description, qty, unit net cents, VAT %].
-    const L = (rows: [string, number, number, number][]): LineInput[] =>
-      rows.map(([description, quantity, unitPriceCents, vatRate]) => ({
+    // The unit is optional, a piece when left out, as in the editor.
+    const L = (rows: [string, number, number, number, UnitCode?][]): LineInput[] =>
+      rows.map(([description, quantity, unitPriceCents, vatRate, unit]) => ({
         description,
         quantity,
+        unit,
         unitPriceCents,
         vatRate,
       }));
@@ -112,8 +115,8 @@ export function seed(db: Database.Database, seller?: SellerConfig): void {
         issue: '2025-02-04',
         lines: L([
           ['Retrofit control cabinet wiring — hall 2', 1, 1_840_00, 20],
-          ['On-site commissioning (per hour)', 12, 95_00, 20],
-          ['Travel flat rate Linz', 1, 120_00, 20],
+          ['On-site commissioning', 12, 95_00, 20, 'HUR'],
+          ['Travel flat rate Linz', 1, 120_00, 20, 'LS'],
         ]),
         payments: [['2025-02-16', 3_720_00, 'Bank transfer']],
       },
@@ -123,7 +126,7 @@ export function seed(db: Database.Database, seller?: SellerConfig): void {
         created: '2025-04-14T08:40:00Z',
         issue: '2025-04-15',
         lines: L([
-          ['Process audit workshop (2 days)', 2, 1_200_00, 20],
+          ['Process audit workshop', 2, 1_200_00, 20, 'DAY'],
           ['Documentation package', 1, 380_00, 20],
         ]),
         payments: [['2025-05-09', 3_336_00]],
@@ -181,7 +184,7 @@ export function seed(db: Database.Database, seller?: SellerConfig): void {
         issue: '2026-05-10',
         note: 'Second reminder sent by post.',
         lines: L([
-          ['Interim management April 2026 (per day)', 8, 780_00, 20],
+          ['Interim management April 2026', 8, 780_00, 20, 'DAY'],
           ['Expenses: rail travel', 1, 156_40, 10],
         ]),
         // No payments — overdue since 2026-05-24.
@@ -193,7 +196,7 @@ export function seed(db: Database.Database, seller?: SellerConfig): void {
         issue: '2026-06-20',
         lines: L([
           ['Server rack hardware (reverse charge)', 2, 1_890_00, 0],
-          ['Installation service', 6, 110_00, 0],
+          ['Installation service', 6, 110_00, 0, 'HUR'],
         ]),
         payments: [['2026-07-01', 2_000_00, 'Partial payment']],
       },
@@ -233,7 +236,7 @@ export function seed(db: Database.Database, seller?: SellerConfig): void {
         terms: 30,
         created: '2026-07-16T09:50:00Z',
         lines: L([
-          ['Managed backup — Q3/2026', 3, 240_00, 0],
+          ['Managed backup — Q3/2026', 3, 240_00, 0, 'MON'],
           ['Offsite storage per TB', 12, 9_50, 0],
         ]),
       },
@@ -335,7 +338,10 @@ const { pathToFileURL } = await import('node:url');
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { openDb } = await import('./db.js');
   const { configFromEnv } = await import('./config.js');
+  const { setBusinessTimeZone } = await import('./business-date.js');
   const config = configFromEnv();
+  // As the server does: the seeded invoices are dated, and the views built, in this zone.
+  setBusinessTimeZone(config.businessTimeZone);
   const db = openDb(config.databasePath);
   seed(db, config.seller);
   db.close();

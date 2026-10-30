@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { computeTotals, VAT_RATES, vatRatesFor } from '../../shared/money';
+import { computeTotals, LINE_ROUNDING, VAT_RATES, vatRatesFor } from '../../shared/money';
+import { DEFAULT_UNIT, UNIT_CODES, UNITS, type UnitCode } from '../../shared/units';
 import {
   RECURRING_INTERVALS,
   TAX_EXEMPTION_CATEGORIES,
@@ -172,7 +173,7 @@ export function RecurringView({ onOpenInvoice, onAuthLost }: Props) {
                   {t.end_date && ` to ${fmtDate(t.end_date)}`}
                 </td>
                 <td className="table__num mono">
-                  {fmtEur(computeTotals(t.lines).net_cents)}
+                  {fmtEur(computeTotals(t.lines, LINE_ROUNDING).net_cents)}
                 </td>
                 <td className="mono">
                   {t.next_period_start === null ? '—' : fmtDate(t.next_period_start)}
@@ -219,6 +220,7 @@ export function RecurringView({ onOpenInvoice, onAuthLost }: Props) {
 interface EditableLine {
   description: string;
   quantity: string;
+  unit: UnitCode;
   unitPrice: string;
   vatRate: string;
 }
@@ -250,9 +252,10 @@ function TemplateForm({
     template?.lines.map((l) => ({
       description: l.description,
       quantity: String(l.quantity),
+      unit: l.unit,
       unitPrice: centsToInput(l.unit_price_cents),
       vatRate: String(l.vat_rate),
-    })) ?? [{ description: '', quantity: '1', unitPrice: '', vatRate: '20' }],
+    })) ?? [{ description: '', quantity: '1', unit: DEFAULT_UNIT, unitPrice: '', vatRate: '20' }],
   );
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldError[]>([]);
@@ -312,6 +315,7 @@ function TemplateForm({
       lines: lines.map((l) => ({
         description: l.description,
         quantity: Number(l.quantity.replace(',', '.')),
+        unit: l.unit,
         unit_price_cents: parseEurToCents(l.unitPrice) ?? -1,
         vat_rate: Number(l.vatRate),
       })),
@@ -412,6 +416,16 @@ function TemplateForm({
               <input className="field__input" type="number" step="any" min="0" value={line.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} />
             </label>
             <label className="field">
+              <span className="field__label mono">UNIT</span>
+              <select className="field__input" value={line.unit} onChange={(e) => setLine(i, { unit: e.target.value as UnitCode })}>
+                {UNIT_CODES.map((code) => (
+                  <option key={code} value={code}>
+                    {UNITS[code].name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
               <span className="field__label mono">UNIT PRICE €</span>
               <input className="field__input" placeholder="0,00" value={line.unitPrice} onChange={(e) => setLine(i, { unitPrice: e.target.value })} />
             </label>
@@ -438,7 +452,7 @@ function TemplateForm({
         <button
           className="toolbar__clear mono"
           type="button"
-          onClick={() => setLines([...lines, { description: '', quantity: '1', unitPrice: '', vatRate: String(Math.max(...rates)) }])}
+          onClick={() => setLines([...lines, { description: '', quantity: '1', unit: DEFAULT_UNIT, unitPrice: '', vatRate: String(Math.max(...rates)) }])}
         >
           + ADD LINE
         </button>

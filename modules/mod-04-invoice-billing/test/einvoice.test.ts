@@ -142,7 +142,7 @@ describe('the rules this module can break, refused before rendering', () => {
 
   it('addresses a Leitweg-ID with scheme 0204 and an email with EM', () => {
     const xml = renderCii(CASES.leitweg!, 'xrechnung');
-    expect(xml).toContain('<ram:URIID schemeID="0204">991-12345-06</ram:URIID>');
+    expect(xml).toContain('<ram:URIID schemeID="0204">991-12345-73</ram:URIID>');
     expect(xml).toContain('<ram:URIID schemeID="EM">rechnung@beispiel.de</ram:URIID>');
   });
 });
@@ -171,6 +171,25 @@ describe('reading a printed address', () => {
       city: null,
       country: null,
     });
+  });
+
+  it("reads the postcode in the format of the address's own country, and only there (N3)", () => {
+    // Read as four digits, this was postcode 1012 in the city "LG Amsterdam".
+    expect(parseAddressLines(['Damrak 1', '1012 LG Amsterdam', 'Netherlands'])).toEqual({
+      street: 'Damrak 1',
+      postcode: '1012 LG',
+      city: 'Amsterdam',
+      country: 'NL',
+    });
+    expect(parseAddressLines(['ul. Piotrkowska 1', '90-001 Łódź'], 'PL')).toMatchObject({ postcode: '90-001', city: 'Łódź' });
+    expect(parseAddressLines(['Václavské náměstí 1', '110 00 Praha 1'], null, 'CZ')).toMatchObject({ postcode: '110 00', city: 'Praha 1' });
+    // The country the customer was given decides, over a VAT id from elsewhere.
+    expect(parseAddressLines(['Ring 5', '1010 Wien'], 'DE', 'AT')).toMatchObject({ postcode: '1010', city: 'Wien', country: 'AT' });
+    // A postcode that is not the country's, a country whose format is not
+    // known, and no country at all: left to the explicit fields.
+    expect(parseAddressLines(['Ring 5', '1010 Wien'], 'DE')).toMatchObject({ postcode: null, city: null, country: 'DE' });
+    expect(parseAddressLines(['10 Downing Street', 'London SW1A 2AA', 'GB'])).toMatchObject({ postcode: null, city: null, country: 'GB' });
+    expect(parseAddressLines(['Kundenweg 5', '10115 Berlin'])).toMatchObject({ street: null, postcode: null, city: null, country: null });
   });
 });
 
@@ -230,7 +249,7 @@ async function customer(values: Record<string, unknown> = {}): Promise<number> {
       email: 'ap@kunde.de',
       vat_id: 'DE987654321',
       address: 'Kundenweg 5\n10115 Berlin',
-      buyer_reference: '04011000-12345-67',
+      buyer_reference: '04011000-12345-03',
       ...values,
     });
   expect(res.status).toBe(201);
@@ -279,7 +298,7 @@ describe('e-invoices through the API', () => {
     expect(res.headers['content-type']).toContain('application/xml');
     expect(res.headers['content-disposition']).toContain('INV-2026-0001_xrechnung.xml');
     expect(res.text).toContain('<ram:ID>INV-2026-0001</ram:ID>');
-    expect(res.text).toContain('<ram:BuyerReference>04011000-12345-67</ram:BuyerReference>');
+    expect(res.text).toContain('<ram:BuyerReference>04011000-12345-03</ram:BuyerReference>');
     expect(res.text).toContain('<ram:GrandTotalAmount>22.57</ram:GrandTotalAmount>');
     // The city and postcode came from the printed address lines.
     expect(res.text).toContain('<ram:PostcodeCode>10115</ram:PostcodeCode>');
@@ -394,6 +413,12 @@ describe('e-invoices through the API', () => {
     expect(original.text).toContain('<ram:TypeCode>380</ram:TypeCode>');
     const pdf = await request(app).get(`/api/invoices/${id}/zugferd.pdf?document=cancellation`).set('Cookie', cookie).buffer(true);
     expect(embeddedXml(pdf.body as Buffer)).toContain('<ram:TypeCode>381</ram:TypeCode>');
+
+    // A Stornorechnung, never a "Gutschrift" — in German VAT law the invoice a
+    // recipient issues itself (review N5): in the note, the terms and the title.
+    expect(credit.text).toContain('<ram:Content>Stornorechnung zur Rechnung INV-2026-0001 vom ');
+    expect(credit.text).not.toContain('Gutschrift');
+    expect((pdf.body as Buffer).toString('latin1')).toContain('<rdf:li xml:lang="x-default">Stornorechnung INV-2026-0001-ST</rdf:li>');
   });
 
   it('validates the new customer and draft fields', async () => {
@@ -481,7 +506,7 @@ describe('review findings: what stays frozen, and which rates an installation is
     await request(app)
       .put(`/api/customers/${customerId}`)
       .set('Cookie', cookie)
-      .send({ name: 'Kunde AG', email: 'ap@kunde.de', address: 'Kundenweg 5\n10115 Berlin', buyer_reference: '991-12345-06' });
+      .send({ name: 'Kunde AG', email: 'ap@kunde.de', address: 'Kundenweg 5\n10115 Berlin', buyer_reference: '991-12345-73' });
 
     // Still refused, and the ZUGFeRD file is byte for byte what it was.
     expect((await request(app).get(`/api/invoices/${id}/xrechnung.xml`).set('Cookie', cookie)).status).toBe(422);

@@ -91,20 +91,26 @@ The server seeds an empty database automatically on first start, so
 
 ## Data model
 
-Fifteen tables, no stored derived state — money coming in, reminding
-and repeating it, and money going out:
+Eighteen tables, no stored derived state — money coming in, reminding
+and repeating it, the e-invoices that went out, and money going out:
 
 ```
 customers          name, email, vat_id, address              (CRUD via UI/API)
                    + street, postcode, city, country_code, buyer_reference,
-                   einvoice_address, debtor_account   (all optional)
+                   einvoice_address, debtor_account, supplier_number,
+                   registration (BT-47), einvoice_format (xrechnung |
+                   zugferd | ebinterface | none)
+                   (all optional)
 invoices           number (NULL for drafts), customer, status,
                    issue_date, due_date, payment_terms_days,
                    note, cancellation audit trail,
-                   buyer_reference, delivery_date, tax_exemption_category
+                   buyer_reference, delivery_date, period_start / _end
+                   (the service period, both or neither), tax_exemption_category
                    / _reason, seller_snapshot / buyer_snapshot (JSON,
-                   frozen at finalize — see E-invoices)
-invoice_lines      invoice, position, description, quantity,
+                   frozen at finalize — see E-invoices), line_rounding
+                   (decimal | float, fixed at finalize — see Money)
+invoice_lines      invoice, position, description, quantity (at most four
+                   decimals), unit (UN/ECE Rec 20, C62 = piece by default),
                    unit_price_cents, vat_rate (0 | 7 | 10 | 13 | 19 | 20)
 payments           invoice, date, amount_cents, note
 invoice_counters   year → last_seq                           (the number source)
@@ -115,12 +121,17 @@ dunning_notices      invoice, level, what was claimed and the letter text
                      UNIQUE (invoice, level)   ← append-only
 credit_notes         invoice, seq, number (<invoice>-GS<seq>), issue_date,
                      reason, actor   UNIQUE (invoice, seq) ← never updated
-credit_note_lines    credit note, position, description, quantity,
+credit_note_lines    credit note, position, description, quantity, unit,
                      unit_price_cents, vat_rate (positive, like any 381)
 recurring_invoices   name, customer, interval, start/end date, active,
                      the draft it produces (JSON)
 recurring_runs       template, period start/end, the draft it produced
                      UNIQUE (template, period_start)   ← once per period
+issued_documents     invoice, document (invoice | cancellation |
+                     credit_note:<id>), format, number, the file's bytes,
+                     sha256, renderer, who fetched it first, when
+                     UNIQUE (invoice, document, format)
+                     ← append-only; triggers refuse UPDATE and DELETE
 
 creditors          name, iban (validated), bic, note         (who we pay)
 bills              creditor, reference, remittance, amount_cents (GROSS),
@@ -143,16 +154,39 @@ payment_run_items  run, bill, position, end_to_end_id, amount_cents,
 edge. Totals per invoice are derived as:
 
 - line net = `round(quantity × unit_price_cents)` — *per-line* rounding
-  (3 × €0.33 nets €0.99, not 3 × €0.33-rounded),
+  (3 × €0.33 nets €0.99, not 3 × €0.33-rounded), half up, computed in
+  integers from the quantity's four decimals: exactly what the e-invoice
+  states and a recipient recomputes (BT-131),
 - VAT = `round(sum of line nets at a rate × rate / 100)` — computed once
   per rate on the tax base,
 - gross = net + VAT.
+
+Quantities take **at most four decimals** (`422` otherwise, and a draft saved
+with more is refused at finalize): the e-invoice states four, so that is what
+the amount is computed from. Line nets used to be rounded in binary floating
+point, which put about one decimal quantity in a thousand a cent low
+(0.29 × €0.50 → €0.14). An invoice **keeps the rule it was finalized under**
+(`line_rounding`): everything issued before the switch stays `float`, because
+its amounts were sent, paid and booked, and an issued invoice does not change;
+its credit notes, exports and report rows follow it. `test/money.test.ts` holds
+the decimal rule to an independent BigInt computation over 160,000 quantities
+and prices, and pins that an upgrade leaves issued invoices as they were.
 
 **Stored status** is only ever `draft`, `sent` or `cancelled` (enforced
 by CHECKs). The API reports the *derived* status `paid` for a sent
 invoice whose payments cover the gross total, payment status
 (`unpaid` / `partially_paid` / `paid`) from the sum of payments, and
 `overdue` from `due_date < today` — none of these exist as columns.
+
+**Business dates are days in `BUSINESS_TIMEZONE`** (Europe/Berlin unless set,
+`server/business-date.ts`): "today" for an issue date nobody entered, for
+overdue and for dunning, in the API and in the report views alike.
+Timestamps (`created_at`, `cancelled_at`) stay UTC instants. In UTC it is
+yesterday until 01:00 or 02:00, so an invoice finalized at 00:30 on 1 January
+used to be dated, and numbered, in the old year. The day an invoice is
+cancelled is **stored** as `cancelled_on`, like an issue date: it is the date
+of the cancellation document and of its reversal in the export, and a later
+change of the zone must not move it (`test/business-date.test.ts`).
 
 The payables side follows the same rule: a bill has no status column
 either. `open` / `scheduled` / `paid` / `cancelled` is derived from
@@ -179,7 +213,7 @@ promise. Full stance and rules:
 | View | One row per | Key |
 | ---- | ----------- | --- |
 | `report_invoices` | non-draft invoice — dates, status, customer name and VAT id, net/VAT/gross, paid, outstanding, days overdue | `invoice_number` |
-| `report_invoice_lines` | invoice line, with `line_net_cents` | `invoice_number` + `line_position` |
+| `report_invoice_lines` | invoice line, with `line_net_cents` and `unit_code` | `invoice_number` + `line_position` |
 | `report_payments` | payment, joined to invoice number and customer | `payment_id` |
 | `report_receivables_aging` | customer with an open balance, in the buckets current / 1-30 / 31-60 / 61-90 / 90+ | `customer_id` |
 
@@ -215,14 +249,16 @@ never sees the tables above.
 - Format: `INV-<year>-<seq>` with a 4-digit zero-padded sequence,
   e.g. `INV-2026-0001`.
 - One independent sequence per year, driven by the `invoice_counters`
-  table. The year is the year of the **issue date**.
+  table. The year is the year of the **issue date** — today in the
+  business time zone when finalizing names none.
 - A number is assigned in the same SQLite transaction that flips a draft
   to `sent` ("finalize"). Drafts have no number — a CHECK constraint
   makes a numbered draft impossible.
 - Deleting a draft therefore never creates a gap; sent invoices cannot
   be deleted at all (409).
-- Cancelling keeps the number and records a timestamp and reason; the
-  cancellation appears in the customer ledger as a balancing credit.
+- Cancelling keeps the number and records a timestamp, its business day
+  and the reason; the cancellation appears in the customer ledger as a
+  balancing credit on that day.
 - The tests prove the sequence 1..last_seq exists exactly once per year
   even when several drafts are finalized concurrently.
 
@@ -303,6 +339,7 @@ the Settings screen by whoever holds `manage`, and what is saved there wins (see
 | ------------------- | ---------------------- | ---------------------------------------- |
 | `PORT`              | `3004`                 | API / production server port             |
 | `DATABASE_PATH`     | `./data.db`            | SQLite file (created on demand)          |
+| `BUSINESS_TIMEZONE` | `Europe/Berlin`        | IANA zone business dates are days in (issue, due, cancellation, overdue). An unknown zone stops the start |
 | `ADMIN_USERNAME`    | `admin`                | Login user                               |
 | `ADMIN_PASSWORD`    | `admin`                | Login password — **change in prod**      |
 | `SESSION_SECRET`    | `dev-secret-change-me` | HMAC key for the session cookie          |
@@ -311,13 +348,15 @@ the Settings screen by whoever holds `manage`, and what is saved there wins (see
 | `SELLER_NAME`       | `0815software GmbH`    | Letterhead: seller name                  |
 | `SELLER_ADDRESS`    | *(example address)*    | Letterhead: address, `\|`-separated lines |
 | `SELLER_VAT_ID`     | `ATU00000000`          | Letterhead: seller VAT id                |
-| `SELLER_IBAN`       | *(example IBAN)*       | PDF footer **and the debtor account of every payment file** |
-| `SELLER_BIC`        | `EXAMPLEX`             | PDF footer: BIC; the debtor agent when set |
+| `SELLER_IBAN`       | *(example IBAN)*       | PDF footer **and the debtor account of every payment file**; e-invoices refuse the example |
+| `SELLER_BIC`        | `EXAMPLEX`             | PDF footer: BIC; the debtor agent when set. E-invoices and payment files refuse `EXAMPLEX`: set the real one, or set it empty |
 | `SELLER_STREET` · `SELLER_POSTCODE` · `SELLER_CITY` · `SELLER_COUNTRY` | *(read from `SELLER_ADDRESS`)* | E-invoice: structured seller address (BT-35/38/37/40) |
 | `SELLER_TAX_NUMBER` | —                      | E-invoice: German Steuernummer (BT-32)   |
 | `SELLER_REGISTRATION` | —                    | E-invoice: register number, e.g. `HRB 12345` (BT-30) — needed without a VAT id |
+| `SELLER_IDENTIFIER` | —                      | E-invoice: seller identifier with its ISO 6523 scheme, e.g. `0088:4000001000005` (GLN, BT-29) — identifies a seller without VAT id or register number |
 | `SELLER_CONTACT_NAME` · `SELLER_PHONE` · `SELLER_EMAIL` | — | E-invoice: seller contact — mandatory for XRechnung (BT-41/42/43) |
 | `SELLER_EINVOICE_ADDRESS` | *(`SELLER_EMAIL`)* | E-invoice: seller electronic address (BT-34) |
+| `SELLER_LEGAL_INFORMATION` | — | Geschäftsbriefangaben: registered office, register court, managing directors (§ 35a GmbHG, § 14 UGB). Footer of invoices and dunning letters; BT-33 in the XML |
 | `PROCUREMENT_URL` | — | MOD-06 Procurement: match bills naming a PO before they are paid |
 | `AI_URL` | — | PS-04 AI Platform: read a supplier invoice (e-invoice, PDF, scan) into the bill form |
 
@@ -351,7 +390,8 @@ GET    /api/customers/:id/ledger       statement with running balance
 GET    /api/invoices                   ?search=&status=&overdue=1
                                        (status: draft|sent|paid|cancelled — derived)
 POST   /api/invoices                   {customer_id, payment_terms_days?, note?,
-                                        lines: [{description, quantity,
+                                        delivery_date?, period_start?, period_end?,
+                                        lines: [{description, quantity, unit?,
                                                  unit_price_cents, vat_rate}]}
 GET    /api/invoices/:id               lines, VAT breakdown, payments, derived state
 PUT    /api/invoices/:id               drafts only — sent invoices → 409
@@ -364,10 +404,14 @@ GET    /api/invoices/:id/credit-notes/:noteId/pdf   the credit note as a PDF
 POST   /api/invoices/:id/payments      {amount_cents, date?, note?}
                                        overpayment → 422
 GET    /api/invoices/:id/pdf           the invoice as a generated PDF
-GET    /api/invoices/:id/einvoice      what XRechnung / ZUGFeRD / ebInterface would still refuse
+GET    /api/invoices/:id/einvoice      what XRechnung / ZUGFeRD / ebInterface would still refuse —
+                                       for a draft as if sent now; the customer's format;
+                                       the files already delivered (issued: sha256, who, when)
 GET    /api/invoices/:id/xrechnung.xml ?document=cancellation · ?credit_note=<id>
 GET    /api/invoices/:id/ebinterface.xml  ebInterface 6.1; ?document=cancellation · ?credit_note=<id> (CreditMemo)
 GET    /api/invoices/:id/zugferd.pdf   PDF/A-3 with factur-x.xml; same parameters
+                                       (each: stored at the first download, then served
+                                       unchanged; ETag = the stored SHA-256)
 GET    /api/einvoice-config            the seller as e-invoices see it + what is missing
 
 GET    /api/dunning                    overdue invoices, where each stands (derived), the levels
@@ -461,8 +505,8 @@ a database rebuilds the views so an added column reaches an existing
 deployment.
 
 `test/sepa.test.ts` and `test/bills.test.ts` cover the payables half:
-IBAN check digits, non-SEPA countries and the placeholder `SELLER_IBAN`;
-the SEPA character set; the exact bytes of a rendered `pain.001.001.03`
+IBAN check digits, non-SEPA countries and the placeholders `SELLER_IBAN` and
+`SELLER_BIC`; the SEPA character set; the exact bytes of a rendered `pain.001.001.03`
 (golden file, element order included) and that rendering it twice is
 identical; refusing to pay a bill that is already in a run, both through
 the API and at the unique index; a run's frozen creditor surviving a
@@ -481,6 +525,13 @@ date, and the 381 / CreditMemo against both schemas.
 without drift, at most one draft per period (also at the unique index), a
 deleted draft not being regenerated, bounded catch-up, the end date, the
 start-date lock and the access levels.
+`test/money.test.ts` pins the line rounding: decimal, half up, equal to an
+independent BigInt computation for 160,000 quantities and prices; at most four
+decimals, refused at the API and at finalize; and an upgrade leaving every
+invoice issued before it at the amounts it was issued with, its credit notes
+included. `test/einvoice-pdf.test.ts` pins that the PDF says what the XML
+says: texts in full, the quantity's four decimals, the seller's identifiers,
+and names in letters the PDF font lacks shown without their accents.
 
 ## Deploy notes
 
@@ -500,8 +551,11 @@ mod-04 can consume the shared [Platform Services](../../platform) through the
 [`@0815software/platform-clients`](../../platform/clients) package. When the
 matching `*_URL` env vars are set, **issuing an invoice** also:
 
-- emails the customer via **PS-03 Notification Hub**,
-- archives the rendered PDF in **PS-06 File Storage**, and
+- tells the customer via **PS-03 Notification Hub** that the invoice was
+  issued (PS-03 carries no attachments, so the email carries no file),
+- archives what the customer receives in **PS-06 File Storage** — its
+  e-invoice in the format set on the customer, as every download serves it,
+  else the PDF — and
 - records an `invoice.issued` event on **PS-07 Audit Log**.
 
 With `PAYMENTS_URL` set, `POST /api/invoices/:id/pay` collects an invoice's
@@ -617,27 +671,77 @@ practice:
 Both come from **one model and one renderer** (`shared/einvoice.ts`), fed by
 the invoice as issued (`server/einvoice-data.ts`). The money is this module's
 own — per-line rounding, VAT once per rate — which is exactly what the
-EN 16931 rules recompute, so the XML states the PDF's figures to the cent.
+EN 16931 rules recompute, so the XML states the PDF's figures to the cent; and
+the line amounts are rounded decimally from the quantity the XML states, so a
+recipient recomputing quantity × price arrives at them too (see Money).
+
+- **The PDF says what the XML says.** Descriptions, notes, the exemption
+  reason, the buyer reference and the customer's name are wrapped by their
+  measured width (the metrics of the Liberation fonts both PDFs use) and
+  continue on the next page, rather than being cut off; quantities show the
+  XML's four decimals, written like the amounts (`1.234,5`). The footer names
+  the seller by VAT id, Steuernummer, register number and seller identifier,
+  with its Geschäftsbriefangaben (§ 35a GmbHG, also written as BT-33), and the
+  supplier number the customer assigned us stands beside the invoice number. Every letter WinAnsi has is shown as itself (Š, Ž, Œ); one it
+  lacks, without its accent (Łódź as Lódz) — the XML carries it exactly
+  (`test/einvoice-pdf.test.ts`).
+- **Addressed to someone.** An e-invoice address is an email address, a
+  Leitweg-ID (check digits verified) or a Peppol ID written `scheme:identifier`
+  from the EAS code list; free text is refused, on save and before every file.
+  A seller without VAT id or register number is identified by a seller
+  identifier such as a GLN, or by the supplier number its customer assigned —
+  both are BT-29, which BR-CO-26 accepts (`test/einvoice-rules.test.ts`).
+- **Billed in its unit.** Every line has a unit of measure (BT-130), chosen
+  in the editor from a list of UN/ECE Rec 20 codes (`shared/units.ts`):
+  piece, hour, day, week, month, year, minute, lump sum, km, kg, t, m, m²,
+  m³, l, kWh, set, pair. It goes into the XML (`unitCode`), ebInterface
+  (`Unit`) and after the quantity on the PDF ("7,5 h"). A line that names
+  none, and every line from before, is a piece (C62), as it always went out.
+  The golden case `units` carries every code past the validators
+  (`test/units.test.ts`).
+- **Paid into a real account.** An invoice names the seller's IBAN only when
+  it is a SEPA IBAN whose check digits match, and a BIC only when it is one;
+  the example values the module starts with are refused by name. A credit
+  note names no account and is not held up by one. XRechnung's contact phone
+  needs three digits (`test/einvoice-rules.test.ts`).
 
 - **Refused rather than wrong.** A file is only produced when it would
   validate. Otherwise `422` lists every missing field with its business term
   (`BT-49: XRechnung requires the buyer electronic address …`), and the
-  invoice screen shows the same list before anyone downloads.
-- **Frozen at issue.** Finalizing copies seller and buyer into the invoice;
-  re-downloading next year gives the same file. Invoices issued before this
-  release have no copy and read today's master data (`parties_frozen: false`).
+  invoice screen shows the same list before anyone downloads. The check is
+  held to the real artefacts: every case of a matrix (VAT category × seller
+  identification × buyer × credit note, `test/einvoice-matrix.ts`) that it
+  does not refuse is validated with Mustang in CI
+  (`.github/workflows/einvoice-validation.yml`); the probes from the review
+  that used to slip through are pinned in `test/einvoice-rules.test.ts`.
+- **Checked before sending.** A customer can be set to the e-invoice format it
+  receives. A draft for that customer is refused at finalize while it would
+  not render in that format — before a number is drawn — because once sent,
+  nothing in it can be completed. The draft screen lists what is missing for
+  every format (`test/einvoice-readiness.test.ts`).
+- **Frozen at issue.** Finalizing copies seller and buyer into the invoice.
+  The first download of a format then stores the file itself, with its
+  SHA-256 and the renderer version, and every later download serves exactly
+  those bytes — whatever changes in the renderer later
+  (`test/issued-documents.test.ts`). Invoices issued before freezing existed
+  read today's master data until their first download (`parties_frozen: false`).
 - **0 % needs a reason.** A draft with 0 % lines names its VAT category —
   `E` exempt (with the legal ground), `AE` reverse charge, `K` intra-EU supply,
   `G` export, `Z` zero-rated, `O` not subject — and the reason is printed on
-  the PDF and written to the XML.
+  the PDF and written to the XML. Reverse charge across a border needs both
+  VAT ids; at home (§ 13b UStG) the seller's Steuernummer and the customer's
+  register number do, as BR-AE-02 allows.
 - **A cancellation is a document.** A cancelled invoice keeps its original
   e-invoice; its cancellation is a credit note (type 381, number
-  `<invoice>-ST`) referring to it — `?document=cancellation`.
+  `<invoice>-ST`) referring to it — `?document=cancellation`. It calls
+  itself a Stornorechnung, a partial credit note a Rechnungskorrektur, never
+  a "Gutschrift", which in German VAT law is the recipient's own invoice.
 - **Validated outside this repository.** Every case in
   `test/einvoice-cases.ts` passed Mustang (EN 16931 + XRechnung 3.0
   schematron, veraPDF for PDF/A-3b) before its golden file was committed; the
-  suite pins those bytes and checks the Factur-X XSD on every run.
-  `npm run einvoice:validate` repeats the external check (needs Java).
+  suite pins those bytes and checks the Factur-X XSD on every run, for the
+  matrix too. `npm run einvoice:validate` repeats the external check for the
+  golden cases and the matrix (needs Java); CI runs it on every MOD-04 change.
 
 What to set up, field by field, and what is deliberately not covered:
 [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
@@ -709,9 +813,11 @@ The same invoice every month, quarter or year (`server/recurring.ts`, the
 
 - **Drafts, never issued.** A template holds a customer, lines and terms plus
   a rhythm (first period start, interval, optional last start). Generating
-  turns every period that has begun into a DRAFT — dated to the period's
-  first day (Leistungsdatum), with *Leistungszeitraum dd.mm.yyyy – dd.mm.yyyy*
-  in its note. A person checks and sends it; numbering stays gapless.
+  turns every period that has begun into a DRAFT for that **service period**
+  (Leistungszeitraum, BG-14 in the e-invoice, *Delivery/Period* in
+  ebInterface). It used to be dated to the period's first day with the
+  period as a line of text in the note, which no recipient's software reads
+  as a period. A person checks and sends it; numbering stays gapless.
 - **At most once per period, by construction.** `recurring_runs` records
   which period produced which draft, UNIQUE (template, period). Generating
   twice, or two people at once, yields no doubles. A draft deleted by hand
@@ -769,7 +875,10 @@ dependency, and it is deliberately narrow:
   recomputes both and **refuses the transfer if they disagree**, so a rounding
   difference between two modules can never become a wrong invoice. A per-line
   discount (which invoice lines cannot express) is folded into a single-quantity
-  line at its exact net, with the arithmetic spelled out in the description.
+  line at its exact net, with the arithmetic spelled out in the description —
+  and so is an undiscounted line whose source net this module's decimal
+  rounding would not reproduce (the transfer contract still rounds in floating
+  point), or whose quantity has more than four decimals.
 - **It produces a DRAFT.** The operator still reviews and finalizes; nothing is
   issued behind their back.
 - **It is idempotent on the offer number,** which is recorded on the invoice
@@ -1141,7 +1250,9 @@ Kept out deliberately to stay a 3–4 week module. If you need any of
 these, that's commissioned work — exactly the kind 0815software does:
 
 - **Sending email** — standalone, "send" means mark-as-sent and assigns the
-  number (no SMTP). Real delivery is available opt-in via PS-03 (see above).
+  number (no SMTP). With PS-03 wired the customer is told by email that the
+  invoice was issued; the file itself is not sent, PS-03 carries no
+  attachments (see above).
 - **A local user table, per-customer permissions** — standalone this is
   one staff admin; several people with their own levels come from PS-01
   (see [Users and access levels](#users-and-access-levels)).
@@ -1162,7 +1273,9 @@ these, that's commissioned work — exactly the kind 0815software does:
   MT940 and PSP settlement files are not read.
 - **UBL and PEPPOL transport** — the e-invoices are downloaded; nothing is
   sent over PEPPOL, and the UBL syntax is not written. Incoming e-invoices are
-  not read on the bills side. See [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
+  read into a bill only with PS-04 wired (see
+  [Read from the document](#read-from-the-document-ps-04)), and the received
+  file is not kept. See [`docs/E-RECHNUNG.md`](../../docs/E-RECHNUNG.md).
 - **Bank transport other than EBICS** — standalone the module produces the
   file and stops there; PS-12 Banking sends it over EBICS. See
   [Bills and the SEPA payment file](#bills-and-the-sepa-payment-file).

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EXEMPTION_DEFAULT_REASON } from '../../shared/einvoice';
-import { computeTotals, VAT_RATES, vatRatesFor, type LineAmounts } from '../../shared/money';
+import { computeTotals, LINE_ROUNDING, VAT_RATES, vatRatesFor, type LineAmounts } from '../../shared/money';
 import { TAX_EXEMPTION_CATEGORIES, type FieldError, type TaxExemptionCategory } from '../../shared/types';
+import { DEFAULT_UNIT, UNIT_CODES, UNITS, type UnitCode } from '../../shared/units';
 import { api, ApiError, type CustomerRow } from '../api';
 import { centsToInput, fmtEur, parseEurToCents } from '../format';
 
@@ -15,11 +16,12 @@ interface Props {
 interface EditableLine {
   description: string;
   quantity: string;
+  unit: UnitCode;
   unitPrice: string; // EUR text, e.g. "12,50"
   vatRate: string;
 }
 
-const EMPTY_LINE: EditableLine = { description: '', quantity: '1', unitPrice: '', vatRate: '20' };
+const EMPTY_LINE: EditableLine = { description: '', quantity: '1', unit: DEFAULT_UNIT, unitPrice: '', vatRate: '20' };
 
 /** What each VAT category of the 0 % lines means, in the words an invoice uses. */
 const CATEGORY_LABEL: Record<TaxExemptionCategory, string> = {
@@ -47,6 +49,8 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
   const [lines, setLines] = useState<EditableLine[]>([{ ...EMPTY_LINE }]);
   const [buyerReference, setBuyerReference] = useState('');
   const [deliveryDate, setDeliveryDate] = useState('');
+  const [periodStart, setPeriodStart] = useState('');
+  const [periodEnd, setPeriodEnd] = useState('');
   const [exemption, setExemption] = useState('');
   const [exemptionReason, setExemptionReason] = useState('');
   // The rates the seller's country charges; all of them until it is known.
@@ -75,12 +79,15 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
         setNote(detail.note ?? '');
         setBuyerReference(detail.buyer_reference ?? '');
         setDeliveryDate(detail.delivery_date ?? '');
+        setPeriodStart(detail.period_start ?? '');
+        setPeriodEnd(detail.period_end ?? '');
         setExemption(detail.tax_exemption_category ?? '');
         setExemptionReason(detail.tax_exemption_reason ?? '');
         setLines(
           detail.lines.map((l) => ({
             description: l.description,
             quantity: String(l.quantity),
+            unit: l.unit,
             unitPrice: centsToInput(l.unit_price_cents),
             vatRate: String(l.vat_rate),
           })),
@@ -97,7 +104,7 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
     void load();
   }, [load]);
 
-  const totals = useMemo(() => computeTotals(parsedLines(lines)), [lines]);
+  const totals = useMemo(() => computeTotals(parsedLines(lines), LINE_ROUNDING), [lines]);
 
   function setLine(i: number, patch: Partial<EditableLine>) {
     setLines((prev) => prev.map((l, j) => (j === i ? { ...l, ...patch } : l)));
@@ -115,11 +122,14 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
         note: note.trim() || null,
         buyer_reference: buyerReference.trim() || null,
         delivery_date: deliveryDate || null,
+        period_start: periodStart || null,
+        period_end: periodEnd || null,
         tax_exemption_category: exemption || null,
         tax_exemption_reason: exemptionReason.trim() || null,
         lines: lines.map((l) => ({
           description: l.description,
           quantity: Number(l.quantity.replace(',', '.')),
+          unit: l.unit,
           unit_price_cents: parseEurToCents(l.unitPrice) ?? -1,
           vat_rate: Number(l.vatRate),
         })),
@@ -199,8 +209,28 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
               className="field__input"
               type="date"
               value={deliveryDate}
-              title="Leistungsdatum — empty means the issue date"
+              title="Leistungsdatum — empty means the issue date, or the service period when there is one"
               onChange={(e) => setDeliveryDate(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span className="field__label mono">SERVICE PERIOD FROM</span>
+            <input
+              className="field__input"
+              type="date"
+              value={periodStart}
+              title="Leistungszeitraum — a monthly fee, a maintenance contract: the first day billed"
+              onChange={(e) => setPeriodStart(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span className="field__label mono">SERVICE PERIOD TO</span>
+            <input
+              className="field__input"
+              type="date"
+              value={periodEnd}
+              title="Leistungszeitraum — the last day billed, inclusive"
+              onChange={(e) => setPeriodEnd(e.target.value)}
             />
           </label>
           <label className="field editor__note">
@@ -237,6 +267,16 @@ export function InvoiceEditor({ id, onDone, onAuthLost }: Props) {
                 value={line.quantity}
                 onChange={(e) => setLine(i, { quantity: e.target.value })}
               />
+            </label>
+            <label className="field">
+              <span className="field__label mono">UNIT</span>
+              <select className="field__input" value={line.unit} onChange={(e) => setLine(i, { unit: e.target.value as UnitCode })}>
+                {UNIT_CODES.map((code) => (
+                  <option key={code} value={code}>
+                    {UNITS[code].name}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="field">
               <span className="field__label mono">UNIT PRICE €</span>

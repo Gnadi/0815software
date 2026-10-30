@@ -33,7 +33,7 @@ import {
   todayIso,
   type LineInput,
 } from '../server/invoices.js';
-import { computeTotals } from '../shared/money.js';
+import { computeTotals, LINE_ROUNDING } from '../shared/money.js';
 
 const REPORT_VIEWS = [
   'report_credit_notes',
@@ -124,6 +124,7 @@ describe('the views exist and the migration is idempotent', () => {
       'outstanding_cents',
       'days_overdue',
       'credited_cents',
+      'cancelled_on',
     ]);
     expect(columns('report_invoice_lines')).toEqual([
       'invoice_number',
@@ -136,6 +137,7 @@ describe('the views exist and the migration is idempotent', () => {
       'line_net_cents',
       'status',
       'is_cancelled',
+      'unit_code',
     ]);
     expect(columns('report_payments')).toEqual([
       'payment_id',
@@ -263,6 +265,7 @@ describe('the views exist and the migration is idempotent', () => {
       'invoice_counters',
       'invoice_lines',
       'invoices',
+      'issued_documents',
       'payment_run_items',
       'payment_runs',
       'payments',
@@ -334,7 +337,7 @@ describe('money matches the module’s own computation', () => {
       label: 'many small lines, each rounded before summing',
       lines: Array.from({ length: 25 }, (_, i) => ({
         description: `Line ${i + 1}`,
-        quantity: 1 / 3,
+        quantity: 0.3333, // a third, as far as an invoice states quantities
         unitPriceCents: 100 + i,
         vatRate: i % 2 === 0 ? 20 : 10,
       })),
@@ -353,6 +356,7 @@ describe('money matches the module’s own computation', () => {
           unit_price_cents: l.unitPriceCents,
           vat_rate: l.vatRate,
         })),
+        LINE_ROUNDING, // sendInvoice finalizes, which stamps the current rule
       );
       const row = reportInvoice(number);
       expect(row.net_cents).toBe(expected.net_cents);
@@ -364,7 +368,7 @@ describe('money matches the module’s own computation', () => {
   it('rounds the line net per line, so the lines sum to the invoice net', () => {
     const lines: LineInput[] = [
       { description: 'A', quantity: 3, unitPriceCents: 33, vatRate: 20 },
-      { description: 'B', quantity: 1 / 3, unitPriceCents: 101, vatRate: 20 },
+      { description: 'B', quantity: 0.3333, unitPriceCents: 101, vatRate: 20 },
       { description: 'C', quantity: 2.5, unitPriceCents: 4_999, vatRate: 10 },
     ];
     const customer = addCustomer('Lines GmbH');
@@ -373,9 +377,8 @@ describe('money matches the module’s own computation', () => {
     const rows = db
       .prepare('SELECT * FROM report_invoice_lines WHERE invoice_number = ? ORDER BY line_position')
       .all(number) as any[];
-    expect(rows.map((r) => r.line_net_cents)).toEqual(
-      lines.map((l) => Math.round(l.quantity * l.unitPriceCents)),
-    );
+    // 99 exactly; 33.6633 → 34; 12,497.5 → 12,498, half up.
+    expect(rows.map((r) => r.line_net_cents)).toEqual([99, 34, 12_498]);
 
     const sum = rows.reduce((acc, r) => acc + r.line_net_cents, 0);
     expect(sum).toBe(reportInvoice(number).net_cents);
@@ -439,6 +442,7 @@ describe('cancelled invoices are included and marked', () => {
     expect(row.is_cancelled).toBe(1);
     expect(row.cancellation_reason).toBe('duplicate');
     expect(row.cancelled_at).toBe('2026-07-01T09:00:00.000Z');
+    expect(row.cancelled_on).toBe('2026-07-01');
     // The money it was issued for is still visible — a report that wants it
     // gone filters on the flag, it does not have to guess.
     expect(row.gross_cents).toBe(12_000);

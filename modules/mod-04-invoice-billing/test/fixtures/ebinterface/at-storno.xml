@@ -48,7 +48,7 @@
       <ListLineItem>
         <PositionNumber>1</PositionNumber>
         <Description>Beratung</Description>
-        <Quantity Unit="C62">3</Quantity>
+        <Quantity Unit="HUR">3</Quantity>
         <UnitPrice>0.33</UnitPrice>
         <TaxItem>
           <TaxableAmount>0.99</TaxableAmount>
@@ -111,7 +111,7 @@
   <TotalGrossAmount>1510.30</TotalGrossAmount>
   <PayableAmount>1510.30</PayableAmount>
   <PaymentConditions>
-    <Comment>Gutschrift — wird mit offenen Beträgen verrechnet oder erstattet.</Comment>
+    <Comment>Wird mit offenen Beträgen verrechnet oder erstattet.</Comment>
   </PaymentConditions>
-  <Comment>Storno der Rechnung RE-2026-0042</Comment>
+  <Comment>Stornorechnung zur Rechnung RE-2026-0042 vom 2026-10-21</Comment>
 </Invoice>

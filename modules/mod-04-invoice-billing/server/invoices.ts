@@ -1,5 +1,13 @@
 import type Database from 'better-sqlite3';
-import { computeTotals, lineNetCents } from '../shared/money.js';
+import {
+  computeTotals,
+  fitsQuantityDecimals,
+  LINE_ROUNDING,
+  lineNetCents,
+  QUANTITY_DECIMALS,
+  type LineRounding,
+  type Totals,
+} from '../shared/money.js';
 import type {
   CreditNote,
   Customer,
@@ -15,6 +23,8 @@ import type {
   TaxExemptionCategory,
   VatBreakdownRow,
 } from '../shared/types.js';
+import { DEFAULT_UNIT, type UnitCode } from '../shared/units.js';
+import { businessDate } from './business-date.js';
 
 /** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
 export function likeTerm(term: string): string {
@@ -37,9 +47,12 @@ export function nowIso(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-/** "YYYY-MM-DD" for today (UTC) — the reference date for "overdue". */
+/**
+ * "YYYY-MM-DD" for today in the business time zone (server/business-date.ts):
+ * the issue date when none is given, and the reference date for "overdue".
+ */
 export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return businessDate();
 }
 
 /** date + n days, both as "YYYY-MM-DD". */
@@ -71,6 +84,8 @@ interface InvoiceStoredRow {
   payment_terms_days: number;
   note: string | null;
   cancelled_at: string | null;
+  /** The business date of `cancelled_at`, fixed when cancelling (db.ts). */
+  cancelled_on: string | null;
   cancellation_reason: string | null;
   created_at: string;
   buyer_reference: string | null;
@@ -79,6 +94,11 @@ interface InvoiceStoredRow {
   tax_exemption_reason: string | null;
   seller_snapshot: string | null;
   buyer_snapshot: string | null;
+  /** Fixed at finalize; NULL on a draft. See `roundingOf`. */
+  line_rounding: LineRounding | null;
+  /** The service period (BG-14), both days inclusive, or both NULL. */
+  period_start: string | null;
+  period_end: string | null;
 }
 
 export function getInvoice(db: Database.Database, id: number): InvoiceStoredRow {
@@ -88,11 +108,27 @@ export function getInvoice(db: Database.Database, id: number): InvoiceStoredRow 
   );
 }
 
+/**
+ * The rounding an invoice's amounts are computed with (shared/money.ts,
+ * `LineRounding`): the one it was finalized under, and for a draft the
+ * current one. An invoice and its credit notes share it.
+ */
+export function roundingOf(invoice: { line_rounding: LineRounding | null }): LineRounding {
+  return invoice.line_rounding ?? LINE_ROUNDING;
+}
+
+/** The lines of an invoice, each with its net as the invoice rounds it. */
 export function invoiceLines(db: Database.Database, invoiceId: number): InvoiceLine[] {
+  const rounding = roundingOf(getInvoice(db, invoiceId));
   const rows = db
     .prepare('SELECT * FROM invoice_lines WHERE invoice_id = ? ORDER BY position, id')
     .all(invoiceId) as Omit<InvoiceLine, 'net_cents'>[];
-  return rows.map((row) => ({ ...row, net_cents: lineNetCents(row) }));
+  return rows.map((row) => ({ ...row, net_cents: lineNetCents(row, rounding) }));
+}
+
+/** An invoice's totals, rounded as the invoice is. */
+export function invoiceTotals(db: Database.Database, invoiceId: number): Totals {
+  return computeTotals(invoiceLines(db, invoiceId), roundingOf(getInvoice(db, invoiceId)));
 }
 
 function paidCents(db: Database.Database, invoiceId: number): number {
@@ -119,20 +155,20 @@ export function creditNotesOf(db: Database.Database, invoiceId: number): CreditN
     .prepare('SELECT * FROM credit_notes WHERE invoice_id = ? ORDER BY seq')
     .all(invoiceId) as CreditNoteStoredRow[];
   if (notes.length === 0) return [];
-  const invoiceNumber = (db.prepare('SELECT number FROM invoices WHERE id = ?').get(invoiceId) as { number: string }).number;
-  return notes.map((note) => toCreditNote(db, note, invoiceNumber));
+  const invoice = getInvoice(db, invoiceId);
+  return notes.map((note) => toCreditNote(db, note, invoice.number!, roundingOf(invoice)));
 }
 
-function toCreditNote(db: Database.Database, note: CreditNoteStoredRow, invoiceNumber: string): CreditNote {
+function toCreditNote(db: Database.Database, note: CreditNoteStoredRow, invoiceNumber: string, rounding: LineRounding): CreditNote {
   const rows = db
     .prepare('SELECT * FROM credit_note_lines WHERE credit_note_id = ? ORDER BY position, id')
     .all(note.id) as (Omit<InvoiceLine, 'net_cents' | 'invoice_id'> & { credit_note_id: number })[];
   const lines: InvoiceLine[] = rows.map(({ credit_note_id: _cn, ...row }) => ({
     ...row,
     invoice_id: note.invoice_id,
-    net_cents: lineNetCents(row),
+    net_cents: lineNetCents(row, rounding),
   }));
-  const totals = computeTotals(lines);
+  const totals = computeTotals(lines, rounding);
   return {
     id: note.id,
     invoice_id: note.invoice_id,
@@ -156,7 +192,7 @@ export function getCreditNote(db: Database.Database, id: number): CreditNote {
     'Credit note',
   );
   const invoice = getInvoice(db, note.invoice_id);
-  return toCreditNote(db, note, invoice.number!);
+  return toCreditNote(db, note, invoice.number!, roundingOf(invoice));
 }
 
 /**
@@ -166,7 +202,7 @@ export function getCreditNote(db: Database.Database, id: number): CreditNote {
  * otherwise return a cent more VAT than the invoice charged.
  */
 export function creditableByRate(db: Database.Database, invoiceId: number): VatBreakdownRow[] {
-  const invoiced = computeTotals(invoiceLines(db, invoiceId)).by_rate;
+  const invoiced = invoiceTotals(db, invoiceId).by_rate;
   const notes = creditNotesOf(db, invoiceId);
   return invoiced.map((row) => {
     const taken = notes.flatMap((n) => n.vat_breakdown).filter((r) => r.rate === row.rate);
@@ -212,7 +248,7 @@ function toRow(
   today: string,
 ): { row: InvoiceRow; lines: InvoiceLine[] } {
   const lines = invoiceLines(db, invoice.id);
-  const totals = computeTotals(lines);
+  const totals = computeTotals(lines, roundingOf(invoice));
   const paid = paidCents(db, invoice.id);
   const credited = invoice.status === 'draft' ? 0 : creditedCents(db, invoice.id);
   const owed = owedCents(totals.gross_cents, credited);
@@ -277,7 +313,7 @@ export function invoiceDetail(
 ): InvoiceDetail {
   const invoice = getInvoice(db, id);
   const { row, lines } = toRow(db, invoice, today);
-  const totals = computeTotals(lines);
+  const totals = computeTotals(lines, roundingOf(invoice));
   const payments = db
     .prepare('SELECT * FROM payments WHERE invoice_id = ? ORDER BY date, id')
     .all(id) as Payment[];
@@ -287,10 +323,14 @@ export function invoiceDetail(
     note: invoice.note,
     buyer_reference: invoice.buyer_reference,
     delivery_date: invoice.delivery_date,
+    period_start: invoice.period_start,
+    period_end: invoice.period_end,
     tax_exemption_category: invoice.tax_exemption_category,
     tax_exemption_reason: invoice.tax_exemption_reason,
     parties_frozen: invoice.seller_snapshot !== null && invoice.buyer_snapshot !== null,
+    line_rounding: roundingOf(invoice),
     cancelled_at: invoice.cancelled_at,
+    cancelled_on: invoice.cancelled_on,
     cancellation_reason: invoice.cancellation_reason,
     lines,
     vat_breakdown: totals.by_rate,
@@ -303,6 +343,8 @@ export function invoiceDetail(
 export interface LineInput {
   description: string;
   quantity: number;
+  /** C62 when not given — what a line was before units existed. */
+  unit?: UnitCode;
   unitPriceCents: number;
   vatRate: number;
 }
@@ -316,17 +358,20 @@ export interface DraftInput {
   /** E-invoice fields — optional so every existing caller keeps working. */
   buyerReference?: string | null;
   deliveryDate?: string | null;
+  /** The service period, both or neither — a recurring run fills it with its own. */
+  periodStart?: string | null;
+  periodEnd?: string | null;
   taxExemptionCategory?: TaxExemptionCategory | null;
   taxExemptionReason?: string | null;
 }
 
 function writeLines(db: Database.Database, invoiceId: number, lines: LineInput[]): void {
   const insert = db.prepare(
-    `INSERT INTO invoice_lines (invoice_id, position, description, quantity, unit_price_cents, vat_rate)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO invoice_lines (invoice_id, position, description, quantity, unit, unit_price_cents, vat_rate)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
   lines.forEach((line, i) => {
-    insert.run(invoiceId, i + 1, line.description, line.quantity, line.unitPriceCents, line.vatRate);
+    insert.run(invoiceId, i + 1, line.description, line.quantity, line.unit ?? DEFAULT_UNIT, line.unitPriceCents, line.vatRate);
   });
 }
 
@@ -337,8 +382,9 @@ export function createDraft(db: Database.Database, input: DraftInput): number {
     const info = db
       .prepare(
         `INSERT INTO invoices (customer_id, status, payment_terms_days, note, created_at,
-                               buyer_reference, delivery_date, tax_exemption_category, tax_exemption_reason)
-         VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
+                               buyer_reference, delivery_date, period_start, period_end,
+                               tax_exemption_category, tax_exemption_reason)
+         VALUES (?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.customerId,
@@ -347,6 +393,8 @@ export function createDraft(db: Database.Database, input: DraftInput): number {
         input.createdAt ?? nowIso(),
         input.buyerReference ?? null,
         input.deliveryDate ?? null,
+        input.periodStart ?? null,
+        input.periodEnd ?? null,
         input.taxExemptionCategory ?? null,
         input.taxExemptionReason ?? null,
       );
@@ -369,13 +417,16 @@ export function updateDraft(db: Database.Database, id: number, input: DraftInput
   db.transaction(() => {
     db.prepare(
       `UPDATE invoices SET customer_id = ?, payment_terms_days = ?, note = ?, buyer_reference = ?,
-         delivery_date = ?, tax_exemption_category = ?, tax_exemption_reason = ? WHERE id = ?`,
+         delivery_date = ?, period_start = ?, period_end = ?, tax_exemption_category = ?, tax_exemption_reason = ?
+       WHERE id = ?`,
     ).run(
       input.customerId,
       input.paymentTermsDays,
       input.note,
       input.buyerReference ?? null,
       input.deliveryDate ?? null,
+      input.periodStart ?? null,
+      input.periodEnd ?? null,
       input.taxExemptionCategory ?? null,
       input.taxExemptionReason ?? null,
       id,
@@ -429,6 +480,18 @@ export function finalizeInvoice(
       { field: 'lines', message: 'An invoice needs at least one line item before it can be sent' },
     ]);
   }
+  // The amounts are computed from the four decimals the e-invoice states; a
+  // draft saved before quantities were limited to them may hold more, and
+  // would otherwise be issued with figures nobody can recompute.
+  const quantities = db
+    .prepare('SELECT quantity FROM invoice_lines WHERE invoice_id = ? ORDER BY position, id')
+    .all(id) as { quantity: number }[];
+  const imprecise = quantities.flatMap((l, i) =>
+    fitsQuantityDecimals(l.quantity)
+      ? []
+      : [{ field: `lines[${i}].quantity`, message: `Quantity has more than ${QUANTITY_DECIMALS} decimal places` }],
+  );
+  if (imprecise.length > 0) throw new DomainError(422, 'Validation failed', imprecise);
 
   const issue = issueDate ?? todayIso();
   const year = Number(issue.slice(0, 4));
@@ -451,8 +514,8 @@ export function finalizeInvoice(
       number = `INV-${year}-${String(counter.last_seq).padStart(4, '0')}`;
     }
     db.prepare(
-      "UPDATE invoices SET number = ?, status = 'sent', issue_date = ?, due_date = ? WHERE id = ?",
-    ).run(number, issue, due, id);
+      "UPDATE invoices SET number = ?, status = 'sent', issue_date = ?, due_date = ?, line_rounding = ? WHERE id = ?",
+    ).run(number, issue, due, LINE_ROUNDING, id);
     freeze?.(id);
     return { number, issue_date: issue, due_date: due };
   })();
@@ -485,9 +548,10 @@ export function cancelInvoice(
       `${invoice.number} is partly credited (${notes.map((n) => n.number).join(', ')}) — credit the rest with another credit note instead of cancelling`,
     );
   }
+  const at = cancelledAt ?? nowIso();
   db.prepare(
-    "UPDATE invoices SET status = 'cancelled', cancelled_at = ?, cancellation_reason = ? WHERE id = ?",
-  ).run(cancelledAt ?? nowIso(), reason, id);
+    "UPDATE invoices SET status = 'cancelled', cancelled_at = ?, cancelled_on = ?, cancellation_reason = ? WHERE id = ?",
+  ).run(at, businessDate(new Date(at)), reason, id);
 }
 
 export interface PaymentInput {
@@ -520,7 +584,7 @@ export function recordPayment(db: Database.Database, id: number, input: PaymentI
   }
 
   return db.transaction(() => {
-    const gross = owedCents(computeTotals(invoiceLines(db, id)).gross_cents, creditedCents(db, id));
+    const gross = owedCents(invoiceTotals(db, id).gross_cents, creditedCents(db, id));
     const open = gross - paidCents(db, id);
     if (input.amountCents > open) {
       throw new DomainError(422, 'Validation failed', [
@@ -558,7 +622,7 @@ export function customerLedger(db: Database.Database, customerId: number): Ledge
   let paid = 0;
 
   for (const invoice of invoices) {
-    const gross = computeTotals(invoiceLines(db, invoice.id)).gross_cents;
+    const gross = invoiceTotals(db, invoice.id).gross_cents;
     entries.push({
       date: invoice.issue_date!,
       type: 'invoice',
@@ -569,7 +633,7 @@ export function customerLedger(db: Database.Database, customerId: number): Ledge
     });
     if (invoice.status === 'cancelled') {
       entries.push({
-        date: invoice.cancelled_at!.slice(0, 10),
+        date: invoice.cancelled_on!,
         type: 'cancellation',
         invoice_id: invoice.id,
         number: invoice.number!,

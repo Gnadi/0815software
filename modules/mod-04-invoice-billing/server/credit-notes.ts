@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { computeTotals } from '../shared/money.js';
 import type { CreditNote } from '../shared/types.js';
+import { DEFAULT_UNIT } from '../shared/units.js';
 import {
   creditableByRate,
   DomainError,
@@ -8,6 +9,7 @@ import {
   getInvoice,
   invoiceLines,
   nowIso,
+  roundingOf,
   todayIso,
   type LineInput,
 } from './invoices.js';
@@ -69,7 +71,11 @@ export function issueCreditNote(
     if (issueDate > today) errors.push({ field: 'issue_date', message: 'A credit note cannot be dated in the future' });
 
     const remaining = creditableByRate(db, invoiceId);
-    const credit = computeTotals(input.lines.map((l) => ({ quantity: l.quantity, unit_price_cents: l.unitPriceCents, vat_rate: l.vatRate })));
+    // Rounded as the invoice is, so crediting every line returns exactly what it charged.
+    const credit = computeTotals(
+      input.lines.map((l) => ({ quantity: l.quantity, unit_price_cents: l.unitPriceCents, vat_rate: l.vatRate })),
+      roundingOf(invoice),
+    );
     if (credit.gross_cents <= 0) errors.push({ field: 'lines', message: 'A credit note has to credit something' });
     const invoiced = new Set(invoiceLines(db, invoiceId).map((l) => l.vat_rate));
     input.lines.forEach((line, i) => {
@@ -99,11 +105,11 @@ export function issueCreditNote(
       .run(invoiceId, seq, `${invoice.number}-GS${seq}`, issueDate, input.reason, actor, nowIso());
     const creditNoteId = Number(info.lastInsertRowid);
     const insert = db.prepare(
-      `INSERT INTO credit_note_lines (credit_note_id, position, description, quantity, unit_price_cents, vat_rate)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO credit_note_lines (credit_note_id, position, description, quantity, unit, unit_price_cents, vat_rate)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     input.lines.forEach((line, i) => {
-      insert.run(creditNoteId, i + 1, line.description, line.quantity, line.unitPriceCents, line.vatRate);
+      insert.run(creditNoteId, i + 1, line.description, line.quantity, line.unit ?? DEFAULT_UNIT, line.unitPriceCents, line.vatRate);
     });
     return getCreditNote(db, creditNoteId);
   })();

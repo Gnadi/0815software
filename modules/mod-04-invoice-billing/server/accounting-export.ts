@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3';
-import { computeTotals, type LineAmounts } from '../shared/money.js';
+import { computeTotals, LINE_ROUNDING, type LineAmounts, type LineRounding } from '../shared/money.js';
 import { BUCHUNGSSTAPEL_COLUMNS } from '../shared/datev-columns.js';
 import type { TaxExemptionCategory } from '../shared/types.js';
 import { DomainError, nowIso } from './invoices.js';
@@ -274,7 +274,7 @@ interface InvoiceRow {
   number: string;
   status: string;
   issue_date: string;
-  cancelled_at: string | null;
+  cancelled_on: string | null;
   delivery_date: string | null;
   payment_terms_days: number;
   tax_exemption_category: TaxExemptionCategory | null;
@@ -283,6 +283,8 @@ interface InvoiceRow {
   customer_vat_id: string | null;
   debtor_account: number | null;
   buyer_snapshot: string | null;
+  /** NULL only on rows written without finalize; see `roundingOf` in server/invoices.ts. */
+  line_rounding: LineRounding | null;
 }
 
 /**
@@ -296,13 +298,13 @@ export function bookingsFor(
 ): Booking[] {
   const invoices = db
     .prepare(
-      `SELECT i.id, i.number, i.status, i.issue_date, i.cancelled_at, i.delivery_date, i.payment_terms_days,
-              i.tax_exemption_category, i.customer_id, i.buyer_snapshot,
+      `SELECT i.id, i.number, i.status, i.issue_date, i.cancelled_on, i.delivery_date, i.payment_terms_days,
+              i.tax_exemption_category, i.customer_id, i.buyer_snapshot, i.line_rounding,
               c.name AS customer_name, c.vat_id AS customer_vat_id, c.debtor_account
        FROM invoices i JOIN customers c ON c.id = i.customer_id
        WHERE i.status <> 'draft'
          AND ((i.issue_date BETWEEN @from AND @to)
-              OR (i.status = 'cancelled' AND substr(i.cancelled_at, 1, 10) BETWEEN @from AND @to))
+              OR (i.status = 'cancelled' AND i.cancelled_on BETWEEN @from AND @to))
        ORDER BY i.issue_date, i.number`,
     )
     .all(range) as InvoiceRow[];
@@ -336,7 +338,8 @@ export function bookingsFor(
       delivery_date: invoice.delivery_date,
       payment_terms_days: invoice.payment_terms_days,
     };
-    const totals = computeTotals(linesByInvoice.get(invoice.id) ?? []);
+    // Booked as the invoice was issued: its own rounding, not today's.
+    const totals = computeTotals(linesByInvoice.get(invoice.id) ?? [], invoice.line_rounding ?? LINE_ROUNDING);
     const rows = totals.by_rate.map((r) => ({
       revenue_key: revenueKeyOf(r.rate, invoice.tax_exemption_category),
       rate: r.rate,
@@ -346,7 +349,7 @@ export function bookingsFor(
     if (invoice.issue_date >= range.from && invoice.issue_date <= range.to) {
       for (const r of rows) out.push({ ...base, ...r, kind: 'invoice', date: invoice.issue_date, document: invoice.number });
     }
-    const cancelledOn = invoice.cancelled_at?.slice(0, 10);
+    const cancelledOn = invoice.cancelled_on;
     if (invoice.status === 'cancelled' && cancelledOn && cancelledOn >= range.from && cancelledOn <= range.to) {
       for (const r of rows) {
         out.push({ ...base, ...r, kind: 'cancellation', date: cancelledOn, document: `${invoice.number}-ST` });
@@ -360,11 +363,11 @@ export function bookingsFor(
     .prepare(
       `SELECT cn.id AS credit_note_id, cn.number AS credit_number, cn.issue_date AS credit_date,
               i.number, i.delivery_date, i.payment_terms_days, i.tax_exemption_category, i.customer_id, i.buyer_snapshot,
-              c.name AS customer_name, c.vat_id AS customer_vat_id, c.debtor_account
+              i.line_rounding, c.name AS customer_name, c.vat_id AS customer_vat_id, c.debtor_account
        FROM credit_notes cn JOIN invoices i ON i.id = cn.invoice_id JOIN customers c ON c.id = i.customer_id
        WHERE cn.issue_date BETWEEN @from AND @to ORDER BY cn.issue_date, cn.number`,
     )
-    .all(range) as (Omit<InvoiceRow, 'id' | 'status' | 'issue_date' | 'cancelled_at'> & {
+    .all(range) as (Omit<InvoiceRow, 'id' | 'status' | 'issue_date' | 'cancelled_on'> & {
     credit_note_id: number;
     credit_number: string;
     credit_date: string;
@@ -372,7 +375,7 @@ export function bookingsFor(
   const creditLines = db.prepare('SELECT quantity, unit_price_cents, vat_rate FROM credit_note_lines WHERE credit_note_id = ? ORDER BY position, id');
   for (const cn of credits) {
     const buyer = cn.buyer_snapshot ? (JSON.parse(cn.buyer_snapshot) as { name: string; vat_id: string | null }) : null;
-    for (const r of computeTotals(creditLines.all(cn.credit_note_id) as LineAmounts[]).by_rate) {
+    for (const r of computeTotals(creditLines.all(cn.credit_note_id) as LineAmounts[], cn.line_rounding ?? LINE_ROUNDING).by_rate) {
       out.push({
         kind: 'credit_note',
         date: cn.credit_date,
@@ -400,7 +403,7 @@ export function bookingsFor(
          FROM payments p JOIN invoices i ON i.id = p.invoice_id JOIN customers c ON c.id = i.customer_id
          WHERE p.date BETWEEN @from AND @to ORDER BY p.date, p.id`,
       )
-      .all(range) as (Omit<InvoiceRow, 'id' | 'status' | 'issue_date' | 'cancelled_at' | 'tax_exemption_category'> & {
+      .all(range) as (Omit<InvoiceRow, 'id' | 'status' | 'issue_date' | 'cancelled_on' | 'tax_exemption_category'> & {
       date: string;
       amount_cents: number;
     })[];

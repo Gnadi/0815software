@@ -4,6 +4,9 @@
  * server and client can never disagree.
  */
 
+import type { LineRounding } from './money.js';
+import type { UnitCode } from './units.js';
+
 /**
  * STORED lifecycle status. Only three values ever hit the database:
  *   draft      no number yet, fully editable, deletable
@@ -51,9 +54,27 @@ export interface Customer {
    * The Republic of Austria assigns one and requires it on every invoice.
    */
   supplier_number?: string | null;
+  /**
+   * BT-47, the customer's register number ("HRB 12345"). Identifies a buyer
+   * without a VAT id for domestic reverse charge (BR-AE-02).
+   */
+  registration?: string | null;
   /** The customer's personal account (Debitor) in DATEV / BMD. Empty → numbered from settings. */
   debtor_account?: number | null;
+  /**
+   * The e-invoice this customer has to receive. Set, an invoice is only sent
+   * once it renders in that format; `none` is the explicit answer for
+   * customers who get none (consumers, abroad), NULL that nobody decided.
+   */
+  einvoice_format?: EInvoiceFormatChoice | null;
 }
+
+/**
+ * The e-invoice formats a customer can be set to receive, plus `none`. The
+ * three formats are shared/ebinterface.ts's `EInvoiceFormat`.
+ */
+export const EINVOICE_FORMAT_CHOICES = ['xrechnung', 'zugferd', 'ebinterface', 'none'] as const;
+export type EInvoiceFormatChoice = (typeof EINVOICE_FORMAT_CHOICES)[number];
 
 /**
  * The VAT category of an invoice's 0 % lines (EN 16931 BT-118 / UNCL 5305).
@@ -82,6 +103,8 @@ export interface InvoiceLine {
   position: number;
   description: string;
   quantity: number;
+  /** UN/ECE Rec 20 (shared/units.ts); C62 for every line from before units existed. */
+  unit: UnitCode;
   unit_price_cents: number;
   vat_rate: number;
   /** Derived: round(quantity × unit_price_cents). Never stored. */
@@ -131,8 +154,11 @@ export interface InvoiceDetail extends InvoiceRow {
   note: string | null;
   /** BT-10: Leitweg-ID or the customer's reference. Null → the customer's default at issue. */
   buyer_reference: string | null;
-  /** Leistungsdatum (BT-72). Null → the issue date, and the PDF says so. */
+  /** Leistungsdatum (BT-72). Null → the issue date, and the PDF says so — unless there is a period. */
   delivery_date: string | null;
+  /** Leistungszeitraum (BG-14, BT-73/74), both days inclusive; both null without one. */
+  period_start: string | null;
+  period_end: string | null;
   /** Why the 0 % lines carry no VAT — see TAX_EXEMPTION_CATEGORIES. */
   tax_exemption_category: TaxExemptionCategory | null;
   tax_exemption_reason: string | null;
@@ -143,7 +169,15 @@ export interface InvoiceDetail extends InvoiceRow {
    * existed, which read today's master data.
    */
   parties_frozen: boolean;
+  /**
+   * How the line nets are rounded (shared/money.ts): the rule the invoice was
+   * finalized under, the current one for a draft. A credit note on it is
+   * computed the same way, the client's preview included.
+   */
+  line_rounding: LineRounding;
   cancelled_at: string | null;
+  /** The day it was cancelled, in the business time zone: the cancellation's own date. */
+  cancelled_on: string | null;
   cancellation_reason: string | null;
   lines: InvoiceLine[];
   vat_breakdown: VatBreakdownRow[];
@@ -653,7 +687,7 @@ export interface RecurringTemplate {
   active: boolean;
   payment_terms_days: number;
   note: string | null;
-  lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[];
+  lines: { description: string; quantity: number; unit: UnitCode; unit_price_cents: number; vat_rate: number }[];
   buyer_reference: string | null;
   tax_exemption_category: TaxExemptionCategory | null;
   tax_exemption_reason: string | null;

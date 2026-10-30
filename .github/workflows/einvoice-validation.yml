@@ -1,0 +1,76 @@
+name: E-invoice validation
+
+# Every e-invoice MOD-04 would serve, validated by the reference tooling rather
+# than by this repository's own code: Mustang (the EN 16931 and XRechnung 3.0
+# schematrons, veraPDF for the ZUGFeRD PDF/A). That is the golden cases and
+# every case of test/einvoice-matrix.ts the module does not refuse
+# (scripts/validate-einvoice.sh). The module's own rule check was found to let
+# invalid files through (docs/E-RECHNUNG-REVIEW.md, H2); this is what keeps it
+# honest against the artefacts.
+#
+# test.yml stays offline. This is the one job that downloads anything: a single
+# pinned Mustang jar from Maven Central, refused unless its SHA-256 matches.
+# Bumping MUSTANG_VERSION means re-pinning MUSTANG_SHA256 (the .sha1 Maven
+# Central publishes next to the jar is the cross-check).
+
+on:
+  push:
+    paths:
+      - 'modules/mod-04-invoice-billing/**'
+      - '.github/workflows/einvoice-validation.yml'
+  pull_request:
+    paths:
+      - 'modules/mod-04-invoice-billing/**'
+      - '.github/workflows/einvoice-validation.yml'
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  MUSTANG_VERSION: '2.26.0'
+  MUSTANG_SHA256: '42d7868cb68264874a7b8cab4c3587b03b23ccc7cd72373da917f66758bb9736'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # Same order as the module suites in test.yml: the module copies the
+      # clients package through a file: link, so it has to be built first.
+      - name: Build platform/clients (before the module install)
+        working-directory: platform/clients
+        run: |
+          npm ci
+          npm run build
+      - name: Install MOD-04
+        working-directory: modules/mod-04-invoice-billing
+        run: npm ci
+
+      - name: Cache the Mustang jar
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mustang
+          key: mustang-${{ env.MUSTANG_VERSION }}-${{ env.MUSTANG_SHA256 }}
+      - name: Fetch Mustang (pinned, checksum-verified)
+        run: |
+          jar="$HOME/.cache/mustang/Mustang-CLI-$MUSTANG_VERSION.jar"
+          mkdir -p "$(dirname "$jar")"
+          if [ ! -f "$jar" ]; then
+            curl -fsSL --retry 5 --retry-delay 20 -o "$jar" \
+              "https://repo1.maven.org/maven2/org/mustangproject/Mustang-CLI/$MUSTANG_VERSION/Mustang-CLI-$MUSTANG_VERSION.jar"
+          fi
+          echo "$MUSTANG_SHA256  $jar" | sha256sum -c -
+          echo "MUSTANG_JAR=$jar" >> "$GITHUB_ENV"
+
+      - name: Validate every file MOD-04 would serve
+        working-directory: modules/mod-04-invoice-billing
+        run: npm run einvoice:validate

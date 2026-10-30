@@ -712,7 +712,7 @@ textarea.field__input {
 
 .inv-line {
   display: grid;
-  grid-template-columns: 1fr 90px 130px 90px 32px;
+  grid-template-columns: 1fr 90px 120px 130px 90px 32px;
   gap: 10px;
   align-items: end;
 }
@@ -894,7 +894,7 @@ textarea.field__input {
   }
 
   .inv-line {
-    grid-template-columns: 1fr 70px 100px 70px 32px;
+    grid-template-columns: 1fr 70px 90px 100px 70px 32px;
   }
 }
 

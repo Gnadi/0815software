@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
-import { COUNTRY_RE } from '../shared/address.js';
+import { isCountryCode } from '../shared/countries.js';
+import { isPhoneNumber, MISTYPED_LEITWEG, mistypedLeitweg, parseElectronicAddress, parseSchemeIdentifier } from '../shared/einvoice.js';
 import { ibanProblem, isValidBic, normalizeBic, normalizeIban } from '../shared/sepa.js';
 import type { SellerConfig } from './config.js';
 import { DomainError, nowIso } from './invoices.js';
@@ -44,12 +45,14 @@ export const SELLER_KEYS = [
   'vatId',
   'taxNumber',
   'registration',
+  'identifier',
   'iban',
   'bic',
   'contactName',
   'phone',
   'email',
   'einvoiceAddress',
+  'legalInformation',
 ] as const;
 export type SellerKey = (typeof SELLER_KEYS)[number];
 
@@ -67,12 +70,14 @@ export const SELLER_ENV_NAMES: Record<SellerKey, string> = {
   vatId: 'SELLER_VAT_ID',
   taxNumber: 'SELLER_TAX_NUMBER',
   registration: 'SELLER_REGISTRATION',
+  identifier: 'SELLER_IDENTIFIER',
   iban: 'SELLER_IBAN',
   bic: 'SELLER_BIC',
   contactName: 'SELLER_CONTACT_NAME',
   phone: 'SELLER_PHONE',
   email: 'SELLER_EMAIL',
   einvoiceAddress: 'SELLER_EINVOICE_ADDRESS',
+  legalInformation: 'SELLER_LEGAL_INFORMATION',
 };
 
 export type SellerOverrides = Partial<Pick<SellerConfig, SellerKey>>;
@@ -206,12 +211,14 @@ const LIMITS: Record<Exclude<SellerKey, 'addressLines'>, number> = {
   vatId: 20,
   taxNumber: 32,
   registration: 80,
+  identifier: 80,
   iban: 42,
   bic: 16,
   contactName: 120,
   phone: 40,
   email: 160,
   einvoiceAddress: 200,
+  legalInformation: 300,
 };
 
 /**
@@ -255,7 +262,7 @@ export function writeSellerSettings(
     }
     if (key === 'country') {
       value = value.toUpperCase();
-      if (!COUNTRY_RE.test(value)) problems.push({ field: key, message: 'ISO 3166 code such as DE or AT' });
+      if (!isCountryCode(value)) problems.push({ field: key, message: 'ISO 3166 code such as DE or AT' });
     }
     if (key === 'vatId') {
       value = value.replace(/\s/g, '').toUpperCase();
@@ -270,8 +277,22 @@ export function writeSellerSettings(
       value = normalizeBic(value);
       if (!isValidBic(value)) problems.push({ field: key, message: 'BIC has 8 or 11 characters, e.g. BYLADEMMXXX' });
     }
-    if ((key === 'email' || (key === 'einvoiceAddress' && value.includes('@'))) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+    if (key === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
       problems.push({ field: key, message: 'not an email address' });
+    }
+    if (key === 'phone' && !isPhoneNumber(value)) {
+      problems.push({ field: key, message: 'a phone number with at least three digits, e.g. +49 89 123456' });
+    }
+    if (key === 'einvoiceAddress') {
+      const address = parseElectronicAddress(value);
+      if (address === null) {
+        problems.push({ field: key, message: 'an email address, a Leitweg-ID or a Peppol ID written scheme:identifier, e.g. 0088:4000001000005' });
+      } else if (address.scheme === '0204' && mistypedLeitweg(address.value)) {
+        problems.push({ field: key, message: `Leitweg-ID ${MISTYPED_LEITWEG}` });
+      }
+    }
+    if (key === 'identifier' && parseSchemeIdentifier(value) === null) {
+      problems.push({ field: key, message: 'scheme:identifier with an ISO 6523 scheme, e.g. 0088:4000001000005 for a GLN' });
     }
     overrides[key] = value;
   }

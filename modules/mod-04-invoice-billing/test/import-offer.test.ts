@@ -169,6 +169,7 @@ describe('POST /api/invoices/import-offer', () => {
         unit_price_cents: l.unit_price_cents,
         vat_rate: l.vat_rate,
       })),
+      invoice.line_rounding,
     );
     expect(recomputed.gross_cents).toBe(doc.totals.gross_cents);
   });

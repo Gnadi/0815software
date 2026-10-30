@@ -69,15 +69,15 @@
         </ram:SpecifiedTaxRegistration>
       </ram:SellerTradeParty>
       <ram:BuyerTradeParty>
-        <ram:Name>Kunde GmbH</ram:Name>
+        <ram:Name>Kunde AG</ram:Name>
         <ram:PostalTradeAddress>
-          <ram:PostcodeCode>1010</ram:PostcodeCode>
-          <ram:LineOne>Ring 5</ram:LineOne>
-          <ram:CityName>Wien</ram:CityName>
+          <ram:PostcodeCode>10115</ram:PostcodeCode>
+          <ram:LineOne>Kundenweg 5</ram:LineOne>
+          <ram:CityName>Berlin</ram:CityName>
           <ram:CountryID>DE</ram:CountryID>
         </ram:PostalTradeAddress>
         <ram:URIUniversalCommunication>
-          <ram:URIID schemeID="EM">ap@kunde.at</ram:URIID>
+          <ram:URIID schemeID="EM">ap@kunde.de</ram:URIID>
         </ram:URIUniversalCommunication>
       </ram:BuyerTradeParty>
     </ram:ApplicableHeaderTradeAgreement>

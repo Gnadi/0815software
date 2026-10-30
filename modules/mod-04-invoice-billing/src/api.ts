@@ -18,8 +18,9 @@ import type {
 } from '../shared/types';
 import type { EInvoiceProblem, SellerParty } from '../shared/einvoice';
 import type { EInvoiceFormat } from '../shared/ebinterface';
+import type { UnitCode } from '../shared/units';
 import type { DunningNotice, DunningRow, DunningSettings } from '../shared/types';
-import type { CreditNote, RecurringInterval, RecurringTemplate, TaxExemptionCategory } from '../shared/types';
+import type { CreditNote, EInvoiceFormatChoice, RecurringInterval, RecurringTemplate, TaxExemptionCategory } from '../shared/types';
 
 /** What the recurring-template form sends: the schedule plus a draft's fields. */
 export interface RecurringPayload {
@@ -34,7 +35,7 @@ export interface RecurringPayload {
   buyer_reference: string | null;
   tax_exemption_category: TaxExemptionCategory | '' | null;
   tax_exemption_reason: string | null;
-  lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[];
+  lines: { description: string; quantity: number; unit?: UnitCode; unit_price_cents: number; vat_rate: number }[];
 }
 
 interface GeneratedDraft {
@@ -107,7 +108,7 @@ export const api = {
   },
   /** Record what a human confirmed. Each application is independent. */
   applyReceivables: (
-    applications: { booking_key: string; invoice_id: number; amount_cents: number; date: string; note?: string }[],
+    applications: { booking_key: string; invoice_id: number; amount_cents: number; date?: string; note?: string }[],
   ) => request<{ outcomes: ReceivableOutcome[] }>('/api/receivables/apply', post({ applications })),
   login: (username: string, password: string) =>
     request<{ ok: true }>('/api/login', post({ username, password })),
@@ -155,7 +156,7 @@ export const api = {
   /** A partial credit note — issued at once, never changed. */
   issueCreditNote: (
     id: number,
-    payload: { reason: string; issue_date?: string; lines: { description: string; quantity: number; unit_price_cents: number; vat_rate: number }[] },
+    payload: { reason: string; issue_date?: string; lines: { description: string; quantity: number; unit?: UnitCode; unit_price_cents: number; vat_rate: number }[] },
   ) => request<CreditNote>(`/api/invoices/${id}/credit-notes`, { method: 'POST', body: JSON.stringify(payload) }),
   cancel: (id: number, reason: string) =>
     request<InvoiceDetail>(`/api/invoices/${id}/cancel`, post({ reason })),
@@ -268,13 +269,38 @@ export const api = {
   discardRun: (id: number) => request<PaymentRunDetail>(`/api/payment-runs/${id}/discard`, post()),
 };
 
+/** A file that went out: stored at its first download and served unchanged since. */
+export interface IssuedDocumentInfo {
+  document: string;
+  format: EInvoiceFormat;
+  number: string;
+  filename: string;
+  sha256: string;
+  renderer: string;
+  created_at: string;
+  created_by: string;
+}
+
+/**
+ * For a draft, what each format would refuse if it were sent now; for an
+ * issued invoice, what it refuses and which files already went out. `format`
+ * is the customer's — set, a draft is refused until it renders in it.
+ */
 export type EInvoiceStatus =
-  | { available: false; reason: string; parties_frozen: false }
+  | {
+      available: false;
+      reason: string;
+      parties_frozen: false;
+      format: EInvoiceFormatChoice | null;
+      problems: Record<EInvoiceFormat, EInvoiceProblem[]>;
+    }
   | {
       available: true;
+      format: EInvoiceFormatChoice | null;
       parties_frozen: boolean;
       cancellation: boolean;
       problems: Record<EInvoiceFormat, EInvoiceProblem[]>;
+      issued: IssuedDocumentInfo[];
     };
 
 export interface RevenueAccount {

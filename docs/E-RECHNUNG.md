@@ -24,9 +24,10 @@ not covered by the mandate.
 
 An e-invoice is an invoice in a **structured format that conforms to
 EN 16931** and can be processed electronically. A PDF sent by email is not one.
-XRechnung qualifies, and so does ZUGFeRD from profile EN 16931 (formerly
-"COMFORT") up. The MINIMUM and BASIC WL profiles do not, so this module never
-writes them.
+XRechnung qualifies, and so does ZUGFeRD in profile EN 16931 (formerly
+"COMFORT") and above. The BMF rules out MINIMUM and BASIC WL; whether BASIC
+suffices, the literature does not agree. This module writes EN 16931, which
+qualifies beyond doubt, and none of the others.
 
 Austria has no general B2B mandate. Invoices to the Austrian federal
 government (since 2014) go through e-Rechnung.gv.at as **ebInterface** or
@@ -62,6 +63,17 @@ master data since. GoBD and § 14 UStG expect exactly that.
 Invoices issued before this release have no frozen copy. They read today's
 master data, as they always did, and the API reports `parties_frozen: false`.
 
+The **file** is frozen too, at its first delivery. The first download of a
+format of a document (the invoice, its cancellation, a credit note) renders
+it and stores the bytes in `issued_documents`, with their SHA-256, the
+renderer version and who downloaded it; every later download serves exactly
+those bytes (`server/issued-documents.ts`). Rendering again would only be
+byte-identical as long as the renderer never changed, and § 14b UStG asks for
+the document that was issued, kept for eight years. Until the first
+download nothing has left the module, so a file first fetched after an
+upgrade is rendered by the code of that day. The table refuses updates and
+deletions in the schema itself. The invoice screen lists what went out.
+
 The ZUGFeRD PDF always shows the invoice **as issued**: no payments, not
 marked cancelled. Its two halves must say the same thing, and the XML is the
 invoice that was sent.
@@ -71,9 +83,18 @@ invoice that was sent.
 Cancelling keeps the invoice and its number (unchanged module rule), and the
 original e-invoice stays downloadable as it was. The cancellation itself is a
 **credit note**: type code 381, number `<invoice number>-ST`, dated on the day
-of cancellation, with BT-25/26 referring to the cancelled invoice and the
+of cancellation in the business time zone (`BUSINESS_TIMEZONE`, Europe/Berlin
+unless set; so is the issue date of an invoice finalized without one), with BT-25/26 referring to the cancelled invoice and the
 payment means set to 97 (settled between the parties). It is available for
 both formats with `?document=cancellation`.
+
+It calls itself a **Stornorechnung** ("Stornorechnung zur Rechnung … vom …"
+in BT-22, and as the PDF/A title), a partial credit note a
+**Rechnungskorrektur**. Neither says "Gutschrift": in German VAT law that is
+the invoice the recipient issues itself (§ 14 Abs. 2 Satz 2 UStG). The word
+on a seller's correction triggers no tax under § 14c UStG (Abschn. 14c.1
+Abs. 3 UStAE), but a recipient that processes self-billing could take the
+document for one. BT-20 says only what happens to the money.
 
 ### Partial credit notes (Teilgutschriften)
 
@@ -95,7 +116,7 @@ Lines above 0 % are category `S`. Lines at 0 % carry the invoice's
 | Code | Meaning | Default exemption text (BT-120) | VATEX (BT-121) | Also required |
 | ---- | ------- | ------------------------------- | -------------- | ------------- |
 | `E` | exempt (§ 4 UStG, § 6 UStG-AT, § 19 UStG Kleinunternehmer …) | none, **you must state the legal ground** | — | — |
-| `AE` | reverse charge | Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge) | VATEX-EU-AE | both VAT ids |
+| `AE` | reverse charge | Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge) | VATEX-EU-AE | across a border both VAT ids (§ 14a Abs. 1 UStG). At home (§ 13b UStG, seller and buyer in one country) what BR-AE-02 takes: the seller's VAT id or Steuernummer, the buyer's VAT id or register number (BT-47). ebInterface keeps both UIDs, which Austrian reverse charge requires |
 | `K` | intra-EU supply of goods | Steuerfreie innergemeinschaftliche Lieferung | VATEX-EU-IC | both VAT ids. The buyer address is written as the delivery address |
 | `G` | export outside the EU | Steuerfreie Ausfuhrlieferung | VATEX-EU-G | — |
 | `Z` | zero-rated | — | — | — |
@@ -140,11 +161,13 @@ they carry the seller frozen at issue.
 | street, postcode, city | BT-35, BT-38, BT-37 | both, when the address does not read cleanly | `SELLER_STREET`, `SELLER_POSTCODE`, `SELLER_CITY` |
 | country (ISO) | BT-40 | both. Defaults to the address's country line, else the VAT id prefix | `SELLER_COUNTRY` |
 | VAT id | BT-31 | both. The shipped placeholder `ATU00000000` is refused | `SELLER_VAT_ID` |
-| Steuernummer | BT-32 | instead of / beside the VAT id | `SELLER_TAX_NUMBER` |
-| register number | BT-30 | when there is no VAT id (BR-CO-26), and for category `O` | `SELLER_REGISTRATION` |
-| IBAN, BIC | BT-84, BT-86 | both (payment means 58). The IBAN is also the debtor of every payment file and is check-digit validated on save | `SELLER_IBAN`, `SELLER_BIC` |
-| contact person, phone, email | BT-41, BT-42, BT-43 | **XRechnung** | `SELLER_CONTACT_NAME`, `SELLER_PHONE`, `SELLER_EMAIL` |
-| e-invoice address | BT-34 | **XRechnung**. Defaults to the contact email | `SELLER_EINVOICE_ADDRESS` |
+| Steuernummer | BT-32 | instead of / beside the VAT id. Printed in the PDF footer too (§ 14 Abs. 4 Nr. 2 UStG) | `SELLER_TAX_NUMBER` |
+| register number | BT-30 | when there is no VAT id (BR-CO-26), and for category `O`. Printed in the PDF footer | `SELLER_REGISTRATION` |
+| seller identifier | BT-29 | the third way to meet BR-CO-26 without a VAT id: `scheme:identifier` with an ISO 6523 scheme (BR-CL-10), e.g. `0088:4000001000005` for a GLN. Written as `GlobalID`, printed in the PDF footer. A Steuernummer alone does not count (review S5); a customer's supplier number does, see below | `SELLER_IDENTIFIER` |
+| IBAN, BIC | BT-84, BT-86 | invoices in every format (payment means 58; a credit note names no account). The IBAN must be a SEPA IBAN whose check digits match, on save and before every file; the BIC is optional. The shipped placeholders `AT00 0000 0000 0000 0000` and `EXAMPLEX` are refused. The IBAN is also the debtor of every payment file | `SELLER_IBAN`, `SELLER_BIC` |
+| contact person, phone, email | BT-41, BT-42, BT-43 | **XRechnung**. The phone needs at least three digits (BR-DE-27), so "n/a" is refused | `SELLER_CONTACT_NAME`, `SELLER_PHONE`, `SELLER_EMAIL` |
+| business letter details | BT-33 | Not for EN 16931, but for company law: a GmbH, AG, KG or e.K. must state its registered office, register court and managing directors on every business letter, invoices included (§ 35a GmbHG, § 80 AktG, § 125a and § 37a HGB; Austria § 14 UGB). One text, printed in the footer of invoices and dunning letters and written to the XML as the seller's additional legal information | `SELLER_LEGAL_INFORMATION` |
+| e-invoice address | BT-34 | **XRechnung**. Defaults to the contact email. An email address, a Leitweg-ID, or a Peppol ID written `scheme:identifier`, the scheme from the EAS list (BR-CL-25); anything else is refused | `SELLER_EINVOICE_ADDRESS` |
 
 Below the fields, the screen shows whether XRechnung and ZUGFeRD are
 **READY**, or what is still missing. The API is `GET` / `PUT
@@ -153,55 +176,118 @@ Below the fields, the screen shows whether XRechnung and ZUGFeRD are
 ### The customer (Customers screen)
 
 All optional. An empty structured field is read from the printed address,
-and the country falls back to the VAT id's prefix.
+and the country falls back to the VAT id's prefix. A "postcode city" line is
+read in the format of the address's country only: the country field, else a
+country line ("Netherlands"), else a letter prefix ("D-80331"), else the VAT
+id. "1012 LG Amsterdam" is postcode `1012 LG` in Amsterdam, "90-001 Łódź"
+postcode `90-001`. A country whose format the module does not know (GB, IE,
+the US …), a postcode that is not in the country's format, or an address
+without any country leaves postcode and city to their own fields, and the
+file is refused until they are filled in (`shared/address.ts`).
 
 | Field | Business term | Needed for |
 | ----- | ------------- | ---------- |
 | street / postcode / city / country (ISO) | BT-50, BT-53, BT-52, BT-55 | country for both. City and postcode for XRechnung |
 | VAT id | BT-48 | reverse charge, intra-EU supply |
 | buyer reference | BT-10 | **XRechnung**. The **Leitweg-ID** for a public body, otherwise the reference the customer wants quoted (order number, contact). For ebInterface it is the order reference (`OrderID`) — the **Auftragsreferenz** the Austrian federal government requires. An invoice can carry its own |
-| our supplier number | — | **ebInterface** `InvoiceRecipientsBillerID` — the **Lieferantennummer** the Austrian federal government assigns and requires. Frozen at issue like every party field |
-| e-invoice address | BT-49 | **XRechnung**. Defaults to the email. A Leitweg-ID here is sent with scheme `0204`, an email with `EM` |
+| our supplier number | BT-29 | **ebInterface** `InvoiceRecipientsBillerID` — the **Lieferantennummer** the Austrian federal government assigns and requires. In XRechnung and ZUGFeRD it is the seller identifier without a scheme, which EN 16931 describes as "a previously exchanged Buyer assigned identifier of the Seller" — so it also meets BR-CO-26. Printed on the PDF. Frozen at issue like every party field |
+| register number | BT-47 | Domestic reverse charge for a customer without a VAT id ("HRB 98765"), written as its legal organisation and printed under the address |
+| e-invoice address | BT-49 | **XRechnung**. Defaults to the email. One of three kinds, each sent with its scheme: an email address (`EM`), a Leitweg-ID (`0204`), or a Peppol ID written `scheme:identifier` such as `0088:4012345000009` or `9930:DE987654321`, the scheme from the EAS list (BR-CL-25). Free text ("Buchhaltung, Frau Meier") is refused on save and before every file — it used to go out as an `EM` address that reaches nobody, and no validator objects. ebInterface takes only an email here. A Leitweg-ID must carry its check digits (ISO/IEC 7064 MOD 97-10, Formatspezifikation Leitweg-ID 2.0.2): the customer is refused on save, and so is its buyer reference when that is a Leitweg-ID with the wrong digits. The message does not suggest the right ones — the typo may be anywhere |
+| e-invoice format | — | The format this customer receives: XRechnung, ZUGFeRD, ebInterface, or none. Set, a draft for the customer is **refused at finalize** until it renders in it (see below). Empty means nobody decided, and nothing is checked |
 
 ### Per invoice (editor)
 
-Service date (Leistungsdatum, BT-72; empty means the issue date), buyer
-reference, and, for 0 % lines, the VAT category and exemption text.
+Service date (Leistungsdatum, BT-72; empty means the issue date), service
+period (Leistungszeitraum, BG-14: first and last day, both or neither — a
+monthly fee, a maintenance contract), buyer reference, and, for 0 % lines,
+the VAT category and exemption text. With a period and no service date of its
+own, BT-72 is the period's last day — EN 16931 has it as the day the supply was
+"made or completed", and an empty delivery block draws ZUGFeRD 2.5's
+PEPPOL-EN16931-R008 (a warning there for now). The PDF shows the period as
+*SERVICE FROM* / *SERVICE TO*, ebInterface as *Delivery/Period*. Recurring
+invoices fill the period of each run.
+
+Each line has a **unit** (BT-130): piece, hour, day, week, month, year,
+minute, lump sum, kilometre, kilogram, tonne, metre, square and cubic metre,
+litre, kilowatt hour, set or pair — UN/ECE Recommendation 20 codes from the
+list EN 16931 prescribes (BR-CL-23), offered as a choice rather than as the
+2,000-odd codes of the list. A piece (C62) is the default and what every line
+from before was sent as. A credit note's line is in the unit it names, a
+recurring template's in the unit of its line. Offers and delivery notes
+taken over from other modules (`shared/transfer.ts`) carry no unit yet and
+arrive as pieces.
 
 ### Before the first one goes out
 
-The invoice detail screen lists, per format, exactly what is still missing,
-with its business term. Nothing can be downloaded in a state that would fail
-validation. Send one invoice to the customer and ask them to confirm their
-system accepted it.
+Already on the **draft**, the invoice screen lists per format exactly what is
+still missing, with its business term, computed from the data sending would
+freeze. That matters, because after sending nothing in the invoice can be
+completed: a missing postcode or buyer reference could then only be supplied
+by cancelling the invoice and issuing a new one. A customer set to an
+e-invoice format therefore gets the draft **refused at finalize** (422,
+listing the fields) until it renders in that format — before a number is
+drawn, from PS-10 too, so a refusal leaves no gap.
+
+Nothing can be downloaded in a state that would fail validation. Send one
+invoice to the customer and ask them to confirm their system accepted it.
 
 ## Validation
 
 Validation happens in three layers, and the first two run in every test run:
 
-1. **Golden files.** `test/fixtures/einvoice/` holds the XML of the eleven
-   cases in `test/einvoice-cases.ts` (standard DE, `AE`, `K`, `G`, `E`, `Z`,
-   `O`, exempt mixed with taxed lines, seller with Steuernummer only,
-   cancellation, public buyer by Leitweg-ID), in both profiles. The renderer
-   must reproduce them byte for byte.
+1. **Golden files.** `test/fixtures/einvoice/` holds the XML of the cases
+   in `test/einvoice-cases.ts` (standard DE, `AE`, `K`, `G`, `E`, `Z`, `O`,
+   exempt mixed with taxed lines, seller with Steuernummer only,
+   cancellation, partial credit note, public buyer by Leitweg-ID, a
+   four-decimal quantity with texts long enough to wrap), in both profiles.
+   The renderer must reproduce them byte for byte.
 2. **Schema.** Every case is checked against the Factur-X EN16931 XSD
-   (`test/schema/cii-en16931/`) with `xmllint`.
-3. **External rules, before a golden file is changed.**
-   `npm run einvoice:validate` (`scripts/validate-einvoice.sh`, needs Java and
-   `MUSTANG_JAR`) renders every case, plus a ZUGFeRD PDF of each, and runs
-   them through [Mustang](https://www.mustangproject.org/) 2.26.0. That covers
-   the EN 16931 schematron, the XRechnung 3.0 schematron (KoSIT rules BR-DE-*)
-   and veraPDF for PDF/A-3b. All 22 XML files and 11 PDFs passed when this
-   was written. So did the files the API itself serves: an invoice with
-   0.333 × €999.99, a reverse-charge invoice, and both of their cancellations.
+   (`test/schema/cii-en16931/`) with `xmllint` — and so is every case of the
+   **matrix** in `test/einvoice-matrix.ts` that the module does not refuse:
+   nine VAT situations × six ways the seller is identified × seven buyers,
+   plus credit notes (387 models, about half of them accepted per profile).
+   The review's probes that used to be served although invalid are pinned in
+   `test/einvoice-rules.test.ts`.
+3. **External rules.** `npm run einvoice:validate`
+   (`scripts/validate-einvoice.sh`, needs Java and `MUSTANG_JAR`) renders the
+   golden cases with a ZUGFeRD PDF each, and every accepted matrix case in
+   both profiles, and runs them through
+   [Mustang](https://www.mustangproject.org/) 2.26.0: the EN 16931 schematron
+   1.3.16, the XRechnung schematron 2.4.0 (XRechnung 3.0.2, KoSIT rules
+   BR-DE-*) and veraPDF for PDF/A-3b. All files go through one JVM
+   (`scripts/MustangBatch.java`, Mustang's own validator class): about 20
+   seconds for the 476 files, where starting the CLI per file took minutes.
+   The rule is one-directional: what the module refuses is never served, so
+   only what it accepts must be valid. The workflow
+   `.github/workflows/einvoice-validation.yml` runs it on every MOD-04
+   change, with the Mustang jar pinned by SHA-256 — the only CI job that
+   downloads anything.
+
+**Line amounts** are quantity × unit price, rounded half up to the cent, in
+integers from the quantity's four decimals — the definition of BT-131, and
+what Peppol checks (PEPPOL-EN16931-R120); the CEN and XRechnung artefacts do
+not. A quantity takes at most four decimals, the number the XML states.
+Invoices issued before this rule keep the floating-point rounding they were
+issued with (see the module README, Money).
 
 A change to `shared/einvoice.ts` breaks the golden test on purpose. Run the
-external check, then `npm run einvoice:fixtures`, then commit.
+external check, then `npm run einvoice:fixtures`, then commit. Regenerated
+golden files also fail the renderer fingerprint in
+`test/issued-documents.test.ts` until `RENDERER_VERSION`
+(`server/issued-documents.ts`) is bumped: the stored files name the renderer
+that produced them.
 
-**Version watch.** XRechnung 3.0.x is current. KoSIT is preparing
-XRechnung 4.0 alongside the revised EN 16931, which is not backwards
-compatible. When it is published, the specification identifier and the
-rules change, and this document and the golden files need a new pass.
+**Version watch** (as of 22 October 2026). XRechnung 3.0.2 is current and
+stays in force until at least 31 July 2027. KoSIT published a pre-release of
+XRechnung 4.0.0 on 15 September 2026, not for production use; the final
+release is expected in spring 2027 and implements EN 16931-1:2026, which CEN
+adopted in March 2026 and which is not backwards compatible. ZUGFeRD is at
+2.5 / Factur-X 1.09 (June 2026, based on CII D22B and backwards compatible
+with the D16B this module writes). The BMF added a third letter on
+e-invoices on 15 October 2026. When XRechnung 4.0 is final, the
+specification identifier and the rules change, and this document and the
+golden files need a new pass. The sources, and the gaps in the standards
+themselves, are in [`E-RECHNUNG-REVIEW.md`](./E-RECHNUNG-REVIEW.md).
 
 ## ebInterface, the Austrian format
 
@@ -236,7 +322,7 @@ same frozen parties and the same money:
 
 **Validation.** `test/schema/ebinterface-6p1/Invoice.xsd` is the official 6.1
 schema from AUSTRIAPRO's standards repository; every case (the four Austrian
-ones in `test/ebinterface-cases.ts` and all eleven EN 16931 cases) is checked
+ones in `test/ebinterface-cases.ts` and every EN 16931 case) is checked
 against it with `xmllint` on every test run. The schema's own sample passes
 and its deliberately broken sample fails, which proves the check looks. The
 Austrian cases have golden files (`npm run ebinterface:fixtures` regenerates
@@ -320,19 +406,32 @@ check the first file in its preview.
 Each of these is out of scope on purpose. Each one is a contained addition
 if a customer needs it.
 
-- **Sending.** There is no PEPPOL access point and no email delivery of the
-  XML. With PS-03 wired, issuing still emails the plain PDF. Delivering
-  e-invoices over a channel is a separate integration.
-- **Receiving.** The bills side does not read incoming XRechnung or ZUGFeRD.
-  The receiving obligation is met by any mailbox that keeps the XML; reading
-  it into a bill is a feature still to build.
+- **Sending.** There is no PEPPOL access point and no delivery of the file
+  by email: PS-03 carries no attachments, so with it wired, issuing tells
+  the customer that the invoice was issued, and nothing more. With PS-06
+  wired, the archive gets what the customer receives: the e-invoice in the
+  format set on the customer, the bytes every download serves, else the PDF.
+  Delivering the file itself over a channel is a separate integration.
+- **Receiving.** With PS-04 wired (`AI_URL`), the Bills screen reads an
+  incoming XRechnung, ZUGFeRD or ebInterface file into the bill form, lines
+  included (MOD-04 README, *Read from the document*). The bill keeps the
+  file's SHA-256, not the file: keeping the received XML as it came, as
+  § 14b UStG and the GoBD require, is left to the mailbox or an archive.
 - **UBL.** The PEPPOL UBL syntax is not written; it would be a new renderer
   over the same `EInvoiceModel`, as ebInterface is.
-- **Allowances, charges, discounts, units.** Lines carry no allowances or
-  charges and are always in unit `C62` (piece). Skonto terms are not encoded.
-- **Archiving.** The module stores the data, not the issued bytes. The files
-  are reproducible (byte-identical on every download) but not signed or
-  archived. PS-06 archives the plain PDF when wired. GoBD-compliant
+- **Allowances, charges, discounts.** Lines carry no allowances or charges.
+  Skonto terms are not encoded. (Units of measure are: see *Per invoice*.)
+- **Every alphabet in the PDF.** The PDF is written in WinAnsi
+  (Windows-1252): German and the other Western European languages, Š, Ž and
+  Œ included. A letter outside it is shown without its accent (Łódź as
+  Lódz), a script without Latin letters as question marks. The XML is UTF-8
+  and carries every name exactly; the PDF would need a Unicode font
+  (Identity-H) to do the same.
+- **Archiving beyond the module.** Issued e-invoices are stored as
+  delivered, with their SHA-256, append-only (see *The invoice as issued*),
+  but not signed, not timestamped by a third party and not copied to an
+  archive outside the module's database; backups carry them. PS-06 archives,
+  when wired, the document in the customer's format. Revision-proof
   long-term storage is still open (`docs/PLATFORM-READINESS.md`, D2).
 - **Debtor master data for DATEV / BMD.** Only bookings are exported. The
   adviser creates or imports the personal accounts.

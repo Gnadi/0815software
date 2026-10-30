@@ -30,6 +30,8 @@ const seller: SellerConfig = {
   vatId: 'ATU12345678',
   iban: 'AT611904300234573201',
   bic: 'BKAUATWW',
+  registration: 'FN 123456a',
+  legalInformation: 'Sitz Wien · Firmenbuchgericht Handelsgericht Wien',
 };
 
 let db: Database.Database;
@@ -143,6 +145,9 @@ describe('a notice is a stored fact', () => {
     const text = (first.body as Buffer).toString('latin1');
     expect(text).toContain('ZAHLUNGSERINNERUNG');
     expect(text).toContain('Offener Gesamtbetrag');
+    // A business letter names the company as the law asks (§ 35a GmbHG), as the invoice does.
+    expect(text).toContain('(Sitz Wien \\267 Firmenbuchgericht Handelsgericht Wien) Tj'); // · is WinAnsi 0xB7
+    expect(text).toContain('(FN 123456a) Tj');
   });
 });
 

@@ -71,8 +71,8 @@ MOD-04 Invoice & Billing is the reference implementation
 
 | View | One row per | Key | Cancellation fields |
 | ---- | ----------- | --- | ------------------- |
-| `report_invoices` | non-draft invoice — header, customer, net/VAT/gross, credited, paid, outstanding (gross − credited − paid), days overdue | `invoice_number` | `status`, `is_cancelled`, `cancelled_at`, `cancellation_reason` |
-| `report_invoice_lines` | invoice line, with the line net | `invoice_number` + `line_position` | `status`, `is_cancelled` |
+| `report_invoices` | non-draft invoice — header, customer, net/VAT/gross, credited, paid, outstanding (gross − credited − paid), days overdue | `invoice_number` | `status`, `is_cancelled`, `cancelled_at`, `cancelled_on`, `cancellation_reason` |
+| `report_invoice_lines` | invoice line, with the line net and its unit (`unit_code`, UN/ECE Rec 20) | `invoice_number` + `line_position` | `status`, `is_cancelled` |
 | `report_payments` | payment, joined to invoice and customer | `payment_id` | `invoice_status`, `invoice_is_cancelled` |
 | `report_credit_notes` | partial credit note, with its own net/VAT/gross and the invoice it corrects | `credit_note_number` | `invoice_status`, `invoice_is_cancelled` |
 | `report_receivables_aging` | customer with an open balance, in the conventional buckets | `customer_id` | n/a — cancelled invoices are excluded |
@@ -98,6 +98,15 @@ Nothing else in the database may use that prefix. Column names are
   breaking change cannot happen by accident. MOD-04's
   `test/report-views.test.ts` does exactly this.
 
+**Dates are business days.** A date column (`issue_date`, `due_date`,
+`payment_date`, `cancelled_on`) is a day in the owning module's business time
+zone, and so is the *today* a view counts from: MOD-04's `days_overdue` counts
+from today in `BUSINESS_TIMEZONE`, as its screens do. SQLite knows no IANA
+zones, and a consumer reads the file in its own process with its own local
+time, so the view carries the zone's UTC offsets and the instants they change
+at, rebuilt on every start (`server/business-date.ts`). A timestamp
+(`cancelled_at`) is a UTC instant; `cancelled_on` is the day it fell on there.
+
 **Only business facts.** Nothing provisional is published. In MOD-04 that means
 **drafts never appear**: a draft invoice has no number and no issue date, and
 is not a fact about the business yet.
@@ -118,8 +127,10 @@ probably needs refunding.
 **Money is computed the way the module computes it.** A view must not re-derive
 rounding in SQL that differs from the application's. If the module rounds per
 line, the view rounds per line. MOD-04's views mirror `shared/money.ts` exactly
-— net rounded per line, VAT rounded once per rate on that rate's tax base — and
-a test asserts a view's total equals `computeTotals()` for the same invoice.
+— net rounded per line with the invoice's own `line_rounding` (decimal since
+the e-invoice review, float for invoices issued before it, which keep their
+amounts), VAT rounded once per rate on that rate's tax base — and a test
+asserts a view's total equals `computeTotals()` for the same invoice.
 This is the rule that stops a receivables report and an invoice PDF from
 disagreeing about what a customer owes.
 

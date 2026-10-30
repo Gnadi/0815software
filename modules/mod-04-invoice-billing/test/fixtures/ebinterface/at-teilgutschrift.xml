@@ -68,7 +68,7 @@
   <TotalGrossAmount>60.00</TotalGrossAmount>
   <PayableAmount>60.00</PayableAmount>
   <PaymentConditions>
-    <Comment>Gutschrift — wird mit offenen Beträgen verrechnet oder erstattet.</Comment>
+    <Comment>Wird mit offenen Beträgen verrechnet oder erstattet.</Comment>
   </PaymentConditions>
-  <Comment>Gutschrift zur Rechnung RE-2026-0042 vom 2026-10-21: Preisnachlass wegen Verzug</Comment>
+  <Comment>Rechnungskorrektur zur Rechnung RE-2026-0042 vom 2026-10-21: Preisnachlass wegen Verzug</Comment>
 </Invoice>

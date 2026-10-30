@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { businessDaySql } from './business-date.js';
 
 /**
  * Open (or create) the database and ensure the schema exists.
@@ -441,6 +442,13 @@ export function openDb(path: string): Database.Database {
     db.exec('ALTER TABLE customers ADD COLUMN supplier_number TEXT');
   }
 
+  // The customer's register number (BT-47, "HRB 12345"): BR-AE-02 takes it
+  // instead of a VAT id for domestic reverse charge (§ 13b UStG), where the
+  // law asks for none (review N6).
+  if (!columns('customers').includes('registration')) {
+    db.exec('ALTER TABLE customers ADD COLUMN registration TEXT');
+  }
+
   // What an issued invoice must keep saying, whatever the master data does
   // later. `seller_snapshot` / `buyer_snapshot` are JSON frozen in the same
   // transaction that assigns the number (server/einvoice-data.ts) — the
@@ -488,9 +496,102 @@ export function openDb(path: string): Database.Database {
     db.exec('ALTER TABLE accounting_settings ADD COLUMN updated_by TEXT');
   }
 
+  // The e-invoice format a customer has to receive (XRechnung, ZUGFeRD,
+  // ebInterface, or explicitly none). Set, it is checked before a number is
+  // drawn: a frozen invoice that cannot be rendered in it can never be fixed
+  // (server/einvoice-data.ts, `assertIssuable`). NULL means nobody decided.
+  if (!columns('customers').includes('einvoice_format')) {
+    db.exec('ALTER TABLE customers ADD COLUMN einvoice_format TEXT');
+  }
+
+  // The e-invoice files as they left this module (server/issued-documents.ts).
+  // Rendering on every download kept them identical only while the renderer
+  // stayed the same; § 14b UStG wants the issued document itself kept for eight
+  // years, so the first delivery of a format freezes its bytes here and later
+  // downloads serve that row. The triggers make the archive refuse an edit or
+  // a deletion instead of relying on no code path trying one.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS issued_documents (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      invoice_id   INTEGER NOT NULL REFERENCES invoices(id),
+      document     TEXT    NOT NULL
+                     CHECK (document IN ('invoice', 'cancellation') OR document GLOB 'credit_note:[1-9]*'),
+      format       TEXT    NOT NULL CHECK (format IN ('xrechnung', 'zugferd', 'ebinterface')),
+      number       TEXT    NOT NULL,
+      filename     TEXT    NOT NULL,
+      content_type TEXT    NOT NULL,
+      content      BLOB    NOT NULL,
+      sha256       TEXT    NOT NULL,
+      renderer     TEXT    NOT NULL,
+      created_at   TEXT    NOT NULL,
+      created_by   TEXT    NOT NULL,
+      UNIQUE (invoice_id, document, format)
+    );
+    CREATE TRIGGER IF NOT EXISTS issued_documents_no_update BEFORE UPDATE ON issued_documents
+    BEGIN SELECT RAISE(ABORT, 'issued documents are immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS issued_documents_no_delete BEFORE DELETE ON issued_documents
+    BEGIN SELECT RAISE(ABORT, 'issued documents are immutable'); END;
+  `);
+
+  // Which rounding an invoice's line nets are computed with (shared/money.ts,
+  // `LineRounding`). Every invoice issued before this column existed was
+  // computed in floating point and keeps that: its amounts were sent, paid and
+  // booked, and the exact rule would move about one line in a thousand by a cent.
+  // Finalizing stamps the current rule; a draft has none yet.
+  if (!columns('invoices').includes('line_rounding')) {
+    db.transaction(() => {
+      db.exec("ALTER TABLE invoices ADD COLUMN line_rounding TEXT CHECK (line_rounding IN ('decimal', 'float'))");
+      db.exec("UPDATE invoices SET line_rounding = 'float' WHERE status <> 'draft'");
+    })();
+  }
+
+  // The service period (BG-14) of an invoice billed for a span of time — a
+  // monthly fee — instead of the made-up delivery date and free-text note it
+  // used to get. Both or neither; checked by the API (server/app.ts).
+  if (!columns('invoices').includes('period_start')) {
+    db.exec('ALTER TABLE invoices ADD COLUMN period_start TEXT');
+    db.exec('ALTER TABLE invoices ADD COLUMN period_end TEXT');
+  }
+
+  // The day an invoice was cancelled, in the business time zone
+  // (server/business-date.ts): the date of its cancellation document (BT-2),
+  // of its reversal in the DATEV/BMD export and in the ledger. Read off the UTC
+  // instant `cancelled_at`, it was the day before between midnight and 01:00 or
+  // 02:00 (review N1). Fixed when cancelling, like an issue date, so a later
+  // change of BUSINESS_TIMEZONE moves no cancellation that was already
+  // exported; earlier rows keep the UTC day they have always shown.
+  if (!columns('invoices').includes('cancelled_on')) {
+    db.transaction(() => {
+      db.exec('ALTER TABLE invoices ADD COLUMN cancelled_on TEXT');
+      db.exec('UPDATE invoices SET cancelled_on = substr(cancelled_at, 1, 10) WHERE cancelled_at IS NOT NULL');
+    })();
+  }
+
+  // The unit a line is billed in (BT-130, shared/units.ts). Every line before
+  // it was sent as C62, a piece, and stays that: what went out does not change.
+  if (!columns('invoice_lines').includes('unit')) {
+    db.exec("ALTER TABLE invoice_lines ADD COLUMN unit TEXT NOT NULL DEFAULT 'C62'");
+  }
+  if (!columns('credit_note_lines').includes('unit')) {
+    db.exec("ALTER TABLE credit_note_lines ADD COLUMN unit TEXT NOT NULL DEFAULT 'C62'");
+  }
+
   ensureReportViews(db);
 
   return db;
+}
+
+/**
+ * shared/money.ts `lineNetCents` in SQL, for line `l` of invoice `i`. The
+ * decimal branch is integer arithmetic: ten-thousandths up to 10^10 times a
+ * unit price up to 10^8 cents stays inside SQLite's 64-bit integers, and
+ * integer division of a non-negative value floors, so `+ 5000` rounds half up.
+ */
+function lineNetSql(l: string, i: string): string {
+  return (
+    `CASE WHEN ${i}.line_rounding = 'float' THEN CAST(ROUND(${l}.quantity * ${l}.unit_price_cents) AS INTEGER) ` +
+    `ELSE (CAST(ROUND(${l}.quantity * 10000) AS INTEGER) * ${l}.unit_price_cents + 5000) / 10000 END`
+  );
 }
 
 function dropReportViews(db: Database.Database): void {
@@ -517,9 +618,10 @@ function dropReportViews(db: Database.Database): void {
  * 1. DRAFTS NEVER APPEAR. A draft has no number and no issue date; it is not a
  *    business fact yet. Every view filters `status <> 'draft'`.
  * 2. MONEY IS COMPUTED EXACTLY AS shared/money.ts COMPUTES IT — line net is
- *    rounded PER LINE, VAT is rounded ONCE PER RATE on that rate's tax base,
- *    gross is their sum. Nothing is re-derived with different rounding, and
- *    api.test.ts asserts a view total equals computeTotals() for the same
+ *    rounded PER LINE, with the invoice's own `line_rounding` (`lineNetSql`),
+ *    VAT is rounded ONCE PER RATE on that rate's tax base, gross is their sum.
+ *    Nothing is re-derived with different rounding, and api.test.ts and
+ *    money.test.ts assert a view total equals computeTotals() for the same
  *    invoice. (SQLite's round() and JS's Math.round() agree on the
  *    non-negative values this schema allows: quantity > 0, unit price >= 0.)
  * 3. CANCELLED INVOICES ARE INCLUDED AND MARKED, so a report can filter them
@@ -549,6 +651,8 @@ function ensureReportViews(db: Database.Database): void {
   // Reverse dependency order: dependants first.
   dropReportViews(db);
 
+  // SQLite has no IANA zones; the expression carries the zone's offsets.
+  const today = businessDaySql();
   db.exec(`
     -- One row per partial credit note, with its own money — rounded as any
     -- document is: per line, then VAT once per rate on its own base. A credit
@@ -579,8 +683,10 @@ function ensureReportViews(db: Database.Database): void {
         SELECT
           l.credit_note_id,
           l.vat_rate,
-          SUM(CAST(ROUND(l.quantity * l.unit_price_cents) AS INTEGER)) AS base_cents
+          SUM(${lineNetSql('l', 'li')}) AS base_cents
         FROM credit_note_lines l
+        JOIN credit_notes lcn ON lcn.id = l.credit_note_id
+        JOIN invoices li ON li.id = lcn.invoice_id
         GROUP BY l.credit_note_id, l.vat_rate
       )
       GROUP BY credit_note_id
@@ -611,15 +717,18 @@ function ensureReportViews(db: Database.Database): void {
                                                       AS outstanding_cents,
       -- Whole days past due_date, and only while money is still owed. 0 for a
       -- settled, cancelled or not-yet-due invoice, so it never reads as debt.
+      -- Counted from today in the business time zone, as the screens count it.
       CASE
         WHEN i.due_date IS NULL THEN 0
         WHEN COALESCE(t.net_cents, 0) + COALESCE(t.vat_cents, 0) - COALESCE(cr.credited_cents, 0) - COALESCE(p.paid_cents, 0) <= 0 THEN 0
         WHEN i.status = 'cancelled' THEN 0
-        WHEN date('now') <= i.due_date THEN 0
-        ELSE CAST(julianday(date('now')) - julianday(i.due_date) AS INTEGER)
+        WHEN ${today} <= i.due_date THEN 0
+        ELSE CAST(julianday(${today}) - julianday(i.due_date) AS INTEGER)
       END                                             AS days_overdue,
       -- Appended, not inserted: a consumer reading by position keeps working.
-      COALESCE(cr.credited_cents, 0)                  AS credited_cents
+      COALESCE(cr.credited_cents, 0)                  AS credited_cents,
+      -- The cancellation's own date, the business day of cancelled_at.
+      i.cancelled_on                                  AS cancelled_on
     FROM invoices i
     JOIN customers c ON c.id = i.customer_id
     LEFT JOIN (
@@ -633,8 +742,9 @@ function ensureReportViews(db: Database.Database): void {
         SELECT
           l.invoice_id,
           l.vat_rate,
-          SUM(CAST(ROUND(l.quantity * l.unit_price_cents) AS INTEGER)) AS base_cents
+          SUM(${lineNetSql('l', 'li')}) AS base_cents
         FROM invoice_lines l
+        JOIN invoices li ON li.id = l.invoice_id
         GROUP BY l.invoice_id, l.vat_rate
       )
       GROUP BY invoice_id
@@ -661,9 +771,11 @@ function ensureReportViews(db: Database.Database): void {
       l.quantity                                        AS quantity,
       l.unit_price_cents                                AS unit_price_cents,
       l.vat_rate                                        AS vat_rate,
-      CAST(ROUND(l.quantity * l.unit_price_cents) AS INTEGER) AS line_net_cents,
+      ${lineNetSql('l', 'i')} AS line_net_cents,
       i.status                                          AS status,
-      CASE WHEN i.status = 'cancelled' THEN 1 ELSE 0 END AS is_cancelled
+      CASE WHEN i.status = 'cancelled' THEN 1 ELSE 0 END AS is_cancelled,
+      -- Appended: UN/ECE Rec 20, C62 for a piece and for every line before units.
+      l.unit                                            AS unit_code
     FROM invoice_lines l
     JOIN invoices i ON i.id = l.invoice_id
     WHERE i.status <> 'draft';

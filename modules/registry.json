@@ -319,6 +319,7 @@
         "optional": [
           "AT_TAXS_REMITTANCE_PATTERN",
           "BANK_CONNECTION",
+          "BUSINESS_TIMEZONE",
           "NOTIFICATION_INVOICE_CHANNEL",
           "SELLER_BIC",
           "SELLER_CITY",
@@ -327,6 +328,8 @@
           "SELLER_EINVOICE_ADDRESS",
           "SELLER_EMAIL",
           "SELLER_IBAN",
+          "SELLER_IDENTIFIER",
+          "SELLER_LEGAL_INFORMATION",
           "SELLER_PHONE",
           "SELLER_POSTCODE",
           "SELLER_REFRESH_MS",
