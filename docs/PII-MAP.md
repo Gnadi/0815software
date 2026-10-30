@@ -15,7 +15,7 @@ one customer's stack.
 | **PS-02 Workflow** | Whatever the caller puts in event/instance `payload`/`input` (may reference people) | No dedicated PII store; payloads are caller-controlled. Bound at the source module; instances can be deleted by the operator. |
 | **PS-03 Notification** | Recipient address (email/phone), message subject/body (often personal) | `RETENTION_DAYS` prunes **sent** and **dead** messages on tick (`pruneMessages`). In-flight (`queued`/`failed`) messages are never pruned. |
 | **PS-04 AI Platform** | Prompt/response text and RAG documents (may contain personal data). Document extraction (`/api/extract/invoice`) keeps **no content**: the `extractions` log holds the document's SHA-256, the route taken and which fields were found — never names, amounts or bank accounts. A document read by a model is sent to that provider; which model (if any) is the calling module's admin setting (MOD-04: off by default) | Completions and RAG docs are caller-supplied; delete by collection / row. No long-term requirement to keep completions. |
-| **PS-05 Integration** | Third-party **credentials** (AES-256-GCM encrypted, never returned), external account ids | Credentials are encrypted at rest with `INTEGRATION_ENCRYPTION_KEY`; deleting a connection removes them. |
+| **PS-05 Integration** | Third-party **credentials** (AES-256-GCM encrypted, never returned), external account ids. A mailbox (`imap`) connection holds the mailbox password the same way; the mail itself is **passed through, not stored** — fetched, parsed and handed to the module, nothing of it kept. A failed read is recorded on the connection's events as what failed, never a message or a password | Credentials are encrypted at rest with `INTEGRATION_ENCRYPTION_KEY`; deleting a connection removes them. The messages stay in the mailbox (marked read), under the mailbox owner's own retention. |
 | **PS-06 Files** | Object contents + metadata (whatever is uploaded) | Objects deleted via `DELETE /api/objects/:bucket/:key`; buckets are operator-managed. |
 | **PS-07 Audit** | Actor ids, and before/after snapshots that may embed personal data | `POST /api/rotate` + `RETENTION_DAYS` prune events older than the window while advancing the hash-chain anchor, so the tamper-evident chain still verifies over the surviving events. |
 | **PS-08 Payments** | Payment reference, amounts, PSP ids (pseudonymous); no card data (that stays at the PSP) | Intents/ledger are financial records — typically retained for statutory periods, not erased. No raw PAN is ever stored. |
@@ -59,6 +59,16 @@ it — typically after offboarding.
 **Reminders in MOD-11.** A reminder (unsubmitted week, timer left running) is a
 PS-03 message to the employee's email; `reminders_sent` keeps the address, the
 occasion and when — PS-03 retention covers the message body.
+
+**Attachments, ratings and mail in MOD-12.** Files on tickets (`attachments`,
+the bytes in the module's own database — screenshots and logs may show
+personal data) follow their event's visibility; a satisfaction rating keeps the
+score and the requester's optional comment; `mail_ingests` keeps each taken-over
+message's Message-ID, sender address and subject with what became of it, never
+the body (that is in the ticket). PS-06 holds a copy of each attachment when
+`FILES_URL` is set. All are append-only like the timeline; erasing a requester
+means erasing their tickets' rows in MOD-12 (no route yet — see below) and the
+PS-06 objects under `mod-12-attachments/<ref>/`.
 
 ## Subject access & portability (Art. 15 / 20)
 
@@ -111,6 +121,9 @@ deployment's ticker/cron.
   (`deploy/export-subject.mjs`); the write side does not, deliberately, because
   an erasure that half-succeeds across four services is worse than one an
   operator performs deliberately.
+- **Erasing a requester in MOD-12.** Tickets, their timeline, attachments and
+  ratings are append-only by design; there is no erase route yet, so it is an
+  operator's deliberate step on the module's database (and the PS-06 copies).
 - **Module-side subject export.** The platform services answer for themselves;
   the fourteen modules do not, so a subject access request still needs a manual
   pass over the module holding that person's domain records. The fan-out names

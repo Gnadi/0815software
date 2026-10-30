@@ -1,4 +1,5 @@
 import type { AuthConfig } from './auth.js';
+import type { AttachmentLimits } from './attachments.js';
 import { shellOriginsFromEnv } from './hardening.js';
 import type { PlatformConfig } from './platform.js';
 import type { SsoConfig } from './sso.js';
@@ -17,6 +18,9 @@ export interface ServerConfig {
   auth: AuthConfig;
   platform: PlatformConfig;
   sso: SsoConfig;
+  attachments: AttachmentLimits;
+  /** Where requesters reach this module: the status and rating links in mails. */
+  publicBaseUrl: string;
 }
 
 /**
@@ -58,8 +62,14 @@ function numberFromEnv(
  * one file each: see ./status-config.ts and ./sla-config.ts.
  */
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfig {
+  const port = numberFromEnv('PORT', env.PORT, 3012, 1, 65535);
   return {
-    port: numberFromEnv('PORT', env.PORT, 3012, 1, 65535),
+    port,
+    publicBaseUrl: env.PUBLIC_BASE_URL || `http://localhost:${port}`,
+    attachments: {
+      maxBytes: numberFromEnv('ATTACHMENT_MAX_BYTES', env.ATTACHMENT_MAX_BYTES, 10 * 1024 * 1024, 1024, 50 * 1024 * 1024),
+      perMessage: numberFromEnv('ATTACHMENTS_PER_MESSAGE', env.ATTACHMENTS_PER_MESSAGE, 5, 1, 20),
+    },
     databasePath: env.DATABASE_PATH ?? './data.db',
     shellOrigins: shellOriginsFromEnv(env.SHELL_ORIGIN),
     auth: {
@@ -80,6 +90,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       notificationUrl: env.NOTIFICATION_URL || undefined,
       auditUrl: env.AUDIT_URL || undefined,
       aiUrl: env.AI_URL || undefined,
+      filesUrl: env.FILES_URL || undefined,
+      integrationUrl: env.INTEGRATION_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
       ackChannel: env.NOTIFICATION_ACK_CHANNEL || undefined,
     },

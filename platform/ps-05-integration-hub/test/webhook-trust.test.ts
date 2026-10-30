@@ -40,7 +40,8 @@ const token = async (): Promise<string> =>
 
 describe('inbound webhook trust', () => {
   it('does not claim a signature was verified when the provider has none', async () => {
-    const unsigned = REGISTRY.filter((p) => p.signature_scheme === 'none');
+    // A mailbox (imap) takes no webhooks at all — mailbox.test.ts pins its 404.
+    const unsigned = REGISTRY.filter((p) => p.signature_scheme === 'none' && p.transport !== 'imap');
     expect(unsigned.length).toBeGreaterThan(0); // google, microsoft
 
     for (const entry of unsigned) {

@@ -120,9 +120,25 @@ export async function checkEgressTarget(
     return { allowed: false, reason: `protocol ${url.protocol} is not allowed` };
   }
 
-  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (policy.allowHosts.has(hostname) || policy.allowHosts.has(`${hostname}:${url.port}`)) {
-    return { allowed: true };
+  const { allowed, reason } = await checkEgressHost(url.hostname, url.port, policy, resolve);
+  return allowed ? { allowed } : { allowed, reason };
+}
+
+/**
+ * Judge one host and port — the part of the check that is not about HTTP, so
+ * a mailbox (IMAP) connection goes through the same gate. Returns the address
+ * the check approved: a caller that opens its own socket connects to exactly
+ * that address, which closes the rebinding gap `fetch` leaves open.
+ */
+export async function checkEgressHost(
+  rawHost: string,
+  port: string | number,
+  policy: EgressPolicy,
+  resolve: ResolveHost = defaultResolve,
+): Promise<EgressVerdict & { address?: string }> {
+  const hostname = rawHost.toLowerCase().replace(/^\[|\]$/g, '');
+  if (policy.mode === 'off' || policy.allowHosts.has(hostname) || policy.allowHosts.has(`${hostname}:${port}`)) {
+    return { allowed: true, address: hostname };
   }
 
   // A literal address needs no lookup — and must not get one, or a resolver
@@ -130,18 +146,18 @@ export async function checkEgressTarget(
   if (isIP(hostname) !== 0) {
     return addressIsInternal(hostname)
       ? { allowed: false, reason: `${hostname} is an internal address` }
-      : { allowed: true };
+      : { allowed: true, address: hostname };
   }
 
   let addresses: string[];
   try {
     addresses = await resolve(hostname);
   } catch {
-    return { allowed: true }; // unresolvable: nothing to reach, let fetch fail
+    return { allowed: true, address: hostname }; // unresolvable: nothing to reach, let the connect fail
   }
   const internal = addresses.find((address) => addressIsInternal(address));
   return internal === undefined
-    ? { allowed: true }
+    ? { allowed: true, address: addresses[0] ?? hostname }
     : { allowed: false, reason: `${hostname} resolves to the internal address ${internal}` };
 }
 

@@ -56,7 +56,8 @@ through the shared [`clients`](./clients) package.
   prompt management, agents, image & speech; deterministic mock plus Anthropic,
   OpenAI, Gemini, Kimi and Ollama (open-source) adapters.
 - [PS-05 · Integration Hub](./ps-05-integration-hub) — encrypted OAuth
-  connections, REST/GraphQL proxy, inbound webhooks and sync jobs for third-party SaaS.
+  connections, REST/GraphQL proxy, inbound webhooks and sync jobs for third-party SaaS,
+  and IMAP mailboxes read as parsed mail (TLS only, nothing marked read until acknowledged).
 - [PS-06 · File Storage](./ps-06-file-storage) — tenant-scoped buckets,
   content-addressed objects, and HMAC-signed download URLs.
 - [PS-07 · Audit Log](./ps-07-audit-log) — append-only, hash-chained

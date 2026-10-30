@@ -2,15 +2,18 @@ import { useCallback, useEffect, useState } from 'react';
 import type {
   Agent,
   AppConfig,
+  CannedResponse,
   Priority,
+  SlaLeg,
   Status,
   TicketDetail as TicketDetailData,
   TicketEvent,
 } from '../../shared/types';
 import { api, ApiError } from '../api';
-import { fmtDateTime, fmtRelative } from '../format';
+import { fmtDateTime, fmtMinutes, fmtRelative } from '../format';
 import { PriorityBadge, SlaBadge, StatusBadge } from './Badges';
 import { Can, useCan } from '../access';
+import { AttachmentList, FilePicker, toUploads } from './Files';
 
 interface Props {
   ticketRef: string;
@@ -20,7 +23,7 @@ interface Props {
   onAuthLost: () => void;
 }
 
-function EventRow({ ev, agentName }: { ev: TicketEvent; agentName: string }) {
+function EventRow({ ev, agentName, fileHref }: { ev: TicketEvent; agentName: string; fileHref: (id: number) => string }) {
   const actor =
     ev.actor_type === 'agent' ? `${ev.actor} · agent` : ev.actor_type === 'system' ? 'system' : ev.actor;
   return (
@@ -32,7 +35,8 @@ function EventRow({ ev, agentName }: { ev: TicketEvent; agentName: string }) {
       <div className="event__body">
         {ev.type === 'created' && (
           <span className="event__line">
-            Ticket created via {ev.payload.channel ?? 'web'} at {(ev.payload.to_priority ?? 'normal').toUpperCase()} priority.
+            Ticket created via {ev.payload.channel ?? 'web'} at {(ev.payload.to_priority ?? 'normal').toUpperCase()} priority
+            {ev.attachments.length > 0 ? `, with ${ev.attachments.length} file${ev.attachments.length === 1 ? '' : 's'}` : ''}.
           </span>
         )}
         {ev.type === 'status_change' && (
@@ -58,13 +62,47 @@ function EventRow({ ev, agentName }: { ev: TicketEvent; agentName: string }) {
             className={`comment comment--${ev.actor_type === 'agent' ? (ev.visibility === 'internal' ? 'internal' : 'agent') : 'requester'}`}
           >
             <span className="comment__tag mono">
-              {ev.visibility === 'internal' ? 'INTERNAL NOTE' : ev.actor_type === 'agent' ? 'PUBLIC REPLY' : 'REQUESTER'}
+              {ev.payload.other_sender
+                ? `BY EMAIL FROM ${ev.payload.other_sender.toUpperCase()} — NOT THE REQUESTER, KEPT INTERNAL`
+                : ev.visibility === 'internal'
+                  ? 'INTERNAL NOTE'
+                  : ev.actor_type === 'agent'
+                    ? 'PUBLIC REPLY'
+                    : 'REQUESTER'}
             </span>
             {ev.payload.body}
+            <AttachmentList attachments={ev.attachments} href={fileHref} />
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function SlaRows({ label, leg }: { label: string; leg: SlaLeg }) {
+  return (
+    <>
+      <div className="panel__row">
+        <span className="mono">{label}</span>
+        <SlaBadge leg={leg} />
+      </div>
+      <div className="panel__row">
+        <span className="mono" style={{ color: 'var(--fg-mute)' }}>
+          {leg.state === 'paused' ? 'DUE IF IT RAN NOW' : 'DUE'}
+        </span>
+        <span className="mono" style={{ fontSize: 11 }} title={leg.due_at}>
+          {fmtRelative(leg.due_at)}
+        </span>
+      </div>
+      {leg.remaining_minutes !== null && (
+        <div className="panel__row">
+          <span className="mono" style={{ color: 'var(--fg-mute)' }}>LEFT</span>
+          <span className="mono" style={{ fontSize: 11 }}>
+            {fmtMinutes(leg.remaining_minutes)} {leg.business_hours ? 'BUSINESS HOURS' : ''}
+          </span>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -73,6 +111,9 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
   const [error, setError] = useState('');
   const [reply, setReply] = useState('');
   const [visibility, setVisibility] = useState<'public' | 'internal'>('public');
+  const [files, setFiles] = useState<File[]>([]);
+  const [canned, setCanned] = useState<CannedResponse[]>([]);
+  const [cannedId, setCannedId] = useState<number | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   // Status, priority and assignment stay visible as state; only an agent who
   // can edit may change them.
@@ -92,6 +133,23 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
     void load();
   }, [load]);
 
+  useEffect(() => {
+    api
+      .canned()
+      .then((r) => setCanned(r.canned_responses.filter((c) => c.active)))
+      .catch(() => setCanned([]));
+  }, []);
+
+  async function applyCanned(id: number) {
+    try {
+      const filled = await api.renderCanned(ticketRef, id);
+      setReply(filled.body);
+      setCannedId(filled.canned_id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not fill the canned response');
+    }
+  }
+
   async function act(fn: () => Promise<TicketDetailData>) {
     setBusy(true);
     setError('');
@@ -107,8 +165,11 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
 
   async function sendComment() {
     if (reply.trim() === '') return;
-    await act(() => api.comment(ticketRef, reply, visibility));
+    const uploads = await toUploads(files);
+    await act(() => api.comment(ticketRef, reply, visibility, uploads, cannedId));
     setReply('');
+    setFiles([]);
+    setCannedId(undefined);
   }
 
   if (!ticket) {
@@ -123,6 +184,8 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
   }
 
   const agentName = ticket.assignee_name ?? '';
+  const fileHref = (id: number) => api.attachmentUrl(ticket.ref, id);
+  const opening = ticket.events.find((e) => e.type === 'created');
 
   return (
     <div>
@@ -146,13 +209,16 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
         <div className="detail__main">
           <div className="panel">
             <div className="panel__title mono">ORIGINAL MESSAGE</div>
-            <div className="comment comment--requester">{ticket.body}</div>
+            <div className="comment comment--requester">
+              {ticket.body}
+              <AttachmentList attachments={opening?.attachments ?? []} href={fileHref} />
+            </div>
           </div>
 
           <div className="section-title mono">TIMELINE · APPEND-ONLY</div>
           <div className="thread">
             {ticket.events.map((ev) => (
-              <EventRow key={ev.id} ev={ev} agentName={agentName} />
+              <EventRow key={ev.id} ev={ev} agentName={agentName} fileHref={fileHref} />
             ))}
           </div>
 
@@ -172,16 +238,30 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
                   INTERNAL NOTE
                 </button>
               </div>
+              {canned.length > 0 && (
+                <select className="field__input composer__canned" value="" onChange={(e) => e.target.value && void applyCanned(Number(e.target.value))}>
+                  <option value="">Start from a canned response…</option>
+                  {canned.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.title}
+                    </option>
+                  ))}
+                </select>
+              )}
               <textarea
                 className="field__input"
                 value={reply}
-                onChange={(e) => setReply(e.target.value)}
+                onChange={(e) => {
+                  setReply(e.target.value);
+                  if (e.target.value === '') setCannedId(undefined);
+                }}
                 placeholder={
                   visibility === 'public'
                     ? 'Reply to the requester — visible on their status page…'
                     : 'Internal note — never shown to the requester…'
                 }
               />
+              <FilePicker files={files} onChange={setFiles} maxBytes={config.attachments.max_bytes} perMessage={config.attachments.per_message} disabled={busy} />
               <div className="composer__actions">
                 <button className="btn btn--primary" onClick={() => void sendComment()} disabled={busy || reply.trim() === ''}>
                   {visibility === 'public' ? 'POST REPLY →' : 'ADD NOTE →'}
@@ -209,24 +289,28 @@ export function TicketDetail({ ticketRef, config, agents, onBack, onAuthLost }: 
           </div>
 
           <div className="panel">
-            <div className="panel__title mono">SLA · DERIVED</div>
-            <div className="panel__row">
-              <span className="mono">FIRST RESPONSE</span>
-              <SlaBadge leg={ticket.sla.first_response} />
+            <div className="panel__title mono">
+              SLA · DERIVED · {ticket.sla.policy_version === null ? 'DEFAULT POLICY' : `POLICY V${ticket.sla.policy_version}`}
             </div>
-            <div className="panel__row">
-              <span className="mono" style={{ color: 'var(--fg-mute)' }}>DUE</span>
-              <span className="mono" style={{ fontSize: 11 }}>{fmtRelative(ticket.sla.first_response.due_at)}</span>
-            </div>
-            <div className="panel__row">
-              <span className="mono">RESOLUTION</span>
-              <SlaBadge leg={ticket.sla.resolution} />
-            </div>
-            <div className="panel__row">
-              <span className="mono" style={{ color: 'var(--fg-mute)' }}>DUE</span>
-              <span className="mono" style={{ fontSize: 11 }}>{fmtRelative(ticket.sla.resolution.due_at)}</span>
-            </div>
+            <SlaRows label="FIRST RESPONSE" leg={ticket.sla.first_response} />
+            <SlaRows label="RESOLUTION" leg={ticket.sla.resolution} />
           </div>
+
+          {ticket.ratings.length > 0 && (
+            <div className="panel">
+              <div className="panel__title mono">RATED BY THE REQUESTER</div>
+              {ticket.ratings.map((r) => (
+                <div key={r.id} className="rating-line">
+                  <span className="mono rating-stars" aria-label={`${r.score} of 5`}>
+                    {'★'.repeat(r.score)}
+                    {'☆'.repeat(5 - r.score)}
+                  </span>
+                  <span className="mono table__id">{fmtDateTime(r.created_at)}</span>
+                  {r.comment && <p className="rating-comment">{r.comment}</p>}
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="panel">
             <div className="panel__title mono">SET STATUS</div>

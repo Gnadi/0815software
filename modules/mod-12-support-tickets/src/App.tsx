@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AccessProvider, type AccessLevel } from './access';
+import { CannedView } from './components/CannedView';
+import { SettingsView } from './components/SettingsView';
 import type { Agent, AppConfig } from '../shared/types';
 import { api, ApiError } from './api';
 import { AgentsView } from './components/AgentsView';
@@ -16,13 +18,17 @@ type AgentView =
   | { name: 'ticket'; ref: string }
   | { name: 'dashboard' }
   | { name: 'agents' }
-  | { name: 'policy' };
+  | { name: 'policy' }
+  | { name: 'canned' }
+  | { name: 'settings' };
 
-const NAV: { view: AgentView; label: string }[] = [
+const NAV: { view: AgentView; label: string; manage?: boolean }[] = [
   { view: { name: 'queue' }, label: 'Queue' },
-  { view: { name: 'dashboard' }, label: 'SLA Dashboard' },
+  { view: { name: 'dashboard' }, label: 'Dashboard' },
   { view: { name: 'agents' }, label: 'Agents' },
   { view: { name: 'policy' }, label: 'SLA Policy' },
+  { view: { name: 'canned' }, label: 'Canned Responses' },
+  { view: { name: 'settings' }, label: 'Settings', manage: true },
 ];
 
 /** The authenticated agent console (login gate → shell). */
@@ -76,7 +82,7 @@ function AgentConsole() {
             <span>SUPPORT TICKETS</span>
           </div>
           <nav className="sidebar__nav">
-            {NAV.map(({ view: target, label }) => (
+            {NAV.filter((n) => !n.manage || access === 'manage').map(({ view: target, label }) => (
               <button
                 key={target.name}
                 className={`sidebar__item mono ${target.name === activeNav ? 'is-active' : ''}`}
@@ -114,7 +120,9 @@ function AgentConsole() {
           )}
           {view.name === 'dashboard' && <Dashboard config={config} onAuthLost={onAuthLost} />}
           {view.name === 'agents' && <AgentsView agents={agents} />}
-          {view.name === 'policy' && <SlaPolicyView config={config} />}
+          {view.name === 'policy' && <SlaPolicyView config={config} onSaved={() => void load()} onAuthLost={onAuthLost} />}
+          {view.name === 'canned' && <CannedView onAuthLost={onAuthLost} />}
+          {view.name === 'settings' && <SettingsView onAuthLost={onAuthLost} />}
         </main>
       </div>
     </AccessProvider>

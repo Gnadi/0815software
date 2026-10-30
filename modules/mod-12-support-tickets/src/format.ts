@@ -32,6 +32,7 @@ const SLA_LABELS: Record<string, string> = {
   breached: 'BREACHED',
   at_risk: 'AT RISK',
   pending: 'PENDING',
+  paused: 'PAUSED',
 };
 
 export function slaLabel(state: string): string {

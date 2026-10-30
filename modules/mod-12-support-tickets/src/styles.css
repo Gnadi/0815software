@@ -262,6 +262,7 @@ textarea.field__input {
 
 .sidebar__nav {
   display: grid;
+  align-content: start;
   padding: 12px 0;
   flex: 1;
 }
@@ -1000,4 +1001,134 @@ textarea.field__input {
     grid-template-columns: 1fr;
     gap: 8px;
   }
+}
+
+/* ── Attachments ─────────────────────────────────────────────────────── */
+.files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+.files__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.files__hint,
+.files__size {
+  font-size: 10px;
+  color: var(--fg-mute);
+}
+.files__list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.files__list li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.files__list--links {
+  border-top: 1px solid var(--line);
+  padding-top: 6px;
+  margin-top: 10px;
+}
+.composer__canned {
+  margin-bottom: 8px;
+}
+
+/* ── Ratings ─────────────────────────────────────────────────────────── */
+.stars {
+  display: flex;
+  gap: 4px;
+  margin: 6px 0 10px;
+}
+.stars__star {
+  font-size: 28px;
+  line-height: 1;
+  color: var(--fg-mute);
+}
+.stars__star.is-on {
+  color: var(--warn);
+}
+.rating-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 0;
+}
+.rating-stars {
+  color: var(--warn);
+  letter-spacing: 1px;
+}
+.rating-comment {
+  flex-basis: 100%;
+  color: var(--fg-dim);
+  font-size: 13px;
+}
+.badge--paused {
+  color: var(--fg-dim);
+  border-color: var(--line-strong);
+}
+
+/* ── Policy and settings forms ───────────────────────────────────────── */
+.policy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  max-width: 760px;
+}
+.policy-week {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 8px 12px;
+  max-width: 760px;
+  margin-top: 8px;
+}
+.holidays {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 760px;
+  align-items: flex-start;
+}
+.holidays__row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.check {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  max-width: 760px;
+  margin: 6px 0;
+  color: var(--fg-dim);
+  line-height: 1.5;
+}
+.check input {
+  margin-top: 4px;
+}
+.editbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 14px 0;
+}
+.field__input--num {
+  width: 90px;
+  display: inline-block;
+}
+.holidays__row .field__input {
+  width: auto;
+  flex: 0 1 260px;
 }

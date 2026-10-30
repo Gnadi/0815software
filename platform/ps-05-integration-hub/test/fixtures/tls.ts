@@ -1,0 +1,58 @@
+/**
+ * A self-signed certificate for `localhost` / 127.0.0.1, generated once and
+ * committed (valid 2020–2120), so the mailbox tests run IMAP over real TLS —
+ * implicit and STARTTLS — without network, Docker or a certificate generator.
+ *
+ * Test material and nothing else: never used by the service, trusted only by
+ * the transports the tests build with `ca: TEST_CERT`, and safe to read.
+ */
+
+export const TEST_CERT = `-----BEGIN CERTIFICATE-----
+MIIC7jCCAdagAwIBAgICEAAwDQYJKoZIhvcNAQELBQAwFDESMBAGA1UEAwwJbG9j
+YWxob3N0MCAXDTIwMDEwMTAwMDAwMFoYDzIxMjAwMTAxMDAwMDAwWjAUMRIwEAYD
+VQQDDAlsb2NhbGhvc3QwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDt
++NGrzxdV/56fPPo1N1YyvdaxU3UDZB4y0iDJ7ZD+Gx8YBeC09gy3muCztpJFF690
+05nv3k4/WeyS/EOdLM5tEEnrOYnI+685PGYjPScaJUHkmygY7c92oWgXoG5aNh7T
+URXE56KtayCi6QXl1UNLu/U7fKCur8fa2s8oWk3Qiz6CXhV1LWvKV/AgCkQNvyxh
+2RA3rWhKgBHa7zvKUzCZtF/hTs7DaVNwlOLYQk8Adz3WkiP/Xkneumq9j3apy1hs
+O05ezzf0/QPX8XMAGxFBxdG5HmWCCXK/pOErYW30Zpyu7s28is1Z0w9BjKsz01/b
+LjFX98RVnOg3u0keYG3pAgMBAAGjSDBGMBoGA1UdEQQTMBGCCWxvY2FsaG9zdIcE
+fwAAATAJBgNVHRMEAjAAMB0GA1UdDgQWBBSPMraPT6ZwdX/evaBuuWP2DmXU0DAN
+BgkqhkiG9w0BAQsFAAOCAQEAdRqkfHbq7YrKH+XHL8VB7OKewCR/LuwEQrneoAgt
+JqL/PkNKR4lzeVx+o7VEmk7LxHfQXqaGIIjjLCbTMJ6xqXPwZYgpW7AIiZmdZlYA
+JjDVUD8idIBsgIrZ5JedgCifFq/8tLU66SGRig+EJCzFpWTlrUqkpaHXOqxz3HyI
+s50hp4fC+XvZ97fKLOYzVT6Kg0wta3e5jf/KjnG72HQk6J/ElHxx0aFNujD9Ajfk
+OqfyfuBYbOcrLB9CrbN6lPgVZVhWiQSRyeb3Y0YtknTsO95llRhTILMDj0uTfaPQ
+eU34zuek9KbO6ZzlWZ3dN/bHXUDqAAzzKMHaSCiHxdTnIw==
+-----END CERTIFICATE-----
+`;
+
+export const TEST_KEY = `-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDt+NGrzxdV/56f
+PPo1N1YyvdaxU3UDZB4y0iDJ7ZD+Gx8YBeC09gy3muCztpJFF69005nv3k4/WeyS
+/EOdLM5tEEnrOYnI+685PGYjPScaJUHkmygY7c92oWgXoG5aNh7TURXE56KtayCi
+6QXl1UNLu/U7fKCur8fa2s8oWk3Qiz6CXhV1LWvKV/AgCkQNvyxh2RA3rWhKgBHa
+7zvKUzCZtF/hTs7DaVNwlOLYQk8Adz3WkiP/Xkneumq9j3apy1hsO05ezzf0/QPX
+8XMAGxFBxdG5HmWCCXK/pOErYW30Zpyu7s28is1Z0w9BjKsz01/bLjFX98RVnOg3
+u0keYG3pAgMBAAECggEABOckuL+4SR0OYVUCCbElbT+0iexAg6yfI6hpJQfoPhgE
+dLwARHIyUmEWQpWfH13Mz2EhsYu4vHznjyKz6OvYp+4XO8mwcUvgMRNxvkWfBd6h
+JCrfMV5K8TSDnsL/Kwwk5/Eqe+dS1nRX1IttA+54J7oMZCid7eNwwG1UKc5sfoCp
+wW348b2G+PgpRZ6vheZjPReAfBi2//aRoPStHk+kGYg3fDVdetVba9241gA/ZgAU
+XmA1fxHqTC5mUMvrU8c9W6JF1jIcylwh5uwnWBtYDPpQQaTlcmhdC0kpwhGqeHRH
+jYGnPNiHXALrB0c5s0PVGmSLY8a/UXkQmPi8TG0SAQKBgQD8hxv0wThQTtQeBauS
+E89Lk817zjm/7U0mf5p6h3bdlvwibu1voE/ad+x1bY+xXPM6F7R1r2VogdAWGo/y
+OXHyNbjg5TMcgdnWK/ALhqoGliA1nqtu7Lnem6wFDWLVuft3fEOkgFa7ke/XnVCM
+X/GZfsWccCtYrQRU/lw8h/RlAQKBgQDxPnlGuUWAob2BqWEuJP3t5Ao88VpsXvyt
+i1Xg4OLJkbVwsusTi8leMjhWt8yoHT1SGp1uvs6UFbuMe4SW1ug7oCLgqOA4v1JW
+eMHKxcPdWAOasHvzomGljg7wdF6FoAqLqrzXhSWS7zkkvVr7I2kfeaAgbwA1lRcF
+cqkU/nCA6QKBgQDgOtRPC3cGkEh3dA95wU9TS6WtJlxPGNZlte6kmD6q2lN9+8On
+V9EwK0Zyqttp4SA0WDIsQZcpKgNsbR+eNPYB3UQRplMxH/ge3ZrjkSrOeGWXVxHg
+iCEvEkm3nsBBCUjKOzQREMhy+03dxdltHBB6fH/ZvhwvPEpZchbSxOH1AQKBgQCk
+1FS0l93/F4ON1hcKGkhNhCPio91ucjAeuzcAIWeS5bWcvQKVJkt9yr5nsclpjCDb
+ukea5U/sKjUstTBQh6HBK5bo/TnGTCKL5pIyY5GB6KL9zFvEiUxCe5+Fd10l28WY
+zB2e++BCVqUqjx5cvUMUOFvKDU2NTsKd/Eu+hmKEEQKBgANPZGqp4wLCKOfAw3ti
+/P29qX8kqt22xg32Q/wQvWSjkhBA8seFGhgwzYlYbZSxRnf9c5mpKHjN8QK5HxA6
+QE3NPJv+xBvsZQ9AGCvbThnvqQugEUiCTX/ScPF2gIGu3TeCzFpsq0j8eP3j8vC1
+iYsJYGzqdJ+azYbIzZ0YsAnq
+-----END PRIVATE KEY-----
+`;

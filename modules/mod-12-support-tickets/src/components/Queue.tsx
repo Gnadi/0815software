@@ -62,7 +62,7 @@ export function Queue({ agents, onOpen, onAuthLost }: Props) {
           <h1 className="resource__title">Queue</h1>
           <p className="resource__desc">
             new → open → pending → resolved → closed. Every change is an append-only event; SLA state is
-            derived from the wall clock at read time.
+            derived at read time from the clock and the SLA policy.
           </p>
         </div>
       </div>
