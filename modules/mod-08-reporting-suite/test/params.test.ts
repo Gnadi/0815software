@@ -288,6 +288,8 @@ describe('saved values on schedules and charts', () => {
     expect(saved.body.format).toBe('xlsx');
     expect(saved.body.param_values).toEqual({ to: 'prev_month_end' });
 
+    // created_at comes from the real clock, which has moved past the fixed NOW: backdate it so the schedule is due at NOW.
+    db.prepare('UPDATE schedules SET created_at = ? WHERE id = ?').run(new Date(NOW - 60_000).toISOString(), saved.body.id);
     const ran = tick({ db, sourceDb, exportsDir, now: () => NOW });
     const run = db.prepare('SELECT * FROM runs WHERE schedule_id = ? ORDER BY id DESC').get(saved.body.id) as { id: number; status: string; file_path: string; params: string };
     expect(ran).toContain(run.id);
