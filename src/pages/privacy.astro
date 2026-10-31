@@ -30,15 +30,24 @@ const sections = [
   },
   {
     n: '§ R6.04',
-    name: 'No tracking',
-    h2: 'No cookies. No analytics. No third-party fonts.',
+    name: 'Analytics',
+    h2: 'Visitor statistics & page speed.',
     body: [
-      'This site sets no cookies and runs no analytics, advertising, or tracking scripts. Fonts are served from our own host — no requests go to Google or any other font CDN.',
-      'One value is stored in your browser\'s localStorage: your language choice (EN/DE), so the site remembers it. It never leaves your device, and you can remove it at any time via your browser settings.',
+      'We use Vercel Web Analytics and Vercel Speed Insights (Vercel Inc., USA, acting as our processor) to see how many people visit which pages and how fast those pages load. Both work without cookies and without storing anything in your browser. They record the page visited, referrer, browser, operating system, device type and country, plus performance figures such as load time (Core Web Vitals). Visits are counted without a persistent identifier and cannot be followed across other websites or over several days.',
+      'The legal basis is Art. 6(1)(f) GDPR: our legitimate interest in keeping the site fast and knowing which content is read. Transfers to the USA are covered by the EU Standard Contractual Clauses. We use the figures only in aggregate and do not combine them with the contact form data. If you object, one email to hello@0815software.com is enough.',
     ],
   },
   {
     n: '§ R6.05',
+    name: 'No cookies',
+    h2: 'No cookies. No advertising. No third-party fonts.',
+    body: [
+      'This site sets no cookies and runs no advertising or cross-site tracking scripts. Fonts are served from our own host — no requests go to Google or any other font CDN.',
+      'One value is stored in your browser\'s localStorage: your language choice (EN/DE), so the site remembers it. It never leaves your device, and you can remove it at any time via your browser settings.',
+    ],
+  },
+  {
+    n: '§ R6.06',
     name: 'Your rights',
     h2: 'Your rights.',
     body: [
@@ -51,12 +60,12 @@ const sections = [
 
 <SubPage
   title="Privacy — 0815software"
-  description="Privacy policy (Datenschutzerklärung) for 0815software: what we process, why, and your rights under the GDPR. No cookies, no analytics, no tracking."
+  description="Privacy policy (Datenschutzerklärung) for 0815software: what we process, why, and your rights under the GDPR. No cookies, no advertising, no cross-site tracking."
   section="§ R6"
   sectionName="Privacy"
   eyebrow="DIN 0815/R6 · PRIVACY POLICY"
   heading="Privacy."
-  lead="What we process, why, and for how long — in plain language. The short version: no cookies, no analytics, no tracking. We only process what you send us."
+  lead="What we process, why, and for how long — in plain language. The short version: no cookies, no advertising, no cross-site tracking. Beyond anonymous visit and speed statistics, we only process what you send us."
 >
 
   <!-- Controller -->
