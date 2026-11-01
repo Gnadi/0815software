@@ -313,14 +313,15 @@ const presentation: Record<string, ModulePresentation> = {
     },
   },
   'mod-09-document-management': {
-    body: 'Upload, tag, version, and control access. Matter-based or project-based access controls.',
+    body: 'Upload, tag, version, preview, search inside, share and keep for as long as the law says. Matter-based access controls.',
     overview:
-      'Access is matter-based: every document belongs to exactly one matter (or project), and you see a matter only if you have been granted membership on it. Documents carry an append-only version history — every upload adds a new, immutable version with its own SHA-256, size and uploader — with per-matter viewer / editor / owner access levels.',
+      'Access is matter-based: every document belongs to exactly one matter (or project), and you see a matter only if you have been granted membership on it. Documents carry an append-only version history with a SHA-256 per version. Files are previewed in the browser and searched by their contents — PDF, Word, Excel, OpenDocument — in the module’s own index, never across matters you are not in. Share links give one document to someone without an account, for a while; retention classes with their legal basis decide when a document may be disposed of — by hand, with a record.',
     features: [
-      'Matter- or project-based access control',
+      'Matter- or project-based access control, per-matter viewer / editor / owner roles',
       'Append-only version history with per-version SHA-256',
-      'Per-matter viewer / editor / owner roles',
-      'Tagging and authenticated downloads',
+      'Preview and full-text search inside PDFs, Word, Excel and OpenDocument files',
+      'Share links that expire, with optional password and download limit — who may create them is configurable',
+      'Retention periods (AT/DE presets), legal holds and manual disposal with a record',
     ],
     screen: {
       variant: 'table',

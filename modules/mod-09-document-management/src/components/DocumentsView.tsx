@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { DocumentSummary } from '../../shared/types';
+import type { DocumentSummary, SearchHit } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { formatDate } from '../format';
+import { Snippet } from './Preview';
 
 interface Props {
   onOpen: (id: number) => void;
@@ -9,7 +10,7 @@ interface Props {
 }
 
 export function DocumentsView({ onOpen, onAuthLost }: Props) {
-  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [documents, setDocuments] = useState<(DocumentSummary | SearchHit)[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [tag, setTag] = useState('');
@@ -19,11 +20,9 @@ export function DocumentsView({ onOpen, onAuthLost }: Props) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { documents: docs } = await api.documents({
-        search: search || undefined,
-        tag: tag || undefined,
-      });
-      setDocuments(docs);
+      // Words in the box search inside the files too; an empty box lists them.
+      if (search.trim()) setDocuments((await api.search(search, { tag: tag || undefined })).hits);
+      else setDocuments((await api.documents({ tag: tag || undefined })).documents);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) onAuthLost();
       else setError(err instanceof Error ? err.message : 'Failed to load');
@@ -45,7 +44,10 @@ export function DocumentsView({ onOpen, onAuthLost }: Props) {
       <div className="page__head">
         <div className="page__eyebrow mono">MOD-09 · ACROSS ALL YOUR MATTERS</div>
         <h1 className="page__title">All Documents</h1>
-        <p className="page__desc">Every non-deleted document you can access. Filter by tag or search titles.</p>
+        <p className="page__desc">
+          Every non-deleted document you can access. Search finds words in titles, tags and inside the files — PDFs, Word,
+          Excel and OpenDocument files, text — best match first; put words in "quotes" for a phrase.
+        </p>
       </div>
 
       {error && <div className="page__error mono">{error}</div>}
@@ -55,7 +57,7 @@ export function DocumentsView({ onOpen, onAuthLost }: Props) {
           className="field__input toolbar__search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search titles…"
+          placeholder="Search titles and contents…"
         />
         <select className="field__input toolbar__select" value={tag} onChange={(e) => setTag(e.target.value)}>
           <option value="">All tags</option>
@@ -101,7 +103,14 @@ export function DocumentsView({ onOpen, onAuthLost }: Props) {
             )}
             {documents.map((d) => (
               <tr key={d.id} className="table__row-link" onClick={() => onOpen(d.id)}>
-                <td>{d.title}</td>
+                <td>
+                  {d.title}
+                  {'snippet' in d && d.snippet && (
+                    <div className="detail__hint">
+                      <Snippet text={d.snippet} />
+                    </div>
+                  )}
+                </td>
                 <td className="mono">{d.matter_key}</td>
                 <td>
                   {d.tags.map((t) => (

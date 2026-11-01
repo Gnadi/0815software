@@ -8,6 +8,9 @@ import { DocumentDetail } from './components/DocumentDetail';
 import { DocumentsView } from './components/DocumentsView';
 import { UsersView } from './components/UsersView';
 import { Account } from './components/Account';
+import { RetentionView } from './components/RetentionView';
+import { SettingsView } from './components/SettingsView';
+import { SharePage } from './components/SharePage';
 
 export type View =
   | { name: 'matters' }
@@ -15,9 +18,18 @@ export type View =
   | { name: 'document'; id: number }
   | { name: 'documents' }
   | { name: 'users' }
+  | { name: 'retention' }
+  | { name: 'settings' }
   | { name: 'account' };
 
+/** A share link (/s/<token>) is the public page — no login, no shell. */
 export function App() {
+  const shared = /^\/s\/([A-Za-z0-9_-]{20,100})$/.exec(window.location.pathname);
+  if (shared) return <SharePage token={shared[1]!} />;
+  return <Signed />;
+}
+
+function Signed() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [loggedOut, setLoggedOut] = useState(false);
   const [view, setView] = useState<View>({ name: 'matters' });
@@ -53,7 +65,13 @@ export function App() {
   const nav: { view: View; label: string }[] = [
     { view: { name: 'matters' }, label: 'Matters' },
     { view: { name: 'documents' }, label: 'All Documents' },
-    ...(user.role === 'admin' ? [{ view: { name: 'users' } as View, label: 'Users' }] : []),
+    ...(user.role === 'admin'
+      ? [
+          { view: { name: 'users' } as View, label: 'Users' },
+          { view: { name: 'retention' } as View, label: 'Retention' },
+          { view: { name: 'settings' } as View, label: 'Settings' },
+        ]
+      : []),
     { view: { name: 'account' }, label: 'Account' },
   ];
   const activeNav =
@@ -117,6 +135,8 @@ export function App() {
           <DocumentsView onOpen={(id) => setView({ name: 'document', id })} onAuthLost={onAuthLost} />
         )}
         {view.name === 'users' && <UsersView onAuthLost={onAuthLost} />}
+        {view.name === 'retention' && <RetentionView onOpenDocument={(id) => setView({ name: 'document', id })} onAuthLost={onAuthLost} />}
+        {view.name === 'settings' && <SettingsView onAuthLost={onAuthLost} />}
         {view.name === 'account' && <Account user={user} onAuthLost={onAuthLost} />}
       </main>
     </div>

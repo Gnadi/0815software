@@ -14,7 +14,21 @@ and timestamp; the "current" version is always derived as the latest one.
 The core correctness property is **matter isolation** — a user with no
 membership on a matter learns nothing about it, not even that it exists
 (requests return `404`, never `403`), proven by tests on every read,
-download, version and tag endpoint.
+download, version, tag, search, preview and text endpoint.
+
+On top of that, all of it working without any other service:
+
+- **Preview** in the browser — PDFs and images inline, everything else as
+  the text read out of it (never HTML or SVG a browser would run).
+- **Full-text search** inside PDFs, Word, Excel, PowerPoint, OpenDocument,
+  HTML and text files, in the module's own index, best match first, with
+  the passage that matched.
+- **Share links** — one document, for someone without an account, for a
+  while: expiring, revocable, optionally with a password and a download
+  limit. Who may make them is the administrator's setting.
+- **Retention** — classes with their legal basis (AT and DE presets), a
+  period derived from the document's date, legal holds, and disposal by an
+  administrator, by hand, with a record of what was destroyed.
 
 ## Stack
 
@@ -75,7 +89,7 @@ Delete `data.db` **and** `storage/` together to start fresh.
 
 ## Data model
 
-Six tables, created on demand (`server/db.ts`):
+The core tables, created on demand (`server/db.ts`):
 
 ```
 users             id, username (unique), name, role (admin|member),
@@ -92,6 +106,29 @@ document_versions id, document_id → documents, version_no, size_bytes,
                   uploaded_by → users, uploaded_at,
                   UNIQUE(document_id, version_no)      -- append-only chain
 document_tags     id, document_id → documents, tag, UNIQUE(document_id, tag)
+```
+
+Added for search, sharing and retention:
+
+```
+version_text      version_id → document_versions, format, preview, status,
+                  text, extractor, extracted_at  -- read out of the bytes
+document_search   FTS5: title, body (current version's text), tags
+                  -- one row per live document, rowid = document id
+module_settings   one row: who may make share links, their lifetimes,
+                  whether a password is required
+share_links       document_id, version_no (NULL = current), token_hash,
+                  password_hash, max_downloads, expires_at, note,
+                  created_by, revoked_at/by
+share_events      link_id, kind (opened|previewed|downloaded|
+                  password_failed), at                 -- append-only
+retention_classes name, years, basis (the law), created/updated by
+documents         + retention_class_id, document_date, legal_hold_*
+matters           + retention_class_id (for new documents)
+document_events   document_id, kind (retention_set|hold_set|hold_released|
+                  share_created|share_revoked), detail, actor, at -- append-only
+disposals         what a disposal destroyed: class, period, versions,
+                  bytes, SHA-256s, mirrors, by, at — no title, no content
 ```
 
 Uploaded bytes are stored on disk under `STORAGE_DIR`, **content-addressed
@@ -141,9 +178,10 @@ The security contract enforced by the helper:
   downloadable by number (subject to access), via
   `/api/documents/:id/versions/:n/download`.
 - Deleting a document is a **soft delete** (owner/admin only): it sets
-  `deleted_at`, which hides the document from all lists and reads (404),
-  while the version rows and their bytes are retained. **Hard delete —
-  destroying versions or blobs — is intentionally out of scope.**
+  `deleted_at`, which hides the document from all lists, reads and search
+  (404), while the version rows and their bytes are retained. Destroying
+  versions and bytes happens only through [disposal](#retention-and-disposal),
+  once the retention period has ended.
 
 ## Uploads
 
@@ -153,6 +191,141 @@ header supplies the stored content type. The server hashes the bytes,
 stores the blob, and records `size_bytes` + `sha256`. Uploads over
 `MAX_UPLOAD_BYTES` (default 25 MiB) are rejected with `413`; an empty body
 is `422`.
+
+## Preview
+
+`GET /api/documents/:id/preview?version=N` serves a version's bytes for
+viewing in the page — but only for the formats a browser shows safely:
+**PDF** (the browser's own viewer) and **PNG, JPEG, GIF, WebP**. Which
+format a file is comes from its **bytes** (`server/extract.ts`: magic
+numbers, the ZIP container's own part names), never from the Content-Type
+the uploader sent — an HTML page uploaded as `image/png` is HTML. The
+response carries the type from that short list, `X-Content-Type-Options:
+nosniff`, `Content-Disposition: inline` and a CSP: images are sandboxed;
+PDFs are framed by this module only (`frame-ancestors 'self'` — browsers
+refuse to show a sandboxed PDF). Everything else is `415`.
+
+Everything else is previewed as **text**: `GET /api/documents/:id/text`
+returns what was read out of the version — Word, Excel, OpenDocument,
+PowerPoint, HTML and SVG (their words, never their markup), CSV and plain
+text. A scan or a photo has no text layer and says so ("no text in this
+file") — there is no OCR.
+
+## Full-text search
+
+Every upload is read when it arrives (`server/extract.ts`, no library):
+
+| Format | Read from |
+| --- | --- |
+| PDF | the text layer — objects and object streams, the page tree, each font's `/ToUnicode` map (or its encoding and `/Differences`), glyph widths for word gaps and line breaks, form XObjects (`server/pdf-text.ts`) |
+| DOCX, XLSX, PPTX | the XML parts inside the ZIP (paragraphs, shared strings and cells, slides in order) |
+| ODT, ODS, ODP | `content.xml` |
+| HTML, SVG | the words, with scripts and styles dropped |
+| Text, CSV, JSON, XML | as written — UTF-8, UTF-16 with a byte-order mark, or Windows-1252 |
+
+The text goes into `version_text`; the document's title, **current**
+version's text and tags go into an SQLite FTS5 index in the module's own
+database. `GET /api/search?q=&matter=&tag=` answers from it: every word a
+prefix match, `"quoted words"` a phrase, accents folded (`kundigung` finds
+*Kündigung*), titles weighted above body text, with the passage that
+matched. **The matter check is part of the query** — the same clause as
+the document list — so a document in someone else's matter is never a hit,
+never counted, never ranked. Old versions stay readable through
+`/text?version=N`; only the current one is searched.
+
+An encrypted PDF is reported as encrypted; a ZIP that inflates to far more
+than it weighs fails that one file (every inflate is capped). An
+installation from before full-text search reads its files on start;
+administrators can re-read everything (`POST /api/admin/reindex`) after an
+update improves the readers.
+
+The readers are checked against files real writers produced
+(`test/fixtures`: LibreOffice and Chromium PDFs, DOCX, ODT, XLSX, ODS — with
+their provenance), and the PDF reader was compared word for word with
+Poppler's `pdftotext` on PDFs from Word 2016, Adobe PDF Library, ReportLab
+and LibreOffice.
+
+## Share links
+
+One document, for someone without an account, for a while.
+
+- **Who may make them** is the administrator's setting: editors and owners
+  of the matter (default), owners only, or nobody. Switching them off stops
+  every existing link at once.
+- Every link **expires** (14 days by default, at most what the
+  administrator allows — 30 days by default), may need a **password** (the
+  administrator can require one) and may allow only so many **downloads**.
+  A link serves either the current version — following new uploads — or
+  one fixed version.
+- The token is 32 random bytes; **only its SHA-256 is stored**, so the
+  database cannot hand out working links. The link is shown once, to the
+  person who made it.
+- `/s/<token>` is a public page: title, file name, size, version, expiry, a
+  preview where the type allows one, the download. Nothing about the
+  matter or the people.
+- **Every way a link stops working looks the same**: unknown, expired,
+  revoked, used up, document deleted, links switched off — all `404 Link
+  not found`.
+- Every use is logged, append-only (`share_events`: opened, previewed,
+  downloaded, wrong password); downloads used are counted from that log.
+  After ten wrong passwords in fifteen minutes the link refuses passwords
+  for the rest of the window. A correct password returns a grant valid for
+  30 minutes and for that link only.
+- The maker and the matter's owners may revoke. Making and revoking are in
+  the document's history; editors and owners see its links, viewers do not.
+
+## Retention and disposal
+
+How long a document must be kept is the law's arithmetic, derived and
+never stored. In Austria and Germany alike the period starts at the **end
+of the calendar year** the document belongs to and runs whole years:
+
+| Preset | Years | Basis |
+| --- | --- | --- |
+| AT — books, records and vouchers | 7 | BAO § 132 Abs. 1; UGB § 212 Abs. 1–2 |
+| DE — books, inventories, financial statements | 10 | HGB § 257 Abs. 1 Nr. 1, Abs. 4–5; AO § 147 Abs. 1 Nr. 1, Abs. 3–4 |
+| DE — accounting vouchers | 8 | HGB § 257 Abs. 1 Nr. 4, Abs. 4–5; AO § 147 Abs. 1 Nr. 4, Abs. 3–4 (since 2025; credit and insurance institutions: 10) |
+| DE — business letters | 6 | HGB § 257 Abs. 1 Nr. 2–3, Abs. 4–5; AO § 147 Abs. 1 Nr. 2–3, Abs. 3–4 |
+
+So a voucher dated 5 March 2026 under the Austrian seven years is kept to
+31 December 2033 and may go from 1 January 2034. The texts these rest on
+are quoted in `test/retention.test.ts`, which pins the arithmetic. Check
+the presets against your own obligations — they are a starting point the
+administrator adds, edits or replaces.
+
+- **Classes** are the administrator's (name, years, legal basis). A changed
+  period moves every due date with it.
+- A **matter** has a class its new documents get; its owners choose it. A
+  document's **owner** can change its class and set its **document date**
+  (the upload date until then).
+- A **legal hold** (owners, with a reason) keeps a document whatever the
+  date says — every one of those laws extends the period while a document
+  matters to a pending proceeding.
+- **Disposal is manual**: an administrator sees the documents past their
+  period and not on hold (soft-deleted ones included — their bytes are
+  still here) and disposes of one at a time, confirmed. Every version, its
+  bytes (a file only when no other version still uses the same content),
+  its text, search entry, tags, links and history go, and the copies in
+  PS-06 and PS-09 are asked to go too. What remains is the **disposal
+  record**: the class and period, the number of versions, their SHA-256s,
+  the outcome for the copies, who and when — no title, no content. Nothing
+  is disposed of on a timer.
+- A document becomes due only once its first free day has begun
+  everywhere (counted in UTC−12) — never a few hours early.
+
+## Settings
+
+What an administrator sets in the UI (**Settings**):
+
+| Setting | Default | |
+| --- | --- | --- |
+| Who may make share links | editors and owners | or owners only, or nobody (stops existing links too) |
+| Default link lifetime | 14 days | 1–365 |
+| Longest link lifetime | 30 days | 1–365 |
+| Every link needs a password | off | |
+
+Retention classes are maintained under **Retention**. Who changed the
+settings last is shown with them.
 
 ## Auth model
 
@@ -208,7 +381,8 @@ GET    /api/matters/:id/members       list members (viewer+)
 POST   /api/matters/:id/members       owner+ — {user_id, role} add/update a member
 DELETE /api/matters/:id/members/:uid  owner+ — remove a member
 
-GET    /api/documents                 ?matter= &tag= &search=  (title search)
+GET    /api/documents                 ?matter= &tag= &search=  (title filter)
+GET    /api/search                    ?q= &matter= &tag= → full-text hits with passages
 GET    /api/tags                      distinct tags across visible documents
 GET    /api/documents/:id             {document, versions, activity, matter_role}
 POST   /api/matters/:id/documents     editor+ — raw body upload → new doc (v1)
@@ -219,6 +393,35 @@ GET    /api/documents/:id/versions/:n/download   a specific version (viewer+)
 POST   /api/documents/:id/tags        editor+ — {tag}
 DELETE /api/documents/:id/tags/:tag   editor+ — remove a tag
 DELETE /api/documents/:id             owner+ — soft delete
+GET    /api/documents/:id/preview     viewer+ — PDF/image inline (?version=N); else 415
+GET    /api/documents/:id/text        viewer+ — the text read out of a version (?version=N)
+
+POST   /api/documents/:id/shares      per setting — {version_no?, days?, password?, max_downloads?, note?}
+                                      → {link, token, path} (the token only here)
+DELETE /api/shares/:id                the maker or an owner — revoke
+
+GET    /api/retention-classes         classes + presets
+POST   /api/retention-classes         admin — {name, years, basis}
+PUT    /api/retention-classes/:id     admin
+DELETE /api/retention-classes/:id     admin — 409 while in use
+PUT    /api/documents/:id/retention   owner+ — {retention_class_id, document_date}
+POST   /api/documents/:id/legal-hold  owner+ — {reason}
+DELETE /api/documents/:id/legal-hold  owner+
+PUT    /api/matters/:id/retention     owner+ — the class for new documents
+GET    /api/retention/due             admin — documents past their period, not on hold
+POST   /api/documents/:id/dispose     admin — {confirm: true}; 409 unless due
+GET    /api/disposals                 admin — the disposal records
+
+GET    /api/settings                  module settings
+PUT    /api/settings                  admin
+POST   /api/admin/reindex             admin — read every version again
+
+# Public — the token is the credential; every failure is 404
+GET    /api/shared/:token             title, file, size, version, expiry
+POST   /api/shared/:token/unlock      {password} → {grant} (30 minutes)
+GET    /api/shared/:token/download    ?grant= when the link has a password
+GET    /api/shared/:token/preview     PDF/image inline
+GET    /api/shared/:token/text        the text
 ```
 
 Downloads set `Content-Disposition: attachment`, plus `X-Version-No` and
@@ -244,6 +447,31 @@ served bytes, soft-delete hides-but-retains, the 25 MiB size limit (413)
 and empty upload (422), admin implicit access, unauth 401, and the
 password-change round-trip including session invalidation.
 
+Since search, sharing and retention:
+
+- `test/extract.test.ts` — real files (fixtures with provenance) read to
+  exactly the text that was written; hand-built PDFs for standard fonts and
+  `€` (0x80 in WinAnsi, not Latin-1), `/Differences`, object streams, form
+  XObjects, encryption and scans; HTML and SVG as words never markup, the
+  format from the bytes not the label, UTF-16 and Windows-1252, slide
+  order, a 64 MiB zip bomb failing softly; search input never reaching
+  FTS5 syntax.
+- `test/search.test.ts` — umlaut-folding, prefix and phrase search inside a
+  PDF; marked passages; never a hit outside one's matters; title weight and
+  tags; a new version replacing what is searched; deleted documents gone;
+  the upgrade backfill; preview headers (inline PDF framed by self only,
+  sandboxed images, 415 for HTML/SVG/text, 404 outside the matter).
+- `test/shares.test.ts` — the token never in the database; who may make
+  links per setting; lifetime, password and limit rules; nothing about the
+  matter on the public side; current vs pinned versions; downloads counted
+  from the log; the password lock and grants; every dead link the same 404;
+  who may revoke.
+- `test/retention.test.ts` — the law's texts and their arithmetic, the
+  presets, UTC−12; classes, matter defaults, owners vs viewers, history;
+  the due list; legal holds; disposal by an admin, confirmed, only when due,
+  destroying versions, text, links, search entry and files no other version
+  uses, leaving a record without title or content.
+
 ## Deploy notes
 
 - Any box with Node 20+ works: `npm ci && npm run build && npm start`
@@ -259,20 +487,23 @@ password-change round-trip including session invalidation.
 
 ## Out of scope (by design)
 
-- **Hard delete / purge** — deletes are soft; version bytes are retained
-  for audit. Physically destroying blobs (retention policies, legal holds,
-  GDPR erasure) is deliberately not built in.
-- **Full-text search inside documents** — search is over titles and tags,
-  not file contents. No OCR, no content indexing.
-- **In-browser preview / thumbnails / editing** — documents are stored and
-  downloaded as opaque bytes; there is no viewer or online editor.
+- **Automatic disposal, GDPR erasure before a period ends** — disposal is
+  manual and only once a retention period has passed; erasing a person's
+  data from documents that must still be kept is a legal judgement, not a
+  button.
+- **OCR** — a scan has no text layer and is not made searchable; reading
+  text out of pixels needs a vision model (PS-04), deliberately not wired
+  in here.
+- **Thumbnails, rendering office layouts, editing** — Word, Excel and
+  OpenDocument files are previewed as their text; there is no online
+  editor.
 - **Concurrent-edit locking, check-in/check-out** — versioning is
   append-only, not a locking workflow.
 - **Self-registration, password-reset emails, SSO/SAML** — accounts are
   provisioned by an admin; there is no sign-up flow and no mail sending.
-- **Per-document ACLs, sharing links, external guests** — access is granted
-  at the matter level only. If you need finer or public sharing, that's
-  commissioned work — exactly the kind 0815software does.
+- **Per-document ACLs, external guest accounts** — access is granted at the
+  matter level; outsiders get a share link to one document, not an account.
+  Upload links for outsiders and e-mailing links are out (no mail sending).
 
 ## License
 
@@ -280,15 +511,22 @@ MIT © 0815software — see [LICENSE](LICENSE).
 
 ## Platform integration (optional)
 
-When `FILES_URL` / `AUDIT_URL` / `SEARCH_URL` (+ `PLATFORM_SERVICE_TOKEN`) are set, each
-uploaded document version is mirrored to
-[PS-06 File Storage](../../platform/ps-06-file-storage) and recorded on
-indexed for cross-document search on [PS-09 Search](../../platform/ps-09-search)
-(backing `GET /api/search`), and recorded on
-[PS-07 Audit Log](../../platform/ps-07-audit-log) � via the shared
-[`@0815software/platform-clients`](../../platform/clients) package. The module
-keeps its own local copy either way; calls are best-effort and opt-in. See
-`server/platform.ts`.
+When `FILES_URL` / `AUDIT_URL` / `SEARCH_URL` (+ `PLATFORM_SERVICE_TOKEN`) are set,
+via the shared [`@0815software/platform-clients`](../../platform/clients) package:
+
+- each uploaded version is mirrored to [PS-06 File Storage](../../platform/ps-06-file-storage);
+- uploads, share links (made, revoked), legal holds and disposals are
+  recorded on [PS-07 Audit Log](../../platform/ps-07-audit-log);
+- each document's title and text, with its matter as a facet, are indexed
+  on [PS-09 Search](../../platform/ps-09-search) for search **across
+  modules**. A soft delete removes it there; a disposal removes it there
+  and the PS-06 copies, and records the outcome.
+
+The module's own search never asks PS-09 — it answers from its own index,
+behind the matter check. (Before, `GET /api/search` passed PS-09's results
+through unfiltered, so a member could read titles from matters they were
+not in; the route now uses the local index.) The module keeps its own copy
+either way; calls are best-effort and opt-in. See `server/platform.ts`.
 
 ## The shell contract — appearing on a dashboard
 

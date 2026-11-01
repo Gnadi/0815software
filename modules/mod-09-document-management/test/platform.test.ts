@@ -67,24 +67,47 @@ describe('platform integration on document upload', () => {
   });
 });
 
-describe('cross-document search via PS-09', () => {
-  it('proxies to Search when configured, 501 otherwise', async () => {
-    const configured = createApp({
-      db, session, storageDir, maxUploadBytes: 1024 * 1024,
-      platform: {
-        async documentUploaded() { /* noop */ },
-        async searchDocuments(q: string) {
-          return { total: 1, hits: [{ collection: 'documents', id: '1', title: `hit for ${q}`, score: 1, snippet: '', facets: {} }], facets: [] };
-        },
+describe('search and PS-09', () => {
+  it('search answers from the module\'s own index — standalone, with no PS-09 at all', async () => {
+    const app = createApp({ db, session, storageDir, maxUploadBytes: 1024 * 1024 });
+    const { cookie, matterId } = await editorCookieAndMatter(app);
+    await request(app)
+      .post(`/api/matters/${matterId}/documents?title=Memo&filename=memo.txt`)
+      .set('Cookie', cookie)
+      .set('Content-Type', 'text/plain')
+      .send(Buffer.from('Die Kaution beträgt 2.400 Euro.'))
+      .expect(201);
+    const res = await request(app).get('/api/search?q=kaution').set('Cookie', cookie);
+    expect(res.status).toBe(200);
+    expect(res.body.hits.map((h: { title: string }) => h.title)).toEqual(['Memo']);
+  });
+
+  it('PS-09 gets the title, the text and the matter — and loses the document when it is deleted', async () => {
+    const uploads: DocumentUploadInfo[] = [];
+    const removed: number[] = [];
+    const app = makeApp({
+      ...noopPlatform,
+      async documentUploaded(info) {
+        uploads.push(info);
+      },
+      async documentRemoved(docId) {
+        removed.push(docId);
+        return {};
       },
     });
-    const { cookie } = await editorCookieAndMatter(configured);
-    const res = await request(configured).get('/api/search?q=contract').set('Cookie', cookie);
-    expect(res.status).toBe(200);
-    expect(res.body.hits[0].title).toContain('contract');
+    const { cookie, matterId } = await editorCookieAndMatter(app);
+    const created = await request(app)
+      .post(`/api/matters/${matterId}/documents?title=Memo&filename=memo.txt`)
+      .set('Cookie', cookie)
+      .set('Content-Type', 'text/plain')
+      .send(Buffer.from('Die Kaution beträgt 2.400 Euro.'))
+      .expect(201);
+    await new Promise((r) => setImmediate(r));
+    expect(uploads[0]).toMatchObject({ matterId, title: 'Memo', text: 'Die Kaution beträgt 2.400 Euro.' });
 
-    const standalone = createApp({ db, session, storageDir, maxUploadBytes: 1024 * 1024 });
-    const { cookie: c2 } = await editorCookieAndMatter(standalone);
-    expect((await request(standalone).get('/api/search?q=x').set('Cookie', c2)).status).toBe(501);
+    // Deleting needs the owner of the matter.
+    const owner = await request(app).post('/api/login').send({ username: 'mara', password: 'demo-mara' });
+    await request(app).delete(`/api/documents/${created.body.document.id}`).set('Cookie', owner.headers['set-cookie']![0]!.split(';')[0]!).expect(200);
+    expect(removed).toEqual([created.body.document.id]);
   });
 });
