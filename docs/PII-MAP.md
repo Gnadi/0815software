@@ -85,6 +85,14 @@ accounting records (§ 132 BAO: seven years) and block deleting the employee;
 after that period, delete the person's expense rows and pictures (no route
 yet), and the bank-account history with them.
 
+**The installed shells (MOD-15, MOD-16).** To open without a connection, a shell
+keeps the signed-in name, the module catalogue and the arrangement of its
+boards in the browser — no figures and no records. Signing out of a shell
+removes that, and signs the person out of every module it can frame through
+each module's `GET /session/logout`, which also drops what the module kept in
+this browser (`Clear-Site-Data: "storage"` — MOD-11's waiting captures among
+it). A shared phone keeps nothing of the last person.
+
 **Attachments, ratings and mail in MOD-12.** Files on tickets (`attachments`,
 the bytes in the module's own database — screenshots and logs may show
 personal data) follow their event's visibility; a satisfaction rating keeps the

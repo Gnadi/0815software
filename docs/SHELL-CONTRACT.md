@@ -116,7 +116,8 @@ One env var, read by each module's `config.ts` and mapped to the registry's
   nothing, which from inside that frame is indistinguishable from a broken
   module. One malformed entry now fails the whole list rather than leaving half
   a policy standing.
-- The two handoff routes below are mounted. Unset, they do not exist.
+- The two handoff routes below are mounted, and the sign-out a shell asks for
+  (`GET /session/logout`, section 5). Unset, they do not exist.
 
 **Only modules with `supportsSso: true` are embeddable** — twelve of the
 sixteen, the Workspace included. MOD-01, MOD-07 and MOD-09 authenticate domain
@@ -220,6 +221,45 @@ module when a shell is in the selection. It identifies the shell by what it
 **declares** — a module asking for a peer's public origin is precisely one that
 will put that peer in a browser — never by its id, so a second shell would work
 with no change to the generator.
+
+## 5. Installed as an app — what the shells and their modules agree on
+
+Both shells, and any module whose registry entry says `installable`, are
+progressive web apps: a manifest and a service worker make them open as an
+app of their own — an icon, a window, no address bar — on the desk and on the
+phone. The service worker is a copy-in (`src/pwa/sw.js`, `src/pwa/register.ts`,
+`scripts/pwa-plugin.mjs`, byte-identical; `deploy/test/pwa.test.ts`) and keeps
+the **app** only: never an `/api` or `/session` answer, so nothing about a
+person or a business sits in a cache.
+
+- **The frame grants what a module may ask for.** Every frame a shell draws
+  carries `allow="camera; clipboard-read; clipboard-write; fullscreen"`
+  (`src/frame.ts`). Without it a framed module cannot open the camera — a
+  receipt's code in MOD-11, a barcode — whatever the person says. The module
+  still asks the person, as it would on its own.
+- **Offline, an installable module opens from the browser's copy.** A shell
+  keeps the last catalogue and arrangement on the device (no figures, no
+  records) and opens without a connection. A pane or an "open" of a module
+  that is `installable` then loads the module's own address instead of
+  asking for a ticket that cannot come; the module's service worker serves
+  it and the module keeps what is entered until the connection is back
+  (MOD-11's expenses). Every other module says it needs the connection.
+  Because the modules live on subdomains of one domain (`provision.mjs`), the
+  browser keeps a module's storage once for that site: what was captured in
+  the module inside a shell and in the module installed on its own is the
+  same queue.
+- **Signing out of the shell signs out of the modules.** Every module that
+  takes a handoff also serves **`GET /session/logout`**: it clears its own
+  session cookie and sends `Clear-Site-Data: "storage"`, dropping what it kept
+  in this browser (local storage, IndexedDB, its service worker's caches).
+  Only for a request from the stack — `Sec-Fetch-Site: same-origin` or
+  `same-site`; a cross-site page gets a 403 and nothing done, and so does an
+  older browser that sends no such header (its sessions end at their expiry).
+  Deliberately not `"cookies"`, which the specification extends to the whole
+  registrable domain. The shell loads that route in a hidden frame of every
+  module it can embed, waits a few seconds at most, then ends its own session.
+- **HTTPS.** A service worker and the camera need a secure origin; the
+  generated stack serves every subdomain over TLS (Caddy).
 
 ## Two shells, one contract
 

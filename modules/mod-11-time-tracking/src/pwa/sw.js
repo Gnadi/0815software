@@ -1,16 +1,20 @@
-/* MOD-11 service worker — written into dist/client/sw.js by the build
- * (vite.config.ts fills in the version and the list of files).
+/* Service worker — copy-in, byte-identical in every installable module
+ * (registry: constraints.installable). The build writes it into
+ * dist/client/sw.js with the app's name, a version and the list of files
+ * (scripts/pwa-plugin.mjs).
  *
  * It keeps the APP available offline and nothing else:
  *   - the app's own files are cached at install, and served from the cache;
  *   - a page load goes to the network first and falls back to the cached app;
- *   - /api is never touched: no answer about a person is ever cached, and an
- *     answer from yesterday would be worse than none. What is captured
- *     offline waits in the app's own outbox (src/pwa/outbox.ts), not here.
+ *   - /api and /session are never touched: no answer about a person or a
+ *     business is ever cached, and an answer from yesterday would be worse
+ *     than none. What an app captures offline waits in its own storage, not
+ *     here.
  */
 const VERSION = '__VERSION__';
 const PRECACHE = __PRECACHE__;
-const CACHE = `mod-11-app-${VERSION}`;
+const PREFIX = '__CACHE__-';
+const CACHE = `${PREFIX}${VERSION}`;
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -25,7 +29,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('mod-11-app-') && k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k.startsWith(PREFIX) && k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });

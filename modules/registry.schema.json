@@ -252,7 +252,8 @@
             "embeddable",
             "needsPublicBaseUrl",
             "acceptsSourceDb",
-            "publishesReportViews"
+            "publishesReportViews",
+            "installable"
           ],
           "properties": {
             "supportsSso": {
@@ -273,6 +274,10 @@
             },
             "publishesReportViews": {
               "description": "The module publishes a `report_*` VIEW contract in its own database (docs/REPORTING-CONTRACT.md), so its tables are private and those views are its public surface. Unlike the other constraints this maps to no env var of its own — it is a property of the module's schema, checked against its server/db.ts. A generator pointing a consumer at this module's volume must also switch that consumer into restricted mode.",
+              "type": "boolean"
+            },
+            "installable": {
+              "description": "The module is an installable app (PWA): it ships a web app manifest and the service-worker copy-in, so it opens as an app of its own and from the browser's copy without a connection. A shell opens an installable module that way when offline. Maps to no env var — it is a property of the module's files, checked by deploy/test/pwa.test.ts. Needs HTTPS in production, which the generated stack serves.",
               "type": "boolean"
             }
           }

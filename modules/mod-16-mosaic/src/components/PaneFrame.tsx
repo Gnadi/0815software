@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError } from '../api';
 import type { PeerStatus } from '../../shared/types';
+import { FRAME_ALLOW, offlineUrl } from '../frame';
 
 /**
  * One pane: a whole module, running in its own process, drawn into a frame and
@@ -18,7 +19,7 @@ import type { PeerStatus } from '../../shared/types';
  * browser could do on its own: after the redirect the frame is cross-origin, so
  * this window cannot reach into it, and a fresh view needs a fresh ticket.
  */
-export function PaneFrame({ module: peer }: { module: PeerStatus | undefined }) {
+export function PaneFrame({ module: peer, offline = false }: { module: PeerStatus | undefined; offline?: boolean }) {
   const [src, setSrc] = useState('');
   const [problem, setProblem] = useState('');
   /** Bumped by RELOAD to ask for a new ticket; never by an ordinary render. */
@@ -27,7 +28,9 @@ export function PaneFrame({ module: peer }: { module: PeerStatus | undefined }) 
 
   const id = peer?.id;
   const open = useCallback(async () => {
-    if (!id) return;
+    // Without a connection no ticket can come; an installable module opens
+    // from the browser's copy instead (src/frame.ts), the rest say so below.
+    if (!id || offline) return;
     try {
       const { url } = await api.embed(id);
       if (live.current) {
@@ -37,7 +40,7 @@ export function PaneFrame({ module: peer }: { module: PeerStatus | undefined }) 
     } catch (err) {
       if (live.current) setProblem(err instanceof ApiError ? err.message : 'Could not open this module');
     }
-  }, [id]);
+  }, [id, offline]);
 
   useEffect(() => {
     live.current = true;
@@ -59,6 +62,11 @@ export function PaneFrame({ module: peer }: { module: PeerStatus | undefined }) 
         {peer.label.toUpperCase()} CANNOT BE FRAMED — NO PUBLIC URL, OR IT AUTHENTICATES ITS OWN END USERS
       </p>
     );
+  }
+  if (offline) {
+    const url = offlineUrl(peer);
+    if (!url) return <p className="pane__state mono">OFFLINE — {peer.label.toUpperCase()} NEEDS THE CONNECTION</p>;
+    return <iframe className="pane__frame" src={url} title={peer.label} allow={FRAME_ALLOW} referrerPolicy="no-referrer" />;
   }
   if (problem) {
     return (
@@ -82,6 +90,9 @@ export function PaneFrame({ module: peer }: { module: PeerStatus | undefined }) 
       // its own cookies. Its CSP frame-ancestors is what authorises this frame,
       // and that decision belongs to the module, not to this attribute.
       referrerPolicy="no-referrer"
+      // The camera (a receipt's code, a barcode), the clipboard and full
+      // screen are the module's to ask for — the frame only lets it ask.
+      allow={FRAME_ALLOW}
     />
   );
 }

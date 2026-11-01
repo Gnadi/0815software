@@ -228,8 +228,12 @@ The daily-entry grid keeps your **in-progress row** in `localStorage`
 Submitting a claim needs a connection, because it names the items the
 server holds.
 
-The camera (to scan a receipt's code) needs HTTPS — or `localhost` — and,
-inside a shell's iframe, the shell's `allow="camera"`.
+The camera (to scan a receipt's code) needs HTTPS — or `localhost`. Inside
+MOD-15 Workspace and MOD-16 Mosaic, which are installable apps themselves, the
+frame grants it; there, without a connection, the shell opens this module from
+the browser's copy, and signing out of the shell signs out of here too
+(`GET /session/logout`, docs/SHELL-CONTRACT.md section 5). The service worker
+is the catalogue's PWA copy-in (`src/pwa/`, `scripts/pwa-plugin.mjs`).
 
 ## Features
 

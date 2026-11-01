@@ -224,6 +224,7 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
           // origin, is not embeddable in this deployment however capable it is
           // in principle. The board must not offer a frame it cannot fill.
           embeddable: entry.embeddable && peer?.publicUrl != null,
+          installable: entry.installable,
           publicUrl: peer?.publicUrl ?? null,
           reachable: null,
           problem: null,

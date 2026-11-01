@@ -115,6 +115,31 @@ may overlap: the grid never moves something you did not touch. The minimum size
 is a quarter of the width — narrower than that, a real application is unusable
 rather than merely small.
 
+## An app of its own
+
+Mosaic installs as an app — "Install" in a desktop browser, "Add to Home
+Screen" on a phone — with its own icon and window, and the modules live inside
+it. The service worker is the catalogue's copy-in (`src/pwa/`,
+`scripts/pwa-plugin.mjs`) and keeps the app only, never an answer from
+`/api`. See [`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md), section 5.
+
+- **On a phone** a board is one module at a time, full screen, with a bar at
+  the bottom to switch. Every pane stays open behind the one on screen, so
+  switching keeps each module where it was.
+- **The camera works in a pane.** Every frame grants the camera, the clipboard
+  and full screen (`src/frame.ts`) — a receipt's code in MOD-11, a barcode —
+  and the module still asks the person.
+- **Without a connection** Mosaic opens with the last arrangement kept on this
+  device. A pane of a module that is `installable` (registry) opens from the
+  browser's copy — MOD-11 records expenses there and sends them when the
+  connection is back; every other pane says it needs the connection. The
+  arrangement cannot be changed offline, and the board starts again on its own
+  when the connection returns.
+- **Signing out signs out of every module too.** Mosaic loads each framable
+  module's `GET /session/logout` in a hidden frame — the module ends its own
+  session and drops what it kept in this browser — then ends its own. A shared
+  phone keeps nothing of the last person.
+
 ## What it stores
 
 Which module sits where, and nothing else:
@@ -124,7 +149,9 @@ Which module sits where, and nothing else:
 - `preferences` — the active board
 
 There is nothing to cache: a pane is not a rendering of a module's data, it *is*
-the module. Losing this file costs an arrangement, never a record.
+the module. Losing this file costs an arrangement, never a record. The
+installed app keeps a copy of the catalogue and the arrangement in the
+browser, to open offline; signing out removes it.
 
 ## Platform integration
 
@@ -144,6 +171,9 @@ npm test
 
 `test/panes.test.ts` covers what may go on a board and what may not, the
 handoff, and that two people never see each other's arrangement.
+`deploy/test/pwa.test.ts` keeps the app installable: the copy-in unchanged,
+the manifest, the frames' permissions, and the sign-out served by every
+module a pane can hold.
 
 ## Licence
 

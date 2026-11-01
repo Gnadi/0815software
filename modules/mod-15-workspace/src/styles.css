@@ -1406,3 +1406,58 @@ textarea.field__input {
   padding: 1px 5px;
   border-radius: var(--radius);
 }
+
+/* ── Installed and offline (src/frame.ts, App.tsx) ───────────────────── */
+.offline__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  padding: 20px 24px;
+}
+
+.offline__module {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 18px;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--fg-dim);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  text-align: left;
+}
+
+.offline__module strong {
+  color: var(--fg);
+  font-weight: 500;
+  flex: 1;
+}
+
+.offline__module:hover {
+  border-color: var(--fg-dim);
+}
+
+/* A phone: the widgets one below the other, full width, in board order —
+   the arrangement is the desk's; a phone has one column. */
+@media (max-width: 700px) {
+  .board {
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+  }
+
+  .widget {
+    grid-column: 1 / -1 !important;
+    grid-row: auto !important;
+    min-height: 220px;
+  }
+
+  .widget__grip {
+    display: none;
+  }
+
+  .ws__bar {
+    position: static;
+  }
+}

@@ -203,7 +203,8 @@
         "embeddable": false,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       }
     },
     {
@@ -236,7 +237,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       }
     },
     {
@@ -269,7 +271,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       }
     },
     {
@@ -352,7 +355,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
-        "publishesReportViews": true
+        "publishesReportViews": true,
+        "installable": false
       }
     },
     {
@@ -385,7 +389,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       }
     },
     {
@@ -420,7 +425,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       },
       "peers": {
         "optional": [
@@ -458,7 +464,8 @@
         "embeddable": false,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       }
     },
     {
@@ -494,7 +501,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": true,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       }
     },
     {
@@ -528,7 +536,8 @@
         "embeddable": false,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       }
     },
     {
@@ -562,7 +571,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       }
     },
     {
@@ -597,7 +607,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": true
       },
       "peers": {
         "optional": [
@@ -646,7 +657,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       }
     },
     {
@@ -687,7 +699,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       },
       "peers": {
         "optional": [
@@ -729,7 +742,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       }
     },
     {
@@ -843,7 +857,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": true
       }
     },
     {
@@ -961,7 +976,8 @@
         "embeddable": false,
         "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": true
       }
     },
     {
@@ -999,7 +1015,8 @@
         "embeddable": true,
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
-        "publishesReportViews": false
+        "publishesReportViews": false,
+        "installable": false
       },
       "peers": {
         "optional": [

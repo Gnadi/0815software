@@ -53,9 +53,12 @@ into its code or database.
 Some files are carried by every module, identical apart from the module's own
 number: `server/auth.ts`, `sso.ts`, `handoff.ts`, `hardening.ts`, `guard.ts`,
 `shared/summary.ts`, `scripts/backup.mjs`, the tsconfigs, and the tests
-`access`, `handoff`, `transport-hardening`, `config-env`, `upgrade`. Change one
-→ change it in **every** module that has it (a script, not by hand), and run
-each suite. `deploy/test/new-module.test.ts` fails when they drift apart.
+`access`, `handoff`, `sign-out`, `transport-hardening`, `config-env`, `upgrade`.
+Change one → change it in **every** module that has it (a script, not by hand),
+and run each suite. `deploy/test/new-module.test.ts` fails when they drift
+apart. An installable app (registry `constraints.installable`) also carries the
+PWA copy-in — `src/pwa/sw.js`, `src/pwa/register.ts`, `scripts/pwa-plugin.mjs`
+— kept identical by `deploy/test/pwa.test.ts`.
 
 ## Adding a module
 

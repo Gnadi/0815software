@@ -60,6 +60,8 @@ export interface PeerStatus {
   embeddable: boolean;
   /** Public origin the browser must use for the frame; null when unconfigured. */
   publicUrl: string | null;
+  /** An installable app that opens from the browser's copy without a connection. */
+  installable: boolean;
 }
 
 export interface Preferences {

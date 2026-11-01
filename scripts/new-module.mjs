@@ -284,6 +284,7 @@ export function registryEntry(options) {
       needsPublicBaseUrl: false,
       acceptsSourceDb: false,
       publishesReportViews: false,
+      installable: false,
     },
   };
 }
