@@ -348,9 +348,22 @@ export function createBill(db: Database.Database, input: BillInput): number {
   }));
 }
 
+/**
+ * A bill that pays an employee's expense claim (server/expense-claims.ts) is
+ * the claim's: its amount and reference are what MOD-11 approved, and it is
+ * paid — not cancelled or deleted, which would leave the claim handed over
+ * and never paid.
+ */
+function requireNotExpense(bill: BillRow, action: string): void {
+  if (bill.expense_claim) throw new DomainError(409, `Cannot ${action} this bill: it pays expense claim ${bill.expense_claim} as approved in time tracking`);
+}
+
 export function updateBill(db: Database.Database, id: number, input: BillInput): void {
   const bill = getBill(db, id);
   requireOpen(bill, 'edit');
+  if (bill.expense_claim && (input.amountCents !== bill.amount_cents || input.reference !== bill.reference || input.creditorId !== bill.creditor_id)) {
+    requireNotExpense(bill, 'change the amount, reference or payee of');
+  }
   getCreditor(db, input.creditorId);
   const changedKey = bill.creditor_id !== input.creditorId || bill.reference !== input.reference;
   const write = db.transaction((): void => {
@@ -384,6 +397,7 @@ export function updateBill(db: Database.Database, id: number, input: BillInput):
 export function deleteBill(db: Database.Database, id: number): void {
   const bill = getBill(db, id);
   requireOpen(bill, 'delete');
+  requireNotExpense(bill, 'delete');
   const { count } = db.prepare('SELECT COUNT(*) AS count FROM payment_run_items WHERE bill_id = ?').get(id) as {
     count: number;
   };
@@ -397,7 +411,9 @@ export function deleteBill(db: Database.Database, id: number): void {
 }
 
 export function cancelBill(db: Database.Database, id: number, at?: string): void {
-  requireOpen(getBill(db, id), 'cancel');
+  const bill = getBill(db, id);
+  requireOpen(bill, 'cancel');
+  requireNotExpense(bill, 'cancel');
   db.prepare('UPDATE bills SET cancelled_at = ? WHERE id = ?').run(at ?? nowIso(), id);
 }
 

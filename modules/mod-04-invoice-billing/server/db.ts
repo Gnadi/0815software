@@ -177,6 +177,19 @@ export function openDb(path: string): Database.Database {
   if (!columns('bills').includes('po_number')) db.exec('ALTER TABLE bills ADD COLUMN po_number TEXT');
   if (!columns('bills').includes('net_cents')) db.exec('ALTER TABLE bills ADD COLUMN net_cents INTEGER CHECK (net_cents IS NULL OR net_cents >= 0)');
 
+  // ── Expense claims from MOD-11 (server/expense-claims.ts) ────────────
+  // A bill that pays an employee's approved claim names it. Unique, so a
+  // second import finds the bill the first one made instead of paying twice
+  // (the creditor's reference is the claim number too, which UNIQUE
+  // (creditor_id, reference) already guards; this survives a changed IBAN).
+  // When MOD-11 has heard that the bill was paid is kept, so a report that
+  // did not get through is sent again.
+  if (!columns('bills').includes('expense_claim')) {
+    db.exec('ALTER TABLE bills ADD COLUMN expense_claim TEXT');
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_bills_expense_claim ON bills (expense_claim)');
+  }
+  if (!columns('bills').includes('expense_reported_at')) db.exec('ALTER TABLE bills ADD COLUMN expense_reported_at TEXT');
+
   // ── Reading a bill from its document (server/bill-reading.ts) ─────────
   if (!columns('bills').includes('read_from')) db.exec('ALTER TABLE bills ADD COLUMN read_from TEXT');
   if (!columns('bills').includes('document_sha256')) db.exec('ALTER TABLE bills ADD COLUMN document_sha256 TEXT');

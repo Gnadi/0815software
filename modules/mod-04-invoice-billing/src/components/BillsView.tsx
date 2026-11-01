@@ -3,6 +3,7 @@ import type { BillLine, BillMatchState, BillProposal, BillRow, BillStatus, Credi
 import { api, ApiError, type BillReadingState, type PayablesTotals } from '../api';
 import { centsToInput, fmtEur, parseEurToCents } from '../format';
 import { Can } from '../access';
+import { ExpenseClaimsPanel } from './ExpenseClaimsPanel';
 
 /**
  * BILLS — what we owe, and the bank file that pays it.
@@ -339,6 +340,8 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
 
       {error && <div className="resource__error mono">{error}</div>}
 
+      <ExpenseClaimsPanel onImported={() => void load()} onAuthLost={onAuthLost} />
+
       {/* The debtor account. Unusable, and nothing can be paid at all — so it
           says so here, before anyone selects a single bill. */}
       {config && !config.ready && (
@@ -444,6 +447,7 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                 <td>
                   <span className={`badge mono badge--bill-${b.status}`}>{STATUS_LABEL[b.status]}</span>
                   {b.overdue && <span className="badge mono badge--overdue">OVERDUE</span>}
+                  {b.expense_claim && <div className="mono table__id" title="An employee's approved expense claim from time tracking">EXPENSE CLAIM</div>}
                   {b.match.state !== 'not_linked' && (b.status === 'open' || b.match.state !== 'matched') && (
                     <div
                       className="mono table__id"
@@ -525,7 +529,8 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                             MARK PAID
                           </button>
                         </Can>
-                        <Can>
+                        {/* A claim's bill is paid, never cancelled (server/expense-claims.ts). */}
+                        {!b.expense_claim && <Can>
                           <button
                             className="rowbtn rowbtn--danger mono"
                             disabled={busy}
@@ -537,7 +542,7 @@ export function BillsView({ onOpenRun, onAuthLost }: Props) {
                           >
                             CANCEL
                           </button>
-                        </Can>
+                        </Can>}
                       </>
                     )}
                   </div>

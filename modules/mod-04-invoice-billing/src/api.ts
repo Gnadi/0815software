@@ -251,6 +251,10 @@ export const api = {
   checkBillMatch: (id: number) => request<BillRow>(`/api/bills/${id}/check-match`, post()),
   releaseBillMatch: (id: number, reason: string) => request<BillRow>(`/api/bills/${id}/release-match`, post({ reason })),
   /** Have PS-04 read a supplier invoice into a proposal for the form. Saves nothing. */
+  /** MOD-11's approved claims to pay by transfer, and the bills they became. */
+  expenseClaims: () => request<ExpenseClaimsState>('/api/expense-claims'),
+  /** Take one over as a bill — idempotent on the claim number. */
+  importExpenseClaim: (claimNumber: string) => request<BillRow>('/api/bills/import-expense-claim', post({ claim_number: claimNumber })),
   readBill: (document: { content_base64: string; content_type: string; filename: string }) =>
     request<{ extraction: { source: string; syntax: string | null; embedded: boolean; provider: string }; proposal: BillProposal }>('/api/bills/read', post(document)),
   billReading: () => request<BillReadingState>('/api/settings/bill-reading'),
@@ -418,4 +422,24 @@ export interface BillReadingState extends BillReadingSettings {
   available: boolean;
   updated_at: string | null;
   updated_by: string | null;
+}
+
+/** An approved MOD-11 claim waiting to be paid by transfer. */
+export interface WaitingExpenseClaim {
+  number: string;
+  title: string;
+  employee_name: string;
+  approved_at: string;
+  total_cents: number;
+  has_bank_account: boolean;
+}
+
+export interface ExpenseClaimsState {
+  configured: boolean;
+  waiting: WaitingExpenseClaim[];
+  bills: BillRow[];
+  /** Why MOD-11 could not be asked, or null. */
+  unreachable: string | null;
+  /** Paid here, not yet confirmed by MOD-11 — sent again on the next load. */
+  unreported: string[];
 }

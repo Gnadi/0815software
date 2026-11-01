@@ -110,6 +110,7 @@ import { renderCreditNotePdf, renderInvoicePdf } from './pdf.js';
 import { issueCreditNote } from './credit-notes.js';
 import { fmtEur } from '../shared/money.js';
 import { checkBill, releaseMatch } from './bill-match.js';
+import { expenseClaimsOverview, importExpenseClaim, reportExpensePayments } from './expense-claims.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
 import { proposeBill, readReadingSettings, validateReadingSettings, writeReadingSettings } from './bill-reading.js';
 import { apply as applyReceivables, suggest } from './receivables.js';
@@ -1589,9 +1590,27 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
   // Settled outside a payment run — cash, card, standing order, or a transfer
   // typed straight into the bank. A scheduled bill is refused (409): its run
   // is the record of how it is being paid.
-  app.post('/api/bills/:id/mark-paid', (req, res) => {
+  app.post('/api/bills/:id/mark-paid', async (req, res) => {
     markBillPaid(db, Number(req.params.id));
+    await reportExpensePayments(db, platform, actorOf(res, auth));
     res.json(getBill(db, Number(req.params.id)));
+  });
+
+  // ── Expense claims from MOD-11 (server/expense-claims.ts) ────────────
+  // An approved claim to be paid by transfer becomes a bill to the employee,
+  // once; MOD-11 hears when it is handed over and when it is paid.
+  app.get('/api/expense-claims', async (_req, res) => {
+    res.json(await expenseClaimsOverview(db, platform, actorOf(res, auth)));
+  });
+
+  app.post('/api/bills/import-expense-claim', async (req, res) => {
+    const raw = body(req).claim_number;
+    if (typeof raw !== 'string' || !/^SP-\d{4}-\d{4,}$/.test(raw.trim())) {
+      fail([{ field: 'claim_number', message: 'claim_number is the claim\'s number, e.g. SP-2026-0001' }]);
+    }
+    const actor = actorOf(res, auth);
+    const { bill, created } = await importExpenseClaim(db, platform, raw.trim(), actor);
+    res.status(created ? 201 : 200).json(bill);
   });
 
   app.get('/api/payment-runs', (_req, res) => {
@@ -1736,6 +1755,8 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
 
   app.post('/api/payment-runs/:id/mark-executed', async (req, res) => {
     markRunExecuted(db, Number(req.params.id));
+    // Employees' expense claims in the run are paid now: MOD-11 hears it.
+    await reportExpensePayments(db, platform, actorOf(res, auth));
     const detail = paymentRunDetail(db, Number(req.params.id));
     await platform.paymentRunEvent({
       event: 'executed',
