@@ -6,6 +6,7 @@ import { Login } from './components/Login';
 import { WidgetBody } from './components/WidgetBody';
 import { WidgetPicker } from './components/WidgetPicker';
 import type { ActivityEvent, Board as BoardModel, PeerSummary, ShellContext, Widget, WidgetPlacement } from '../shared/types';
+import { FRAME_ALLOW, forgetOffline, isOffline, keepOffline, offlineUrl, readOffline, signOutOfModules } from './frame';
 
 /**
  * The Workspace shell.
@@ -36,8 +37,17 @@ interface Embed {
   url: string;
 }
 
+/** What the installed app keeps to open without a connection (src/frame.ts) — no figures. */
+const OFFLINE_KEY = 'workspace.offline';
+interface KeptOffline {
+  me: string;
+  catalogue: Catalogue;
+}
+
 export function App() {
   const [ready, setReady] = useState(false);
+  /** Started without a connection: no figures, only the modules that open from the browser's copy. */
+  const [offline, setOffline] = useState(false);
   const [loggedOut, setLoggedOut] = useState(false);
   /** Why the board could not start, when it could not. */
   const [bootError, setBootError] = useState('');
@@ -112,11 +122,21 @@ export function App() {
       setLoggedOut(false);
       const [cat] = await Promise.all([api.catalogue(), loadBoards()]);
       setCatalogue(cat);
+      setOffline(false);
+      keepOffline<KeptOffline>(OFFLINE_KEY, { me: username, catalogue: cat });
       setReady(true);
       void loadWidgetData();
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setLoggedOut(true);
+        return;
+      }
+      const kept = readOffline<KeptOffline>(OFFLINE_KEY);
+      if (isOffline(err) && kept) {
+        setMe(kept.me);
+        setCatalogue(kept.catalogue);
+        setOffline(true);
+        setReady(true);
         return;
       }
       // Anything else — this module's own API answering 500, or the browser
@@ -133,6 +153,24 @@ export function App() {
   useEffect(() => {
     void boot();
   }, [boot]);
+
+  // Back online: start again, with figures and tickets.
+  useEffect(() => {
+    if (!offline) return;
+    const up = () => void boot();
+    window.addEventListener('online', up);
+    return () => window.removeEventListener('online', up);
+  }, [offline, boot]);
+
+  const signOut = useCallback(() => {
+    void signOutOfModules(catalogue?.modules ?? [])
+      .then(() => api.logout())
+      .catch(() => undefined)
+      .then(() => {
+        forgetOffline(OFFLINE_KEY);
+        onAuthLost();
+      });
+  }, [catalogue, onAuthLost]);
 
   /**
    * Keep the board current on its own.
@@ -296,6 +334,50 @@ export function App() {
   }
   if (!ready) return <div className="boot mono">LOADING…</div>;
 
+  if (offline) {
+    const usable = (catalogue?.modules ?? []).filter((m) => offlineUrl(m));
+    return (
+      <div className="ws">
+        <header className="ws__bar">
+          <div className="ws__brand mono">
+            <span>MOD-15</span>
+            <strong>WORKSPACE</strong>
+          </div>
+          <span className="ws__spacer" />
+          <button className="ws__tab mono" onClick={() => void boot()}>
+            TRY AGAIN
+          </button>
+        </header>
+        <div className="ws__notice mono">
+          <strong>OFFLINE.</strong> The figures need the connection. These modules open from this device&apos;s copy and keep
+          what you enter until the connection is back.
+        </div>
+        <div className="offline__list">
+          {usable.length === 0 && <p className="ws__empty mono">NO MODULE HERE WORKS WITHOUT A CONNECTION.</p>}
+          {usable.map((m) => (
+            <button key={m.id} className="offline__module mono" onClick={() => setEmbed({ moduleId: m.id, label: m.label, url: offlineUrl(m)! })}>
+              <span>{m.n}</span>
+              <strong>{m.label.toUpperCase()}</strong>
+              <span>OPEN ↗</span>
+            </button>
+          ))}
+        </div>
+        {embed && (
+          <div className="embed">
+            <div className="embed__bar mono">
+              <span>{embed.label.toUpperCase()} · OFFLINE</span>
+              <span className="ws__spacer" />
+              <button className="ws__tab mono" onClick={() => setEmbed(null)}>
+                CLOSE ✕
+              </button>
+            </div>
+            <iframe className="embed__frame" src={embed.url} title={embed.label} allow={FRAME_ALLOW} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="ws">
       <header className="ws__bar">
@@ -362,9 +444,8 @@ export function App() {
         )}
         <button
           className="ws__tab mono"
-          onClick={() => {
-            void api.logout().then(onAuthLost);
-          }}
+          onClick={signOut}
+          title="Signs you out of every module opened here, too"
         >
           LOG OUT ↗
         </button>
@@ -442,7 +523,7 @@ export function App() {
               CLOSE ✕
             </button>
           </div>
-          <iframe className="embed__frame" src={embed.url} title={embed.label} />
+          <iframe className="embed__frame" src={embed.url} title={embed.label} allow={FRAME_ALLOW} />
         </div>
       )}
 

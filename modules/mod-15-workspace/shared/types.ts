@@ -58,6 +58,8 @@ export interface PeerStatus {
   embeddable: boolean;
   /** Public origin for links and frames; null when unconfigured. */
   publicUrl: string | null;
+  /** An installable app that opens from the browser's copy without a connection. */
+  installable: boolean;
   /** Did the last summary call succeed? Null when never attempted. */
   reachable: boolean | null;
   /** Why the last call failed, for the widget's error state. */

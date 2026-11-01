@@ -12,7 +12,7 @@ import {
   sessionCookie,
   type AuthConfig,
 } from './auth.js';
-import { createHandoff, isRedeemPath, requestedAccess, safeServiceTokenEqual } from './handoff.js';
+import { createHandoff, isRedeemPath, requestedAccess, safeServiceTokenEqual, signOutResponse } from './handoff.js';
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 import { directoryCsv } from './csv.js';
@@ -309,6 +309,12 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       }
       res.setHeader('Set-Cookie', result.cookie);
       res.redirect(302, result.location);
+    });
+
+    // The shell signs the person out here too (handoff.ts: signOutResponse).
+    app.get('/session/logout', (req, res) => {
+      const out = signOutResponse(req.headers['sec-fetch-site'], clearedCookie());
+      res.status(out.status).set(out.headers).send(out.body);
     });
   }
 

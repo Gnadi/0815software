@@ -48,6 +48,8 @@ export interface CatalogueModule {
   configured: boolean;
   embeddable: boolean;
   publicUrl: string | null;
+  /** Opens from the browser's copy without a connection (src/frame.ts). */
+  installable: boolean;
 }
 
 export interface CatalogueAction {

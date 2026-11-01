@@ -36,8 +36,11 @@ hub read the same registry, so a new module is a package plus a registry entry.
 [`modules/registry.json`](../modules/registry.json) declares, per module: its id,
 catalogue number, slug, title, short operational label, default port, typical
 scope, the Platform Services it integrates with, its module-specific env vars and
-secrets, any module peers it bridges to, and four deployment constraints —
-`supportsSso`, `needsPublicBaseUrl`, `acceptsSourceDb`, `publishesReportViews`.
+secrets, any module peers it bridges to, and its deployment constraints —
+`supportsSso`, `embeddable`, `needsPublicBaseUrl`, `acceptsSourceDb`,
+`publishesReportViews`, `installable` (an app with a manifest and a service
+worker; it needs the HTTPS the generated stack serves, and the shells open it
+from the browser's copy when offline — see SHELL-CONTRACT.md, section 5).
 It also carries the twelve
 Platform Services with their ports, Caddy route prefixes, URL env var,
 tick-driven flag and per-stack secrets.

@@ -246,3 +246,52 @@ export function requestedAccess(value: unknown): AccessLevel | null {
   if (value === undefined) return 'manage';
   return isAccessLevel(value) ? value : null;
 }
+
+/**
+ * SIGNING OUT FROM THE SHELL — `GET /session/logout`, mounted next to the
+ * handoff routes and only when a shell is named.
+ *
+ * A shell signs a person into each module it frames, and its own "sign out"
+ * cannot reach those sessions: each is a cookie on another origin. So the
+ * shell loads this route in a hidden frame of every module it can embed, and
+ * the module ends its own session — the same authority that started it.
+ *
+ * - **Only from the stack.** The browser's `Sec-Fetch-Site` must say the
+ *   request came from this origin or a sibling on the same site (the shell is
+ *   one). A cross-site page cannot sign people out of here, nor wipe what is
+ *   waiting on their device; an older browser that sends no such header gets
+ *   nothing done either — the session then ends at its own expiry.
+ * - **The session, and what the module kept in this browser.** The cookie is
+ *   cleared, and `Clear-Site-Data: "storage"` removes this origin's local
+ *   storage, IndexedDB and service worker caches — what an offline app keeps
+ *   of the last person on a shared phone. Deliberately not `"cookies"`, which
+ *   the specification extends to the whole registrable domain: that would
+ *   sign people out of everything else on the company's domain too.
+ * - **No redirect, no parameters.** Nothing in the request decides what
+ *   happens, so the route cannot be turned into anything else.
+ */
+export interface SignOutResponse {
+  status: number;
+  headers: Record<string, string>;
+  body: string;
+}
+
+const SIGNED_OUT_PAGE =
+  '<!doctype html><meta charset="utf-8"><title>Signed out</title><p style="font:14px system-ui;color:#888">Signed out.</p>';
+
+export function signOutResponse(fetchSite: unknown, clearedSessionCookie: string): SignOutResponse {
+  const fromStack = fetchSite === 'same-origin' || fetchSite === 'same-site';
+  if (!fromStack) {
+    return { status: 403, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }, body: 'Signing out is asked by the shell of this stack' };
+  }
+  return {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Set-Cookie': clearedSessionCookie,
+      'Clear-Site-Data': '"storage"',
+    },
+    body: SIGNED_OUT_PAGE,
+  };
+}

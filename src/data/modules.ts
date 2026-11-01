@@ -474,6 +474,7 @@ const presentation: Record<string, ModulePresentation> = {
       'One shared customer and date filter every module honours',
       'Modules embedded full-screen, signed in, no second login',
       'Cross-module actions that run as you, not as a service account',
+      'Installs as an app on the desk and the phone; opens offline, signs out of every module at once',
     ],
     screen: {
       // Not `dashboard`: that variant draws four tiles and a revenue chart, which
@@ -547,6 +548,7 @@ const presentation: Record<string, ModulePresentation> = {
       'Drag and resize on a 12-column grid, saved per person',
       'Each pane already signed in, through a single-use handoff ticket',
       'Named boards for the arrangements you keep coming back to',
+      'Installs as an app: one module at a time on a phone, offline panes for the modules that work offline, one sign-out for all',
     ],
     screen: {
       variant: 'mosaic',

@@ -5,6 +5,29 @@ import { Board } from './components/Board';
 import { PaneFrame } from './components/PaneFrame';
 import { PanePicker } from './components/PanePicker';
 import type { Board as BoardModel, PanePlacement } from '../shared/types';
+import { forgetOffline, isOffline, keepOffline, readOffline, signOutOfModules } from './frame';
+
+/** What the installed app keeps to open without a connection (src/frame.ts) — the arrangement, no data. */
+const OFFLINE_KEY = 'mosaic.offline';
+interface KeptOffline {
+  me: string;
+  catalogue: Catalogue;
+  boards: BoardModel[];
+  active: number | null;
+}
+
+/** A phone: one module at a time, full screen, and a bar to switch. */
+const NARROW = '(max-width: 700px)';
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW).matches);
+  useEffect(() => {
+    const query = window.matchMedia(NARROW);
+    const change = () => setNarrow(query.matches);
+    query.addEventListener('change', change);
+    return () => query.removeEventListener('change', change);
+  }, []);
+  return narrow;
+}
 
 /**
  * The Mosaic: boards of panes, each pane a whole module.
@@ -25,6 +48,11 @@ export function App() {
   const [activeId, setActiveId] = useState<number | null>(null);
   const [picking, setPicking] = useState(false);
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null);
+  /** Started without a connection: the arrangement from this device, panes that can open offline. */
+  const [offline, setOffline] = useState(false);
+  const narrow = useNarrow();
+  /** On a phone, the pane on screen. */
+  const [shown, setShown] = useState<number | null>(null);
 
   const say = useCallback((text: string, bad = false) => {
     setToast({ text, bad });
@@ -45,6 +73,9 @@ export function App() {
   const loadBoards = useCallback(async () => {
     const { boards: rows, preferences } = await api.boards();
     setBoards(rows);
+    // The arrangement this device opens with when there is no connection.
+    const kept = readOffline<KeptOffline>(OFFLINE_KEY);
+    if (kept) keepOffline<KeptOffline>(OFFLINE_KEY, { ...kept, boards: rows, active: preferences.active_board });
     setActiveId((current) => {
       if (current !== null && rows.some((b) => b.id === current)) return current;
       const preferred = preferences.active_board;
@@ -59,12 +90,25 @@ export function App() {
       const { username } = await api.me();
       setMe(username);
       setLoggedOut(false);
-      const [cat] = await Promise.all([api.catalogue(), loadBoards()]);
+      const cat = await api.catalogue();
+      keepOffline<KeptOffline>(OFFLINE_KEY, { me: username, catalogue: cat, boards: [], active: null });
+      await loadBoards();
       setCatalogue(cat);
+      setOffline(false);
       setReady(true);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setLoggedOut(true);
+        return;
+      }
+      const kept = readOffline<KeptOffline>(OFFLINE_KEY);
+      if (isOffline(err) && kept) {
+        setMe(kept.me);
+        setCatalogue(kept.catalogue);
+        setBoards(kept.boards);
+        setActiveId(kept.active ?? kept.boards[0]?.id ?? null);
+        setOffline(true);
+        setReady(true);
         return;
       }
       // Never re-thrown into a floating promise: that leaves the screen on
@@ -76,6 +120,34 @@ export function App() {
   useEffect(() => {
     void boot();
   }, [boot]);
+
+  // Back online: start again, and every pane gets its ticket.
+  useEffect(() => {
+    if (!offline) return;
+    const up = () => void boot();
+    window.addEventListener('online', up);
+    return () => window.removeEventListener('online', up);
+  }, [offline, boot]);
+
+  const signOut = useCallback(() => {
+    void signOutOfModules(catalogue?.modules ?? [])
+      .then(() => api.logout())
+      .catch(() => undefined)
+      .then(() => {
+        forgetOffline(OFFLINE_KEY);
+        setReady(false);
+        setLoggedOut(true);
+      });
+  }, [catalogue]);
+
+  /** Changes to the arrangement need the server; offline, they are refused with a word. */
+  const online = useCallback(
+    (work: () => void) => {
+      if (offline) say('Offline — the arrangement can be changed when the connection is back', true);
+      else work();
+    },
+    [offline, say],
+  );
 
   const active = boards.find((b) => b.id === activeId) ?? null;
 
@@ -174,7 +246,8 @@ export function App() {
 
         <span className="ws__spacer" />
 
-        <button className="ws__tab mono" onClick={() => setPicking(true)}>
+        {offline && <span className="ws__offline mono">OFFLINE</span>}
+        <button className="ws__tab mono" onClick={() => online(() => setPicking(true))}>
           ADD PANE
         </button>
         {boards.length > 1 && active && (
@@ -189,10 +262,7 @@ export function App() {
             ✕ BOARD
           </button>
         )}
-        <button
-          className="ws__tab mono"
-          onClick={() => void api.logout().then(() => setLoggedOut(true)).catch(() => setLoggedOut(true))}
-        >
+        <button className="ws__tab mono" onClick={signOut} title="Signs you out of every module opened here, too">
           SIGN OUT · {me}
         </button>
       </header>
@@ -217,17 +287,39 @@ export function App() {
         </p>
       )}
 
-      {active && (
+      {active && narrow && active.panes.length > 0 && (
+        <div className="phone">
+          {/* Every pane stays mounted, so switching keeps each module where it was. */}
+          {active.panes.map((pane) => (
+            <div key={pane.id} className={`phone__pane${(shown ?? active.panes[0]!.id) === pane.id ? ' is-shown' : ''}`}>
+              <PaneFrame module={moduleOf(pane.module_id)} offline={offline} />
+            </div>
+          ))}
+          <nav className="phone__tabs">
+            {active.panes.map((pane) => (
+              <button
+                key={pane.id}
+                className={`phone__tab mono${(shown ?? active.panes[0]!.id) === pane.id ? ' is-active' : ''}`}
+                onClick={() => setShown(pane.id)}
+              >
+                {(moduleOf(pane.module_id)?.label ?? pane.module_id).toUpperCase()}
+              </button>
+            ))}
+          </nav>
+        </div>
+      )}
+
+      {active && !narrow && (
         <Board
           panes={active.panes}
-          onLayout={(placements) => void saveLayout(placements)}
-          onRemove={(id) => void removePane(id)}
+          onLayout={(placements) => online(() => void saveLayout(placements))}
+          onRemove={(id) => online(() => void removePane(id))}
           title={(pane) => {
             const peer = moduleOf(pane.module_id);
             return { source: peer?.n ?? 'MOD-??', label: peer?.label ?? pane.module_id };
           }}
         >
-          {(pane) => <PaneFrame module={moduleOf(pane.module_id)} />}
+          {(pane) => <PaneFrame module={moduleOf(pane.module_id)} offline={offline} />}
         </Board>
       )}
 

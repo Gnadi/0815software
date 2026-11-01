@@ -1488,3 +1488,76 @@ textarea.field__input {
   padding: 1px 5px;
   border-radius: var(--radius);
 }
+
+/* ── Installed, offline, on a phone (src/frame.ts, App.tsx) ──────────── */
+.ws__offline {
+  padding: 6px 10px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #0a0a0a;
+  background: var(--fg-dim);
+  border-radius: var(--radius);
+}
+
+/* A phone: one module on screen, the others kept alive behind it. */
+.phone {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.phone__pane {
+  display: none;
+  flex: 1;
+  min-height: 0;
+}
+
+.phone__pane.is-shown {
+  display: flex;
+}
+
+.phone__tabs {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-top: 1px solid var(--line);
+  background: var(--bg-2);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.phone__tab {
+  flex: 1 0 auto;
+  min-height: 48px;
+  padding: 0 16px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--fg-mute);
+  border-top: 2px solid transparent;
+}
+
+.phone__tab.is-active {
+  color: var(--fg);
+  border-top-color: var(--fg);
+}
+
+@media (max-width: 700px) {
+  /* The screen is the app: bar on top, the module, the switcher at the bottom. */
+  .ws {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
+
+  .ws__bar {
+    position: static;
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .ws__tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    max-width: 100%;
+  }
+}

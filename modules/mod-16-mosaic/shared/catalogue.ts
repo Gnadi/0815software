@@ -42,28 +42,34 @@ export interface CatalogueEntry {
   publicUrlEnv: string;
   /** Can this module be framed and handed a session? */
   embeddable: boolean;
+  /**
+   * Is it an installable app that keeps itself in the browser (registry:
+   * `constraints.installable`)? Then, without a connection, a pane opens it
+   * from the browser's copy instead of asking for a ticket that cannot come.
+   */
+  installable: boolean;
 }
 
 export const CATALOGUE: readonly CatalogueEntry[] = [
-  { id: 'mod-01-customer-portal', n: 'MOD-01', label: 'Portal', urlEnv: 'PORTAL_URL', publicUrlEnv: 'PORTAL_PUBLIC_URL', embeddable: false },
-  { id: 'mod-02-admin-dashboard', n: 'MOD-02', label: 'Admin', urlEnv: 'ADMIN_URL', publicUrlEnv: 'ADMIN_PUBLIC_URL', embeddable: true },
-  { id: 'mod-03-inventory-management', n: 'MOD-03', label: 'Inventory', urlEnv: 'INVENTORY_URL', publicUrlEnv: 'INVENTORY_PUBLIC_URL', embeddable: true },
-  { id: 'mod-04-invoice-billing', n: 'MOD-04', label: 'Invoicing', urlEnv: 'INVOICING_URL', publicUrlEnv: 'INVOICING_PUBLIC_URL', embeddable: true },
-  { id: 'mod-05-employee-directory', n: 'MOD-05', label: 'Directory', urlEnv: 'DIRECTORY_URL', publicUrlEnv: 'DIRECTORY_PUBLIC_URL', embeddable: true },
-  { id: 'mod-06-procurement-tracker', n: 'MOD-06', label: 'Procurement', urlEnv: 'PROCUREMENT_URL', publicUrlEnv: 'PROCUREMENT_PUBLIC_URL', embeddable: true },
-  { id: 'mod-07-storefront', n: 'MOD-07', label: 'Shop', urlEnv: 'SHOP_URL', publicUrlEnv: 'SHOP_PUBLIC_URL', embeddable: false },
-  { id: 'mod-08-reporting-suite', n: 'MOD-08', label: 'Reporting', urlEnv: 'REPORTING_URL', publicUrlEnv: 'REPORTING_PUBLIC_URL', embeddable: true },
-  { id: 'mod-09-document-management', n: 'MOD-09', label: 'Documents', urlEnv: 'DOCUMENTS_URL', publicUrlEnv: 'DOCUMENTS_PUBLIC_URL', embeddable: false },
-  { id: 'mod-10-crm-lite', n: 'MOD-10', label: 'CRM', urlEnv: 'CRM_URL', publicUrlEnv: 'CRM_PUBLIC_URL', embeddable: true },
-  { id: 'mod-11-time-tracking', n: 'MOD-11', label: 'Time', urlEnv: 'TIME_URL', publicUrlEnv: 'TIME_PUBLIC_URL', embeddable: true },
-  { id: 'mod-12-support-tickets', n: 'MOD-12', label: 'Support', urlEnv: 'SUPPORT_URL', publicUrlEnv: 'SUPPORT_PUBLIC_URL', embeddable: true },
-  { id: 'mod-13-offers', n: 'MOD-13', label: 'Offers', urlEnv: 'OFFERS_URL', publicUrlEnv: 'OFFERS_PUBLIC_URL', embeddable: true },
-  { id: 'mod-14-subsidies-funds', n: 'MOD-14', label: 'Subsidies', urlEnv: 'SUBSIDIES_URL', publicUrlEnv: 'SUBSIDIES_PUBLIC_URL', embeddable: true },
+  { id: 'mod-01-customer-portal', n: 'MOD-01', label: 'Portal', urlEnv: 'PORTAL_URL', publicUrlEnv: 'PORTAL_PUBLIC_URL', embeddable: false, installable: false },
+  { id: 'mod-02-admin-dashboard', n: 'MOD-02', label: 'Admin', urlEnv: 'ADMIN_URL', publicUrlEnv: 'ADMIN_PUBLIC_URL', embeddable: true, installable: false },
+  { id: 'mod-03-inventory-management', n: 'MOD-03', label: 'Inventory', urlEnv: 'INVENTORY_URL', publicUrlEnv: 'INVENTORY_PUBLIC_URL', embeddable: true, installable: false },
+  { id: 'mod-04-invoice-billing', n: 'MOD-04', label: 'Invoicing', urlEnv: 'INVOICING_URL', publicUrlEnv: 'INVOICING_PUBLIC_URL', embeddable: true, installable: false },
+  { id: 'mod-05-employee-directory', n: 'MOD-05', label: 'Directory', urlEnv: 'DIRECTORY_URL', publicUrlEnv: 'DIRECTORY_PUBLIC_URL', embeddable: true, installable: false },
+  { id: 'mod-06-procurement-tracker', n: 'MOD-06', label: 'Procurement', urlEnv: 'PROCUREMENT_URL', publicUrlEnv: 'PROCUREMENT_PUBLIC_URL', embeddable: true, installable: false },
+  { id: 'mod-07-storefront', n: 'MOD-07', label: 'Shop', urlEnv: 'SHOP_URL', publicUrlEnv: 'SHOP_PUBLIC_URL', embeddable: false, installable: false },
+  { id: 'mod-08-reporting-suite', n: 'MOD-08', label: 'Reporting', urlEnv: 'REPORTING_URL', publicUrlEnv: 'REPORTING_PUBLIC_URL', embeddable: true, installable: false },
+  { id: 'mod-09-document-management', n: 'MOD-09', label: 'Documents', urlEnv: 'DOCUMENTS_URL', publicUrlEnv: 'DOCUMENTS_PUBLIC_URL', embeddable: false, installable: false },
+  { id: 'mod-10-crm-lite', n: 'MOD-10', label: 'CRM', urlEnv: 'CRM_URL', publicUrlEnv: 'CRM_PUBLIC_URL', embeddable: true, installable: false },
+  { id: 'mod-11-time-tracking', n: 'MOD-11', label: 'Time', urlEnv: 'TIME_URL', publicUrlEnv: 'TIME_PUBLIC_URL', embeddable: true, installable: true },
+  { id: 'mod-12-support-tickets', n: 'MOD-12', label: 'Support', urlEnv: 'SUPPORT_URL', publicUrlEnv: 'SUPPORT_PUBLIC_URL', embeddable: true, installable: false },
+  { id: 'mod-13-offers', n: 'MOD-13', label: 'Offers', urlEnv: 'OFFERS_URL', publicUrlEnv: 'OFFERS_PUBLIC_URL', embeddable: true, installable: false },
+  { id: 'mod-14-subsidies-funds', n: 'MOD-14', label: 'Subsidies', urlEnv: 'SUBSIDIES_URL', publicUrlEnv: 'SUBSIDIES_PUBLIC_URL', embeddable: true, installable: false },
   // The Workspace is a module like any other from here: a pane can hold the
   // whole board. This module is absent on purpose — framing itself is a
   // recursion with no bottom.
-  { id: 'mod-15-workspace', n: 'MOD-15', label: 'Workspace', urlEnv: 'WORKSPACE_URL', publicUrlEnv: 'WORKSPACE_PUBLIC_URL', embeddable: true },
-  { id: 'mod-17-orders-delivery', n: 'MOD-17', label: 'Orders', urlEnv: 'ORDERS_URL', publicUrlEnv: 'ORDERS_PUBLIC_URL', embeddable: true },
+  { id: 'mod-15-workspace', n: 'MOD-15', label: 'Workspace', urlEnv: 'WORKSPACE_URL', publicUrlEnv: 'WORKSPACE_PUBLIC_URL', embeddable: true, installable: true },
+  { id: 'mod-17-orders-delivery', n: 'MOD-17', label: 'Orders', urlEnv: 'ORDERS_URL', publicUrlEnv: 'ORDERS_PUBLIC_URL', embeddable: true, installable: false },
 ];
 
 export function catalogueEntry(id: string): CatalogueEntry | undefined {

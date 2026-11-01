@@ -152,6 +152,25 @@ a module that adds a tile in a new version appears here without this module
 changing. Widgets may overlap: the grid never moves something you did not
 touch.
 
+## An app of its own
+
+The Workspace installs as an app — "Install" in a desktop browser, "Add to
+Home Screen" on a phone — with its own icon and window. The service worker is
+the catalogue's copy-in (`src/pwa/`, `scripts/pwa-plugin.mjs`) and keeps the
+app only: a figure on a board is still one the module produced just now. See
+[`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md), section 5.
+
+- **On a phone** the widgets stand one below the other, and an opened module
+  fills the screen.
+- **The camera works in an opened module.** The frame grants the camera, the
+  clipboard and full screen (`src/frame.ts`); the module still asks.
+- **Without a connection** the Workspace opens, says that the figures need the
+  connection, and offers the modules that work offline (registry:
+  `installable`) — opened from the browser's copy. It starts again on its own
+  when the connection returns.
+- **Signing out signs out of every module too**, through each one's
+  `GET /session/logout` in a hidden frame, then ends its own session.
+
 ## What it stores
 
 Layouts, and nothing else:
@@ -196,6 +215,9 @@ The suites worth knowing about: `test/peers.test.ts` covers what the board
 does when a module is down, slow, older than the contract, or claiming to be
 something else — one sick module must cost one widget, never the board — and
 `test/boards.test.ts` covers layout isolation between people.
+`deploy/test/pwa.test.ts` keeps the app installable: the copy-in unchanged,
+the manifest, the frame's permissions, and the sign-out served by every module
+it can open.
 
 ## Licence
 
