@@ -8,12 +8,14 @@ import { MyTasksView } from './components/MyTasksView';
 import { MyAreaView } from './components/MyAreaView';
 import { FlexView } from './components/FlexView';
 import { ExportView } from './components/ExportView';
+import { ExpensesView } from './components/ExpensesView';
+import { wipeOffline } from './pwa/outbox';
 import { Login } from './components/Login';
 import { ProjectsView } from './components/ProjectsView';
 import { SummaryView } from './components/SummaryView';
 import { TimesheetsView } from './components/TimesheetsView';
 
-export type View = 'my-area' | 'daily' | 'my-tasks' | 'absences' | 'flex' | 'projects' | 'employees' | 'timesheets' | 'summary' | 'export';
+export type View = 'my-area' | 'daily' | 'my-tasks' | 'absences' | 'expenses' | 'flex' | 'projects' | 'employees' | 'timesheets' | 'summary' | 'export';
 
 const NAV: { view: View; label: string }[] = [
   { view: 'my-area', label: 'My Area' },
@@ -21,6 +23,7 @@ const NAV: { view: View; label: string }[] = [
   { view: 'my-tasks', label: 'My Tasks' },
   { view: 'timesheets', label: 'Timesheets' },
   { view: 'absences', label: 'Absences' },
+  { view: 'expenses', label: 'Expenses' },
   { view: 'flex', label: 'Flexitime' },
   { view: 'summary', label: 'Summary' },
   { view: 'export', label: 'Export' },
@@ -28,23 +31,52 @@ const NAV: { view: View; label: string }[] = [
   { view: 'employees', label: 'Employees' },
 ];
 
+const ME_KEY = 'mod11.me';
+
+function readCachedMe(): { username: string; access: AccessLevel; employee_id: number | null } | null {
+  try {
+    const raw = localStorage.getItem(ME_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function App() {
   const [ready, setReady] = useState(false);
   const [loggedOut, setLoggedOut] = useState(false);
   const [access, setAccess] = useState<AccessLevel>('view');
   const [ownEmployeeId, setOwnEmployeeId] = useState<number | null>(null);
-  const [view, setView] = useState<View>('my-area');
+  const [username, setUsername] = useState('');
+  // Opened from the installed app without a connection: straight to capturing.
+  const [view, setView] = useState<View>(navigator.onLine ? 'my-area' : 'expenses');
 
   const load = useCallback(async () => {
     try {
       const me = await api.me();
       setAccess(me.access);
       setOwnEmployeeId(me.employee_id);
+      setUsername(me.username);
+      // Who was signed in, for opening the app offline. Removed on sign-out.
+      localStorage.setItem(ME_KEY, JSON.stringify(me));
       setReady(true);
       setLoggedOut(false);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) setLoggedOut(true);
-      else throw err;
+      if (err instanceof ApiError && err.status === 401) {
+        setLoggedOut(true);
+        return;
+      }
+      // No connection: the last signed-in person may capture; the server checks the session when it is back.
+      const cached = readCachedMe();
+      if (err instanceof TypeError && cached) {
+        setAccess(cached.access);
+        setOwnEmployeeId(cached.employee_id);
+        setUsername(cached.username);
+        setView('expenses');
+        setReady(true);
+        return;
+      }
+      throw err;
     }
   }, []);
 
@@ -71,7 +103,7 @@ export function App() {
         <aside className="sidebar">
           <div className="sidebar__brand mono">
             <span className="sidebar__num">MOD-11</span>
-            <span>TIME TRACKING</span>
+            <span>TIME & EXPENSES</span>
           </div>
           <nav className="sidebar__nav">
             {NAV.map(({ view: target, label }) => (
@@ -89,7 +121,11 @@ export function App() {
             <button
               className="sidebar__logout mono"
               onClick={() => {
-                void api.logout().then(onAuthLost);
+                // A shared phone keeps nothing of the last person: captures waiting, the cached login.
+                void wipeOffline()
+                  .then(() => api.logout())
+                  .catch(() => undefined)
+                  .then(onAuthLost);
               }}
             >
               LOG OUT ↗
@@ -101,6 +137,7 @@ export function App() {
           {view === 'daily' && <DailyEntryView ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}
           {view === 'timesheets' && <TimesheetsView ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}
           {view === 'absences' && <AbsencesView ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}
+          {view === 'expenses' && <ExpensesView username={username} ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}
           {view === 'my-tasks' && <MyTasksView onAuthLost={onAuthLost} />}
           {view === 'flex' && <FlexView ownEmployeeId={ownEmployeeId} onAuthLost={onAuthLost} />}
           {view === 'summary' && <SummaryView onAuthLost={onAuthLost} />}
