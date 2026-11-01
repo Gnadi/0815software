@@ -1,14 +1,20 @@
-import { AuditClient, FilesClient, SearchClient, ServiceError, type SearchResult } from '@0815software/platform-clients';
+import { AuditClient, FilesClient, SearchClient, ServiceError } from '@0815software/platform-clients';
 
 /**
  * Optional integration with the Platform Services (best-effort, opt-in):
  *   - PS-06 File Storage — mirror each uploaded document version to shared
  *     object storage (the module keeps its own local copy either way)
- *   - PS-07 Audit Log    — record uploads on the tamper-evident trail
- *   - PS-09 Search       — index each document for cross-entity search, and
- *     back GET /api/search with it
+ *   - PS-07 Audit Log    — record uploads, share links and disposals on the
+ *     tamper-evident trail
+ *   - PS-09 Search       — index each document's title and text, with its
+ *     matter as a facet, for search across modules
  * With no URL configured the module runs standalone; a downstream outage never
- * fails the upload.
+ * fails the local operation.
+ *
+ * Search inside this module never asks PS-09: its own index answers, behind
+ * the matter check (docs.ts). PS-09 holds a copy for other consumers, which
+ * reach it with the machine token — the same trust as the PS-06 mirror of
+ * the bytes themselves — and loses it when the document is deleted.
  */
 
 export interface PlatformConfig {
@@ -22,40 +28,66 @@ export interface PlatformConfig {
 export interface DocumentUploadInfo {
   actor: string;
   docId: number;
+  matterId: number;
   version: number;
   bytes: Buffer;
   contentType: string;
   title: string;
+  /** The text read out of the version, for PS-09. */
+  text: string;
 }
+
+export interface AuditEntry {
+  actor: string;
+  action: string;
+  resource: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** What became of each copy outside the module when a document went away. */
+export type MirrorOutcome = Record<string, 'removed' | 'failed' | 'not configured'>;
 
 export interface PlatformHooks {
   documentUploaded(info: DocumentUploadInfo): Promise<void>;
-  /** Search indexed documents via PS-09, or null when Search is unconfigured. */
-  searchDocuments(q: string): Promise<SearchResult | null>;
+  /** Drop the copies outside the module: PS-09 always, PS-06 when `versions` is given. */
+  documentRemoved(docId: number, versions?: number[]): Promise<MirrorOutcome>;
+  audit(entry: AuditEntry): Promise<void>;
 }
 
 export const noopPlatform: PlatformHooks = {
   async documentUploaded() {
     /* standalone */
   },
-  async searchDocuments() {
-    return null;
+  async documentRemoved() {
+    return {};
+  },
+  async audit() {
+    /* standalone */
   },
 };
 
+/** PS-09 gets enough text to find a document by, not a second archive. */
+const MAX_INDEXED_CHARS = 100_000;
+
 export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const files = cfg.filesUrl ? new FilesClient({ baseUrl: cfg.filesUrl, serviceToken: cfg.serviceToken }) : null;
-  const audit = cfg.auditUrl ? new AuditClient({ baseUrl: cfg.auditUrl, serviceToken: cfg.serviceToken }) : null;
+  const auditClient = cfg.auditUrl ? new AuditClient({ baseUrl: cfg.auditUrl, serviceToken: cfg.serviceToken }) : null;
   const searchClient = cfg.searchUrl ? new SearchClient({ baseUrl: cfg.searchUrl, serviceToken: cfg.serviceToken }) : null;
-  if (!files && !audit && !searchClient) return noopPlatform;
+  if (!files && !auditClient && !searchClient) return noopPlatform;
   const bucket = cfg.bucket ?? 'documents';
   let bucketReady = false;
 
+  const audit = async (entry: AuditEntry): Promise<void> => {
+    if (!auditClient) return;
+    try {
+      await auditClient.record(entry);
+    } catch (err) {
+      console.warn('[mod-09] audit failed:', err);
+    }
+  };
+
   return {
-    async searchDocuments(q: string): Promise<SearchResult | null> {
-      if (!searchClient) return null;
-      return searchClient.search({ collection: 'documents', q });
-    },
+    audit,
 
     async documentUploaded(info: DocumentUploadInfo): Promise<void> {
       if (files) {
@@ -72,25 +104,45 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
           console.warn('[mod-09] file mirror failed:', err);
         }
       }
-      if (audit) {
-        try {
-          await audit.record({
-            actor: info.actor,
-            action: 'document.uploaded',
-            resource: `document:${info.docId}`,
-            metadata: { version: info.version, title: info.title },
-          });
-        } catch (err) {
-          console.warn('[mod-09] audit failed:', err);
-        }
-      }
+      await audit({ actor: info.actor, action: 'document.uploaded', resource: `document:${info.docId}`, metadata: { version: info.version, title: info.title } });
       if (searchClient) {
         try {
-          await searchClient.index({ collection: 'documents', id: String(info.docId), title: info.title });
+          await searchClient.index({
+            collection: 'documents',
+            id: String(info.docId),
+            title: info.title,
+            body: info.text.slice(0, MAX_INDEXED_CHARS),
+            facets: { matter: String(info.matterId) },
+          });
         } catch (err) {
           console.warn('[mod-09] search index failed:', err);
         }
       }
+    },
+
+    async documentRemoved(docId: number, versions?: number[]): Promise<MirrorOutcome> {
+      const outcome: MirrorOutcome = { search: 'not configured', files: 'not configured' };
+      if (searchClient) {
+        try {
+          await searchClient.remove('documents', String(docId));
+          outcome.search = 'removed';
+        } catch (err) {
+          // Gone already is what we wanted.
+          outcome.search = err instanceof ServiceError && err.status === 404 ? 'removed' : 'failed';
+        }
+      }
+      if (files && versions) {
+        outcome.files = 'removed';
+        for (const v of versions) {
+          try {
+            await files.remove(bucket, `${docId}/v${v}`);
+          } catch (err) {
+            if (!(err instanceof ServiceError && err.status === 404)) outcome.files = 'failed';
+          }
+        }
+      }
+      if (!versions) delete outcome.files;
+      return outcome;
     },
   };
 }

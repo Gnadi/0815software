@@ -1,7 +1,9 @@
 import type Database from 'better-sqlite3';
+import { ftsQuery, MATCH_END, MATCH_START } from './search.js';
 import {
   MATTER_ROLE_RANK,
   type ActivityEntry,
+  type SearchHit,
   type DocumentDetail,
   type DocumentSummary,
   type DocumentVersion,
@@ -47,6 +49,7 @@ interface MatterRow {
   description: string;
   created_by: number;
   created_at: string;
+  retention_class_id: number | null;
 }
 
 interface DocumentRow {
@@ -192,6 +195,7 @@ function matterSummary(db: Database.Database, matter: MatterRow, role: MatterRol
     role,
     document_count,
     member_count,
+    retention_class_id: matter.retention_class_id,
   };
 }
 
@@ -376,8 +380,10 @@ function listVersions(db: Database.Database, documentId: number): DocumentVersio
   return db
     .prepare(
       `SELECT v.id, v.version_no, v.size_bytes, v.sha256, v.content_type, v.filename,
-              v.uploaded_by AS uploaded_by_id, u.name AS uploaded_by_name, v.uploaded_at
+              v.uploaded_by AS uploaded_by_id, u.name AS uploaded_by_name, v.uploaded_at,
+              t.preview, t.status AS text_status, t.format
        FROM document_versions v JOIN users u ON u.id = v.uploaded_by
+       LEFT JOIN version_text t ON t.version_id = v.id
        WHERE v.document_id = ?
        ORDER BY v.version_no`,
     )
@@ -416,11 +422,14 @@ function activityFor(
   return entries.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : b.version_no - a.version_no));
 }
 
+/** The detail without what retention.ts and shares.ts add to it (app.ts puts them together). */
+export type BaseDetail = Omit<DocumentDetail, 'retention' | 'events' | 'shares' | 'share_policy' | 'can_share'>;
+
 export function documentDetail(
   db: Database.Database,
   user: AuthUser,
   documentId: number,
-): DocumentDetail {
+): BaseDetail {
   const { document, role } = requireDocumentAccess(db, user, documentId, 'viewer');
   const summary = documentSummaryById(db, documentId);
   const versions = listVersions(db, documentId);
@@ -448,13 +457,17 @@ export function createDocument(
   user: AuthUser,
   matterId: number,
   input: UploadInput,
-): DocumentDetail {
+): BaseDetail {
   requireMatterAccess(db, user, matterId, 'editor');
   const at = nowIso();
   const documentId = db.transaction(() => {
+    // A new document starts under its matter's retention class, if it has one.
     const id = db
-      .prepare('INSERT INTO documents (matter_id, title, created_by, created_at) VALUES (?, ?, ?, ?)')
-      .run(matterId, input.title, user.id, at).lastInsertRowid as number;
+      .prepare(
+        `INSERT INTO documents (matter_id, title, created_by, created_at, retention_class_id)
+         VALUES (?, ?, ?, ?, (SELECT retention_class_id FROM matters WHERE id = ?))`,
+      )
+      .run(matterId, input.title, user.id, at, matterId).lastInsertRowid as number;
     insertVersion(db, id, 1, user.id, at, input);
     return id;
   })();
@@ -471,7 +484,7 @@ export function addVersion(
   user: AuthUser,
   documentId: number,
   input: UploadInput,
-): DocumentDetail {
+): BaseDetail {
   const { document } = requireDocumentAccess(db, user, documentId, 'editor');
   db.transaction(() => {
     const { next } = db
@@ -608,4 +621,53 @@ export function softDeleteDocument(db: Database.Database, user: AuthUser, docume
     nowIso(),
     documentId,
   );
+  // Out of search with the rest of the reads; the text stays with the bytes.
+  db.prepare('DELETE FROM document_search WHERE rowid = ?').run(documentId);
+}
+
+// ── Full-text search ───────────────────────────────────────────────────────
+
+/**
+ * Search titles, text and tags of the documents this person may read. The
+ * matter check is part of the query — the same clause as listDocuments — so
+ * a document in someone else's matter is never a hit, never counted and
+ * never ranked.
+ */
+export function searchDocuments(
+  db: Database.Database,
+  user: AuthUser,
+  q: string,
+  filter: Omit<DocumentFilter, 'search'> = {},
+  limit = 50,
+): SearchHit[] {
+  const match = ftsQuery(q);
+  if (match === null) return [];
+  const clauses = ['document_search MATCH ?', 'd.deleted_at IS NULL'];
+  const params: (string | number)[] = [match];
+  if (user.role !== 'admin') {
+    clauses.push('d.matter_id IN (SELECT matter_id FROM matter_members WHERE user_id = ?)');
+    params.push(user.id);
+  }
+  if (filter.matterId !== undefined) {
+    clauses.push('d.matter_id = ?');
+    params.push(filter.matterId);
+  }
+  if (filter.tag) {
+    clauses.push('EXISTS (SELECT 1 FROM document_tags t WHERE t.document_id = d.id AND t.tag = ?)');
+    params.push(filter.tag);
+  }
+  const rows = db
+    .prepare(
+      `SELECT ${DOC_SUMMARY_FIELDS},
+              snippet(document_search, -1, '${MATCH_START}', '${MATCH_END}', '…', 16) AS snippet
+       FROM document_search
+       JOIN documents d ON d.id = document_search.rowid
+       JOIN matters m ON m.id = d.matter_id
+       JOIN users cu ON cu.id = d.created_by
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY bm25(document_search, 10.0, 1.0, 3.0), d.id DESC
+       LIMIT ?`,
+    )
+    .all(...params, limit) as (Omit<DocumentSummary, 'tags'> & { snippet: string })[];
+  return rows.map((r) => ({ ...attachTags(db, r), snippet: r.snippet }));
 }

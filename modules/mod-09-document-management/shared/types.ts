@@ -58,6 +58,8 @@ export interface MatterSummary {
   /** Number of non-deleted documents visible in this matter. */
   document_count: number;
   member_count: number;
+  /** The retention class new documents in this matter get. */
+  retention_class_id: number | null;
 }
 
 export interface MatterMember {
@@ -87,6 +89,12 @@ export interface DocumentSummary {
   tags: string[];
 }
 
+/** How a version may be shown in the browser — decided from its bytes. */
+export type PreviewKind = 'pdf' | 'image' | 'text' | 'none';
+
+/** Whether text could be read out of a version (`empty`: a scan, a picture). */
+export type TextStatus = 'text' | 'empty' | 'encrypted' | 'unsupported' | 'failed';
+
 export interface DocumentVersion {
   id: number;
   version_no: number;
@@ -97,6 +105,142 @@ export interface DocumentVersion {
   uploaded_by_id: number;
   uploaded_by_name: string;
   uploaded_at: string;
+  /** Null until the version's text has been read (just after an upgrade). */
+  preview: PreviewKind | null;
+  text_status: TextStatus | null;
+  format: string | null;
+}
+
+/** A full-text match: the document and a passage around the words found. */
+export interface SearchHit extends DocumentSummary {
+  /** The passage; matches are wrapped in \u0002 … \u0003. */
+  snippet: string;
+}
+
+// ── Settings ─────────────────────────────────────────────────────────────
+
+/** Who may make share links: nobody, editors and owners, or owners only. */
+export const SHARE_POLICIES = ['off', 'editor', 'owner'] as const;
+export type SharePolicy = (typeof SHARE_POLICIES)[number];
+
+export interface ModuleSettings {
+  share_links: SharePolicy;
+  share_default_days: number;
+  share_max_days: number;
+  share_require_password: boolean;
+  updated_by_name: string | null;
+  updated_at: string | null;
+}
+
+// ── Share links ──────────────────────────────────────────────────────────
+
+export type ShareStatus = 'active' | 'expired' | 'revoked' | 'used_up';
+
+export interface ShareLink {
+  id: number;
+  /** Null: the link always serves the current version. */
+  version_no: number | null;
+  expires_at: string;
+  note: string;
+  has_password: boolean;
+  max_downloads: number | null;
+  /** Derived from the link's events. */
+  downloads: number;
+  last_used_at: string | null;
+  created_by_name: string;
+  created_at: string;
+  revoked_at: string | null;
+  revoked_by_name: string | null;
+  status: ShareStatus;
+  /** The signed-in user made it or owns the matter. */
+  can_revoke: boolean;
+}
+
+/** What someone with the link sees — nothing about the matter or the people. */
+export interface PublicShare {
+  title: string;
+  filename: string;
+  size_bytes: number;
+  version_no: number;
+  preview: PreviewKind;
+  expires_at: string;
+  password_required: boolean;
+  downloads_left: number | null;
+}
+
+// ── Retention ────────────────────────────────────────────────────────────
+
+export interface RetentionClass {
+  id: number;
+  name: string;
+  years: number;
+  /** The legal source, as the administrator wrote it. */
+  basis: string;
+  document_count: number;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export interface LegalHold {
+  reason: string;
+  by_name: string;
+  at: string;
+}
+
+export interface RetentionInfo {
+  class_id: number | null;
+  class_name: string | null;
+  years: number | null;
+  basis: string | null;
+  /** The date the period is counted from — the upload date unless one was set. */
+  document_date: string;
+  document_date_set: boolean;
+  /** Derived: 31 December of (document year + years). Null without a class. */
+  retention_end: string | null;
+  /** The first day the document may be disposed of. */
+  due_from: string | null;
+  due: boolean;
+  legal_hold: LegalHold | null;
+}
+
+export interface DocumentEvent {
+  kind: 'retention_set' | 'hold_set' | 'hold_released' | 'share_created' | 'share_revoked';
+  detail: string;
+  actor_name: string;
+  at: string;
+}
+
+export interface DueDocument {
+  id: number;
+  matter_id: number;
+  matter_key: string;
+  title: string;
+  deleted: boolean;
+  class_name: string;
+  years: number;
+  basis: string;
+  document_date: string;
+  retention_end: string;
+  due_from: string;
+  version_count: number;
+  size_bytes: number;
+}
+
+export interface Disposal {
+  id: number;
+  document_id: number;
+  matter_key: string;
+  retention_class: string;
+  years: number;
+  basis: string;
+  document_date: string;
+  retention_end: string;
+  versions: number;
+  bytes: number;
+  files_removed: number;
+  mirrors: Record<string, string>;
+  disposed_by_name: string;
+  disposed_at: string;
 }
 
 export interface ActivityEntry {
@@ -114,6 +258,13 @@ export interface DocumentDetail {
   /** The signed-in user's effective role on the owning matter. */
   matter_role: MatterRole;
   matter_key: string;
+  retention: RetentionInfo;
+  /** Retention, hold and share decisions, newest first. */
+  events: DocumentEvent[];
+  /** The document's share links; null for someone who may not see them (viewers). */
+  shares: ShareLink[] | null;
+  share_policy: SharePolicy;
+  can_share: boolean;
 }
 
 /** Format a byte count as a short human string, e.g. "12.3 KB". */

@@ -62,7 +62,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Hauptbuch, Analytik, Budgets, Konsolidierung (E) | ❌ | ⛔ Volle FiBu nicht bauen — Steuerberater nutzt BMD/DATEV. Stattdessen **Export** (siehe 2.) |
 | Vendor-Bill-OCR (E) | ✅ PS-04 `/api/extract/invoice` (XRechnung/ZUGFeRD/UBL/ebInterface exakt, PDF-Textlayer über Labels, Scans per Vision-Modell nur wenn vom Admin freigegeben) → MOD-04 *Read from document* (Kreditor per IBAN, Duplikat per Datei-Hash, Positionen samt Lieferanten-Artikelnummer übernommen) und **3-Way-Match auf Positionsebene** (Artikelnummer ↔ SKU der Bestellposition, Menge gegen Eingang und Bestellung, Preis gegen Bestellpreis) | Offen: Spesen-Modul als zweiter Konsument |
 | Expenses (E: OCR) | ❌ | 🔜 **neues Modul** (siehe 3.) |
-| Documents (E) | 🟡 MOD-09 (Matters, Versionen) | Vorschau, Volltextsuche via PS-09, Freigabelinks fehlen |
+| Documents (E) | ✅ MOD-09 (Matters, Versionen, Vorschau PDF/Bild/Text, Volltextsuche im eigenen Index — PDF-Textebene, Office, OpenDocument —, Freigabelinks mit Ablauf/Passwort/Download-Limit, Löschfristen AT/DE mit Legal Hold und manueller Vernichtung; PS-09 optional für modulübergreifende Suche) | Offen: OCR für Scans, Upload-Links für Externe |
 | Spreadsheet/BI (E) | ✅ MOD-08 (SQL-Reports mit Parametern und relativen Daten, Pivot, SVG-Charts Balken/Linie/Fläche/Kreis mit mehreren Reihen, XLSX-Export inkl. Pivot-Blatt — gegen ECMA-376 validiert, geplant und manuell) | ⛔ kein Spreadsheet nachbauen. Offen: Mehrfachauswahl-Parameter, Versand per Mail |
 | Sign (E) | 🟡 MOD-13 Annahme per signiertem Link | 🔜 einfache E-Signatur als Platform Service; qualifiziert (ID Austria) über PS-05 |
 | ESG (E) | ❌ | ⛔ |
@@ -197,7 +197,15 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
     in der Zeitzone aus den Einstellungen, gespeichert an Zeitplan und
     Diagramm; Kreis/Donut, Fläche, gruppierte/gestapelte Balken, mehrere
     Linien mit Legende.
-12. **MOD-09: Vorschau, Volltext via PS-09, Freigabelinks, Löschfristen.**
+12. ✅ **MOD-09: Vorschau, Volltext, Freigabelinks, Löschfristen.** Volltext
+    im eigenen FTS5-Index (das Modul sucht ohne PS-09; PS-09 bekommt Text und
+    Akte für die Suche über Module hinweg), Text aus PDF (inkl. ToUnicode),
+    DOCX/XLSX/PPTX und OpenDocument ohne Bibliothek; Vorschau nur für sichere
+    Typen, aus den Bytes bestimmt; Freigabelinks — wer sie erstellen darf,
+    stellt der Admin ein; Aufbewahrungsklassen mit Rechtsgrundlage (BAO § 132,
+    UGB § 212, HGB § 257, AO § 147), Legal Hold, Vernichtung nur von Hand.
+    Nebenbei geschlossen: `GET /api/search` gab PS-09-Treffer aus fremden
+    Akten ungefiltert weiter.
 
 ### Empfohlene Reihenfolge ab hier
 
@@ -214,8 +222,9 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 6. ✅ **MOD-11 Timer/„Mein Bereich“ + MOD-05 Self-Service** (umgesetzt).
 7. ✅ **MOD-12 Helpdesk-Ausbau + PS-05 Postfach** (umgesetzt).
 8. ✅ **MOD-08 XLSX/Parameter/Charttypen** (umgesetzt).
-9. **MOD-09 Vorschau/Volltext** — der verbleibende Punkt aus Abschnitt 2;
-   danach die neuen Module aus Abschnitt 3.
+9. ✅ **MOD-09 Vorschau/Volltext/Freigabelinks/Löschfristen** (umgesetzt).
+10. Damit ist Abschnitt 2 abgeschlossen; als Nächstes die neuen Module aus
+    Abschnitt 3.
 
 ## 3. Neue Module (Vorschlag)
 

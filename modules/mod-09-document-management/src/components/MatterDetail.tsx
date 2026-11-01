@@ -5,10 +5,11 @@ import {
   type MatterMember,
   type MatterRole,
   type MatterSummary,
+  type RetentionClass,
   type UserProfile,
   type UserRef,
 } from '../../shared/types';
-import { api, ApiError } from '../api';
+import { api, ApiError, errorText } from '../api';
 import { formatDate } from '../format';
 
 interface Props {
@@ -115,6 +116,9 @@ export function MatterDetail({ id, user, onBack, onOpenDocument, onAuthLost }: P
           </tbody>
         </table>
       </div>
+
+      <h2 className="detail__heading mono">RETENTION</h2>
+      <MatterRetention matter={matter} canOwn={canOwn} onChange={() => void load()} />
 
       <h2 className="detail__heading mono">MEMBERS ({members.length})</h2>
       <MembersPanel
@@ -276,6 +280,49 @@ function MembersPanel({
           {error && <span className="login__error mono">{error}</span>}
         </form>
       )}
+    </div>
+  );
+}
+
+/** The class new documents in this matter get — its owners choose it. */
+function MatterRetention({ matter, canOwn, onChange }: { matter: MatterSummary; canOwn: boolean; onChange: () => void }) {
+  const [classes, setClasses] = useState<RetentionClass[]>([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    void api.retentionClasses().then((r) => setClasses(r.classes)).catch(() => setClasses([]));
+  }, []);
+
+  const current = classes.find((c) => c.id === matter.retention_class_id);
+  async function choose(value: string) {
+    setError('');
+    try {
+      await api.setMatterRetention(matter.id, value ? Number(value) : null);
+      onChange();
+    } catch (err) {
+      setError(errorText(err, 'Failed'));
+    }
+  }
+
+  return (
+    <div className="card">
+      {canOwn ? (
+        <label className="field">
+          <span className="field__label mono">CLASS FOR NEW DOCUMENTS</span>
+          <select className="field__input" value={matter.retention_class_id ?? ''} onChange={(e) => void choose(e.target.value)}>
+            <option value="">None</option>
+            {classes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} · {c.years} years
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <p className="detail__hint">New documents get: {current ? `${current.name} (${current.years} years)` : 'no retention class'}.</p>
+      )}
+      {current?.basis && <p className="detail__hint">{current.basis}</p>}
+      {error && <div className="login__error mono">{error}</div>}
     </div>
   );
 }

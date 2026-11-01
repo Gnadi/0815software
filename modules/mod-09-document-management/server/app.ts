@@ -1,9 +1,9 @@
 import { timingSafeEqual } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import express, { type NextFunction, type Request, type RequestHandler, type Response } from 'express';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
-import { isGlobalRole, isMatterRole, type GlobalRole, type UserProfile } from '../shared/types.js';
+import { isGlobalRole, isMatterRole, type DocumentDetail, type GlobalRole, type UserProfile } from '../shared/types.js';
 import {
   clearedCookie,
   COOKIE_NAME,
@@ -35,11 +35,44 @@ import {
   removeMember,
   removeTag,
   resolveVersion,
+  searchDocuments,
   softDeleteDocument,
   type AuthUser,
+  type BaseDetail,
   type UploadInput,
 } from './docs.js';
 import { blobPath, writeBlob } from './storage.js';
+import { INLINE_TYPES, type FileFormat } from './extract.js';
+import { refreshText, reindexDocument, storeVersionText } from './search.js';
+import { readSettings, writeSettings } from './settings.js';
+import {
+  canShare,
+  createShare,
+  documentShares,
+  mayFetch,
+  publicView,
+  recordShareEvent,
+  resolveShare,
+  revokeShare,
+  unlockShare,
+  type ResolvedShare,
+} from './shares.js';
+import {
+  createClass,
+  deleteClass,
+  disposeDocument,
+  documentEvents,
+  listClasses,
+  listDisposals,
+  listDue,
+  releaseLegalHold,
+  RETENTION_PRESETS,
+  retentionInfo,
+  setDocumentRetention,
+  setLegalHold,
+  setMatterRetention,
+  updateClass,
+} from './retention.js';
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
 
@@ -93,6 +126,8 @@ export interface AppOptions {
    * staff, so it is not embeddable.
    */
   serviceToken?: string;
+  /** The clock retention and share links are measured against (tests inject one). */
+  now?: () => number;
 }
 
 export function createApp({
@@ -104,6 +139,7 @@ export function createApp({
   staticDir,
   platform = noopPlatform,
   serviceToken,
+  now = Date.now,
 }: AppOptions): express.Express {
   // Compute the equal-work dummy hash now, at startup and off the event loop,
   // so no request ever pays for generating it. Otherwise the first login
@@ -219,6 +255,63 @@ export function createApp({
     res.json(moduleSummary(db, parseSummaryContext(req.query as Record<string, unknown>)));
   });
 
+  // ── Share links: the public side ────────────────────────────────────────
+  // No session — the token is the credential, and it opens one document.
+  // Every failure is the same 404 (shares.ts), so a guessed token learns
+  // nothing; a password-protected link needs the grant /unlock returns.
+  const shared = (req: Request): ResolvedShare => {
+    const share = resolveShare(db, req.params.token, now());
+    if (!share) throw new DomainError(404, 'Link not found');
+    return share;
+  };
+  const grantOk = (req: Request, share: ResolvedShare): void => {
+    if (!mayFetch(share, req.query.grant ?? req.headers['x-share-grant'], session.secret, now())) {
+      throw new DomainError(401, 'This link needs its password');
+    }
+  };
+
+  app.get('/api/shared/:token', (req, res) => {
+    const share = shared(req);
+    recordShareEvent(db, share.linkId, 'opened', now());
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(publicView(share));
+  });
+
+  app.post('/api/shared/:token/unlock', (req, res, next) => {
+    void (async () => {
+      const share = shared(req);
+      const grant = await unlockShare(db, share, ((req.body ?? {}) as Record<string, unknown>).password, session.secret, now());
+      res.json({ grant });
+    })().catch(next);
+  });
+
+  app.get('/api/shared/:token/download', (req, res) => {
+    const share = shared(req);
+    grantOk(req, share);
+    const path = blobPath(storageDir, share.version.storage_path);
+    if (!existsSync(path)) throw new DomainError(404, 'Link not found');
+    recordShareEvent(db, share.linkId, 'downloaded', now());
+    res.setHeader('Content-Type', share.version.content_type);
+    res.setHeader('X-Content-SHA256', share.version.sha256);
+    res.setHeader('Cache-Control', 'no-store');
+    res.download(path, share.version.filename);
+  });
+
+  app.get('/api/shared/:token/preview', (req, res) => {
+    const share = shared(req);
+    grantOk(req, share);
+    recordShareEvent(db, share.linkId, 'previewed', now());
+    sendInline(res, storageDir, share.version);
+  });
+
+  app.get('/api/shared/:token/text', (req, res) => {
+    const share = shared(req);
+    grantOk(req, share);
+    recordShareEvent(db, share.linkId, 'previewed', now());
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(versionText(db, storageDir, share.documentId, share.version.version_no));
+  });
+
   // ── Everything below requires a valid session ─────────────────────────
   app.use('/api', (req, res, next) => {
     const token = parseCookies(req.headers.cookie)[COOKIE_NAME];
@@ -241,6 +334,35 @@ export function createApp({
 
   const requireAdmin = (res: Response): void => {
     if (me(res).role !== 'admin') throw new DomainError(403, 'Admin role required');
+  };
+
+  /** A document's detail with its retention, history and links. */
+  const detailOf = (user: AuthUser, id: number, base: BaseDetail = documentDetail(db, user, id)): DocumentDetail => ({
+    ...base,
+    retention: retentionInfo(db, id, now()),
+    events: documentEvents(db, id),
+    shares: documentShares(db, user, id, base.matter_role, now()),
+    share_policy: readSettings(db).share_links,
+    can_share: canShare(db, base.matter_role),
+  });
+
+  /** Read a freshly uploaded version's text, index it and tell the platform. */
+  const afterUpload = (req: Request, user: AuthUser, base: BaseDetail): DocumentDetail => {
+    const version = base.versions[base.versions.length - 1]!;
+    const bytes = req.body as Buffer;
+    const text = storeVersionText(db, version.id, bytes, version.content_type, version.filename);
+    reindexDocument(db, base.document.id);
+    void platform.documentUploaded({
+      actor: `user:${user.id}`,
+      docId: base.document.id,
+      matterId: base.document.matter_id,
+      version: version.version_no,
+      bytes,
+      contentType: version.content_type,
+      title: base.document.title,
+      text: text.text,
+    });
+    return detailOf(user, base.document.id);
   };
 
   // ── Account ───────────────────────────────────────────────────────────
@@ -368,7 +490,7 @@ export function createApp({
   app.get('/api/documents/:id', (req, res) => {
     const id = idParam(req.params.id);
     if (id === null) throw new DomainError(404, 'Document not found');
-    res.json(documentDetail(db, actor(res), id));
+    res.json(detailOf(actor(res), id));
   });
 
   // Upload a new document (with version 1) into a matter.
@@ -377,9 +499,7 @@ export function createApp({
     if (id === null) throw new DomainError(404, 'Matter not found');
     const input = uploadFrom(req, storageDir);
     const user = actor(res);
-    const doc = createDocument(db, user, id, input);
-    void platform.documentUploaded({ actor: `user:${user.id}`, docId: doc.document.id, version: doc.document.current_version, bytes: req.body as Buffer, contentType: str(req.headers['content-type']) ? String(req.headers['content-type']) : 'application/octet-stream', title: doc.document.title });
-    res.status(201).json(doc);
+    res.status(201).json(afterUpload(req, user, createDocument(db, user, id, input)));
   });
 
   // Append a new version to an existing document.
@@ -388,22 +508,157 @@ export function createApp({
     if (id === null) throw new DomainError(404, 'Document not found');
     const input = uploadFrom(req, storageDir);
     const user = actor(res);
-    const doc = addVersion(db, user, id, input);
-    void platform.documentUploaded({ actor: `user:${user.id}`, docId: doc.document.id, version: doc.document.current_version, bytes: req.body as Buffer, contentType: str(req.headers['content-type']) ? String(req.headers['content-type']) : 'application/octet-stream', title: doc.document.title });
-    res.status(201).json(doc);
+    res.status(201).json(afterUpload(req, user, addVersion(db, user, id, input)));
   });
 
-  // Cross-document search via PS-09 (501 when SEARCH_URL is unset).
-  app.get('/api/search', (req, res, next) => {
+  // Full-text search over titles, text and tags — this module's own index,
+  // behind the matter check (docs.ts); PS-09 is never asked.
+  app.get('/api/search', (req, res) => {
+    const matterId = str(req.query.matter) ? idParam(String(req.query.matter)) ?? undefined : undefined;
+    const q = typeof req.query.q === 'string' ? req.query.q.slice(0, 200) : '';
+    res.json({ hits: searchDocuments(db, actor(res), q, { matterId, tag: str(req.query.tag) }) });
+  });
+
+  // ── Preview ─────────────────────────────────────────────────────────────
+  const versionParam = (req: Request): number | undefined => {
+    if (!str(req.query.version)) return undefined;
+    const n = idParam(String(req.query.version));
+    if (n === null) throw new DomainError(404, 'Version not found');
+    return n;
+  };
+
+  // The bytes inline, for the formats a browser shows safely (PDF, images).
+  app.get('/api/documents/:id/preview', (req, res) => {
+    const id = idParam(req.params.id);
+    if (id === null) throw new DomainError(404, 'Document not found');
+    const version = resolveVersion(db, actor(res), id, versionParam(req));
+    sendInline(res, storageDir, { ...version, format: versionText(db, storageDir, id, version.version_no).format });
+  });
+
+  // The text read out of a version — the preview for everything else.
+  app.get('/api/documents/:id/text', (req, res) => {
+    const id = idParam(req.params.id);
+    if (id === null) throw new DomainError(404, 'Document not found');
+    const version = resolveVersion(db, actor(res), id, versionParam(req));
+    res.json(versionText(db, storageDir, id, version.version_no));
+  });
+
+  // ── Share links ───────────────────────────────────────────────────────
+  app.post('/api/documents/:id/shares', (req, res, next) => {
     void (async () => {
-      const q = typeof req.query.q === 'string' ? req.query.q : '';
-      const result = await platform.searchDocuments(q);
-      if (result === null) {
-        res.status(501).json({ error: 'Search is not configured (set SEARCH_URL)' });
-        return;
-      }
-      res.json(result);
+      const id = idParam(req.params.id);
+      if (id === null) throw new DomainError(404, 'Document not found');
+      const user = actor(res);
+      const { link, token } = await createShare(db, user, id, (req.body ?? {}) as Record<string, unknown>, now());
+      void platform.audit({ actor: `user:${user.id}`, action: 'share.created', resource: `document:${id}`, metadata: { link: link.id, expires_at: link.expires_at, version: link.version_no } });
+      // The token is in this response and nowhere else: only its hash is kept.
+      res.status(201).json({ link, token, path: `/s/${token}` });
     })().catch(next);
+  });
+
+  app.delete('/api/shares/:id', (req, res) => {
+    const id = idParam(req.params.id);
+    if (id === null) throw new DomainError(404, 'Link not found');
+    const user = actor(res);
+    const link = revokeShare(db, user, id, now());
+    void platform.audit({ actor: `user:${user.id}`, action: 'share.revoked', resource: `share:${id}` });
+    res.json({ link });
+  });
+
+  // ── Retention ─────────────────────────────────────────────────────────
+  app.get('/api/retention-classes', (_req, res) => {
+    res.json({ classes: listClasses(db), presets: RETENTION_PRESETS });
+  });
+
+  app.post('/api/retention-classes', (req, res) => {
+    requireAdmin(res);
+    res.status(201).json({ class: createClass(db, actor(res), (req.body ?? {}) as Record<string, unknown>) });
+  });
+
+  app.put('/api/retention-classes/:id', (req, res) => {
+    requireAdmin(res);
+    const id = idParam(req.params.id);
+    if (id === null) throw new DomainError(404, 'Retention class not found');
+    res.json({ class: updateClass(db, actor(res), id, (req.body ?? {}) as Record<string, unknown>) });
+  });
+
+  app.delete('/api/retention-classes/:id', (req, res) => {
+    requireAdmin(res);
+    const id = idParam(req.params.id);
+    if (id === null) throw new DomainError(404, 'Retention class not found');
+    deleteClass(db, id);
+    res.json({ ok: true });
+  });
+
+  app.put('/api/documents/:id/retention', (req, res) => {
+    const id = idParam(req.params.id);
+    if (id === null) throw new DomainError(404, 'Document not found');
+    res.json({ retention: setDocumentRetention(db, actor(res), id, (req.body ?? {}) as Record<string, unknown>, now()) });
+  });
+
+  app.post('/api/documents/:id/legal-hold', (req, res) => {
+    const id = idParam(req.params.id);
+    if (id === null) throw new DomainError(404, 'Document not found');
+    const user = actor(res);
+    const retention = setLegalHold(db, user, id, ((req.body ?? {}) as Record<string, unknown>).reason, now());
+    void platform.audit({ actor: `user:${user.id}`, action: 'document.hold_set', resource: `document:${id}` });
+    res.json({ retention });
+  });
+
+  app.delete('/api/documents/:id/legal-hold', (req, res) => {
+    const id = idParam(req.params.id);
+    if (id === null) throw new DomainError(404, 'Document not found');
+    const user = actor(res);
+    const retention = releaseLegalHold(db, user, id, now());
+    void platform.audit({ actor: `user:${user.id}`, action: 'document.hold_released', resource: `document:${id}` });
+    res.json({ retention });
+  });
+
+  app.put('/api/matters/:id/retention', (req, res) => {
+    const id = idParam(req.params.id);
+    if (id === null) throw new DomainError(404, 'Matter not found');
+    setMatterRetention(db, actor(res), id, ((req.body ?? {}) as Record<string, unknown>).retention_class_id);
+    res.json({ matter: getMatter(db, actor(res), id) });
+  });
+
+  app.get('/api/retention/due', (_req, res) => {
+    requireAdmin(res);
+    res.json({ documents: listDue(db, now()) });
+  });
+
+  app.get('/api/disposals', (_req, res) => {
+    requireAdmin(res);
+    res.json({ disposals: listDisposals(db) });
+  });
+
+  // Destroy a document past its period. By hand, by an administrator, with
+  // an explicit confirmation — there is no automatic disposal.
+  app.post('/api/documents/:id/dispose', (req, res, next) => {
+    void (async () => {
+      requireAdmin(res);
+      const id = idParam(req.params.id);
+      if (id === null) throw new DomainError(404, 'Document not found');
+      if (((req.body ?? {}) as Record<string, unknown>).confirm !== true) {
+        throw new DomainError(422, 'Validation failed', [{ field: 'confirm', message: 'disposal destroys every version for good — confirm it' }]);
+      }
+      res.json({ disposal: await disposeDocument(db, storageDir, platform, actor(res), id, now()) });
+    })().catch(next);
+  });
+
+  // ── Settings and maintenance (administrators) ─────────────────────────
+  app.get('/api/settings', (_req, res) => {
+    res.json(readSettings(db));
+  });
+
+  app.put('/api/settings', (req, res) => {
+    requireAdmin(res);
+    res.json(writeSettings(db, actor(res), (req.body ?? {}) as Record<string, unknown>));
+  });
+
+  // Read every version again — after the readers improved, or to repair.
+  app.post('/api/admin/reindex', (_req, res) => {
+    requireAdmin(res);
+    res.json(refreshText(db, storageDir, { all: true }));
   });
 
   // Download the current version, or ?version=N for a specific one.
@@ -427,14 +682,18 @@ export function createApp({
     const id = idParam(req.params.id);
     if (id === null) throw new DomainError(404, 'Document not found');
     const tag = normalizeTag((req.body ?? {}) as Record<string, unknown>);
-    res.status(201).json({ document: addTag(db, actor(res), id, tag) });
+    const document = addTag(db, actor(res), id, tag);
+    reindexDocument(db, id);
+    res.status(201).json({ document });
   });
 
   app.delete('/api/documents/:id/tags/:tag', (req, res) => {
     const id = idParam(req.params.id);
     if (id === null) throw new DomainError(404, 'Document not found');
     const tag = req.params.tag.trim().toLowerCase();
-    res.json({ document: removeTag(db, actor(res), id, tag) });
+    const document = removeTag(db, actor(res), id, tag);
+    reindexDocument(db, id);
+    res.json({ document });
   });
 
   // ── Soft delete ─────────────────────────────────────────────────────
@@ -442,6 +701,8 @@ export function createApp({
     const id = idParam(req.params.id);
     if (id === null) throw new DomainError(404, 'Document not found');
     softDeleteDocument(db, actor(res), id);
+    // Out of PS-09 too; the PS-06 copy stays with the local one until disposal.
+    void platform.documentRemoved(id);
     res.json({ ok: true });
   });
 
@@ -507,6 +768,64 @@ function uploadFrom(req: Request, storageDir: string): UploadInput {
     size: stored.size,
     storagePath: stored.storagePath,
   };
+}
+
+/**
+ * Serve a version's bytes for viewing in the page — only for the formats in
+ * INLINE_TYPES, decided from the bytes (extract.ts), and with the type from
+ * that list rather than the one the uploader sent. Anything else is a 415:
+ * an HTML or SVG file served inline would run its scripts with this
+ * module's cookies. Images are additionally sandboxed; PDFs cannot be, as
+ * browsers refuse to show a sandboxed PDF.
+ */
+function sendInline(
+  res: Response,
+  storageDir: string,
+  v: { storage_path: string; filename: string; sha256: string; version_no: number; format: string | null },
+): void {
+  const type = v.format ? INLINE_TYPES[v.format as FileFormat] : undefined;
+  if (!type) throw new DomainError(415, 'No inline preview for this file — download it instead');
+  const path = blobPath(storageDir, v.storage_path);
+  if (!existsSync(path)) throw new DomainError(404, 'Stored file missing — re-run the seed script');
+  // Framed by this module's own pages only (the hardening default is DENY).
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Content-Type', type);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader(
+    'Content-Security-Policy',
+    type === 'application/pdf' ? "frame-ancestors 'self'" : "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox; frame-ancestors 'self'",
+  );
+  res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(v.filename)}`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Version-No', String(v.version_no));
+  res.setHeader('X-Content-SHA256', v.sha256);
+  res.sendFile(path);
+}
+
+const PREVIEW_TEXT_CHARS = 200_000;
+
+/** A version's text (read now if it never was), capped for the page. */
+function versionText(db: Database.Database, storageDir: string, documentId: number, versionNo: number) {
+  const row = () =>
+    db
+      .prepare(
+        `SELECT v.id, v.storage_path, v.content_type, v.filename, t.status, t.format, t.preview, t.text
+         FROM document_versions v LEFT JOIN version_text t ON t.version_id = v.id
+         WHERE v.document_id = ? AND v.version_no = ?`,
+      )
+      .get(documentId, versionNo) as
+      | { id: number; storage_path: string; content_type: string; filename: string; status: string | null; format: string | null; preview: string | null; text: string | null }
+      | undefined;
+  let r = row();
+  if (!r) throw new DomainError(404, 'Version not found');
+  if (r.status === null) {
+    const path = blobPath(storageDir, r.storage_path);
+    if (!existsSync(path)) throw new DomainError(404, 'Stored file missing — re-run the seed script');
+    storeVersionText(db, r.id, readFileSync(path), r.content_type, r.filename);
+    r = row()!;
+  }
+  const text = r.text ?? '';
+  return { version_no: versionNo, status: r.status, format: r.format, preview: r.preview, text: text.slice(0, PREVIEW_TEXT_CHARS), truncated: text.length > PREVIEW_TEXT_CHARS };
 }
 
 function sendVersion(

@@ -8,6 +8,7 @@ import { buildPlatform } from './platform.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
+import { refreshText } from './search.js';
 
 const config = configFromEnv();
 assertProductionConfig([{ name: 'SESSION_SECRET', value: config.session.secret }]);
@@ -16,6 +17,14 @@ const db = openDb(config.databasePath);
 // First start on an empty database: load the demo data set so the app is
 // usable immediately. A database with existing users is never touched.
 await seed(db, config.storageDir);
+
+// An installation from before full-text search, or after the readers
+// improved: read the versions that have no (current) text yet. Synchronous on
+// purpose — search answers from the first request rather than filling in.
+const indexed = refreshText(db, config.storageDir);
+if (indexed.read > 0 || indexed.missing > 0) {
+  console.log(`[mod-09] read text of ${indexed.read} versions${indexed.missing ? `, ${indexed.missing} files missing` : ''}`);
+}
 
 // When running the compiled server (dist/server/server/index.js), the built
 // client lives at dist/client. In dev (tsx) it usually doesn't exist yet —

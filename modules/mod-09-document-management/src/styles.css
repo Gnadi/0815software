@@ -215,6 +215,7 @@ a {
 
 .sidebar__nav {
   display: grid;
+  align-content: start;
   padding: 12px 0;
   flex: 1;
 }
@@ -637,6 +638,163 @@ a {
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────── */
+/* ── Preview, search, retention, share links ─────────────────────────── */
+.preview {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-2);
+}
+
+.preview--pdf {
+  height: 70vh;
+  min-height: 420px;
+}
+
+.preview--image {
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.preview--image img {
+  max-width: 100%;
+  max-height: 70vh;
+}
+
+.preview--text {
+  max-height: 70vh;
+  overflow: auto;
+  padding: 18px;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--fg-dim);
+}
+
+.snippet mark {
+  background: rgba(232, 228, 220, 0.18);
+  color: var(--fg);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.table__actions {
+  white-space: nowrap;
+}
+
+.table__actions > * + * {
+  margin-left: 6px;
+}
+
+.rowbtn.is-on {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+.card .proplist {
+  border: none;
+  padding: 0;
+  background: none;
+  margin: 0 0 14px;
+}
+
+.detail__col .card {
+  margin-bottom: 24px;
+}
+
+.tag--due,
+.tag--active {
+  margin-left: 8px;
+  color: #0a0a0a;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.tag--expired,
+.tag--used_up,
+.tag--revoked {
+  color: var(--fg-mute);
+}
+
+.sharelist {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.sharelist__item {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sharelist__main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.sharelist__main > span:first-child {
+  flex: 1;
+}
+
+.sharebox {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius);
+}
+
+.stack {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.holdform {
+  width: 100%;
+  flex-wrap: nowrap;
+}
+
+.holdform .field__input {
+  flex: 1;
+}
+
+.sharebox .field__input {
+  flex: 1;
+  min-width: 240px;
+}
+
+.shareform {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  align-items: end;
+  margin-top: 14px;
+}
+
+.checkrow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.sharepage {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 48px 24px;
+}
+
 @media (max-width: 900px) {
   .shell {
     grid-template-columns: 1fr;
@@ -674,6 +832,18 @@ a {
 }
 
 /* ── MOD-09 additions ────────────────────────────────────────────────── */
+
+.btn--ghost {
+  background: none;
+  border: 1px solid var(--line-strong);
+  color: var(--fg);
+}
+
+/* A long legal basis or note wraps instead of widening the table. */
+.table td.table__wrap {
+  white-space: normal;
+  min-width: 220px;
+}
 
 .btn--danger {
   background: none;

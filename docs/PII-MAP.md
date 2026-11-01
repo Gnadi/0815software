@@ -78,6 +78,18 @@ the body (that is in the ticket). PS-06 holds a copy of each attachment when
 means erasing their tickets' rows in MOD-12 (no route yet — see below) and the
 PS-06 objects under `mod-12-attachments/<ref>/`.
 
+**Text, share links and disposals in MOD-09.** The text read out of every
+version (`version_text`) and the search index (`document_search`) hold
+whatever the documents say — names, addresses — beside the files they come
+from, and go with them on disposal. With `SEARCH_URL` set, PS-09 holds each
+document's title and text too (removed on soft delete and disposal). Share
+links store only a hash of the token and an optional note naming who it is
+for; `share_events` records when a link was used — no IP addresses. A
+disposal record keeps no title and no content, only the period, the count
+and hashes of what was destroyed and who did it. Lever: disposal once the
+retention period has passed (`POST /api/documents/:id/dispose`); erasing
+before then is a legal judgement and has no route.
+
 **Exports and parameter values in MOD-08.** A report reads whatever its SQL
 selects, so a CSV or Excel export (`EXPORTS_DIR`) holds whatever personal data
 the source holds — as files, outside any module's erasure. The run history

@@ -2,6 +2,8 @@ import type Database from 'better-sqlite3';
 import { hashPassword } from './auth.js';
 import type { GlobalRole, MatterRole } from '../shared/types.js';
 import { writeBlob } from './storage.js';
+import { RETENTION_PRESETS } from './retention.js';
+import { refreshText } from './search.js';
 
 /**
  * Demo data for MOD-09. Real multi-user setup: four users (one admin) and
@@ -41,6 +43,10 @@ interface SeedDocument {
   title: string;
   tags: string[];
   versions: SeedVersion[];
+  /** The date its retention period is counted from, when not the upload date. */
+  documentDate?: string;
+  /** A legal hold, with its reason. */
+  hold?: string;
 }
 
 interface SeedMatter {
@@ -50,6 +56,8 @@ interface SeedMatter {
   createdAt: string;
   members: SeedMember[];
   documents: SeedDocument[];
+  /** The retention class (a preset's name) its documents get. */
+  retention?: string;
 }
 
 const users: SeedUser[] = [
@@ -126,7 +134,23 @@ const matters: SeedMatter[] = [
         tags: ['litigation', 'draft'],
         versions: [{ uploader: 'theo', note: 'Opening settlement proposal', at: '2026-05-20T15:00:00Z' }],
       },
+      {
+        // Dated 2017: its seven years ended on 31 December 2024 — due.
+        title: 'Supplier Correspondence 2017',
+        tags: ['correspondence', 'archive'],
+        documentDate: '2017-09-14',
+        versions: [{ uploader: 'theo', note: 'Scanned letters from the 2017 supply dispute', at: '2026-03-12T10:00:00Z' }],
+      },
+      {
+        // Also from 2017, but evidence in the pending case: held.
+        title: 'Delivery Notes 2017',
+        tags: ['evidence', 'archive'],
+        documentDate: '2017-11-02',
+        hold: 'Evidence in the pending Northwind proceedings',
+        versions: [{ uploader: 'theo', note: 'Delivery notes produced in discovery', at: '2026-03-12T10:05:00Z' }],
+      },
     ],
+    retention: 'AT — books, records and vouchers',
   },
   {
     key: 'MAT-2026-033',
@@ -216,6 +240,9 @@ export async function seed(db: Database.Database, storageDir: string): Promise<v
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const insertTag = db.prepare('INSERT INTO document_tags (document_id, tag) VALUES (?, ?)');
+  const insertClass = db.prepare('INSERT INTO retention_classes (name, years, basis, created_by, created_at) VALUES (?, ?, ?, ?, ?)');
+  const setRetention = db.prepare('UPDATE documents SET retention_class_id = ?, document_date = ?, legal_hold_reason = ?, legal_hold_by = ?, legal_hold_at = ? WHERE id = ?');
+  const setMatterRetention = db.prepare('UPDATE matters SET retention_class_id = ? WHERE id = ?');
 
   let versionCount = 0;
 
@@ -241,6 +268,12 @@ export async function seed(db: Database.Database, storageDir: string): Promise<v
       userIds.set(user.username, id);
     }
 
+    // The retention presets, as an administrator would add them.
+    const classIds = new Map<string, number>();
+    for (const preset of RETENTION_PRESETS) {
+      classIds.set(preset.name, insertClass.run(preset.name, preset.years, preset.basis, userIds.get('admin')!, matters[0]!.createdAt).lastInsertRowid as number);
+    }
+
     for (const matter of matters) {
       const ownerId = userIds.get(matter.members.find((m) => m.role === 'owner')!.username)!;
       const matterId = insertMatter.run(
@@ -254,6 +287,8 @@ export async function seed(db: Database.Database, storageDir: string): Promise<v
       for (const member of matter.members) {
         insertMember.run(matterId, userIds.get(member.username)!, member.role, matter.createdAt);
       }
+      const classId = matter.retention ? classIds.get(matter.retention)! : null;
+      if (classId) setMatterRetention.run(classId, matterId);
 
       for (const doc of matter.documents) {
         const firstUploader = userIds.get(doc.versions[0]!.uploader)!;
@@ -285,9 +320,15 @@ export async function seed(db: Database.Database, storageDir: string): Promise<v
         });
 
         for (const tag of doc.tags) insertTag.run(documentId, tag);
+        if (classId) {
+          setRetention.run(classId, doc.documentDate ?? null, doc.hold ?? null, doc.hold ? ownerId : null, doc.hold ? doc.versions[0]!.at : null, documentId);
+        }
       }
     }
   })();
+
+  // Read the demo files' text, so search works from the first start.
+  refreshText(db, storageDir);
 
   console.log(
     `[seed] inserted ${users.length} users, ${matters.length} matters, ` +
