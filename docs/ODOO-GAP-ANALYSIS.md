@@ -3,7 +3,9 @@
 *Abgleich der Odoo-Editions-Matrix (https://www.odoo.com/page/editions,
 Community vs. Enterprise) mit den 17 Modulen und 12 Platform Services dieses
 Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
-#37 (E-Rechnung, BMD/DATEV) und #39 (Mitte der Wertschöpfungskette).*
+#37 (E-Rechnung, BMD/DATEV), #39 (Mitte der Wertschöpfungskette) und bis
+#51 (Spesen, installierbare Shells). Die Bilanz vom November 2026 steht in
+Abschnitt 5.*
 
 ## Kurzfassung
 
@@ -30,6 +32,12 @@ Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
   - **Helpdesk:** Anhänge, Textbausteine, Geschäftszeiten-SLA mit Feiertagen
     und Pause während „pending“ (versionierte Richtlinie), Zufriedenheit
     (CSAT) in MOD-12; das echte Support-Postfach über IMAP liest PS-05.
+  - **Berichte und Dokumente:** Excel-Export, Parameter, weitere Diagramme
+    (MOD-08); Vorschau, Volltext, Freigabelinks, Löschfristen (MOD-09).
+  - **Spesen:** Reisen, Kilometergeld und Belege nach österreichischem Recht
+    in MOD-11, Auszahlung per Lohn oder SEPA über MOD-04.
+  - **Mobil:** MOD-11, MOD-15 Workspace und MOD-16 Mosaik sind installierbare
+    Apps; die Shells öffnen offline-fähige Module ohne Verbindung.
 - **Größte verbleibende Lücken:**
   - **Projektplanung in der Tiefe:** Gantt, Abhängigkeiten, Kapazitätsblick
     (Board, Meilensteine und Budget sind in MOD-11 umgesetzt).
@@ -147,7 +155,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
 | Studio (E) | 🟡 MOD-02 (config-getriebenes CRUD) | Benutzerdefinierte Felder fehlen in allen Fachmodulen — als **Konvention** (`custom_fields`-JSON + Schema in Config) einführen |
-| Mobile Apps (E) | ❌ | 🟡 PWA-Manifest + responsive Views reichen; keine nativen Apps |
+| Mobile Apps (E) | ✅ installierbare Web-Apps (PWA): MOD-11 mit Offline-Erfassung; MOD-15 Workspace und MOD-16 Mosaik als App, in der die Module leben (am Handy ein Modul im Vollbild, Kamera im Fenster freigegeben, offline-fähige Module ohne Verbindung, ein Abmelden für alle) | Keine nativen Apps, bewusst. Offen: Push-Benachrichtigungen, App-Badge, auf iOS testen |
 | Versions-Upgrades (E) | ✅ strukturell: kein Upgrade-Zwang, MIT | Vorteil — aber Forks driften; Migrationsskripte pro Modul fehlen |
 | Hosting / Odoo.sh | ✅ `deploy/` (Compose, Caddy, provision, smoke, backup) | gut; Staging-Branches à la Odoo.sh fehlen |
 
@@ -330,3 +338,95 @@ Mensch, der haftet — das ist ohnehin das Geschäftsmodell.
    Odoo Community fehlen (EBICS, SEPA, E-Rechnung, Finanzamtszahlung),
    MIT-lizenziert, ohne Upgrade-Zwang, mit beweisbaren Invarianten“.
    Gegen Odoos 45 Apps gewinnt man nicht über die Breite.
+
+## 5. Bilanz November 2026
+
+*Stand nach PR #51. Die Odoo-Seite beruht auf der Editionsmatrix und
+allgemein bekanntem Funktionsumfang, nicht auf einer neuen Recherche;
+Aussagen zu Odoo-Lokalisierungen (österreichisches Taggeld, EBICS) vor einer
+Veröffentlichung prüfen.*
+
+### Urteil
+
+0815software ist kein Odoo-Klon und soll keiner werden: ein Baukasten aus
+17 eigenständigen Fachmodulen und 12 Platform Services, zusammengeführt von
+zwei installierbaren Shells. Im Zielmarkt — DACH-KMU, Kernprozesse vom
+Angebot bis zur Zahlung, Zeit, Projekte, HR-Basis, Service — sind die
+wichtigsten Lücken geschlossen, und in der Rechtskonformität für Österreich
+und Deutschland ist das Repo an mehreren Stellen tiefer als Odoo Community.
+Schwächer bleibt es in Breite, Ökosystem, Anpassung ohne Code und
+Praxisbewährung.
+
+### Abdeckung
+
+Von rund 40 Odoo-Apps im eigenen Zielumfang (etwa 15 weitere bewusst nicht,
+siehe Abschnitt 3):
+
+| Stand | Anzahl | Anteil |
+| --- | --- | --- |
+| ✅ abgedeckt | ~22 | ~55 % |
+| 🟡 teilweise | ~6 | ~15 % |
+| ❌ offen, geplant | ~11 | ~30 % |
+
+Gut zwei Drittel des Zielumfangs sind ganz oder teilweise abgedeckt — und es
+sind die Teile mit dem meisten Geschäftswert: Geldfluss, Lieferkette, Zeit,
+Service. Größe: rund 160.000 Zeilen TypeScript und 75.000 Zeilen Tests in
+371 Testdateien.
+
+### Wie das Repo im Vergleich dasteht
+
+| Dimension | 0815software | Odoo | Wertung |
+| --- | --- | --- | --- |
+| Breite | 17 Module, 12 Services | ~45 Apps, tausende OCA-Module, App-Store | Odoo klar vorne |
+| Tiefe im DACH-Recht | ebInterface, EBICS, BMD/DATEV, Löschfristen, RKSV-QR, Taggeld AT — gegen offizielle Schemas und Quellen getestet | Lokalisierungen, vieles in Enterprise oder über Partner | 0815 vorne |
+| Korrektheit | Invarianten ausdrücklich getestet (Summen abgeleitet, Zahlungsdatei nur einmal, nie die eigene Freigabe) | breit, weniger als Invarianten belegt | 0815 vorne, aber weniger im Echtbetrieb bewährt |
+| Betrieb, Unabhängigkeit | jedes Modul läuft allein, MIT, kein Upgrade-Zwang | eine Datenbank, jährliche Versionen mit Migration | 0815 vorne für klein startende Kunden |
+| Integration, Bedienung | Verträge zwischen Modulen, zwei Shells | ein Datenmodell, eine Suche, Chatter überall | Odoo vorne — bei uns sind Nahtstellen spürbar |
+| Anpassung ohne Code | MOD-02, Generator, sonst Code | Studio | Odoo vorne |
+| Anpassung mit Code und KI | kleine Pakete, Regeln, Drift-Tests | großer, versionsbrüchiger Kern | 0815 vorne |
+| Kosten | MIT, selbst betrieben; Geld für Einführung und Betrieb | Enterprise pro Nutzer und Monat | 0815 vorne |
+| Mobil | installierbare Web-Apps, offline erfassen | native Apps | Odoo leicht vorne |
+| Ökosystem, Vertrauen | klein, keine Referenzkunden im Echtbetrieb | Partner, Community, Marke | Odoo klar vorne |
+
+### Stärken
+
+- Rechtskonformität für AT/DE als Kern statt als Zusatz, geprüft gegen
+  offizielle Schemas und Quellen.
+- Klein anfangen ohne Lock-in: ein Modul allein betreiben, später ausbauen;
+  kein Upgrade-Zwang, keine Lizenzkosten pro Nutzer.
+- Datensparsam: Belege gehen an kein Modell, Werte werden abgeleitet statt
+  gespeichert, Abmelden hinterlässt nichts auf dem Gerät.
+- Eine gute Grundlage für KI-gestützte Entwicklung (Abschnitt 4).
+- Export an den Steuerberater statt eigener Finanzbuchhaltung — für KMU in
+  AT/DE realistischer.
+
+### Schwächen
+
+- Nicht praxiserprobt: EBICS nie gegen eine echte Bank, iOS ungetestet,
+  keine Last- oder Langzeiterfahrung, keine Pilotkunden.
+- Nahtstellen zwischen Modulen: keine durchgehende Suche über alles, kein
+  gemeinsamer Kommunikationsverlauf, Stammdaten ohne PS-11 je Modul.
+- Eigene Felder ohne Programmierung fehlen — der häufigste Grund für Odoo
+  Studio.
+- Lagertiefe (Lagerplätze, Kommissionierung, Bewertung) und PEPPOL fehlen.
+- Kein Ökosystem: jede Anbindung ist Eigenleistung.
+
+### Potenzial — Reihenfolge ab hier
+
+1. **Pilotbetrieb** bei ein bis zwei echten KMU (z. B. Dienstleister mit
+   Zeit, Spesen und Rechnung) und EBICS gegen eine echte Bank — bringt mehr
+   Glaubwürdigkeit als jedes weitere Feature.
+2. **Eigene Felder als Konvention** in allen Modulen (`custom_fields` mit
+   Schema in der Konfiguration) — schließt die Studio-Lücke, ohne Studio
+   nachzubauen.
+3. **Terminbuchung** und **Formulare & Umfragen** (Abschnitt 3) — die zwei
+   neuen Module mit dem größten Nutzen pro Aufwand.
+4. **PEPPOL** in MOD-04 und **Lagerplätze/Kommissionierung** in MOD-03 —
+   öffnet Handel und den deutschen Pflichtmarkt.
+5. **Stempeluhr mit Pausenregeln** in MOD-11 — zusammen mit den Spesen ein
+   starkes Argument in Österreich.
+
+**Positionierung:** nicht über die Breite gegen Odoo antreten, sondern
+„rechtssichere Kernprozesse für DACH-KMU, modular, ohne Lizenzkosten und ohne
+Lock-in“. Dort ist das Repo heute konkurrenzfähig; bei Breite und Ökosystem
+bleibt Odoo auf absehbare Zeit vorne.
