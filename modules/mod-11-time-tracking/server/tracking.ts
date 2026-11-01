@@ -288,6 +288,17 @@ export function deleteEmployee(db: Database.Database, id: number): void {
     )
     .get(id, id, id, id, id, id, id) as { n: number };
   if (leave.n > 0) throw new DomainError(409, 'Employee has leave, working-time or timer records and cannot be deleted');
+  // Expenses are kept for the retention period (§ 132 BAO): the person stays with them.
+  const expenses = (
+    db
+      .prepare(
+        `SELECT (SELECT COUNT(*) FROM expense_trips WHERE employee_id = ?) + (SELECT COUNT(*) FROM expense_mileage WHERE employee_id = ?)
+              + (SELECT COUNT(*) FROM expense_receipts WHERE employee_id = ?) + (SELECT COUNT(*) FROM expense_claims WHERE employee_id = ?)
+              + (SELECT COUNT(*) FROM expense_bank_accounts WHERE employee_id = ?) AS n`,
+      )
+      .get(id, id, id, id, id) as { n: number }
+  ).n;
+  if (expenses > 0) throw new DomainError(409, 'Employee has expense records and cannot be deleted');
   db.prepare('DELETE FROM employees WHERE id = ?').run(id);
 }
 

@@ -359,6 +359,7 @@ the Settings screen by whoever holds `manage`, and what is saved there wins (see
 | `SELLER_LEGAL_INFORMATION` | — | Geschäftsbriefangaben: registered office, register court, managing directors (§ 35a GmbHG, § 14 UGB). Footer of invoices and dunning letters; BT-33 in the XML |
 | `PROCUREMENT_URL` | — | MOD-06 Procurement: match bills naming a PO before they are paid |
 | `AI_URL` | — | PS-04 AI Platform: read a supplier invoice (e-invoice, PDF, scan) into the bill form |
+| `TIME_TRACKING_URL` | — | MOD-11 Time Tracking: take an employee's approved expense claim over as a bill, and report back when it is paid |
 
 The server prints a warning on startup while the default password is in
 use. The dev server does not load `.env` files by itself — export the
@@ -457,6 +458,10 @@ POST   /api/bills/:id/check-match      ask MOD-06 again (501 without PROCUREMENT
 POST   /api/bills/:id/release-match    {reason} — pay a held bill anyway (manage)
 POST   /api/bills/read                 {content_base64, content_type, filename} → {extraction,
                                         proposal} — PS-04 reads, nothing saved (501 without AI_URL)
+GET    /api/expense-claims             MOD-11's approved claims to pay by transfer, the bills they became,
+                                        and the paid reports MOD-11 has not confirmed (sent again here)
+POST   /api/bills/import-expense-claim {claim_number} → the bill (201), or the one it already became (200);
+                                        501 without TIME_TRACKING_URL
 GET    /api/settings/bill-reading      {model, available} — which model may read documents
 PUT    /api/settings/bill-reading      {model: null|anthropic|openai|gemini|ollama|kimi} (manage)
 
@@ -1176,6 +1181,36 @@ sent along, the lines proposed, saved, kept, replaced, removed and
 validated, creditor by IBAN and the changed-IBAN warning, read-from kept
 and both duplicate paths, a part-paid invoice, PS-04's refusals and outage,
 standalone, and the settings with their level).
+
+### An employee's expense claim (MOD-11)
+
+With `TIME_TRACKING_URL` set, the bills screen lists the employees' expense
+claims that MOD-11 approved to be paid **by transfer**. "Take over as bill"
+fetches the claim (`shared/expense-transfer.ts`, byte-identical in MOD-11),
+and:
+
+1. **checks it** — the lines add up to the total, the account is a valid
+   SEPA IBAN — before anything else happens;
+2. **tells MOD-11 it is handed over**, before the bill exists: from then on
+   MOD-11 refuses to mark the claim paid by hand, so it cannot be paid
+   twice; when MOD-11 does not confirm, nothing is created;
+3. **makes one bill** to the employee: the creditor found by the IBAN or
+   created, the claim number as the reference ("Spesen SP-2026-0001 …" as
+   the payment purpose), due today, one line per allowance and per VAT rate
+   of each receipt. The bill names its claim (`expense_claim`, unique), so a
+   second import returns the first bill.
+
+From there it is an ordinary bill: it goes into a payment run and the
+pain.001 file. It keeps the claim's amount, reference and payee, and it is
+paid — not cancelled or deleted, which would leave the claim handed over and
+never paid. When it is paid (the run executed, or "mark paid"), MOD-11
+hears it, with the run's message id as the reference; a report that does
+not get through is kept and sent again the next time the claims are opened.
+
+Pinned by `test/import-expense-claim.test.ts` (standalone, one bill per
+claim and creditor by IBAN, the order of handover and bill, refusals before
+anything is told, MOD-11's own refusals passed on, the locked amount and
+payee, the paid report through a run and its retry, and the wire itself).
 
 ### Money, and what a bill is not
 

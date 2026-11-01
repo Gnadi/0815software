@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { installExpensePresets } from './expense-presets.js';
 
 /**
  * Open (or create) the database and ensure the schema exists.
@@ -303,6 +304,195 @@ export function openDb(path: string): Database.Database {
   if (!entryColumns.includes('timer_started_at')) db.exec('ALTER TABLE time_entries ADD COLUMN timer_started_at TEXT');
   if (!entryColumns.includes('timer_stopped_at')) db.exec('ALTER TABLE time_entries ADD COLUMN timer_stopped_at TEXT');
   if (!entryColumns.includes('timer_capped')) db.exec('ALTER TABLE time_entries ADD COLUMN timer_capped INTEGER NOT NULL DEFAULT 0');
+
+  // ── Expenses (server/expenses.ts) ────────────────────────────────────
+  // Travel and out-of-pocket costs, claimed by the person and decided by the
+  // office. What anything is worth is DERIVED: a per diem from the trip's
+  // times and the rate in force on its day, mileage from the kilometres, a
+  // claim's total from its items. Rates are versioned and append-only, and a
+  // claim prices itself with the rates known when it was submitted
+  // (`rates_known`, the highest rate id then), so a later correction never
+  // re-prices what was decided.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS expense_settings (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      settings   TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL
+    );
+
+    -- A rate from a date on. A change is a new row, never an edit; on the
+    -- same date the later row wins. Foreign rates carry their country (the
+    -- name as the Auslandsreisesätze list it); domestic ones carry none.
+    -- Statutory presets are stamped with their key, so a new release adds a
+    -- preset once and never twice.
+    CREATE TABLE IF NOT EXISTS expense_rates (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind         TEXT    NOT NULL,
+      country      TEXT,
+      valid_from   TEXT    NOT NULL,
+      amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0 AND amount_cents <= 100000),
+      basis        TEXT,
+      preset       TEXT UNIQUE,
+      actor        TEXT    NOT NULL,
+      created_at   TEXT    NOT NULL,
+      CHECK ((kind IN ('per_diem_abroad', 'night_abroad')) = (country IS NOT NULL))
+    );
+    CREATE INDEX IF NOT EXISTS idx_expense_rates_kind ON expense_rates (kind, country, valid_from);
+
+    -- A business trip: when, where, why. Its per diem is derived from the
+    -- times; meals[i] is the paid lunches and dinners in period i; nights_flat
+    -- is the nights claimed at the flat rate, i.e. without a hotel receipt.
+    -- client_id makes an offline capture idempotent: the app mints it, and a
+    -- retry after a dropped connection finds the row the first try wrote.
+    CREATE TABLE IF NOT EXISTS expense_trips (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL REFERENCES employees(id),
+      client_id   TEXT,
+      purpose     TEXT    NOT NULL,
+      destination TEXT    NOT NULL,
+      country     TEXT,
+      start_local TEXT    NOT NULL,
+      end_local   TEXT    NOT NULL,
+      border_out  TEXT,
+      border_in   TEXT,
+      meals       TEXT    NOT NULL DEFAULT '[]',
+      nights_flat INTEGER NOT NULL DEFAULT 0 CHECK (nights_flat >= 0),
+      project_id  INTEGER REFERENCES projects(id),
+      note        TEXT,
+      created_by  TEXT    NOT NULL,
+      created_at  TEXT    NOT NULL,
+      updated_at  TEXT    NOT NULL,
+      CHECK (start_local < end_local),
+      UNIQUE (employee_id, client_id)
+    );
+
+    -- A drive with one's own vehicle (Kilometergeld). Kilometres in tenths.
+    CREATE TABLE IF NOT EXISTS expense_mileage (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL REFERENCES employees(id),
+      client_id   TEXT,
+      trip_id     INTEGER REFERENCES expense_trips(id),
+      travel_date TEXT    NOT NULL,
+      from_place  TEXT    NOT NULL,
+      to_place    TEXT    NOT NULL,
+      purpose     TEXT    NOT NULL,
+      km_tenths   INTEGER NOT NULL CHECK (km_tenths > 0 AND km_tenths <= 50000),
+      vehicle     TEXT    NOT NULL CHECK (vehicle IN ('car', 'motorbike', 'bicycle')),
+      passengers  INTEGER NOT NULL DEFAULT 0 CHECK (passengers >= 0 AND passengers <= 8),
+      created_by  TEXT    NOT NULL,
+      created_at  TEXT    NOT NULL,
+      updated_at  TEXT    NOT NULL,
+      UNIQUE (employee_id, client_id)
+    );
+
+    -- A receipt: what was paid, to whom, at what VAT rates. rksv_code is the
+    -- Austrian till code exactly as scanned, re-read on the server; its till
+    -- and receipt number (rksv_key) are unique across everyone, so the same
+    -- receipt cannot be claimed twice — by one person or by two.
+    CREATE TABLE IF NOT EXISTS expense_receipts (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id  INTEGER NOT NULL REFERENCES employees(id),
+      client_id    TEXT,
+      trip_id      INTEGER REFERENCES expense_trips(id),
+      receipt_date TEXT    NOT NULL,
+      merchant     TEXT    NOT NULL,
+      category     TEXT    NOT NULL,
+      description  TEXT,
+      gross_cents  INTEGER NOT NULL CHECK (gross_cents > 0 AND gross_cents <= 10000000),
+      vat_lines    TEXT    NOT NULL DEFAULT '[]',
+      paid_by      TEXT    NOT NULL CHECK (paid_by IN ('private', 'company')),
+      source       TEXT    NOT NULL CHECK (source IN ('manual', 'rksv')),
+      rksv_code    TEXT,
+      rksv_key     TEXT UNIQUE,
+      project_id   INTEGER REFERENCES projects(id),
+      created_by   TEXT    NOT NULL,
+      created_at   TEXT    NOT NULL,
+      updated_at   TEXT    NOT NULL,
+      UNIQUE (employee_id, client_id)
+    );
+
+    -- The picture or PDF of a receipt, one per receipt, kept in the database
+    -- like everything else this module holds (and so in every backup).
+    CREATE TABLE IF NOT EXISTS expense_files (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      receipt_id   INTEGER NOT NULL UNIQUE REFERENCES expense_receipts(id) ON DELETE CASCADE,
+      content_type TEXT    NOT NULL,
+      size_bytes   INTEGER NOT NULL,
+      sha256       TEXT    NOT NULL,
+      data         BLOB    NOT NULL,
+      created_by   TEXT    NOT NULL,
+      created_at   TEXT    NOT NULL
+    );
+
+    -- A claim gathers items and goes through approval. Its status is stored
+    -- (like a timesheet's), every step is an event, and its money is derived.
+    CREATE TABLE IF NOT EXISTS expense_claims (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      number        TEXT    NOT NULL UNIQUE,
+      employee_id   INTEGER NOT NULL REFERENCES employees(id),
+      client_id     TEXT,
+      title         TEXT    NOT NULL,
+      status        TEXT    NOT NULL CHECK (status IN ('submitted', 'approved', 'rejected', 'withdrawn', 'paid')),
+      submitted_by  TEXT    NOT NULL,
+      submitted_at  TEXT    NOT NULL,
+      decided_by    TEXT,
+      decided_at    TEXT,
+      decision_note TEXT,
+      -- How it is priced, fixed when it is submitted: the rates known then
+      -- (the highest rate id), the per diem mode and the time zone. What was
+      -- asked for is what is decided and what is paid.
+      rates_known   INTEGER NOT NULL,
+      per_diem_mode TEXT    NOT NULL CHECK (per_diem_mode IN ('24h', 'calendar')),
+      timezone      TEXT    NOT NULL,
+      payout_mode   TEXT CHECK (payout_mode IS NULL OR payout_mode IN ('payroll', 'invoicing')),
+      handed_over_ref TEXT,
+      paid_at       TEXT,
+      paid_ref      TEXT,
+      UNIQUE (employee_id, client_id)
+    );
+
+    -- Which items a claim holds. Kept when a claim is rejected or withdrawn,
+    -- so the record says what was asked for; an item is locked while it is in
+    -- a claim that is submitted, approved or paid.
+    CREATE TABLE IF NOT EXISTS expense_claim_items (
+      claim_id  INTEGER NOT NULL REFERENCES expense_claims(id),
+      item_type TEXT    NOT NULL CHECK (item_type IN ('trip', 'mileage', 'receipt')),
+      item_id   INTEGER NOT NULL,
+      PRIMARY KEY (claim_id, item_type, item_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_expense_claim_items_item ON expense_claim_items (item_type, item_id);
+
+    -- Every step of every claim, append-only, with the person — and the
+    -- total that step was taken on, as the record of what was shown then.
+    -- Nothing reads it to pay: the money is derived from the items. It keeps
+    -- what a rejected claim asked for after its items have been corrected.
+    CREATE TABLE IF NOT EXISTS expense_claim_events (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      claim_id    INTEGER NOT NULL REFERENCES expense_claims(id),
+      type        TEXT    NOT NULL,
+      actor       TEXT    NOT NULL,
+      note        TEXT,
+      total_cents INTEGER NOT NULL,
+      at          TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_expense_claim_events_claim ON expense_claim_events (claim_id);
+
+    -- Where a person's expenses are paid to, append-only: the current account
+    -- is the latest row. A change of account is how payroll fraud works, so
+    -- each one is kept with who made it.
+    CREATE TABLE IF NOT EXISTS expense_bank_accounts (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      employee_id INTEGER NOT NULL REFERENCES employees(id),
+      holder      TEXT    NOT NULL,
+      iban        TEXT    NOT NULL,
+      bic         TEXT,
+      actor       TEXT    NOT NULL,
+      created_at  TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_expense_bank_employee ON expense_bank_accounts (employee_id, id);
+  `);
+  installExpensePresets(db);
 
   return db;
 }

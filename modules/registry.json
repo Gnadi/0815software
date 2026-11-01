@@ -301,6 +301,10 @@
             "urlEnv": "PROCUREMENT_URL"
           },
           {
+            "id": "mod-11-time-tracking",
+            "urlEnv": "TIME_TRACKING_URL"
+          },
+          {
             "id": "mod-13-offers",
             "urlEnv": "OFFERS_URL"
           },

@@ -40,7 +40,8 @@ Repos. Erstfassung Oktober 2026, fortgeschrieben nach PR #36 (Mehrbenutzer),
     Reservierung sind umgesetzt).
   - **Eingangsseite:** PEPPOL-Empfang/-Versand (3-Way-Match und
     Belegerkennung sind umgesetzt).
-- **Sinnvollste neue Module** (Abschnitt 3): Terminbuchung, Spesen, Formulare/Umfragen, Wissen.
+- **Sinnvollste neue Module** (Abschnitt 3): Terminbuchung, Formulare/Umfragen, Wissen.
+  Spesen sind als Erweiterung von MOD-11 umgesetzt (kein eigenes Modul).
   **Nicht bauen:** Finanzbuchhaltung, Lohnverrechnung, Kasse (RKSV), MRP,
   Website-Builder, VoIP, IoT, Social Marketing.
 - **„Open Source + AI“ trägt — für dieses Repo sogar besser als für Odoo**,
@@ -60,8 +61,8 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Bankabgleich (E) | ✅ PS-12 EBICS, camt.053 → Zuordnung zu offenen Rechnungen | **stärker als Odoo Community**, real-bank-ungetestet |
 | SEPA-Zahlungen | ✅ MOD-04 pain.001, Finanzamtszahlung, EACT | DACH-Vorsprung |
 | Hauptbuch, Analytik, Budgets, Konsolidierung (E) | ❌ | ⛔ Volle FiBu nicht bauen — Steuerberater nutzt BMD/DATEV. Stattdessen **Export** (siehe 2.) |
-| Vendor-Bill-OCR (E) | ✅ PS-04 `/api/extract/invoice` (XRechnung/ZUGFeRD/UBL/ebInterface exakt, PDF-Textlayer über Labels, Scans per Vision-Modell nur wenn vom Admin freigegeben) → MOD-04 *Read from document* (Kreditor per IBAN, Duplikat per Datei-Hash, Positionen samt Lieferanten-Artikelnummer übernommen) und **3-Way-Match auf Positionsebene** (Artikelnummer ↔ SKU der Bestellposition, Menge gegen Eingang und Bestellung, Preis gegen Bestellpreis) | Offen: Spesen-Modul als zweiter Konsument |
-| Expenses (E: OCR) | ❌ | 🔜 **neues Modul** (siehe 3.) |
+| Vendor-Bill-OCR (E) | ✅ PS-04 `/api/extract/invoice` (XRechnung/ZUGFeRD/UBL/ebInterface exakt, PDF-Textlayer über Labels, Scans per Vision-Modell nur wenn vom Admin freigegeben) → MOD-04 *Read from document* (Kreditor per IBAN, Duplikat per Datei-Hash, Positionen samt Lieferanten-Artikelnummer übernommen) und **3-Way-Match auf Positionsebene** (Artikelnummer ↔ SKU der Bestellposition, Menge gegen Eingang und Bestellung, Preis gegen Bestellpreis) | Spesen lesen Belege bewusst **ohne** Modell: RKSV-QR-Code am Handy, sonst Eingabe (siehe Expenses) |
+| Expenses (E: OCR) | ✅ MOD-11 (Reisen mit Taggeld nach § 26 Z 4 EStG — Zwölftel, 24 h oder Kalendertag, Essenskürzung, Auslandsreisesätze für 173 Länder/Orte mit Grenzübertritt —, Kilometergeld nach § 10 RGV, Belege per **RKSV-QR-Code** im Browser gelesen und am Server neu geprüft, jeder Kassenbeleg nur einmal; versionierte Sätze, Abrechnung mit Freigabe nie durch sich selbst, Auszahlung per Lohnexport oder SEPA über MOD-04; installierbare **PWA** mit Offline-Erfassung) | Offen: andere Länder (DE), Fremdwährung, Vorschüsse, „Mittelpunkt der Tätigkeit“, Kreditkartenabgleich |
 | Documents (E) | ✅ MOD-09 (Matters, Versionen, Vorschau PDF/Bild/Text, Volltextsuche im eigenen Index — PDF-Textebene, Office, OpenDocument —, Freigabelinks mit Ablauf/Passwort/Download-Limit, Löschfristen AT/DE mit Legal Hold und manueller Vernichtung; PS-09 optional für modulübergreifende Suche) | Offen: OCR für Scans, Upload-Links für Externe |
 | Spreadsheet/BI (E) | ✅ MOD-08 (SQL-Reports mit Parametern und relativen Daten, Pivot, SVG-Charts Balken/Linie/Fläche/Kreis mit mehreren Reihen, XLSX-Export inkl. Pivot-Blatt — gegen ECMA-376 validiert, geplant und manuell) | ⛔ kein Spreadsheet nachbauen. Offen: Mehrfachauswahl-Parameter, Versand per Mail |
 | Sign (E) | 🟡 MOD-13 Annahme per signiertem Link | 🔜 einfache E-Signatur als Platform Service; qualifiziert (ID Austria) über PS-05 |
@@ -188,8 +189,8 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 10. ✅ **PS-04: Dokumentextraktion** (Rechnung/Beleg → strukturierte Felder),
     deterministisch ohne Modell als Standard (E-Rechnung exakt, PDF-Textlayer
     über Labels); ein Scan nur mit Vision-Modell, sonst eine ehrliche
-    Ablehnung statt Platzhalterwerten. Konsument: MOD-04 Bills; offen: Spesen,
-    MOD-09.
+    Ablehnung statt Platzhalterwerten. Konsument: MOD-04 Bills; offen: MOD-09.
+    (Spesen lesen Belege bewusst ohne Modell — RKSV-QR-Code.)
 11. ✅ **MOD-08: XLSX-Export, Parameter, weitere Charttypen.** XLSX ohne
     Bibliothek (gegen die ECMA-376-Schemas geprüft), Ergebnis und Pivot als
     zwei Blätter, geplante Exporte wahlweise als XLSX; Parameter `:name`
@@ -225,20 +226,23 @@ Reihenfolge nach Nutzen ÷ Aufwand. Alles bleibt opt-in, wie im Repo üblich.
 9. ✅ **MOD-09 Vorschau/Volltext/Freigabelinks/Löschfristen** (umgesetzt).
 10. Damit ist Abschnitt 2 abgeschlossen; als Nächstes die neuen Module aus
     Abschnitt 3.
+11. ✅ **Spesen & Reisekosten** — als Erweiterung von MOD-11 statt MOD-21
+    (dieselben Personen, Projekte und dieselbe Freigabe wie Zeit und
+    Abwesenheit); Auszahlung über MOD-04; MOD-11 als installierbare PWA.
 
 ## 3. Neue Module (Vorschlag)
 
 | # | Modul | Odoo-Pendant | Warum | Grobe Größe | Platform Services |
 | --- | --- | --- | --- | --- | --- |
 | MOD-20 | **Terminbuchung** | Appointments | Öffentliche Buchungsseite, Ressourcen, iCal; kein Doppelbuchen als bewiesene Invariante | 3–4 Wo | 03, 08 (Anzahlung) |
-| MOD-21 | **Spesen & Reisekosten** | Expenses | Belegfoto → PS-04-Extraktion → Freigabe → Export/Auszahlung via MOD-04 SEPA; AT-Taggeld/Kilometergeld als Konfig | 3–4 Wo | 04, 06, 07, 12 |
+| ~~MOD-21~~ | ✅ **Spesen & Reisekosten** | Expenses | **Umgesetzt in MOD-11** statt als eigenes Modul: Reisen, Kilometergeld, Belege per RKSV-QR-Code, Freigabe, Auszahlung per Lohnexport oder MOD-04 SEPA, PWA mit Offline-Erfassung | — | 03, 07 |
 | MOD-22 | **Formulare & Umfragen** | Surveys, Web-Lead-Formulare | Ein Baustein, viele Konsumenten (MOD-10, MOD-12, MOD-14) | 2–3 Wo | 03, 02 |
 | MOD-23 | **Wissen** | Knowledge | Wiki + KB für MOD-12, RAG über PS-04 — und ein ehrlicher, abschaltbarer KI-Einsatz | 2–3 Wo | 04, 06, 09 |
 | später | Anlagen & Wartung (inkl. Fuhrpark) | Maintenance, Fleet | Prüffristen abgeleitet, Prüfprotokolle | 2–3 Wo | 02, 03, 06 |
 | später | Newsletter | Email/SMS Marketing | Double-Opt-in-Nachweis als Kern | 2–3 Wo | 03 |
 | später | Recruiting | Recruitment | Löschfristen als Kern | 3 Wo | 06, 03 |
 
-Neuer Platform Service, falls MOD-13/MOD-21/HR ihn brauchen: **Signatur**
+Neuer Platform Service, falls MOD-13/HR ihn brauchen: **Signatur**
 (einfache elektronische Signatur mit Hash-Kette über PS-07; qualifizierte
 Signatur per ID Austria/Handy-Signatur als Adapter).
 

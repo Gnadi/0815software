@@ -5,6 +5,18 @@ export const prerender = true;
 
 const releases = [
   {
+    version: 'v0.10.0',
+    date: '2026-11-01',
+    title: 'Expenses, on the phone',
+    changes: [
+      { type: 'Added', text: 'Time Tracking: travel expenses — trips with per diem and night allowance, drives with mileage, receipts — under Austrian law, with the foreign rates of 173 countries and places' },
+      { type: 'Added', text: 'Time Tracking: a receipt’s till code (RKSV) read by the phone’s camera or from a photo, checked again on the server; the same receipt is claimed once' },
+      { type: 'Added', text: 'Time Tracking: claims with approval — never by oneself — that keep the price they were submitted at; paid with the salary (payroll CSV) or by bank transfer' },
+      { type: 'Added', text: 'Time Tracking installs as an app: expenses captured offline are sent when the connection is back; signing out leaves nothing on the device' },
+      { type: 'Added', text: 'Invoice & Billing: pay employees’ approved expense claims through the SEPA payment run, and report back when they are paid' },
+    ],
+  },
+  {
     version: 'v0.9.0',
     date: '2026-11-01',
     title: 'Documents that open, answer and expire',

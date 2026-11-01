@@ -90,6 +90,8 @@ export interface PlatformConfig {
   procurementUrl?: string;
   /** Base URL of PS-04 AI Platform, which reads supplier invoices into bills. */
   aiUrl?: string;
+  /** Base URL of MOD-11 Time Tracking, whose approved expense claims are paid here. */
+  timeTrackingUrl?: string;
   serviceToken?: string;
   /** PS-03 channel name to send invoice emails through. */
   invoiceChannel?: string;
@@ -242,6 +244,20 @@ export interface PlatformHooks {
    * records that and keeps the last verdict it had.
    */
   matchInvoice?(poNumber: string, invoicedNetCents: number, lines?: InvoicedLine[]): Promise<MatchVerdict>;
+  /** Whether MOD-11 is wired — decided by configuration, not by asking it. */
+  expenseClaimsConfigured?: boolean;
+  /** MOD-11's approved claims waiting to be paid by transfer. THROWS an OfferFetchError when it fails. */
+  listExpenseClaims?(): Promise<unknown>;
+  /** One approved claim as an expense transfer (shared/expense-transfer.ts). THROWS like the others. */
+  fetchExpenseClaim?(number: string): Promise<unknown>;
+  /**
+   * Tell MOD-11 this module now pays the claim, BEFORE the bill exists: from
+   * then on MOD-11 refuses to mark it paid by hand, so it cannot be paid
+   * twice. THROWS when MOD-11 does not confirm — the import then stops.
+   */
+  expenseClaimHandedOver?(info: { number: string; reference: string; actor: string }): Promise<void>;
+  /** Tell MOD-11 the claim's bill is paid. THROWS; the caller keeps it to retry. */
+  expenseClaimPaid?(info: { number: string; bill: string; reference: string; actor: string }): Promise<void>;
   /** Whether PS-04 is wired — decided by configuration, not by asking it. */
   aiConfigured?: boolean;
   /**
@@ -391,6 +407,24 @@ async function fetchTransfer(url: string, what: string, source: string, serviceT
   return parsed;
 }
 
+/** POST to a peer module and insist on a 2xx — the answer matters to the caller. */
+async function postToPeer(url: string, payload: unknown, source: string, serviceToken?: string): Promise<unknown> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(serviceToken ? { 'X-Service-Token': serviceToken } : {}) },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(OFFER_FETCH_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new OfferFetchError(502, `The ${source} is unreachable: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const parsed = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) throw new OfferFetchError(res.status, parsed.error ?? `The ${source} answered ${res.status}`);
+  return parsed;
+}
+
 export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const notify = cfg.notificationUrl
     ? new NotificationClient({ baseUrl: cfg.notificationUrl, serviceToken: cfg.serviceToken })
@@ -407,9 +441,10 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
   const offersUrl = cfg.offersUrl ? cfg.offersUrl.replace(/\/+$/, '') : null;
   const ordersUrl = cfg.ordersUrl ? cfg.ordersUrl.replace(/\/+$/, '') : null;
   const procurementUrl = cfg.procurementUrl ? cfg.procurementUrl.replace(/\/+$/, '') : null;
+  const timeTrackingUrl = cfg.timeTrackingUrl ? cfg.timeTrackingUrl.replace(/\/+$/, '') : null;
   // A vision model reading a scan takes far longer than any other call here.
   const ai = cfg.aiUrl ? new AiClient({ baseUrl: cfg.aiUrl, serviceToken: cfg.serviceToken, timeoutMs: 90_000 }) : null;
-  if (!notify && !files && !audit && !payments && !numbers && !customers && !banking && !offersUrl && !ordersUrl && !procurementUrl && !ai) {
+  if (!notify && !files && !audit && !payments && !numbers && !customers && !banking && !offersUrl && !ordersUrl && !procurementUrl && !ai && !timeTrackingUrl) {
     return noopPlatform;
   }
 
@@ -534,6 +569,28 @@ export function buildPlatform(cfg: PlatformConfig): PlatformHooks {
     },
 
     procurementConfigured: Boolean(procurementUrl),
+
+    expenseClaimsConfigured: Boolean(timeTrackingUrl),
+
+    async listExpenseClaims(): Promise<unknown> {
+      if (!timeTrackingUrl) throw new OfferFetchError(501, 'No time tracking is configured — set TIME_TRACKING_URL to pay expense claims');
+      return fetchTransfer(`${timeTrackingUrl}/api/transfer/expense-claims`, 'the expense claims', 'time tracking module', cfg.serviceToken);
+    },
+
+    async fetchExpenseClaim(number: string): Promise<unknown> {
+      if (!timeTrackingUrl) throw new OfferFetchError(501, 'No time tracking is configured — set TIME_TRACKING_URL to pay expense claims');
+      return fetchTransfer(`${timeTrackingUrl}/api/transfer/expense-claims/${encodeURIComponent(number)}`, `expense claim ${number}`, 'time tracking module', cfg.serviceToken);
+    },
+
+    async expenseClaimHandedOver(info: { number: string; reference: string; actor: string }): Promise<void> {
+      if (!timeTrackingUrl) throw new OfferFetchError(501, 'No time tracking is configured — set TIME_TRACKING_URL to pay expense claims');
+      await postToPeer(`${timeTrackingUrl}/api/transfer/expense-claims/${encodeURIComponent(info.number)}/handed-over`, { reference: info.reference, actor: info.actor }, 'time tracking module', cfg.serviceToken);
+    },
+
+    async expenseClaimPaid(info: { number: string; bill: string; reference: string; actor: string }): Promise<void> {
+      if (!timeTrackingUrl) throw new OfferFetchError(501, 'No time tracking is configured — set TIME_TRACKING_URL to pay expense claims');
+      await postToPeer(`${timeTrackingUrl}/api/transfer/expense-claims/${encodeURIComponent(info.number)}/paid`, { bill: info.bill, reference: info.reference, actor: info.actor }, 'time tracking module', cfg.serviceToken);
+    },
 
     async matchInvoice(poNumber: string, invoicedNetCents: number, lines?: InvoicedLine[]): Promise<MatchVerdict> {
       if (!procurementUrl) throw new OfferFetchError(501, 'No procurement is configured — set PROCUREMENT_URL to match bills against purchase orders');

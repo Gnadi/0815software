@@ -212,6 +212,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       // PS-04 AI Platform — when set, a supplier invoice (e-invoice, PDF,
       // scan) can be read into the bill form instead of typed.
       aiUrl: env.AI_URL || undefined,
+      // MOD-11 Time Tracking — when set, an approved expense claim can be
+      // taken over as a bill and paid by bank transfer like any other.
+      timeTrackingUrl: env.TIME_TRACKING_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
       invoiceChannel: env.NOTIFICATION_INVOICE_CHANNEL || undefined,
     },

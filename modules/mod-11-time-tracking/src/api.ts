@@ -29,6 +29,7 @@ import type {
   TimesheetRow,
   WorkSchedule,
 } from '../shared/types';
+import type { BankAccount, ClaimDetail, ExpenseClaim, ExpenseMileage, ExpenseRate, ExpenseReceipt, ExpenseSettings, ExpenseTrip } from '../shared/expense-types';
 
 export class ApiError extends Error {
   status: number;
@@ -44,7 +45,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     credentials: 'same-origin',
-    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: init?.body && !init.headers ? { 'Content-Type': 'application/json' } : undefined,
     ...init,
   });
   if (!res.ok) {
@@ -168,6 +169,41 @@ export const api = {
   flexEntries: (employeeId: number) => request<{ entries: FlexEntry[] }>(`/api/employees/${employeeId}/flex-entries`),
   addFlexEntry: (employeeId: number, v: Record<string, unknown>) =>
     request<FlexEntry>(`/api/employees/${employeeId}/flex-entries`, post(v)),
+  // ── Expenses (server/expenses.ts) ─────────────────────────────────────
+  expenseSettings: () => request<ExpenseSettingsState>('/api/expenses/settings'),
+  saveExpenseSettings: (v: Record<string, unknown>) => request<ExpenseSettingsState>('/api/expenses/settings', put(v)),
+  ratesInForce: (date?: string) => request<RatesInForce>(`/api/expenses/rates/in-force${date ? `?date=${date}` : ''}`),
+  expenseRates: (kind?: string) => request<{ rates: ExpenseRate[] }>(`/api/expenses/rates${kind ? `?kind=${kind}` : ''}`),
+  addExpenseRate: (v: Record<string, unknown>) => request<ExpenseRate>('/api/expenses/rates', post(v)),
+  trips: (q: ItemQuery = {}) => request<{ trips: ExpenseTrip[] }>(`/api/expenses/trips?${itemQuery(q)}`),
+  createTrip: (v: Record<string, unknown>) => request<ExpenseTrip>('/api/expenses/trips', post(v)),
+  updateTrip: (id: number, v: Record<string, unknown>) => request<ExpenseTrip>(`/api/expenses/trips/${id}`, put(v)),
+  deleteTrip: (id: number) => request<{ ok: true }>(`/api/expenses/trips/${id}`, { method: 'DELETE' }),
+  mileage: (q: ItemQuery = {}) => request<{ mileage: ExpenseMileage[] }>(`/api/expenses/mileage?${itemQuery(q)}`),
+  createMileage: (v: Record<string, unknown>) => request<ExpenseMileage>('/api/expenses/mileage', post(v)),
+  deleteMileage: (id: number) => request<{ ok: true }>(`/api/expenses/mileage/${id}`, { method: 'DELETE' }),
+  receipts: (q: ItemQuery = {}) => request<{ receipts: ExpenseReceipt[] }>(`/api/expenses/receipts?${itemQuery(q)}`),
+  createReceipt: (v: Record<string, unknown>) => request<ExpenseReceipt>('/api/expenses/receipts', post(v)),
+  deleteReceipt: (id: number) => request<{ ok: true }>(`/api/expenses/receipts/${id}`, { method: 'DELETE' }),
+  /** The picture, as bytes: the server tells a JPEG from a PDF by its first bytes. */
+  uploadReceiptFile: (id: number, file: Blob) =>
+    request<ExpenseReceipt>(`/api/expenses/receipts/${id}/file`, { method: 'PUT', body: file, headers: { 'Content-Type': file.type || 'application/octet-stream' } }),
+  claims: (q: { employee_id?: number; status?: string; to_decide?: boolean } = {}) => {
+    const p = new URLSearchParams();
+    if (q.employee_id) p.set('employee_id', String(q.employee_id));
+    if (q.status) p.set('status', q.status);
+    if (q.to_decide) p.set('to_decide', '1');
+    return request<{ claims: ExpenseClaim[] }>(`/api/expenses/claims?${p.toString()}`);
+  },
+  claim: (id: number) => request<ClaimDetail>(`/api/expenses/claims/${id}`),
+  submitClaim: (v: Record<string, unknown>) => request<ClaimDetail>('/api/expenses/claims', post(v)),
+  approveClaim: (id: number, note: string | null) => request<ClaimDetail>(`/api/expenses/claims/${id}/approve`, post({ note })),
+  rejectClaim: (id: number, note: string) => request<ClaimDetail>(`/api/expenses/claims/${id}/reject`, post({ note })),
+  withdrawClaim: (id: number) => request<ClaimDetail>(`/api/expenses/claims/${id}/withdraw`, post()),
+  markClaimPaid: (id: number, reference: string | null) => request<ClaimDetail>(`/api/expenses/claims/${id}/paid`, post({ reference })),
+  handover: () => request<{ claims: { number: string; title: string; employee_name: string; approved_at: string; total_cents: number; has_bank_account: boolean }[] }>('/api/expenses/handover'),
+  bankAccount: (employeeId?: number) => request<{ account: BankAccount | null; history: BankAccount[] }>(`/api/expenses/bank-account${employeeId ? `?employee_id=${employeeId}` : ''}`),
+  saveBankAccount: (v: Record<string, unknown>) => request<{ account: BankAccount; history: BankAccount[] }>('/api/expenses/bank-account', put(v)),
 };
 
 /** The timer, the person's overview, and the office's reminder settings. */
@@ -197,7 +233,48 @@ export const planning = {
   move: (id: number, status: TaskStatus, note?: string) => request<BoardTask>(`/api/tasks/${id}/status`, post({ status, note })),
   addMilestone: (projectId: number, v: Record<string, unknown>) => request<Milestone>(`/api/projects/${projectId}/milestones`, post(v)),
   deleteMilestone: (id: number) => request<{ ok: true }>(`/api/milestones/${id}`, { method: 'DELETE' }),
+
 };
+
+export interface ItemQuery {
+  employee_id?: number;
+  /** Only items no claim holds. */
+  open?: boolean;
+}
+
+function itemQuery(q: ItemQuery): string {
+  const p = new URLSearchParams();
+  if (q.employee_id) p.set('employee_id', String(q.employee_id));
+  if (q.open) p.set('open', '1');
+  return p.toString();
+}
+
+export interface ExpenseSettingsState {
+  settings: ExpenseSettings;
+  updated_at: string | null;
+  updated_by: string | null;
+  /** PS-03 is wired: mails go out. */
+  notifications: boolean;
+}
+
+export interface RatesInForce {
+  date: string;
+  domestic: { kind: string; label: string; amount_cents: number | null }[];
+  countries: { country: string; day_cents: number | null; night_cents: number | null }[];
+}
+
+/** URL of a receipt's picture (shown to its person and the office only). */
+export function receiptFileUrl(id: number): string {
+  return `/api/expenses/receipts/${id}/file`;
+}
+
+/** URL of the payroll export of approved (or paid) claims. */
+export function expensesCsvUrl(status: 'approved' | 'paid', from?: string, to?: string): string {
+  const p = new URLSearchParams({ status });
+  if (from) p.set('from', from);
+  if (to) p.set('to', to);
+  return `/api/expenses/export.csv?${p.toString()}`;
+}
 
 /** URL of the month's flexitime CSV for payroll. */
 export function flexCsvUrl(month: string): string {

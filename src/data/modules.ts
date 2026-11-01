@@ -200,6 +200,7 @@ const presentation: Record<string, ModulePresentation> = {
       'Bill an accepted offer, or each delivery note, with one action',
       'Bills for a purchase order held until the goods have arrived (three-way match)',
       'Read a supplier invoice into a bill, with its lines — e-invoice, PDF or scan — instead of typing it',
+      'Pay employees’ approved expense claims by SEPA transfer, and tell Time Tracking when they are paid',
     ],
     screen: {
       variant: 'detail',
@@ -361,9 +362,9 @@ const presentation: Record<string, ModulePresentation> = {
     },
   },
   'mod-11-time-tracking': {
-    body: 'Projects with a task board, daily entry, absences, flexitime, and export to payroll or billing. Works offline.',
+    body: 'Projects with a task board, daily entry, absences, flexitime, travel expenses, and export to payroll or billing. Installs as an app that captures expenses offline.',
     overview:
-      'Project allocation, daily entry, weekly approval, absences (vacation, sick leave, holidays AT/DE), flexitime and overtime, and export to payroll or billing. Time is integer minutes; money is derived, never stored — a time entry records a positive integer number of minutes, and cost is always recomputed from the rate. A timer runs on the server and stops into an ordinary entry, capped at midnight and the daily maximum; reminders for an unsubmitted week or a forgotten timer go out through the notification hub; and My area shows each person their week, balances and tasks. Works offline.',
+      'Project allocation, daily entry, weekly approval, absences (vacation, sick leave, holidays AT/DE), flexitime and overtime, and export to payroll or billing. Time is integer minutes; money is derived, never stored — a time entry records a positive integer number of minutes, and cost is always recomputed from the rate. A timer runs on the server and stops into an ordinary entry, capped at midnight and the daily maximum; reminders for an unsubmitted week or a forgotten timer go out through the notification hub; and My area shows each person their week, balances and tasks. Travel expenses under Austrian law: per diem by the twelfth, night allowance and the foreign rates of 173 countries, mileage by vehicle; a receipt’s till code (RKSV) is read by the phone’s camera, checked again on the server and claimed once; a claim keeps the price it was submitted at, nobody approves their own, and it is paid with the salary or by bank transfer through Invoice & Billing. Installs as an app on the phone and captures expenses offline.',
     features: [
       'Projects with board, milestones, estimates and budget',
       'Daily entry with project allocation',
@@ -373,11 +374,13 @@ const presentation: Record<string, ModulePresentation> = {
       'Export to payroll or billing — works offline',
       'Start/stop timer on the server, capped at midnight and the daily maximum',
       'My area and reminders: own week, balances and tasks; unsubmitted week and forgotten timer',
+      'Travel expenses: per diem, night allowance and mileage under Austrian law, receipts read from their till code (RKSV)',
+      'Installs as an app: expenses captured offline, sent when the connection is back; paid with the salary or by SEPA transfer',
     ],
     screen: {
       variant: 'table',
       accent: '#6BA5A0',
-      nav: ['Timesheet', 'Absences', 'Projects', 'Approvals', 'Export'],
+      nav: ['Timesheet', 'Absences', 'Expenses', 'Projects', 'Export'],
       columns: ['Date', 'Project', 'Task', 'Hours', 'Status'],
       rows: [
         ['Mon 16', 'Website relaunch', 'Frontend', '6.5', 'Approved'],

@@ -2,7 +2,9 @@
 
 Project allocation and planning (board, milestones, estimates), daily
 entry, weekly approval, absences (vacation, sick leave, holidays),
-flexitime and overtime, and export to payroll or billing. Works offline. Part of the
+flexitime and overtime, travel expenses (trips, mileage, receipts —
+Austrian law), and export to payroll or billing. An installable app that
+captures expenses offline, on the phone. Part of the
 [0815software](https://0815software.com) module catalogue — standard
 business software, MIT-licensed, always free.
 
@@ -42,6 +44,13 @@ suite proves each of them:
    overdue, a milestone reached and a project's hours against its budget
    are derived from the time booked and the date. Every move on the board
    is an append-only event. See [Planning](#planning).
+7. **Expenses are derived, and a claim keeps the price it was submitted
+   at.** Per diem, night allowance and mileage are computed from the
+   times, kilometres and the rate in force; rates are versioned and
+   append-only; a claim fixes the rates known, the per diem mode and the
+   time zone when it is submitted, so a correction never re-prices what
+   was decided or paid. Claimed items are locked, nobody decides their own
+   claim, and one till receipt is claimed once. See [Expenses](#expenses).
 
 ## Stack
 
@@ -194,25 +203,33 @@ status** — approval is a separate control you run in the Timesheets view.
    pick the profile up automatically. Add a test asserting its header
    row and a formatted value.
 
-## "Works offline" — what it means (and doesn't)
+## Offline and installable — what it means (and doesn't)
 
 This app is **local-first by construction**: it talks only to its own
 SQLite file, ships its own CSS, and uses a system font stack — there is
-no CDN, analytics, or third-party call anywhere. Once the page has
-loaded it needs no network to browse and compute (rollups and amounts
-are derived client-and-server-side from the same shared code).
+no CDN, analytics, or third-party call anywhere.
 
-On top of that, the daily-entry grid keeps your **in-progress row** in
-`localStorage`: if you reload or the tab crashes mid-typing, the project,
-duration and note you had entered are restored. The draft is cleared once
-the entry is saved.
+It is also a **progressive web app**: "Add to home screen" (or "Install" in
+a desktop browser) gives it its own icon and window. The service worker
+(`src/pwa/sw.js`, its file list written by the build) keeps the app itself
+— never an `/api` answer — so it opens without a connection.
 
-What it is **not**: there is no Service Worker and no full PWA/offline
-install. The API is a normal server — if you close the laptop lid on the
-train, you can keep *typing* a row (it's held locally) but you can't
-*save* it until the API is reachable again. A true offline-sync build
-(background sync, conflict resolution) is a different, larger project and
-is intentionally out of scope.
+**Expenses are captured offline.** A receipt, a trip or a drive saved
+without a connection waits on the device (IndexedDB, `src/pwa/outbox.ts`)
+with a client id the server is idempotent on, and is sent when the
+connection is back — again and again until it is in, once. A capture the
+server refuses keeps its reason for the person to fix or discard. The
+app opens offline for the last person signed in; **signing out deletes
+everything kept on the device**, pictures included.
+
+What it is **not**: time entries, approvals and claims need the server.
+The daily-entry grid keeps your **in-progress row** in `localStorage`
+(restored after a reload, cleared once saved), but it is not queued.
+Submitting a claim needs a connection, because it names the items the
+server holds.
+
+The camera (to scan a receipt's code) needs HTTPS — or `localhost` — and,
+inside a shell's iframe, the shell's `allow="camera"`.
 
 ## Features
 
@@ -244,6 +261,11 @@ is intentionally out of scope.
 - **Flexitime** — the balance, overtime above the cap, month by month
   and day by day, the bookings (opening balance, corrections, overtime
   paid out), the team overview and a monthly CSV for payroll.
+- **Expenses** — receipts (the Austrian till code read by the camera or
+  from a photo, on the phone), business trips with per diem and night
+  allowance, drives with mileage; claims, their approval and payout with
+  the salary or by transfer through MOD-04; settings and versioned rates;
+  one's own payout account. Offline capture. See [Expenses](#expenses).
 - **Employees** — name, login email, the working-time model from a date
   on, and the vacation entitlement ledger per year.
 - **Auth** — a local admin login from env vars, or sign-in through PS-01
@@ -263,7 +285,8 @@ All via environment variables (see [`.env.example`](.env.example)):
 | `SESSION_SECRET`    | `dev-secret-change-me` | HMAC key for the session cookie     |
 | `SESSION_TTL_HOURS` | `12`                   | Session lifetime                    |
 | `COOKIE_SECURE`     | `false`                | Set `true` behind HTTPS             |
-| `NOTIFICATION_URL`  | —                      | PS-03 Notification Hub: send the reminders switched on in Settings |
+| `NOTIFICATION_URL`  | —                      | PS-03 Notification Hub: the reminders switched on in Settings, and the expense mails (decisions, payout account changes, new claims) |
+| `PLATFORM_SERVICE_TOKEN` | —                 | The machine token: MOD-04 uses it to take approved expense claims over (unset: those routes are closed) |
 | `REMINDER_TICK_SECONDS` | `300`              | How often the reminder tick looks for what is due (30–86400) |
 
 The server prints a warning on startup while the default password is in
@@ -361,6 +384,47 @@ GET    /api/flex/account                  ?employee_id=&as_of= → balance, over
 GET    /api/flex/days                     ?employee_id=&month=YYYY-MM → each day: target, due, worked, diff
 GET    /api/flex/overview                 everyone with an account, as of today
 GET    /api/export/flex.csv               ?month=YYYY-MM → per person: due, worked, paid out, balance, overtime
+
+GET    /api/expenses/settings             payout mode, per diem mode, picture threshold, mails
+PUT    /api/expenses/settings             {payout_mode: payroll|invoicing, per_diem_mode: 24h|calendar,
+                                           file_required_from_cents|null, notify_employee, notify_on_submit: [email], channel}  (manage)
+GET    /api/expenses/rates                ?kind=&country= → every rate row, newest first (the history)
+GET    /api/expenses/rates/in-force       ?date= → domestic rates and every country's day and night rate on that day
+POST   /api/expenses/rates                {kind, country?, valid_from, amount_cents, basis?}  a new row, never an edit  (manage)
+GET    /api/expenses/trips                ?employee_id=&open=1  (own, or anyone's with manage)
+POST   /api/expenses/trips                {purpose, destination, country?, start_local, end_local, border_out?, border_in?,
+                                           meals: [0..2 per period], nights_flat, project_id?, note?, client_id?, employee_id?}
+                                           → 201, or 200 with the first row for a known client_id
+GET|PUT|DELETE /api/expenses/trips/:id    409 while a claim holds it; never deleted once claimed
+GET    /api/expenses/mileage              (as trips)
+POST   /api/expenses/mileage              {travel_date, from_place, to_place, purpose, km_tenths, vehicle: car|motorbike|bicycle,
+                                           passengers, trip_id?, client_id?, employee_id?}
+GET|PUT|DELETE /api/expenses/mileage/:id
+GET    /api/expenses/receipts             (as trips)
+POST   /api/expenses/receipts             {merchant, category, rksv_code?, special_rate_bp?, receipt_date?, gross_cents?,
+                                           vat_lines?: [{rate_bp, gross_cents}], paid_by: private|company, trip_id?, …}
+                                           a till code decides date, amount and VAT; 409 for a till receipt already recorded
+GET|PUT|DELETE /api/expenses/receipts/:id
+PUT    /api/expenses/receipts/:id/file    the picture's bytes (JPEG, PNG, WebP or PDF, sniffed; ≤ 8 MB)
+GET    /api/expenses/receipts/:id/file    to its person and manage
+DELETE /api/expenses/receipts/:id/file
+GET    /api/expenses/bank-account         ?employee_id= → the account and its history
+PUT    /api/expenses/bank-account         {holder, iban, bic?, employee_id?}  own, or anyone's with manage; mailed to the person
+GET    /api/expenses/claims               ?employee_id=&status=&to_decide=1
+POST   /api/expenses/claims               {trip_ids, mileage_ids, receipt_ids, title?, client_id?, employee_id?} → SP-YYYY-NNNN
+GET    /api/expenses/claims/:id           claim, its items priced as submitted, events, the payout account (masked)
+POST   /api/expenses/claims/:id/approve   {note?}  (manage; never one's own)
+POST   /api/expenses/claims/:id/reject    {note}  (manage; never one's own) — the items are free again
+POST   /api/expenses/claims/:id/withdraw  while submitted
+POST   /api/expenses/claims/:id/paid      {reference?}  paid with the salary  (manage; 409 once MOD-04 holds it)
+GET    /api/expenses/export.csv           ?status=approved|paid&from=&to= → payroll CSV  (manage)
+GET    /api/expenses/handover             approved claims waiting for MOD-04  (manage)
+
+# For MOD-04, with the machine token (X-Service-Token)
+GET    /api/transfer/expense-claims                     approved, to be paid by transfer, not handed over
+GET    /api/transfer/expense-claims/:number             the claim as an expense transfer (shared/expense-transfer.ts)
+POST   /api/transfer/expense-claims/:number/handed-over {reference, actor}  idempotent; then no "paid" by hand
+POST   /api/transfer/expense-claims/:number/paid        {bill, reference, actor}  idempotent
 ```
 
 Validation failures return `422` with `{error, details: [{field,
@@ -413,9 +477,22 @@ these, that's commissioned work — exactly the kind 0815software does:
   geofencing, and breaks are not deducted automatically.
 - **Reminders beyond the two** — last week not submitted and a timer left
   running; no daily "you booked nothing today", no digest for managers.
-- **Full offline PWA / background sync** — the app is local-first and
-  keeps an in-progress row locally, but there is no Service Worker and no
-  offline write queue (see the "Works offline" section).
+- **Offline beyond expense capture** — time entries, approvals and claims
+  need the server; there is no Background Sync (the queue is sent while
+  the app is open) and no conflict resolution (see "Offline and
+  installable").
+- **Expenses beyond Austrian law** — no German rates (§ 9 Abs. 4a EStG)
+  or other countries' rules; the office can enter rates, not rules. Not
+  handled: the "Mittelpunkt der Tätigkeit" (no per diem after five days at
+  the same place, or fifteen days a year), the meal reduction abroad, the
+  30.000 km a year mileage limit, the taxable part of an allowance above
+  the statutory rate (a collective agreement's), advances, foreign-currency
+  receipts (amounts are euros), card statement import, and a German
+  receipt's code (no TSE reading). Trips and drives are not edited in the
+  app (delete and record again while unclaimed; the API takes a `PUT`).
+- **Reading receipts with a model** — on purpose: a receipt photo stays
+  here as the receipt; the till code is read on the phone, everything else
+  is typed.
 - **Reopening an approved week** — approval is a lock; corrections to an
   approved period are a policy decision left to you (delete the DB row or
   add a reopen endpoint).
@@ -437,8 +514,9 @@ these, that's commissioned work — exactly the kind 0815software does:
   estimate taken from an offer: an offer's lines have no unit, so hours
   would be invented (see the offer import below).
 - **Invoice / payroll generation** — this module *exports* CSV for those
-  systems (feed BILLING into MOD-04, PAYROLL into your payroll); it does
-  not produce invoices or payslips itself.
+  systems (feed BILLING into MOD-04, PAYROLL into your payroll, approved
+  expense claims into payroll or to MOD-04 as bills); it does not produce
+  invoices, payslips or bank files itself.
 
 ## License
 
@@ -465,7 +543,7 @@ person signs in as themselves and gets the level PS-01 grants them here:
 | `module:time-tracking:manage` or `platform:admin` | `manage` | also what `server/access.ts` reserves |
 
 `module:*:<level>` grants a level in every module. Reads need `view`, any other
-method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) reserves approving and rejecting weeks, deciding leave, granting entitlements, the holiday calendar, working-time models and flexitime bookings, planning tasks (assignee, due date, estimate, milestone) and milestones, maintaining employees, projects and tasks (including importing an offer as a project), and who is on the clock, the time zone and the reminders, for `manage`. A refused request answers **403**
+method needs `edit`. Beyond the method default, [`server/access.ts`](./server/access.ts) reserves approving and rejecting weeks, deciding leave, granting entitlements, the holiday calendar, working-time models and flexitime bookings, planning tasks (assignee, due date, estimate, milestone) and milestones, maintaining employees, projects and tasks (including importing an offer as a project), who is on the clock, the time zone and the reminders, and for expenses deciding and paying claims, the payroll export, the rates and the settings, for `manage`. A refused request answers **403**
 `{ error, required, access }`; `GET /api/me` reports the caller's `access`.
 Setting `IDENTITY_PERMISSION` restores the old rule (one permission, which
 manages). The contract is in [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
@@ -669,3 +747,95 @@ project, because one job's hours split across two projects is a mistake nobody
 notices until billing. With `OFFERS_URL` unset — the standalone default — the
 route answers `501` and says which variable is missing. See
 [`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md).
+
+## Expenses
+
+Travel and out-of-pocket costs live here, next to the time of the same trip,
+not in a module of their own: the same people, projects and office that
+approves the week and decides leave. Austrian law for now.
+
+**What is claimed.**
+
+- **A trip** — when it began and ended, and abroad the border crossings.
+  It earns **Tagesgeld** (§ 26 Z 4 lit. b EStG): over three hours a twelfth
+  for each hour begun, the full rate for 24 hours — counted by 24-hour
+  blocks from departure or by calendar day, as the office sets it. Each
+  paid lunch or dinner on a domestic period takes 15 € off it, never below
+  nothing (the Lohnsteuerrichtlinien, as secondary sources state them).
+  Abroad, the country's Auslandsreisesatz applies between the border
+  crossings; the domestic time before and after is added up and counted as
+  domestic. Nights without a hotel bill earn the **Nächtigungsgeld** (17 €
+  in Austria, § 26 Z 4 lit. c; the country's night rate abroad). Times are
+  local and the hours are counted as they passed — the night the clocks
+  change is an hour shorter or longer.
+- **A drive** — with one's own car, motorbike or bicycle: **Kilometergeld**
+  per § 10 Abs. 3–5 RGV (0,50 € / 0,25 € / 0,25 € a km, a car's passenger
+  0,15 €), kilometres in tenths.
+- **A receipt** — what was paid, where, at which VAT rates; paid privately
+  (refunded) or with a company card (documented, refunded nothing). Its
+  picture is kept with it; the office sets from which amount a picture is
+  required.
+
+**The Austrian till code.** Every receipt from a registered till carries a
+QR code (RKSV § 10). The app reads it on the phone (`src/scan/qr.ts`, an
+ISO/IEC 18004 reader without a library) and the server reads the code's text
+again (`shared/rksv.ts`): the date, the amount and the gross per VAT rate
+come from the code, not from what anyone typed. A training or cancellation
+receipt is refused; a receipt printed while the till's signature device was
+down still counts and says so. From 1 July 2026 the "special" field holds
+4,9 % or 19 %, and the receipt does not say which — the person is asked. The
+till and its receipt number are unique across everyone: **the same receipt is
+claimed once**, by one person or by two, and the refusal does not say whose
+it is.
+
+**The rates.** They ship with the law (`server/expense-presets.ts`): the
+domestic ones from the text of § 26 EStG and § 10 RGV, and the day and night
+rate of 173 countries and places from the Auslandsreisesätze (BGBl. 483/1993
+as amended by BGBl. II 434/2001, the WKO's table as of 1 January 2026). Each
+is written once, stamped `preset` with its source. The office adds a rate
+from a date — a collective agreement's, a correction — and never edits one:
+on a date the newest row wins, and the history keeps every earlier one. An
+item with no rate in force on its day says so and cannot be claimed.
+
+**A claim** gathers open items and gets a number, `SP-YYYY-NNNN`. It fixes
+how it is priced when it is submitted — the rates known then (the highest
+rate id), the per diem mode, the time zone — so what was asked for is what is
+decided and paid. Its items are locked while it is submitted, approved or
+paid; returning it (with a reason) or withdrawing it frees them for
+correcting and claiming again, while the claim keeps its list and its events
+keep the totals each step was taken on. `manage` decides — **never their own
+claim**. An item that was ever claimed is not deleted.
+
+**Payout**, as the office sets it, fixed per claim at approval:
+
+- **with the salary** — `GET /api/expenses/export.csv` lists the approved
+  claims, split as a payslip shows them: per diem, night allowance and
+  mileage (§ 26 Z 4 EStG) apart from receipts refunded (§ 26 Z 2); then
+  "paid" by hand, with the payroll run as reference;
+- **by transfer** — MOD-04 Invoicing (with `TIME_TRACKING_URL` there) takes
+  the approved claim over as a bill to the employee and pays it through its
+  payment run, to the account the person gave (`shared/expense-transfer.ts`,
+  byte-identical in both modules). It tells this module before the bill
+  exists — from then on the claim cannot also be marked paid here — and
+  again when the bill is paid. Both reports are idempotent.
+
+**The payout account** is the person's to give (or the office's). Every
+change is a new row with who made it, and is mailed to the person: a changed
+account is how payroll fraud starts.
+
+**Mails** (PS-03, opt-in): the person hears when their claim is approved,
+returned or paid, and of every change of their payout account; the office
+inbox hears of a new claim to decide. A mail that does not go out never
+undoes the step.
+
+Pinned by `test/expenses-law.test.ts` (twelfths, the 3-hour threshold, 24-hour
+and calendar-day counting, both DST changes, the meal reduction and its floor,
+abroad with and without border times, Kilometergeld), `test/rksv.test.ts`
+(amounts as Java's German number format writes them, training and
+cancellation, the device-failed signature, the 4,9 %/19 % question),
+`test/qr.test.ts` (an independent encoder's codes, every version and level,
+damage, noise, and a receipt photographed rotated, in perspective, in shadow
+and small), `test/expenses.test.ts` (presets, rate history, pricing, offline
+idempotency, who sees whose, till codes once, pictures sniffed, claims locked,
+priced as submitted, returned and withdrawn, decided never by oneself,
+payroll export, the transfer, handover and paid reports) and `test/pwa.test.ts`.

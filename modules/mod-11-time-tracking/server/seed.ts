@@ -13,6 +13,7 @@ import { addEntitlement, createRequest, decideRequest } from './leave.js';
 import { addSchedule } from './schedules.js';
 import { createMilestone, moveTask, planTask } from './planning.js';
 import { addFlexEntry, flexAccount } from './flextime.js';
+import { createMileage, createReceipt, createTrip, decideClaim, putReceiptFile, setBankAccount, submitClaim } from './expenses.js';
 
 /**
  * Example dataset: 4 projects (mixed billable flags and hourly rates,
@@ -206,9 +207,45 @@ export function seed(db: Database.Database): void {
     decideRequest(db, annaOff.id, 'approved', null, admin);
     createRequest(db, { employeeId: bob, type: 'vacation', ...weekOff(3), halfDay: false, note: null }, admin);
     createRequest(db, { employeeId: david, type: 'sick', startDate: addDays(lastWeek, 4), endDate: addDays(lastWeek, 4), halfDay: false, note: null }, admin);
+
+    // ── Expenses ───────────────────────────────────────────────────────
+    // Anna's two days in Linz last week, waiting for a decision: the trip
+    // (one paid lunch, one night at the flat rate), the drive with a
+    // colleague, and the car park's till receipt. Bob's day at the fair in
+    // Munich, already approved. A 1×1 picture stands in for the photos.
+    const tue = addDays(lastWeek, 1);
+    const wed = addDays(lastWeek, 2);
+    const pixel = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    setBankAccount(db, anna, { holder: 'Anna Berger', iban: 'AT61 1904 3002 3457 3201' }, admin);
+    const linz = createTrip(db, { employee_id: anna, purpose: 'Workshop at Donaufracht', destination: 'Linz', start_local: `${tue}T07:00`, end_local: `${wed}T19:00`, meals: [0, 1], nights_flat: 1, project_id: donau }, admin).trip;
+    const drive = createMileage(db, { employee_id: anna, trip_id: linz.id, travel_date: tue, from_place: 'Wien', to_place: 'Linz', purpose: 'Workshop at Donaufracht', km_tenths: 1850, vehicle: 'car', passengers: 1 }, admin).mileage;
+    const parking = createReceipt(db, {
+      employee_id: anna,
+      trip_id: linz.id,
+      merchant: 'Parkgarage Hauptplatz',
+      category: 'parking',
+      rksv_code: `_R1-AT1_PARK-LNZ-2_40712_${tue}T08:41:17_14,00_0,00_0,00_0,00_0,00_lHZnU+ICvLM=_5e3a9c1d_cg8hNU5ihto=_k2lVUXZ6/9WC/YIM3gl1n3z2YljGcJKuvufYvCUiiYdpCo8LWGdNdPMIhQP4D4bt+oGDdRwwrFjYzPMfxYTK8g==`,
+    }, admin).receipt;
+    putReceiptFile(db, parking.id, pixel, admin);
+    submitClaim(db, { employee_id: anna, trip_ids: [linz.id], mileage_ids: [drive.id], receipt_ids: [parking.id], title: 'Linz workshop' }, admin);
+
+    const munich = createTrip(db, {
+      employee_id: bob,
+      purpose: 'Trade fair',
+      destination: 'München',
+      country: 'Deutschland',
+      start_local: `${lastWeek}T05:30`,
+      end_local: `${lastWeek}T21:30`,
+      border_out: `${lastWeek}T07:15`,
+      border_in: `${lastWeek}T19:45`,
+    }, admin).trip;
+    const ticket = createReceipt(db, { employee_id: bob, trip_id: munich.id, merchant: 'Messe München', category: 'other', description: 'Visitor ticket', receipt_date: lastWeek, gross_cents: 4900, vat_lines: [{ rate_bp: 1900, gross_cents: 4900 }] }, admin).receipt;
+    putReceiptFile(db, ticket.id, pixel, admin);
+    const bobs = submitClaim(db, { employee_id: bob, trip_ids: [munich.id], receipt_ids: [ticket.id], title: 'Munich trade fair' }, admin).claim;
+    decideClaim(db, bobs.claim.id, 'approved', null, admin);
   })();
 
-  console.log('[seed] example data created (4 projects, 5 employees, 3 weeks of entries, absences)');
+  console.log('[seed] example data created (4 projects, 5 employees, 3 weeks of entries, absences, expenses)');
 }
 
 // Allow `npm run seed` to run this file directly.

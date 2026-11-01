@@ -68,6 +68,23 @@ it — typically after offboarding.
 PS-03 message to the employee's email; `reminders_sent` keeps the address, the
 occasion and when — PS-03 retention covers the message body.
 
+**Expenses in MOD-11.** Trips (where and why someone travelled, when they
+crossed a border), drives, receipts with their pictures (`expense_files`, the
+bytes in the module's own database — a hotel bill shows a name and address,
+a restaurant receipt what was eaten), and the **payout account**
+(`expense_bank_accounts`: holder, IBAN, BIC — append-only, every change with
+who made it). Seen by the person and `manage` only; another person's item
+answers 404, and a duplicate till receipt is refused without saying whose it
+is. The audit events name the claim and the amount, never the account. The
+IBAN leaves the module in exactly one place: the expense transfer MOD-04
+fetches with the machine token to pay a claim by transfer (and keeps on the
+creditor it pays). Receipt pictures are never sent to a model. On a phone,
+captures waiting to be sent sit in the browser's IndexedDB until they are
+sent; **signing out deletes them**, with the cached login. Lever: these are
+accounting records (§ 132 BAO: seven years) and block deleting the employee;
+after that period, delete the person's expense rows and pictures (no route
+yet), and the bank-account history with them.
+
 **Attachments, ratings and mail in MOD-12.** Files on tickets (`attachments`,
 the bytes in the module's own database — screenshots and logs may show
 personal data) follow their event's visibility; a satisfaction rating keeps the

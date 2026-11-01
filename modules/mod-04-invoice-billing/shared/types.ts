@@ -325,6 +325,10 @@ export interface Bill {
   read_from: string | null;
   /** SHA-256 of the document it was read from — the same file uploaded again is recognised. */
   document_sha256: string | null;
+  /** The MOD-11 expense claim this bill pays an employee for (null for a supplier's bill). */
+  expense_claim: string | null;
+  /** When MOD-11 confirmed it heard the bill was paid; null while it has not. */
+  expense_reported_at: string | null;
 }
 
 /**
