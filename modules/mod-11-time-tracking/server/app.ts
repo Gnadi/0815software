@@ -26,6 +26,52 @@ import { discardTimer, readTimerSettings, runningTimer, runningTimers, startTime
 import { dueReminders, listReminders, runReminders } from './reminders.js';
 import { myOverview } from './my-area.js';
 import {
+  addRate,
+  claimDetail,
+  claimHandedOver,
+  claimPaidByInvoicing,
+  claimsToHandOver,
+  claimTransfer,
+  createMileage,
+  createReceipt,
+  createTrip,
+  decideClaim,
+  deleteMileage,
+  deleteReceipt,
+  deleteReceiptFile,
+  deleteTrip,
+  expenseSettingsStamp,
+  getBankAccount,
+  getMileage,
+  getReceipt,
+  getReceiptFile,
+  getTrip,
+  listClaims,
+  listMileage,
+  listRates,
+  listReceipts,
+  listTrips,
+  markClaimPaid,
+  MAX_RECEIPT_FILE_BYTES,
+  payrollCsv,
+  putReceiptFile,
+  ratesInForce,
+  readExpenseSettings,
+  setBankAccount,
+  subjectOf,
+  submitClaim,
+  updateMileage,
+  updateReceipt,
+  updateTrip,
+  validateExpenseSettings,
+  withdrawClaim,
+  writeExpenseSettings,
+} from './expenses.js';
+import { fmtEuro, sendExpenseMail, tellEmployee } from './expense-platform.js';
+import { CLAIM_STATUSES, type ClaimStatus } from '../shared/expense-types.js';
+import { maskIban } from '../shared/iban.js';
+import { localDateOf } from '../shared/expenses.js';
+import {
   addEntitlement,
   balance,
   calendar,
@@ -328,6 +374,32 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     }
         requireServiceToken(req);
     res.json(moduleSummary(db, parseSummaryContext(req.query as Record<string, unknown>)));
+  });
+
+  // ── Expense claims for the invoicing module (server/expenses.ts) ─────
+  // It takes approved claims over as bills to pay by bank transfer, and says
+  // when it has and when they are paid (shared/expense-transfer.ts).
+  app.get('/api/transfer/expense-claims', (req, res) => {
+    requireServiceToken(req);
+    res.json({ claims: claimsToHandOver(db) });
+  });
+
+  app.get('/api/transfer/expense-claims/:number', (req, res) => {
+    requireServiceToken(req);
+    res.json(claimTransfer(db, req.params.number));
+  });
+
+  app.post('/api/transfer/expense-claims/:number/handed-over', (req, res) => {
+    requireServiceToken(req);
+    res.json(claimHandedOver(db, req.params.number, body(req)));
+  });
+
+  app.post('/api/transfer/expense-claims/:number/paid', async (req, res) => {
+    requireServiceToken(req);
+    const result = claimPaidByInvoicing(db, req.params.number, body(req));
+    const claim = db.prepare('SELECT id FROM expense_claims WHERE number = ?').get(req.params.number) as { id: number };
+    await tellEmployee(db, platform, claim.id, 'paid');
+    res.json(result);
   });
 
   // ── Shell handoff ────────────────────────────────────────────────────
@@ -1012,6 +1084,230 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
       `attachment; filename="timesheet-${profile.name.toLowerCase()}-${from}_${to}.csv"`,
     );
     res.send(csv);
+  });
+
+  // ── Expenses (server/expenses.ts) ────────────────────────────────────
+  // The policy says who may write at all; expenses.ts says whose items
+  // (own, or manage), that a claimed item is locked, and that nobody decides
+  // their own claim.
+  const expenseAudit = (viewer: Viewer, action: string, resource: string, metadata?: Record<string, unknown>) =>
+    void platform.audit({ actor: viewer.actor, action: `expense.${action}`, resource, metadata });
+  const rawFile = express.raw({ type: () => true, limit: MAX_RECEIPT_FILE_BYTES });
+  const itemFilter = (req: Request) => ({ employeeId: optInt(req.query.employee_id), open: req.query.open === '1' });
+
+  // ── Settings and rates ──────────────────────────────────────────────
+  app.get('/api/expenses/settings', (_req, res) => {
+    res.json({ settings: readExpenseSettings(db), ...expenseSettingsStamp(db), notifications: Boolean(platform.notificationConfigured) });
+  });
+
+  app.put('/api/expenses/settings', (req, res) => {
+    const settings = validateExpenseSettings(body(req));
+    const viewer = viewerOf(res);
+    writeExpenseSettings(db, settings, viewer.actor);
+    expenseAudit(viewer, 'settings', 'expense-settings');
+    res.json({ settings, ...expenseSettingsStamp(db), notifications: Boolean(platform.notificationConfigured) });
+  });
+
+  app.get('/api/expenses/rates', (req, res) => {
+    res.json({
+      rates: listRates(db, { kind: typeof req.query.kind === 'string' ? req.query.kind : undefined, country: typeof req.query.country === 'string' ? req.query.country : undefined }),
+    });
+  });
+
+  app.get('/api/expenses/rates/in-force', (req, res) => {
+    const date = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : localDateOf(Date.now(), readTimerSettings(db).timezone);
+    res.json(ratesInForce(db, date));
+  });
+
+  app.post('/api/expenses/rates', (req, res) => {
+    const viewer = viewerOf(res);
+    const rate = addRate(db, body(req), viewer.actor);
+    expenseAudit(viewer, 'rate', `expense-rate:${rate.kind}`, { country: rate.country, valid_from: rate.valid_from, amount_cents: rate.amount_cents });
+    res.status(201).json(rate);
+  });
+
+  // ── Trips ───────────────────────────────────────────────────────────
+  app.get('/api/expenses/trips', (req, res) => {
+    res.json({ trips: listTrips(db, viewerOf(res), itemFilter(req)) });
+  });
+  app.post('/api/expenses/trips', (req, res) => {
+    const viewer = viewerOf(res);
+    const { trip, created } = createTrip(db, body(req), viewer);
+    if (created) expenseAudit(viewer, 'trip.created', `employee:${trip.employee_id}`, { trip: trip.id });
+    res.status(created ? 201 : 200).json(trip);
+  });
+  app.get('/api/expenses/trips/:id', (req, res) => {
+    res.json(getTrip(db, Number(req.params.id), viewerOf(res)));
+  });
+  app.put('/api/expenses/trips/:id', (req, res) => {
+    res.json(updateTrip(db, Number(req.params.id), body(req), viewerOf(res)));
+  });
+  app.delete('/api/expenses/trips/:id', (req, res) => {
+    deleteTrip(db, Number(req.params.id), viewerOf(res));
+    res.json({ ok: true });
+  });
+
+  // ── Mileage ─────────────────────────────────────────────────────────
+  app.get('/api/expenses/mileage', (req, res) => {
+    res.json({ mileage: listMileage(db, viewerOf(res), itemFilter(req)) });
+  });
+  app.post('/api/expenses/mileage', (req, res) => {
+    const viewer = viewerOf(res);
+    const { mileage, created } = createMileage(db, body(req), viewer);
+    if (created) expenseAudit(viewer, 'mileage.created', `employee:${mileage.employee_id}`, { mileage: mileage.id });
+    res.status(created ? 201 : 200).json(mileage);
+  });
+  app.get('/api/expenses/mileage/:id', (req, res) => {
+    res.json(getMileage(db, Number(req.params.id), viewerOf(res)));
+  });
+  app.put('/api/expenses/mileage/:id', (req, res) => {
+    res.json(updateMileage(db, Number(req.params.id), body(req), viewerOf(res)));
+  });
+  app.delete('/api/expenses/mileage/:id', (req, res) => {
+    deleteMileage(db, Number(req.params.id), viewerOf(res));
+    res.json({ ok: true });
+  });
+
+  // ── Receipts ────────────────────────────────────────────────────────
+  app.get('/api/expenses/receipts', (req, res) => {
+    res.json({ receipts: listReceipts(db, viewerOf(res), itemFilter(req)) });
+  });
+  app.post('/api/expenses/receipts', (req, res) => {
+    const viewer = viewerOf(res);
+    const { receipt, created } = createReceipt(db, body(req), viewer);
+    if (created) expenseAudit(viewer, 'receipt.created', `employee:${receipt.employee_id}`, { receipt: receipt.id, source: receipt.source });
+    res.status(created ? 201 : 200).json(receipt);
+  });
+
+  app.get('/api/expenses/receipts/:id', (req, res) => {
+    res.json(getReceipt(db, Number(req.params.id), viewerOf(res)));
+  });
+  app.put('/api/expenses/receipts/:id', (req, res) => {
+    res.json(updateReceipt(db, Number(req.params.id), body(req), viewerOf(res)));
+  });
+  app.delete('/api/expenses/receipts/:id', (req, res) => {
+    deleteReceipt(db, Number(req.params.id), viewerOf(res));
+    res.json({ ok: true });
+  });
+  app.put('/api/expenses/receipts/:id/file', rawFile, (req, res) => {
+    const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    res.json(putReceiptFile(db, Number(req.params.id), data, viewerOf(res)));
+  });
+  app.get('/api/expenses/receipts/:id/file', (req, res) => {
+    const file = getReceiptFile(db, Number(req.params.id), viewerOf(res));
+    res.setHeader('Content-Type', file.content_type);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    // A picture is shown; anything else is downloaded, never rendered here.
+    res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+    res.setHeader('Content-Disposition', file.content_type.startsWith('image/') ? 'inline' : `attachment; filename="receipt-${req.params.id}.pdf"`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('ETag', `"${file.sha256}"`);
+    res.send(file.data);
+  });
+  app.delete('/api/expenses/receipts/:id/file', (req, res) => {
+    res.json(deleteReceiptFile(db, Number(req.params.id), viewerOf(res)));
+  });
+
+  // ── Bank account ────────────────────────────────────────────────────
+  app.get('/api/expenses/bank-account', (req, res) => {
+    const viewer = viewerOf(res);
+    res.json(getBankAccount(db, subjectOf(db, viewer, req.query.employee_id), viewer));
+  });
+  app.put('/api/expenses/bank-account', async (req, res) => {
+    const viewer = viewerOf(res);
+    const input = body(req);
+    const employeeId = subjectOf(db, viewer, input.employee_id);
+    const account = setBankAccount(db, employeeId, input, viewer);
+    expenseAudit(viewer, 'bank_account.changed', `employee:${employeeId}`);
+    // A changed payout account is how payroll fraud starts: the person hears
+    // of every change, whoever made it.
+    const person = db.prepare('SELECT name, email FROM employees WHERE id = ?').get(employeeId) as { name: string; email: string | null };
+    if (person.email) {
+      await sendExpenseMail(db,
+        platform,
+        person.email,
+        'The account your expenses are paid to has changed',
+        `Hello ${person.name},\n\nfrom now on your expenses are paid to ${maskIban(account.iban)} (${account.holder}), as entered by ${viewer.actor}. If this was not you or your office, tell them at once.`,
+        `mod-11:expense-bank:${employeeId}:${account.created_at}`,
+      );
+    }
+    res.json({ account, history: getBankAccount(db, employeeId, viewer).history });
+  });
+
+  // ── Claims ──────────────────────────────────────────────────────────
+  app.get('/api/expenses/claims', (req, res) => {
+    const status = typeof req.query.status === 'string' && (CLAIM_STATUSES as readonly string[]).includes(req.query.status) ? (req.query.status as ClaimStatus) : undefined;
+    res.json({ claims: listClaims(db, viewerOf(res), { employeeId: optInt(req.query.employee_id), status, toDecide: req.query.to_decide === '1' }) });
+  });
+
+  app.post('/api/expenses/claims', async (req, res) => {
+    const viewer = viewerOf(res);
+    const { claim, created } = submitClaim(db, body(req), viewer);
+    if (created) {
+      expenseAudit(viewer, 'claim.submitted', `employee:${claim.claim.employee_id}`, { claim: claim.claim.number, total_cents: claim.claim.totals.total_cents });
+      for (const to of readExpenseSettings(db).notify_on_submit) {
+        await sendExpenseMail(db,
+          platform,
+          to,
+          `Expense claim ${claim.claim.number} to decide`,
+          `${claim.claim.employee_name} submitted "${claim.claim.title}" (${fmtEuro(claim.claim.totals.total_cents)}). Open MOD-11 → Expenses to decide it.`,
+          `mod-11:expense-claim:${claim.claim.number}:submitted:${to}`,
+        );
+      }
+    }
+    res.status(created ? 201 : 200).json(claim);
+  });
+
+  app.get('/api/expenses/claims/:id', (req, res) => {
+    res.json(claimDetail(db, Number(req.params.id), viewerOf(res)));
+  });
+
+  const decideExpense = (decision: 'approved' | 'rejected') => async (req: Request, res: Response) => {
+    const raw = body(req).note;
+    const note = typeof raw === 'string' && raw.trim() !== '' ? raw.trim().slice(0, 300) : null;
+    if (decision === 'rejected' && !note) throw new DomainError(422, 'Validation failed', [{ field: 'note', message: 'A returned claim says why' } satisfies FieldError]);
+    const viewer = viewerOf(res);
+    const detail = decideClaim(db, Number(req.params.id), decision, note, viewer);
+    expenseAudit(viewer, `claim.${decision}`, `employee:${detail.claim.employee_id}`, { claim: detail.claim.number });
+    await tellEmployee(db, platform, detail.claim.id, decision);
+    res.json(detail);
+  };
+  app.post('/api/expenses/claims/:id/approve', decideExpense('approved'));
+  app.post('/api/expenses/claims/:id/reject', decideExpense('rejected'));
+
+  app.post('/api/expenses/claims/:id/withdraw', (req, res) => {
+    const viewer = viewerOf(res);
+    const detail = withdrawClaim(db, Number(req.params.id), viewer);
+    expenseAudit(viewer, 'claim.withdrawn', `employee:${detail.claim.employee_id}`, { claim: detail.claim.number });
+    res.json(detail);
+  });
+
+  app.post('/api/expenses/claims/:id/paid', async (req, res) => {
+    const raw = body(req).reference;
+    const reference = typeof raw === 'string' && raw.trim() !== '' ? raw.trim().slice(0, 80) : null;
+    const viewer = viewerOf(res);
+    const detail = markClaimPaid(db, Number(req.params.id), reference, viewer);
+    expenseAudit(viewer, 'claim.paid', `employee:${detail.claim.employee_id}`, { claim: detail.claim.number, reference });
+    await tellEmployee(db, platform, detail.claim.id, 'paid');
+    res.json(detail);
+  });
+
+  app.get('/api/expenses/handover', (_req, res) => {
+    res.json({ claims: claimsToHandOver(db) });
+  });
+
+  app.get('/api/expenses/export.csv', (req, res) => {
+    const status = req.query.status === 'paid' ? 'paid' : 'approved';
+    const date = (v: unknown, field: string): string | undefined => {
+      if (v === undefined || v === '') return undefined;
+      if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new DomainError(422, 'Validation failed', [{ field, message: `${field} must be a date in YYYY-MM-DD format` }]);
+      return v;
+    };
+    const from = date(req.query.from, 'from');
+    const to = date(req.query.to, 'to');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="expenses-${status}${from ? `-${from}` : ''}${to ? `_${to}` : ''}.csv"`);
+    res.send(payrollCsv(db, { status, from, to }));
   });
 
   // ── Static client (production build) ─────────────────────────────────

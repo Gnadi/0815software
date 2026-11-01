@@ -67,6 +67,18 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'PUT', path: '/api/settings/timer', access: 'manage' },
   { method: 'GET', path: '/api/reminders', access: 'manage' },
   { method: 'POST', path: '/api/reminders/run', access: 'manage' },
+  // Expenses: recording one's own trips, drives and receipts and submitting
+  // them is `edit` — whose items an editor may touch is server/expenses.ts
+  // (own only, and only while no claim holds them). Deciding, paying out,
+  // the payroll export, the rates and the settings are the office's; nobody
+  // decides their own claim even with `manage` (mayDecide).
+  { method: 'PUT', path: '/api/expenses/settings', access: 'manage' },
+  { method: 'POST', path: '/api/expenses/rates', access: 'manage' },
+  { method: 'POST', path: '/api/expenses/claims/:id/approve', access: 'manage' },
+  { method: 'POST', path: '/api/expenses/claims/:id/reject', access: 'manage' },
+  { method: 'POST', path: '/api/expenses/claims/:id/paid', access: 'manage' },
+  { method: 'GET', path: '/api/expenses/export.csv', access: 'manage' },
+  { method: 'GET', path: '/api/expenses/handover', access: 'manage' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);
