@@ -206,7 +206,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -240,7 +240,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -275,7 +275,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -359,7 +359,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": true,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -393,7 +393,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -429,7 +429,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       },
       "peers": {
         "optional": [
@@ -471,7 +471,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -509,7 +509,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": true,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -545,7 +545,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -581,7 +581,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -667,7 +667,7 @@
         "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -709,7 +709,7 @@
         "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       },
       "peers": {
         "optional": [
@@ -752,7 +752,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -1027,7 +1027,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       },
       "peers": {
         "optional": [

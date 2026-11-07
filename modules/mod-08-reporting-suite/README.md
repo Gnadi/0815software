@@ -581,6 +581,15 @@ This is an *internal* tool — put it behind your VPN or reverse proxy.
 - Not a fit for serverless: SQLite and the exports dir want a persistent
   filesystem.
 
+## Notifications and the inbox
+
+What waits for one person here (`GET /api/inbox`, the shells' badge and
+"Waiting for you") and who is told what through PS-03 — the module's rules in
+[`server/inbox-rules.ts`](./server/inbox-rules.ts), pinned by
+`test/inbox-rules.test.ts`: the person who scheduled a report hears it is ready (digest) or failed (now); a person sets thresholds on a report's figure ("tell me when …", `server/alerts.ts`) and is told when a run crosses one. Nothing waits in the inbox. Counted from the rows on every request,
+told once per occasion (docs/NOTIFICATIONS-PLAN.md). Without `NOTIFICATION_URL`
+nothing is sent.
+
 ## Out of scope
 
 Kept out deliberately to stay a 3–4 week module. If you need any of

@@ -825,6 +825,8 @@ export function createApp({
       // turning it off would only lock this person out at their next sign-in.
       if (orgRequiresMfa(org)) fail(409, 'Your organization requires two-factor sign-in; set up a new one instead');
       clearSecondFactor(db, user.id);
+    // And the devices they signed in from (server/security-notify.ts).
+    db.prepare('DELETE FROM known_devices WHERE user_id = ?').run(user.id);
       logEvent('mfa_disabled', user.org_id, user.id, req);
       securityNotify({ kind: 'mfa-disabled', email: user.email, detail: null, key: `${user.id}:${now()}` });
       res.json({ totp_enabled: false });

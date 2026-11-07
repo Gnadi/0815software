@@ -69,6 +69,8 @@ export const COPY_IN = [
   'server/watch.ts',
   'shared/summary.ts',
   'src/styles.css',
+  'src/mobile.css',
+  'src/mobile.ts',
   'src/access.tsx',
   'src/components/Login.tsx',
   'src/components/QrCode.tsx',

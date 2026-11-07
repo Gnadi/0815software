@@ -40,6 +40,21 @@ export function exportSubject(db: Database.Database, subject: string, at: string
       .all(...ids);
   }
 
+  // What the person-notification layer holds (server/notify.ts): which
+  // devices get their pushes (never the push keys), their preferences, and
+  // the notifications addressed to them — a title and detail name records.
+  records.push_devices = db
+    .prepare('SELECT id, device, created_at, last_sent_at FROM push_subscriptions WHERE recipient = ? ORDER BY id')
+    .all(address);
+  records.notification_preferences = db.prepare('SELECT prefs, updated_at FROM notify_prefs WHERE recipient = ?').all(address);
+  records.notifications = db
+    .prepare(
+      `SELECT id, module, kind, category, urgency, title, detail, href, state, created_at, delivered_at
+         FROM notify_events WHERE recipient = ? ORDER BY id`,
+    )
+    .all(address);
+  records.digests = db.prepare('SELECT kind, local_date, item_count, created_at FROM notify_digests WHERE recipient = ? ORDER BY id').all(address);
+
   for (const [key, value] of Object.entries(records)) {
     if (value.length === 0) delete records[key];
   }

@@ -261,6 +261,28 @@ person or a business sits in a cache.
 - **HTTPS.** A service worker and the camera need a secure origin; the
   generated stack serves every subdomain over TLS (Caddy).
 
+## 6. The inbox — what waits for one person
+
+A summary is a board's view of a module; the inbox is ONE PERSON's. Every
+module answers `GET /api/inbox?for=<PS-01 email>&level=<view|edit|manage>`
+with the stack's service token (`server/inbox.ts`, copy-in), in the shape of
+`ModuleInbox` in `shared/summary.ts`: a `count` and up to 50 `items` — what
+is that person's to act on there, at the level PS-01 grants them there. The
+rules are the module's own (`server/inbox-rules.ts`) and are counted from the
+rows on every request, never kept as a number (CLAUDE.md rule 3).
+
+The shells add the counts up for the **app badge** and list the items on
+**Waiting for you** (`server/account.ts`, `collectShellInbox`). A module that
+predates the inbox answers 404 and counts as nothing waiting; a module that
+cannot answer is named under `unavailable`, so a short list is not mistaken
+for a finished one. The service worker never carries a number: on every
+push it asks `/api/inbox/count` with the app's own session and sets the
+badge from that (`src/pwa/sw.js`).
+
+The same rules decide who is TOLD: each module reads its append-only logs
+(`server/watch.ts`) and reports events to PS-03 (`server/people.ts`), which
+decides now, briefing, wrap-up or not at all (docs/NOTIFICATIONS-PLAN.md).
+
 ## Two shells, one contract
 
 The seam has two consumers, and a stack can run both. They differ in what a

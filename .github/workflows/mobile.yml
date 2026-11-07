@@ -1,0 +1,81 @@
+name: Mobile
+
+# Every module usable on a phone (docs/MOBILE-PLAN.md, section 5): each one is
+# built, started on a scratch database with its demo data, signed into, and
+# every view of its navigation measured at 360 × 740, 390 × 844 and 1280 × 800
+# by deploy/mobile-check.mjs — no sideways scrolling, 44 px touch targets,
+# 16 px form fields. A failing view leaves its screenshot as an artifact.
+#
+# test.yml stays offline. This job downloads a browser: Playwright's Chromium,
+# at the version pinned below.
+
+on:
+  push:
+    paths:
+      - 'modules/**'
+      - 'deploy/mobile-check.mjs'
+      - '.github/workflows/mobile.yml'
+  pull_request:
+    paths:
+      - 'modules/**'
+      - 'deploy/mobile-check.mjs'
+      - '.github/workflows/mobile.yml'
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  PLAYWRIGHT_VERSION: '1.56.1'
+
+jobs:
+  phone:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - mod-01-customer-portal
+          - mod-02-admin-dashboard
+          - mod-03-inventory-management
+          - mod-04-invoice-billing
+          - mod-05-employee-directory
+          - mod-06-procurement-tracker
+          - mod-07-storefront
+          - mod-08-reporting-suite
+          - mod-09-document-management
+          - mod-10-crm-lite
+          - mod-11-time-tracking
+          - mod-12-support-tickets
+          - mod-13-offers
+          - mod-14-subsidies-funds
+          - mod-15-workspace
+          - mod-16-mosaic
+          - mod-17-orders-delivery
+    name: phone / ${{ matrix.module }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Build platform/clients (before the module install)
+        working-directory: platform/clients
+        run: |
+          npm ci
+          npm run build
+      - name: Install the module
+        working-directory: modules/${{ matrix.module }}
+        run: npm ci
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save --prefix "$RUNNER_TEMP/pw" "playwright@$PLAYWRIGHT_VERSION"
+          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+          echo "NODE_PATH=$RUNNER_TEMP/pw/node_modules" >> "$GITHUB_ENV"
+      - name: Measure every view on a phone and a desktop
+        run: node deploy/mobile-check.mjs ${{ matrix.module }} --shots mobile-shots
+      - name: Keep the screenshots of what failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-shots-${{ matrix.module }}
+          path: mobile-shots

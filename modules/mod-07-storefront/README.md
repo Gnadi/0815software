@@ -293,6 +293,15 @@ The shop face is *public* — put the whole app behind TLS.
 - Not a fit for serverless platforms: SQLite wants a persistent
   filesystem.
 
+## Notifications and the inbox
+
+What waits for one person here (`GET /api/inbox`, the shells' badge and
+"Waiting for you") and who is told what through PS-03 — the module's rules in
+[`server/inbox-rules.ts`](./server/inbox-rules.ts), pinned by
+`test/inbox-rules.test.ts`: placed orders wait for, and every new order is told now and through quiet hours to, the addresses in `ORDER_NOTIFY_RECIPIENTS`. Counted from the rows on every request,
+told once per occasion (docs/NOTIFICATIONS-PLAN.md). Without `NOTIFICATION_URL`
+nothing is sent.
+
 ## Out of scope
 
 Kept out deliberately to stay a 5–6 week module. If you need any of

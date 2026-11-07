@@ -502,6 +502,15 @@ intake, a reply or a resolution. Everything is opt-in (`NOTIFICATION_URL`,
 `PLATFORM_SERVICE_TOKEN`); unset, the module runs standalone. See
 `server/platform.ts`.
 
+## Notifications and the inbox
+
+What waits for one person here (`GET /api/inbox`, the shells' badge and
+"Waiting for you") and who is told what through PS-03 — the module's rules in
+[`server/inbox-rules.ts`](./server/inbox-rules.ts), pinned by
+`test/inbox-rules.test.ts`: an agent's open tickets wait for them, untaken ones for everyone at `edit`; assignments and customer replies are told now, new untaken tickets in the digest, an SLA at risk or broken now and through quiet hours. Counted from the rows on every request,
+told once per occasion (docs/NOTIFICATIONS-PLAN.md). Without `NOTIFICATION_URL`
+nothing is sent.
+
 ## Out of scope (deliberately)
 
 - **A mailbox without PS-05.** The IMAP client lives in PS-05, where the

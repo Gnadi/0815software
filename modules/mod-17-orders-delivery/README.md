@@ -161,6 +161,15 @@ do. The contract is [`docs/ACCESS-LEVELS.md`](../../docs/ACCESS-LEVELS.md).
 
 `dev:api`, `dev:web`, `seed`, `build`, `start`, `backup`, `test`.
 
+## Notifications and the inbox
+
+What waits for one person here (`GET /api/inbox`, the shells' badge and
+"Waiting for you") and who is told what through PS-03 — the module's rules in
+[`server/inbox-rules.ts`](./server/inbox-rules.ts), pinned by
+`test/inbox-rules.test.ts`: open orders with something left to deliver wait for `edit`; a confirmed order is told to dispatch now. Counted from the rows on every request,
+told once per occasion (docs/NOTIFICATIONS-PLAN.md). Without `NOTIFICATION_URL`
+nothing is sent.
+
 ## Out of scope
 
 - **Several warehouses per order.** One warehouse per installation reserves

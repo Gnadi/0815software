@@ -1,9 +1,9 @@
 # Push-Benachrichtigungen und App-Badge — Plan
 
-Status: **Plan, nichts davon ist umgesetzt.** Dieses Dokument legt fest, *welche*
-Benachrichtigungen sinnvoll sind, bevor eine Zeile Code entsteht. Es baut auf
-[`MOBILE-PLAN.md`](./MOBILE-PLAN.md) auf, denn Push und Badge setzen die
-installierte App voraus.
+Status: **umgesetzt.** Abschnitt 7 sagt, wo was gebaut ist, welche
+Entscheidungen die Fachseite getroffen hat und welche Katalogzeilen nicht
+gebaut wurden, weil das Modul den Vorgang (noch) nicht kennt. Push und Badge
+setzen die installierte App voraus ([`MOBILE-PLAN.md`](./MOBILE-PLAN.md)).
 
 ## 1. Grundsätze
 
@@ -299,3 +299,51 @@ Badge-Zahl fällt, sobald die Sache erledigt ist.
 - Wer ist in MOD-12 „Teamleitung“? Eine eigene Rolle oder die Stufe `manage`?
 - Soll eine Shop-Bestellung (MOD-07) auch außerhalb der Arbeitszeit sofort
   kommen?
+
+## 7. Umsetzung
+
+### Entscheidungen der Fachseite (aus Abschnitt 6)
+
+1. **Zusammenfassung:** zweimal täglich — morgens als **Briefing**, abends als
+   **Tagesabschluss**. Beide Uhrzeiten, die Arbeitstage und ob sie per Push,
+   Mail oder beidem kommen, stellt jede Person selbst ein; die Vorgaben dafür
+   setzt der Admin (Shell → Konto → Administration). Vorgabe: 07:30 und
+   17:00, Montag bis Freitag.
+2. **Betragsgrenze MOD-06:** stellt der Admin ein (MOD-06 → Einstellungen,
+   „Notify approvers at once from“). Leer: Bestellanforderungen kommen immer
+   gesammelt.
+3. **Teamleitung MOD-12:** offen gelassen — ein gerissenes SLA erfährt vorerst
+   nur die bearbeitende Person (sofort, auch nachts).
+4. **Shop-Bestellungen MOD-07:** sofort, **auch außerhalb der Arbeitszeit**,
+   an die in `ORDER_NOTIFY_RECIPIENTS` genannten Adressen (der Shop meldet
+   sein Personal selbst an, PS-01 kennt es nicht).
+
+### Wo was gebaut ist
+
+| Teil | Wo | Tests |
+| --- | --- | --- |
+| Web Push (RFC 8291 + RFC 8292) auf Node-`crypto` | PS-03 `server/webpush.ts` | RFC 8291 Anhang A, Byte für Byte; VAPID-Signatur |
+| Ereignisse, Vorlieben, Ruhezeiten, Briefing und Tagesabschluss, Mail-Ersatz | PS-03 `server/notify.ts` | `test/notify.test.ts` (inkl. Entschlüsseln der Nachricht wie im Browser) |
+| Betrieb: Alertmanager und fehlgeschlagene Sicherung | PS-03 `server/ops.ts`, `deploy/backup.sh`, generiertes `monitoring/alertmanager.yml` | `test/ops.test.ts`, `deploy/test/monitoring.test.ts` |
+| Badge-Zahl, „Wartet auf dich“ | `GET /api/inbox` jedes Moduls (`server/inbox.ts`, `server/inbox-rules.ts`), summiert von den Shells | Copy-in `test/people.test.ts`, je Modul `test/inbox-rules.test.ts` |
+| Ereignisse aus den Modulen | `server/watch.ts` liest die Append-only-Protokolle, `server/people.ts` meldet an PS-03 | je Modul `test/inbox-rules.test.ts` |
+| „Alle mit Stufe X“ als Empfänger | PS-01 `GET /api/directory/holders` | PS-01 `test/directory.test.ts` |
+| Push auf dem Gerät, Antippen öffnet das Modul, Badge neu zählen | `src/pwa/sw.js` (Copy-in), Shells `src/account-api.ts` | `deploy/test/pwa.test.ts` |
+| Einstellungen der Person und des Admins | Shell → Konto | `test/account.test.ts` in MOD-15 und MOD-16 |
+
+### Katalogzeilen, die nicht gebaut sind — und warum
+
+| Zeile | Grund |
+| --- | --- |
+| MOD-01 „Kunde schreibt im Portal“ | Das Portal hat keine Nachrichten. Kommt mit einer Nachrichtenfunktion. |
+| MOD-04 „Versand einer E-Rechnung fehlgeschlagen“ | Der Versand läuft über Mail oder das Portal des Kunden; MOD-04 erfährt davon nichts. |
+| MOD-06 „Lieferung überfällig“ | Eine Bestellung hat kein Lieferdatum. Kommt mit einem erwarteten Lieferdatum. |
+| MOD-11 „Offline erfasste Spesen nicht gesendet“ | Das weiß nur das Gerät selbst; die App zeigt es dort an. |
+| MOD-12 „SLA gerissen → Teamleitung“ | Entscheidung 3. |
+| MOD-17 „Zustellung für heute“, „fehlgeschlagen oder verspätet“ | Es gibt keinen Tourplan und keine Zustellversuche. Kommt mit dem Tourplan. |
+| PS-01 „Viele Fehlversuche“ an die **Admins** | Die betroffene Person wird benachrichtigt; für die Admins gibt es den Prometheus-Alarm `IdentityPasswordSpray`, der jetzt auch aufs Handy kommt. |
+
+Dazu gekommen, weil der Katalog es brauchte: im **CRM** eine Zuständigkeit je
+Deal (append-only, die aktuelle wird abgeleitet) und je Wiedervorlage; in den
+**Berichten** Schwellwert-Alarme je Person („sag mir, wenn …“); in
+**Beschaffung** wer eine Bestellung eingereicht hat.

@@ -1,8 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+// Copy-in: the service worker of an installable module (scripts/pwa-plugin.mjs).
+import { serviceWorker } from './scripts/pwa-plugin.mjs';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), serviceWorker()],
   build: { outDir: 'dist/client' },
   server: {
     port: 5204,

@@ -321,3 +321,17 @@ describe('local time', () => {
     expect(localTime(Date.parse('2026-11-09T23:30:00Z'), 'Europe/Vienna')).toMatchObject({ date: '2026-11-10', weekday: 2 });
   });
 });
+
+describe('subject access', () => {
+  it('discloses the person’s devices, preferences and notifications — never the push keys', async () => {
+    await subscribe('ada@acme.test');
+    await request(app).put('/api/prefs').set(svc).send({ recipient: 'ada@acme.test', prefs: { lock_screen_details: true } });
+    await send(event());
+    const token = (await request(app).post('/api/login').send({ username: 'admin', password: 'test-pass' })).body.token;
+    const out = await request(app).get('/api/export?subject=ada@acme.test').set('Authorization', `Bearer ${token}`);
+    expect(out.body.records.push_devices).toEqual([expect.objectContaining({ device: 'Pixel' })]);
+    expect(out.body.records.notifications[0]).toMatchObject({ title: 'A ticket was assigned to you', detail: 'T-104 · Printer on fire · Acme GmbH' });
+    expect(out.body.records.notification_preferences).toHaveLength(1);
+    expect(JSON.stringify(out.body)).not.toMatch(/p256dh|BCVxsr7N|fcm\.googleapis/);
+  });
+});

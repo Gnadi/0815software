@@ -485,6 +485,15 @@ Since search, sharing and retention:
   for an object-store backend (S3-compatible) — the metadata model is
   unchanged.
 
+## Notifications and the inbox
+
+What waits for one person here (`GET /api/inbox`, the shells' badge and
+"Waiting for you") and who is told what through PS-03 — the module's rules in
+[`server/inbox-rules.ts`](./server/inbox-rules.ts), pinned by
+`test/inbox-rules.test.ts`: documents past their retention period wait for, and are told once in the digest to, the matter owners whose user name is their email address. Counted from the rows on every request,
+told once per occasion (docs/NOTIFICATIONS-PLAN.md). Without `NOTIFICATION_URL`
+nothing is sent.
+
 ## Out of scope (by design)
 
 - **Automatic disposal, GDPR erasure before a period ends** — disposal is

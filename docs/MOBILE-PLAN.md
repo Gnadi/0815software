@@ -7,9 +7,10 @@ lassen sich am Handy erledigen, nicht nur ansehen. Eine abgespeckte
 Native Apps sind es auch nicht: Die Module bleiben Web-Apps (PWA), eine
 Codebasis für beide Bildschirme.
 
-Status: Phase 0a (Zwei-Faktor-Anmeldung) ist umgesetzt, alles andere ist Plan.
-Benachrichtigungen und App-Badge stehen im eigenen Plan
-[`NOTIFICATIONS-PLAN.md`](./NOTIFICATIONS-PLAN.md).
+Status: **umgesetzt.** Alle Phasen dieses Plans sind gebaut; was davon
+abweicht oder offen bleibt, steht in Abschnitt 8. Benachrichtigungen und
+App-Badge: [`NOTIFICATIONS-PLAN.md`](./NOTIFICATIONS-PLAN.md) (ebenfalls
+umgesetzt).
 
 ## 1. Was „mobil verwendbar“ prüfbar heißt
 
@@ -204,3 +205,34 @@ zurückfallen.
 Der Aufwand je Modul sinkt mit jeder Phase, weil die Bausteine aus Phase 0
 das meiste übernehmen: Tabellen bekommen `data-label`, die Navigation bekommt
 ihre Einträge, Raster bekommen ihren Kasten.
+
+## 8. Umsetzung — was gebaut ist
+
+| Teil | Wo | Geprüft durch |
+| --- | --- | --- |
+| Zwei-Faktor-Anmeldung (TOTP), Wiederherstellungscodes, Schutz vor Wiederverwendung | PS-01 `server/totp.ts`, `server/mfa.ts` | RFC 4226/6238/4648-Vektoren (`test/totp.test.ts`), `test/mfa.test.ts` |
+| **0b** Konto-Seite: Faktor einrichten (QR im Browser), Codes erneuern, Passwort, „überall abmelden“ | MOD-15/16 `server/account.ts`, `src/components/Account.tsx` | `test/account.test.ts` gegen echtes PS-01 und PS-03 |
+| QR-Code-Erzeugung ohne fremden Dienst | `src/qr/encode.ts` (Copy-in) | Modul für Modul gegen segno, zurückgelesen vom MOD-11-Decoder (`mod-11 test/qr-encode.test.ts`) |
+| **0c** Zwei-Faktor-Pflicht je Organisation, Einrichtung direkt beim Login (auch über OAuth) | PS-01 `PATCH /api/orgs/current`, `secondFactorGate`; Login-Formular jedes Moduls | `test/mfa-policy.test.ts`, Copy-in `test/access.test.ts` |
+| Verwaltung: Personen, Faktor zurücksetzen, abmelden, Pflicht schalten | Shell → Konto → Administration | `test/account.test.ts` |
+| Sicherheitsmeldungen (neues Gerät, Faktor aus, Code benutzt, Passwort, Rate-Versuche) | PS-01 `server/security-notify.ts` | `test/mfa-policy.test.ts`, `test/security-notify.test.ts` |
+| **0d** Mobile-Schicht: untere Navigationsleiste, Tabellen als Karten, 44-px-Ziele, 16-px-Felder, einspaltige Formulare, Vollbild-Dialoge | `src/mobile.css`, `src/mobile.ts` (Copy-in, alle 17 Module) | `deploy/mobile-check.mjs` |
+| Prüf-Gerüst (Abschnitt 5) | `deploy/mobile-check.mjs`, `.github/workflows/mobile.yml` | jede Ansicht der Navigation, 360/390/1280 px, plus öffentliche Seiten (Shop, Ticket-Formular) |
+| Installierbar: alle 17 Module (Manifest, Symbol, Service Worker) | `public/manifest.webmanifest`, `src/pwa/*` (Copy-in) | `deploy/test/pwa.test.ts` |
+| **Phasen 1–3** | über die Bausteine; modul-eigene Ursachen dort behoben, wo die Messung sie fand | `deploy/mobile-check.mjs`: alle Module ohne Befund |
+
+Abweichungen vom Plan und was bewusst offen bleibt:
+
+- **Statt eines `ResponsiveTable`-Bausteins** beschriftet `src/mobile.ts` jede
+  Tabelle automatisch aus ihrer Kopfzeile. So musste keine der rund 150
+  Tabellen einzeln umgebaut werden, und neue Tabellen sind ohne Zutun
+  abgedeckt. Ein Raster, das Raster bleiben muss, bekommt `data-mobile="grid"`.
+- **Deep Links in ein Modul** (eine Benachrichtigung öffnet den Datensatz,
+  nicht nur das Modul): Die meisten Module lesen beim Start keine Adresse
+  (`docs/SHELL-CONTRACT.md`). Die Shell öffnet daher das Modul, und die
+  Benachrichtigung nennt den Datensatz.
+- **Echte Geräte:** Die automatische Messung ersetzt nicht den Blick auf ein
+  iPhone (Safari, installiert) und ein Android-Gerät vor einer Auslieferung.
+- **Neue Module** aus `scripts/new-module.mjs` bekommen die Mobile-Schicht
+  und die Benachrichtigungs-Bausteine. Installierbar werden sie mit eigenem
+  Manifest und Symbol (wie in den 17 vorhandenen).

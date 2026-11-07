@@ -1279,6 +1279,15 @@ curl -s -b cookie.txt -X POST localhost:3004/api/payment-runs/1/submit
 answers with the run carrying `status: "submitted"`, the bank's order id and
 its verdict.
 
+## Notifications and the inbox
+
+What waits for one person here (`GET /api/inbox`, the shells' badge and
+"Waiting for you") and who is told what through PS-03 — the module's rules in
+[`server/inbox-rules.ts`](./server/inbox-rules.ts), pinned by
+`test/inbox-rules.test.ts`: held incoming invoices and payment runs prepared by someone else wait for `manage`; incoming invoices due within two days and overdue outgoing ones wait for `edit`; held invoices, prepared runs and bills due tomorrow are told in the digest. Counted from the rows on every request,
+told once per occasion (docs/NOTIFICATIONS-PLAN.md). Without `NOTIFICATION_URL`
+nothing is sent.
+
 ## Out of scope
 
 Kept out deliberately to stay a 3–4 week module. If you need any of
