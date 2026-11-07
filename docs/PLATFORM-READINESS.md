@@ -244,7 +244,7 @@ The realism gap is now closed in code, leaving only the user-supplied keys:
 **Remaining (user action):** supply the vendor keys and run `test:live` to
 validate against production — the one step that cannot be done from the repo.
 
-### A6. Persistence is single-file SQLite with no migrations, backups, or HA — ⏳ BACKUPS CLOSED, HA OPEN
+### A6. Persistence is single-file SQLite with no migrations, backups, or HA — ⏳ BACKUPS CLOSED (OFF-HOST INCLUDED), HA OPEN
 Migrations shipped (`server/migrations.ts`, append-only and idempotent, applied
 on boot).
 
@@ -269,13 +269,21 @@ rather than the customer's. What is true now:
 - `deploy/test/backup.test.ts` re-derives the coverage from the registry, so a
   new package without a backup script fails the build.
 
-Still open: the snapshots land on the same volume as the source, so getting
-them off the host is an operator step (rsync/restic), and there is no HA —
-SQLite is single-writer, so the tick-driven queues (PS-02/03/05/08) and the
-gapless counters (PS-10) are correct on one instance and do not scale
-horizontally.
+- **the off-host copy is built in** (`deploy/backup.mjs`, runbook in
+  [`BACKUP-RESTORE.md`](./BACKUP-RESTORE.md)): every run packs all snapshots
+  plus the stack's `.env` into one AES-256-GCM-encrypted archive and sends it
+  to the targets named in the stack's `backup.env` — a mounted NAS folder,
+  SFTP or S3 — with GFS retention per target, an alert on failure, a heartbeat
+  on success, a `verify` drill and a `restore --apply` that rebuilds a new
+  host; `deploy/test/backup-offsite.test.ts` plays the lost-host restore out.
+
+Still open: there is no HA — SQLite is single-writer, so the tick-driven
+queues (PS-02/03/05/08) and the gapless counters (PS-10) are correct on one
+instance and do not scale horizontally — and the recovery point is the last
+nightly run (up to a day of work), not continuous.
 **Do:** decide the scale story (Postgres, or SQLite + streaming replication)
-before multi-instance; automate the off-host copy per deployment.
+before multi-instance; if a day's loss is too much for a customer, run the
+job more often (it is online-consistent) or add WAL streaming.
 
 ### A7. Multi-tenancy is inconsistent across services
 PS-01 is strictly multi-tenant; PS-09 has a `tenant` column. **PS-02, 03, 04,

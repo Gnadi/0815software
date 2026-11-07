@@ -72,28 +72,49 @@ describe('backup coverage', () => {
             );
           }
         });
+
+        it('names each files folder <prefix>-<stamp> after its env var — the restore maps it back by that name', () => {
+          // deploy/backup.mjs restores "storage-<stamp>" into STORAGE_DIR, and so
+          // on. A folder named any other way would restore into nothing.
+          const src = readFileSync(scriptPath, 'utf8');
+          for (const dir of fileDirs) {
+            const prefix = dir.slice(0, -'_DIR'.length).toLowerCase();
+            expect(src).toContain(`process.env.${dir} ?? './${prefix}'`);
+            expect(src).toContain(`join(dir, \`${prefix}-\${stamp}\`)`);
+          }
+        });
       }
     });
   }
 });
 
-describe('deploy/backup.sh', () => {
+describe('deploy/backup.sh and backup.mjs', () => {
   const sh = readFileSync(`${root}/deploy/backup.sh`, 'utf8');
+  const mjs = readFileSync(`${root}/deploy/backup.mjs`, 'utf8');
+
+  it('backup.sh is the cron entry point and hands over to backup.mjs run', () => {
+    expect(sh).toContain('backup.mjs" run');
+  });
 
   it('discovers the running containers instead of hardcoding them', () => {
-    expect(sh).toContain('docker compose ps --services');
+    expect(mjs).toContain("['ps', '--services', '--status', 'running']");
     // The old hardcoded loop is what caused the gap this suite guards.
     expect(sh).not.toMatch(/for svc in ps01 ps02/);
+    expect(mjs).not.toMatch(/ps01.*ps02/);
   });
 
   it('takes the stack directory as an argument, so it can back up a customer', () => {
     // Generated stacks live outside deploy/; running it there used to target
     // the reference stack in deploy/ instead — or nothing at all.
-    expect(sh).toContain('STACK_DIR="${1:-$(dirname "$0")}"');
+    expect(sh).toContain('"${1:-$(dirname "$0")}"');
+  });
+
+  it('drives every package the same way: npm run backup', () => {
+    expect(mjs).toContain("'npm', 'run', '--silent', 'backup'");
   });
 
   it('fails loudly when nothing was backed up', () => {
-    expect(sh).toContain('nothing was backed up');
-    expect(sh).toMatch(/exit 1/);
+    expect(mjs).toContain('nothing was backed up');
+    expect(mjs).toContain('process.exitCode = 1');
   });
 });
