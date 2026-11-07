@@ -165,6 +165,9 @@ export function openDb(path: string): Database.Database {
   // The MOD-03 article number a line is, when it is stock: the goods
   // received on it are then booked into MOD-03 as well. Null for services.
   if (!columns('po_lines').includes('sku')) db.exec('ALTER TABLE po_lines ADD COLUMN sku TEXT');
+  // Who handed the PO in — the person told when it is approved or rejected.
+  // Null on submissions made before it was recorded.
+  if (!columns('po_submissions').includes('submitted_by')) db.exec('ALTER TABLE po_submissions ADD COLUMN submitted_by TEXT');
   db.exec(`
     -- What arrived, against an ordered PO, append-only. How much of a line has
     -- arrived is derived — the sum of its receipt lines — never stored. A

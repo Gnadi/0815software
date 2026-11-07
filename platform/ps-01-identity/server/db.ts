@@ -273,6 +273,51 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 9,
+    name: 'two-factor-policy-and-devices',
+    up(db) {
+      // `mfa_required`: the organization's "two-factor or no sign-in" switch.
+      // `known_devices`: the coarse device labels a person signed in from, so
+      // a new one can be told to them (server/security-notify.ts).
+      const orgCols = db.prepare("PRAGMA table_info('organizations')").all() as { name: string }[];
+      if (orgCols.length > 0 && !orgCols.some((c) => c.name === 'mfa_required')) {
+        db.exec('ALTER TABLE organizations ADD COLUMN mfa_required INTEGER NOT NULL DEFAULT 0');
+      }
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS known_devices (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        fingerprint TEXT    NOT NULL,
+        label       TEXT    NOT NULL,
+        first_seen  TEXT    NOT NULL,
+        last_seen   TEXT    NOT NULL,
+        UNIQUE (user_id, fingerprint)
+      );
+
+      CREATE TABLE auth_events_new (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        org_id     INTEGER,
+        user_id    INTEGER,
+        type       TEXT    NOT NULL
+                   CHECK (type IN ('login_ok', 'login_fail', 'logout', 'token_issued',
+                                   'apikey_created', 'apikey_revoked', 'password_changed',
+                                   'password_change_denied', 'sessions_revoked', 'user_erased',
+                                   'mfa_enabled', 'mfa_disabled', 'mfa_reset', 'mfa_failed',
+                                   'recovery_code_used', 'recovery_codes_renewed',
+                                   'mfa_policy_changed', 'new_device')),
+        ip         TEXT,
+        meta       TEXT    NOT NULL DEFAULT '{}',
+        created_at TEXT    NOT NULL
+      );
+      INSERT INTO auth_events_new (id, org_id, user_id, type, ip, meta, created_at)
+        SELECT id, org_id, user_id, type, ip, meta, created_at FROM auth_events;
+      DROP TABLE auth_events;
+      ALTER TABLE auth_events_new RENAME TO auth_events;
+      CREATE INDEX IF NOT EXISTS idx_auth_events_org ON auth_events(org_id, created_at, id);
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

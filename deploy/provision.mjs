@@ -329,8 +329,14 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
       env[secretName] =
         secretName === STACK_MACHINE_TOKEN ? '${PLATFORM_SERVICE_TOKEN}' : `\${${prefix}${secretName}}`;
     }
+    if (service.id === 'ps-03-notification-hub') {
+      // Push services reject a VAPID token without a contact (RFC 8292 §2.1).
+      env.VAPID_SUBJECT = `mailto:${options.acmeEmail ?? `ops@${options.domain}`}`;
+    }
     if (service.id === 'ps-01-identity') {
       env.SELF_BASE_URL = `https://${options.domain}${service.routePrefix}`;
+      // Security events to the person (new device, factor off, …) go through PS-03.
+      if (serviceById.has('ps-03-notification-hub')) env.NOTIFICATION_URL = internalUrlOf(serviceById.get('ps-03-notification-hub'));
     } else if (serviceById.has('ps-01-identity')) {
       // Identity seam on: PS-01-issued sessions are accepted by this service.
       env.IDENTITY_URL = internalUrlOf(serviceById.get('ps-01-identity'));

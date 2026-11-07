@@ -19,6 +19,17 @@ export interface ServerConfig {
   allowMockIdp: boolean;
   /** Extra origins a post-login `redirect_uri` may point at. */
   redirectAllowlist: string[];
+  /**
+   * PS-03, for security events to the person (server/security-notify.ts).
+   * Null when NOTIFICATION_URL is unset: nothing leaves this service.
+   */
+  notify: { url: string; serviceToken: string } | null;
+  /**
+   * The stack's machine token: presented to PS-03, and accepted on the one
+   * machine route here (`/api/directory/holders`). Default is dev-only; the
+   * boot guard refuses it in production.
+   */
+  serviceToken: string;
 }
 
 /**
@@ -69,6 +80,10 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     selfBaseUrl: env.SELF_BASE_URL ?? `http://localhost:${port}`,
     allowMockIdp:
       env.OAUTH_ALLOW_MOCK !== undefined ? env.OAUTH_ALLOW_MOCK === 'true' : env.NODE_ENV !== 'production',
+    notify: env.NOTIFICATION_URL
+      ? { url: env.NOTIFICATION_URL, serviceToken: env.SERVICE_TOKEN ?? 'dev-service-token' }
+      : null,
+    serviceToken: env.SERVICE_TOKEN ?? 'dev-service-token',
     redirectAllowlist: (env.OAUTH_REDIRECT_ALLOWLIST ?? '')
       .split(',')
       .map((s) => s.trim())

@@ -13,6 +13,7 @@ export function MatchingSettingsView({ onAuthLost }: { onAuthLost: () => void })
   const [cap, setCap] = useState('');
   const [warehouse, setWarehouse] = useState('');
   const [lineMatching, setLineMatching] = useState(true);
+  const [notifyNow, setNotifyNow] = useState('');
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
   const canManage = useCan('manage');
@@ -33,6 +34,7 @@ export function MatchingSettingsView({ onAuthLost }: { onAuthLost: () => void })
       setCap((d.settings.tolerance_cap_cents / 100).toFixed(2).replace('.', ','));
       setWarehouse(d.settings.receiving_warehouse ?? '');
       setLineMatching(d.settings.line_matching);
+      setNotifyNow(d.settings.notify_now_from_cents === null ? '' : (d.settings.notify_now_from_cents / 100).toFixed(2).replace('.', ','));
     } catch (err) {
       handle(err);
     }
@@ -51,6 +53,7 @@ export function MatchingSettingsView({ onAuthLost }: { onAuthLost: () => void })
         tolerance_cap_cents: Math.round(Number(cap.replace(',', '.')) * 100),
         receiving_warehouse: warehouse || null,
         line_matching: lineMatching,
+        notify_now_from_cents: notifyNow.trim() === '' ? null : Math.round(Number(notifyNow.replace(',', '.')) * 100),
       });
       await load();
       setSaved(true);
@@ -87,6 +90,10 @@ export function MatchingSettingsView({ onAuthLost }: { onAuthLost: () => void })
         <label className="field">
           <span className="field__label mono">TOLERANCE %</span>
           <input className="field__input receive-input" value={percent} disabled={!canManage} onChange={(e) => setPercent(e.target.value)} />
+        </label>
+        <label className="field" title="A PO at or above this total reaches the approvers at once; below it, in their morning briefing or end-of-day wrap-up. Empty: always in the digest.">
+          <span className="field__label mono">NOTIFY APPROVERS AT ONCE FROM (€)</span>
+          <input className="field__input receive-input" value={notifyNow} placeholder="digest only" disabled={!canManage} onChange={(e) => setNotifyNow(e.target.value)} />
         </label>
         <label className="field">
           <span className="field__label mono">AT MOST (€)</span>

@@ -8,6 +8,7 @@ export interface OrgRow {
   slug: string;
   name: string;
   status: string;
+  mfa_required?: number;
   created_at: string;
 }
 
@@ -39,6 +40,7 @@ export function mapOrg(row: OrgRow): Organization {
     slug: row.slug,
     name: row.name,
     status: row.status as Organization['status'],
+    mfa_required: row.mfa_required === 1,
     created_at: row.created_at,
   };
 }

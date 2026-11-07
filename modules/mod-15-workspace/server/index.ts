@@ -51,6 +51,11 @@ const app = createApp({
   loginMode: loginModeOf(config.sso),
   serviceToken: config.platform.serviceToken,
   shellOrigins: config.shellOrigins,
+  identityUrl: loginModeOf(config.sso).sso ? config.sso.identityUrl! : null,
+  notification:
+    config.platform.notificationUrl && config.platform.serviceToken
+      ? { url: config.platform.notificationUrl, serviceToken: config.platform.serviceToken }
+      : null,
 });
 
 app.listen(config.port, () => {

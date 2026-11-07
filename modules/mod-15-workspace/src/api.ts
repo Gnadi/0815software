@@ -83,7 +83,7 @@ export interface PartyOption {
 
 export const api = {
   login: (username: string, password: string, otp?: string) =>
-    request<{ ok: true; username: string }>('/api/login', post({ username, password, ...(otp ? { otp } : {}) })),
+    request<{ ok: true; recovery_codes?: string[]; username: string }>('/api/login', post({ username, password, ...(otp ? { otp } : {}) })),
   logout: () => request<{ ok: true }>('/api/logout', post()),
   /** Which credentials this deployment accepts — readable before signing in. */
   authMode: () => request<AuthMode>('/api/auth-mode'),

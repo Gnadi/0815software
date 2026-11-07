@@ -312,7 +312,7 @@ export function deletePo(db: Database.Database, id: number): void {
  * that total; later edits to the config never touch already-submitted
  * POs.
  */
-export function submitPo(db: Database.Database, id: number, at?: string): void {
+export function submitPo(db: Database.Database, id: number, at?: string, actor?: string): void {
   const po = getPo(db, id);
   if (po.status !== 'draft') {
     throw new DomainError(409, `Only drafts can be submitted (status: ${po.status})`);
@@ -328,9 +328,9 @@ export function submitPo(db: Database.Database, id: number, at?: string): void {
   db.transaction(() => {
     const next = po.submission_no + 1;
     db.prepare(
-      `INSERT INTO po_submissions (po_id, submission_no, total_cents, required_tiers, created_at)
-       VALUES (?, ?, ?, ?, ?)`,
-    ).run(id, next, total, JSON.stringify(tiers), at ?? nowIso());
+      `INSERT INTO po_submissions (po_id, submission_no, total_cents, required_tiers, created_at, submitted_by)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    ).run(id, next, total, JSON.stringify(tiers), at ?? nowIso(), actor ?? null);
     db.prepare("UPDATE purchase_orders SET status = 'submitted', submission_no = ? WHERE id = ?").run(
       next,
       id,

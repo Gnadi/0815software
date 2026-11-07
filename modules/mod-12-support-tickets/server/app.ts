@@ -50,7 +50,7 @@ import {
   ticketDetail,
 } from './tickets.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
-import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
+import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier, deviceOf, secondFactorAnswer } from './sso.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 function body(req: Request): Record<string, unknown> {
@@ -431,7 +431,7 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
-    const viaSso = await verifyLogin(username, password, otp);
+    const viaSso = await verifyLogin(username, password, otp, deviceOf(req));
     // An unreachable PS-01 is not a wrong password. Saying 401 here would tell
     // the user to check credentials that were never checked, and would let a
     // broken identity deployment look like a wave of bad logins; 503 says what
@@ -443,12 +443,8 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     // The account has a second factor: the form shows the code field on
     // `is required` and says the code was wrong on `is invalid`. Same answer
     // shape as PS-01's, so a form reads one contract whichever it talks to.
-    if (viaSso !== null && !viaSso.ok && (viaSso.reason === 'otp_required' || viaSso.reason === 'otp_invalid')) {
-      const required = viaSso.reason === 'otp_required';
-      res.status(401).json({
-        error: required ? 'Second factor required' : 'Invalid code',
-        details: [{ field: 'otp', message: required ? 'is required' : 'is invalid' }],
-      });
+    if (viaSso !== null && !viaSso.ok && typeof viaSso.reason === 'string' && viaSso.reason.startsWith('otp_')) {
+      res.status(401).json(secondFactorAnswer(viaSso));
       return;
     }
     // Who signed in: the PS-01 identity when SSO validated it, the local admin
@@ -470,7 +466,7 @@ export function createApp({ db, hardening, auth, now = Date.now, staticDir, plat
     // a PS-01 identity gets what its module permissions grant.
     const access = viaSso !== null && viaSso.ok ? viaSso.access : 'manage';
     res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
-    res.json({ ok: true, agent: actor, access });
+    res.json({ ok: true, agent: actor, access, ...(viaSso?.ok && viaSso.recoveryCodes ? { recovery_codes: viaSso.recoveryCodes } : {}) });
   });
 
   // ══ Everything below requires a valid agent session ═══════════════════

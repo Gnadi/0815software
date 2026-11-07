@@ -1461,3 +1461,229 @@ textarea.field__input {
     position: static;
   }
 }
+
+/* ── Two-factor setup and recovery codes on the sign-in card ─────────── */
+.login__setup {
+  display: grid;
+  gap: 12px;
+}
+
+.login__secret {
+  user-select: all;
+  word-break: break-all;
+  color: var(--fg);
+}
+
+.login__codes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+  margin: 0;
+  padding-left: 1.5em;
+  user-select: all;
+}
+
+/* ── Sheets over the board: account, waiting for you, a module opened alone ── */
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  overflow-y: auto;
+  padding: 16px max(16px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  background: var(--bg);
+}
+
+.sheet--frame {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.sheet--frame .pane__frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+}
+
+.sheet__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 880px;
+  margin: 0 auto 16px;
+  padding-top: env(safe-area-inset-top);
+}
+
+.sheet__title {
+  flex: 1;
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 1px;
+  overflow-wrap: anywhere;
+}
+
+.sheet__empty,
+.sheet__problem {
+  max-width: 880px;
+  margin: 12px auto;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.sheet__problem {
+  color: var(--danger);
+}
+
+.inbox {
+  display: grid;
+  gap: 8px;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox__item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--bg-2);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inbox__item.tone--warn {
+  border-left-color: #d9b46a;
+}
+
+.inbox__item.tone--bad {
+  border-left-color: var(--danger);
+}
+
+.inbox__module,
+.inbox__at {
+  font-size: 11px;
+  color: var(--fg-mute);
+  letter-spacing: 0.5px;
+}
+
+.inbox__title {
+  grid-column: 1 / -1;
+  font-size: 15px;
+}
+
+.inbox__detail {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+
+.account__section {
+  max-width: 880px;
+  margin: 0 auto 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.account__heading {
+  margin: 0 0 12px;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--fg-dim);
+}
+
+.account__form {
+  display: grid;
+  gap: 14px;
+  max-width: 560px;
+}
+
+.account__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.account__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.account__hint,
+.account__status {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-dim);
+}
+
+.account__check,
+.account__days label,
+.account__mutes label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-height: 32px;
+  font-size: 12px;
+}
+
+.account__days,
+.account__mutes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.account__mutes {
+  display: grid;
+}
+
+.account__devices {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.account__devices li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.account__codes {
+  display: grid;
+  gap: 12px;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .account__codes,
+  .account__codes * {
+    visibility: visible;
+  }
+  .account__codes {
+    position: absolute;
+    inset: 0;
+    color: #000;
+    background: #fff;
+  }
+}

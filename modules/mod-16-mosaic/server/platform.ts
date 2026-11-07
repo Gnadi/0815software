@@ -14,6 +14,8 @@ import { AuditClient } from '@0815software/platform-clients';
 
 export interface PlatformConfig {
   auditUrl?: string;
+  /** PS-03 — read by server/account.ts, not by these hooks. */
+  notificationUrl?: string;
   serviceToken?: string;
 }
 

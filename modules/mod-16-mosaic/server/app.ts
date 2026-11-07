@@ -27,7 +27,8 @@ import {
 import { noopPlatform, type PlatformHooks } from './platform.js';
 import type { PeerClient } from './peers.js';
 import { createGrants, type Grants } from './grants.js';
-import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
+import { accountRouter, collectShellInbox, createIdentityVault, type IdentityVault } from './account.js';
+import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier, deviceOf, secondFactorAnswer } from './sso.js';
 import { CATALOGUE } from '../shared/catalogue.js';
 import type { PanePlacement } from '../shared/types.js';
 
@@ -71,6 +72,12 @@ export interface AppOptions {
    * Defaults to an in-memory store sized to this shell's session lifetime.
    */
   grants?: Grants;
+  /** PS-01, for the account page (server/account.ts); null = local sign-in. */
+  identityUrl?: string | null;
+  /** PS-03 and the stack's service token, for notifications to people. */
+  notification?: { url: string; serviceToken: string } | null;
+  /** Held PS-01 tokens, for account changes made through this shell. */
+  vault?: IdentityVault;
 }
 
 export function createApp({
@@ -83,6 +90,9 @@ export function createApp({
   verifyLogin = nullVerifier,
   loginMode = LOCAL_LOGIN,
   grants = createGrants({ sso: loginMode.sso, ttlMs: auth.ttlHours * 3600_000 }),
+  identityUrl = null,
+  notification = null,
+  vault = createIdentityVault(),
 }: AppOptions): express.Express {
   const app = express();
 
@@ -133,17 +143,15 @@ export function createApp({
 
   app.post('/api/login', async (req, res) => {
     const { username, password, otp } = body(req);
-    const verdict = await verifyLogin(username, password, otp);
+    const verdict = await verifyLogin(username, password, otp, deviceOf(req));
     if (verdict === null) {
       if (!checkCredentials(auth, username, password)) throw new DomainError(401, 'Invalid credentials');
     } else if (!verdict.ok) {
       // A second factor on the account: the form shows the code field on
       // `is required`, and says the code was wrong on `is invalid`.
-      if (verdict.reason === 'otp_required' || verdict.reason === 'otp_invalid') {
-        const required = verdict.reason === 'otp_required';
-        throw new DomainError(401, required ? 'Second factor required' : 'Invalid code', [
-          { field: 'otp', message: required ? 'is required' : 'is invalid' },
-        ]);
+      if (typeof verdict.reason === 'string' && verdict.reason.startsWith('otp_')) {
+        res.status(401).json(secondFactorAnswer(verdict));
+        return;
       }
       throw new DomainError(verdict.reason === 'unavailable' ? 503 : 401, 'Invalid credentials');
     }
@@ -159,12 +167,32 @@ export function createApp({
     // And what they may do everywhere else, for the panes and actions that sign
     // them into other modules (grants.ts).
     if (verdict?.ok) grants.remember(actor, verdict.permissions);
+    // For the account page: changes there are made with the person's own token.
+    if (verdict?.ok && verdict.identityToken) vault.remember(actor, verdict.identityToken);
     res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
-    res.json({ ok: true, username: actor, access });
+    res.json({ ok: true, username: actor, access, ...(verdict?.ok && verdict.recoveryCodes ? { recovery_codes: verdict.recoveryCodes } : {}) });
   });
 
   // ── Everything below requires a valid session ────────────────────────
   app.use('/api', requireAuth(auth));
+
+  // The person's account, notifications and what waits for them (server/account.ts).
+  app.use(
+    '/api',
+    accountRouter({
+      identity: identityUrl ? { url: identityUrl } : null,
+      notification,
+      vault,
+      actorOf: (res) => actorOf(res, auth),
+      inbox: (actor) =>
+        collectShellInbox(
+          actor,
+          CATALOGUE.filter((entry) => entry.id !== 'mod-16-mosaic' && peers.has(entry.id)),
+          (who, moduleId) => grants.levelFor(who, moduleId),
+          (moduleId, who, access) => peers.inbox(moduleId, who, access),
+        ),
+    }),
+  );
 
   app.post('/api/logout', (_req, res) => {
     // This module holds no credential for anybody — a pane's frame carries the
@@ -172,6 +200,7 @@ export function createApp({
     // never seen by this one. What it does hold is what the person may do in
     // each module (grants.ts), and that goes with them.
     grants.forget(actorOf(res, auth));
+    vault.forget(actorOf(res, auth));
     res.setHeader('Set-Cookie', clearedCookie());
     res.json({ ok: true });
   });

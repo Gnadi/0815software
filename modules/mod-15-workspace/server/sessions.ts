@@ -74,6 +74,8 @@ export interface ModuleSessions {
    * Never throws — a peer that will not issue one is a problem string.
    */
   cookieFor(actor: string, moduleId: string, access: AccessLevel): Promise<{ ok: true; cookie: string } | { ok: false; problem: string }>;
+  /** Drop only the PS-01 token — it died (a new password, signed out everywhere). */
+  forgetIdentity(actor: string): void;
   /** Forget everything held for one person (used on logout). */
   forget(actor: string): void;
   /** Held session count, for tests and for the prune assertions. */
@@ -144,6 +146,10 @@ export function createModuleSessions(peers: PeerClient, now: () => number = Date
 
       held.set(key(actor, moduleId, access), { cookie: issued.cookie, expiresAt: at + MAX_IDLE_MS });
       return { ok: true as const, cookie: issued.cookie };
+    },
+
+    forgetIdentity(actor: string): void {
+      identities.delete(actor);
     },
 
     forget(actor: string): void {

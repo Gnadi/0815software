@@ -27,6 +27,8 @@ export interface TokenVerdict {
 export interface LoginResult {
   token: string;
   user: { id: string; email: string; org_id: string };
+  /** Set when this sign-in enrolled the second factor: shown to the person once. */
+  recovery_codes?: string[];
 }
 
 // ── PS-02 Workflow Engine ──────────────────────────────────────────────

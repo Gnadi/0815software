@@ -133,12 +133,18 @@ describe('the production boot guard refuses an unusable secret', () => {
 });
 
 describe('a correctly configured boot', () => {
+  it('refuses to start in production with the shipped service token', async () => {
+    const res = await boot({ NODE_ENV: 'production', SESSION_SECRET: 'a'.repeat(64), PORT: String(await freePort()) }, false);
+    expect(res.stderr).toMatch(/still set to a shipped default: SERVICE_TOKEN/);
+  });
+
   it('starts, serves, and refuses an anonymous request', async () => {
     const port = await freePort();
     const res = await boot(
       {
         NODE_ENV: 'production',
         SESSION_SECRET: 'a'.repeat(64),
+        SERVICE_TOKEN: 'c'.repeat(64),
         OAUTH_ALLOW_MOCK: 'false',
         PORT: String(port),
       },

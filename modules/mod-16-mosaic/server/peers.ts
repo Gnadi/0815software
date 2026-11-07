@@ -1,3 +1,4 @@
+import { INBOX_VERSION, validateInbox, type ModuleInbox } from '../shared/summary.js';
 import { CATALOGUE, catalogueEntry } from '../shared/catalogue.js';
 import type { AccessLevel } from '@0815software/platform-clients';
 import type { PeerConfig, PeerMap } from './config.js';
@@ -120,6 +121,12 @@ export interface PeerClient {
    * level PS-01 grants them on that module (`grants.ts`). Never throws.
    */
   handoff(moduleId: string, actor: string, path: string, access: AccessLevel): Promise<{ ok: true; url: string } | { ok: false; problem: string }>;
+  /**
+   * What waits for `actor` in this module (shared/summary.ts, ModuleInbox),
+   * asked with the stack's service token and the level PS-01 grants them
+   * there. Never throws.
+   */
+  inbox(moduleId: string, actor: string, access: AccessLevel): Promise<{ ok: true; inbox: ModuleInbox } | { ok: false; problem: string }>;
 }
 
 export function createPeerClient(options: PeerClientOptions): PeerClient {
@@ -242,6 +249,19 @@ export function createPeerClient(options: PeerClientOptions): PeerClient {
       return { ok: true as const, url: `${publicUrl}${redeem}` };
     },
 
+
+    async inbox(moduleId: string, actor: string, access: AccessLevel) {
+      if (!serviceToken) return { ok: false as const, problem: 'no PLATFORM_SERVICE_TOKEN is configured for this stack' };
+      const query = new URLSearchParams({ for: actor, level: access });
+      const res = await call(moduleId, `/api/inbox?${query.toString()}`, { headers: machineHeaders() });
+      if (!res.ok) return res;
+      // A module that predates the inbox answers 404: it has nothing that waits.
+      if (res.status === 404) return { ok: true as const, inbox: { version: INBOX_VERSION, module: moduleId, count: 0, items: [] } };
+      if (res.status !== 200) return { ok: false as const, problem: `answered ${res.status}` };
+      const problems = validateInbox(res.body);
+      if (problems.length > 0) return { ok: false as const, problem: `answered an invalid inbox (${problems[0]!.field}: ${problems[0]!.message})` };
+      return { ok: true as const, inbox: res.body as ModuleInbox };
+    },
   };
 
   return client;

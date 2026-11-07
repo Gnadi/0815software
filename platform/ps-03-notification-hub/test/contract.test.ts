@@ -57,4 +57,28 @@ describe('NotificationClient ↔ PS-03 contract', () => {
     expect(fetched.message.id).toBe(sent.message.id);
     expect(Array.isArray(fetched.events)).toBe(true);
   });
+
+  it('reports an event, reads and writes preferences, and lists the feed', async () => {
+    const client = new NotificationClient({ baseUrl, serviceToken: 'test-service' });
+    const out = await client.event({
+      module: 'procurement',
+      kind: 'approval-waiting',
+      category: 'approvals',
+      urgency: 'digest',
+      recipients: ['ada@acme.test'],
+      actor: 'bob@acme.test',
+      title: 'A purchase request waits for your approval',
+      detail: 'PR-0042',
+      href: '/requests/42',
+      idempotency_key: 'procurement:approval:42',
+    });
+    expect(out).toEqual({ recorded: 1, skipped: 0 });
+    const prefs = await client.setPrefs('ada@acme.test', { wrapup: { enabled: false, at: '17:00' } });
+    expect(prefs.prefs.wrapup.enabled).toBe(false);
+    expect((await client.prefs('ada@acme.test')).overrides).toEqual({ wrapup: { enabled: false, at: '17:00' } });
+    expect((await client.notifications('ada@acme.test')).notifications[0]?.title).toMatch(/purchase request/);
+    expect((await client.publicKey()).public_key).toBeNull();
+    expect((await client.settings()).email_channel).toBe('transactional-email');
+  });
 });
+

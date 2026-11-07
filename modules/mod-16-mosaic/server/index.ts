@@ -46,6 +46,11 @@ const app = createApp({
   // sign-in cannot drift apart. Half-configured counts as unconfigured — the
   // board would otherwise promise separate identities it is not getting.
   loginMode: loginModeOf(config.sso),
+  identityUrl: loginModeOf(config.sso).sso ? config.sso.identityUrl! : null,
+  notification:
+    config.platform.notificationUrl && config.platform.serviceToken
+      ? { url: config.platform.notificationUrl, serviceToken: config.platform.serviceToken }
+      : null,
 });
 
 app.listen(config.port, () => {

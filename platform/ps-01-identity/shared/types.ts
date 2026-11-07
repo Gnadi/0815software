@@ -55,6 +55,8 @@ export interface Organization {
   slug: string;
   name: string;
   status: OrgStatus;
+  /** Every person must sign in with a second factor (set up at next sign-in). */
+  mfa_required: boolean;
   created_at: string;
 }
 

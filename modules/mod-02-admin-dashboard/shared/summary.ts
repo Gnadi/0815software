@@ -311,3 +311,81 @@ export function validateSummary(value: unknown): SummaryProblem[] {
 
   return problems;
 }
+
+// ── What waits for one person: the inbox (`GET /api/inbox`) ─────────────
+//
+// The other half of the shell contract. A summary is a board's view of a
+// module; an inbox is ONE PERSON's: the approvals, assignments and deadlines
+// that are theirs to act on. The shell adds up every module's count for the
+// app badge and lists the items on its "Waiting for you" page
+// (docs/NOTIFICATIONS-PLAN.md).
+//
+// Derived on every request from the rows the module holds — never a counter
+// kept beside them (CLAUDE.md rule 3), so the badge falls the moment the
+// thing is done, not when someone taps a notification.
+//
+// Asked with the stack's service token: `?for=<the person's PS-01 email>`
+// and `&level=<view|edit|manage>`, the level PS-01 grants them HERE — an
+// approval counts only for someone who may give it.
+
+export const INBOX_VERSION = 1;
+export const MAX_INBOX_ITEMS = 50;
+
+export interface InboxItem {
+  /** The module's own reference, unique within the inbox. */
+  id: string;
+  /** Machine name of what it is — `approval`, `assigned`, `due` … */
+  kind: string;
+  /** Safe on any screen: names the thing, not the money or the customer. */
+  title: string;
+  /** The specifics, shown inside the app only. */
+  detail: string | null;
+  tone: SummaryTone;
+  /** When it is due or since when it waits, ISO. */
+  at: string | null;
+  /** Module-relative path to the record. */
+  href: string | null;
+}
+
+export interface ModuleInbox {
+  version: typeof INBOX_VERSION;
+  module: string;
+  /** Everything that waits, even beyond the items listed. */
+  count: number;
+  items: InboxItem[];
+}
+
+/** What a shell assembles from every module a person can reach. */
+export interface ShellInbox {
+  count: number;
+  items: (InboxItem & { module: string; label: string })[];
+  /** Modules that could not answer, so a short list is not mistaken for a done one. */
+  unavailable: { module: string; problem: string }[];
+}
+
+export function validateInbox(value: unknown): SummaryProblem[] {
+  const problems: SummaryProblem[] = [];
+  const push = (field: string, message: string): void => void problems.push({ field, message });
+  if (!value || typeof value !== 'object') return [{ field: '(root)', message: 'must be an object' }];
+  const v = value as Partial<ModuleInbox> & Record<string, unknown>;
+  if (v.version !== INBOX_VERSION) push('version', `must be ${INBOX_VERSION}`);
+  if (typeof v.module !== 'string' || v.module === '') push('module', 'is required');
+  if (typeof v.count !== 'number' || !Number.isInteger(v.count) || v.count < 0) push('count', 'must be a whole number ≥ 0');
+  if (!Array.isArray(v.items)) push('items', 'must be an array');
+  else if (v.items.length > MAX_INBOX_ITEMS) push('items', `must hold at most ${MAX_INBOX_ITEMS}`);
+  else {
+    if (typeof v.count === 'number' && v.items.length > v.count) push('count', 'cannot be less than the items listed');
+    v.items.forEach((item, i) => {
+      const at = (f: string): string => `items[${i}].${f}`;
+      for (const f of ['id', 'kind', 'title'] as const) {
+        const t = item?.[f];
+        if (typeof t !== 'string' || t.trim() === '' || t.length > MAX_FIELD_LENGTH) push(at(f), 'is required');
+      }
+      if (item?.detail !== null && (typeof item?.detail !== 'string' || item.detail.length > MAX_FIELD_LENGTH)) {
+        push(at('detail'), 'must be a string or null');
+      }
+      if (item?.href !== null && !isModulePath(item?.href)) push(at('href'), 'must be null or a module-relative path');
+    });
+  }
+  return problems;
+}
