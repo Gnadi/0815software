@@ -112,6 +112,7 @@ the EN 16931 and XRechnung schematrons (`npm run einvoice:validate`).
 | Customer master data | `docs/CUSTOMER-MASTER-DATA.md`, PS-11 |
 | Reporting views (`report_*`) | `docs/REPORTING-CONTRACT.md` |
 | Deploying a customer stack | `docs/PROVISIONING.md`, `deploy/` |
+| Backups, off-host targets, restore | `docs/BACKUP-RESTORE.md`, `deploy/backup.mjs` |
 | What personal data lives where | `docs/PII-MAP.md` |
 | Gaps vs. Odoo, module roadmap | `docs/ODOO-GAP-ANALYSIS.md` |
 | E-invoices (XRechnung, ZUGFeRD), review and gaps in the standards | `docs/E-RECHNUNG.md`, `docs/E-RECHNUNG-REVIEW.md` |
