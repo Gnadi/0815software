@@ -155,7 +155,7 @@ Legende: ✅ vorhanden · 🟡 teilweise · ❌ fehlt · ⛔ bewusst nicht bauen
 | Odoo | 0815 heute | Bewertung |
 | --- | --- | --- |
 | Studio (E) | 🟡 MOD-02 (config-getriebenes CRUD) | Benutzerdefinierte Felder fehlen in allen Fachmodulen — als **Konvention** (`custom_fields`-JSON + Schema in Config) einführen |
-| Mobile Apps (E) | ✅ installierbare Web-Apps (PWA): MOD-11 mit Offline-Erfassung; MOD-15 Workspace und MOD-16 Mosaik als App, in der die Module leben (am Handy ein Modul im Vollbild, Kamera im Fenster freigegeben, offline-fähige Module ohne Verbindung, ein Abmelden für alle) | Keine nativen Apps, bewusst. Offen: Push-Benachrichtigungen, App-Badge, auf iOS testen |
+| Mobile Apps (E) | ✅ installierbare Web-Apps (PWA): MOD-11 mit Offline-Erfassung; MOD-15 Workspace und MOD-16 Mosaik als App, in der die Module leben (am Handy ein Modul im Vollbild, Kamera im Fenster freigegeben, offline-fähige Module ohne Verbindung, ein Abmelden für alle) | Keine nativen Apps, bewusst. Zwei-Faktor-Anmeldung (TOTP) in PS-01 für alle Module ✅. Offen: jedes Modul voll mobil bedienbar ([MOBILE-PLAN](./MOBILE-PLAN.md)), Push-Benachrichtigungen und App-Badge ([NOTIFICATIONS-PLAN](./NOTIFICATIONS-PLAN.md)), auf iOS testen |
 | Versions-Upgrades (E) | ✅ strukturell: kein Upgrade-Zwang, MIT | Vorteil — aber Forks driften; Migrationsskripte pro Modul fehlen |
 | Hosting / Odoo.sh | ✅ `deploy/` (Compose, Caddy, provision, smoke, backup) | gut; Staging-Branches à la Odoo.sh fehlen |
 
