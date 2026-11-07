@@ -174,8 +174,8 @@ BACKUP_KEEP_MONTHLY=${v('BACKUP_KEEP_MONTHLY')}
 # bad update without fetching anything.
 BACKUP_KEEP_LOCAL=${v('BACKUP_KEEP_LOCAL')}
 
-# Told when a backup FAILS: a JSON POST (works with ntfy, Slack/Teams/Mattermost
-# incoming webhooks, n8n, …).
+# Told when a backup run FAILS: a JSON POST with a "text" field (Slack and
+# Mattermost incoming webhooks, n8n, or any endpoint of your own).
 BACKUP_ALERT_URL=${v('BACKUP_ALERT_URL')}
 # Pinged after every SUCCESSFUL run (healthchecks.io, Uptime Kuma push monitor,
 # …). That service alerts you when the ping stops — which is the only way to
