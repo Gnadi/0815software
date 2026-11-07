@@ -105,11 +105,15 @@ export class NotificationClient extends BaseClient {
     return this.apiPut('/api/prefs', { recipient, prefs });
   }
 
-  settings(): Promise<{ defaults: NotifyPrefs; email_channel: string }> {
+  settings(): Promise<{ defaults: NotifyPrefs; email_channel: string; ops_recipients: string[] }> {
     return this.apiGet('/api/notify/settings');
   }
 
-  setSettings(input: { defaults?: Partial<NotifyPrefs>; email_channel?: string }): Promise<{ defaults: NotifyPrefs; email_channel: string }> {
+  setSettings(input: {
+    defaults?: Partial<NotifyPrefs>;
+    email_channel?: string;
+    ops_recipients?: string[];
+  }): Promise<{ defaults: NotifyPrefs; email_channel: string; ops_recipients: string[] }> {
     return this.apiPut('/api/notify/settings', input);
   }
 

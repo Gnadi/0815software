@@ -96,7 +96,12 @@ describe('retention through the API', () => {
     expect(litigation.retention_class_id).not.toBeNull();
     const doc = await m.upload(theo, litigation.id, Buffer.from('Beleg'), 'Beleg', 'beleg.txt', 'text/plain');
     const id = doc.body.document.id as number;
-    expect(doc.body.retention).toMatchObject({ class_name: 'AT — books, records and vouchers', document_date: '2026-11-01', document_date_set: false, retention_end: '2033-12-31', due_from: '2034-01-01', due: false });
+    // Without a date of its own a document counts from the day it was uploaded
+    // — today, whenever this runs; seven years for the AT class from there.
+    const uploaded = doc.body.retention.document_date as string;
+    expect(uploaded).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const year = Number(uploaded.slice(0, 4));
+    expect(doc.body.retention).toMatchObject({ class_name: 'AT — books, records and vouchers', document_date_set: false, retention_end: `${year + 7}-12-31`, due_from: `${year + 8}-01-01`, due: false });
     expect((await request(m.app).put(`/api/documents/${id}/retention`).set('Cookie', iris).send({ document_date: '2020-01-01' })).status).toBe(403);
     const classes = (await request(m.app).get('/api/retention-classes').set('Cookie', admin)).body.classes as { id: number; name: string }[];
     const letters = classes.find((c) => c.name.startsWith('DE — business letters'))!;

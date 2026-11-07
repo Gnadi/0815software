@@ -7,6 +7,7 @@ import {
   clearedCookie,
   createToken,
   nowIso,
+  parseBearer,
   SERVICE_HEADER,
   sessionCookie,
   requireAuth,
@@ -25,6 +26,7 @@ import { enqueue, mapChannel, mapMessage, tick, type ChannelRow, type MessageRow
 import { buildResolver } from './providers/registry.js';
 import type { FetchLike, ProviderResolver } from './providers/index.js';
 import { exportSubject } from './export.js';
+import { fromAlertmanager, parseOps, recordOps } from './ops.js';
 import {
   effectivePrefs,
   notifyTick,
@@ -285,6 +287,25 @@ export function createApp(opts: AppOptions): express.Express {
   app.put('/api/notify/settings', (req, res) => {
     requireService(req);
     res.json(writeSettings(db, body(req), now()));
+  });
+
+  // ── The stack about itself (server/ops.ts) ──────────────────────────
+  app.post('/api/ops/events', (req, res) => {
+    requireService(req);
+    res.status(201).json(recordOps(db, parseOps(body(req)), now()));
+  });
+
+  /**
+   * Alertmanager's webhook. It presents the stack token as a Bearer
+   * credential (`http_config.authorization`), not as our header.
+   */
+  app.post('/api/alerts/alertmanager', (req, res) => {
+    const verdict = checkServiceToken(auth, parseBearer(req.headers.authorization) ?? req.headers[SERVICE_HEADER]);
+    if (verdict === 'missing') fail(401, 'Service token required');
+    if (verdict === 'bad') fail(403, 'Invalid service token');
+    let recorded = 0;
+    for (const event of fromAlertmanager(body(req))) recorded += recordOps(db, event, now()).recorded;
+    res.json({ recorded });
   });
 
   /** The person's recent notifications, newest first — the in-app list. */

@@ -6,6 +6,7 @@ import { pivotCell } from '../format';
 import { ResultTable } from './ReportEditor';
 import { ParamForm, describeValues, given } from './ParamForm';
 import { Can } from '../access';
+import { AlertsPanel } from './AlertsPanel';
 
 type Tab = 'preview' | 'pivot' | 'chart';
 
@@ -124,6 +125,8 @@ export function ReportWorkspace({ id, onBack, onEdit, onAuthLost }: Props) {
       </ParamForm>
 
       {runMsg && <div className="resource__error mono" style={{ borderColor: 'var(--line-strong)', color: 'var(--fg-dim)' }}>{runMsg}</div>}
+
+      {result && result.columns.length > 0 && <AlertsPanel reportId={report.id} columns={result.columns} />}
 
       <div className="tabs">
         {(['preview', 'pivot', 'chart'] as Tab[]).map((t) => (

@@ -255,6 +255,7 @@
         "required": [],
         "optional": [
           "ps-01-identity",
+          "ps-03-notification-hub",
           "ps-07-audit-log"
         ]
       },
@@ -450,12 +451,15 @@
       "services": {
         "required": [],
         "optional": [
+          "ps-03-notification-hub",
           "ps-08-payments"
         ]
       },
       "env": {
         "required": [],
-        "optional": [],
+        "optional": [
+          "ORDER_NOTIFY_RECIPIENTS"
+        ],
         "secrets": [
           "ADMIN_PASSWORD",
           "SESSION_SECRET"
@@ -482,6 +486,7 @@
         "required": [],
         "optional": [
           "ps-01-identity",
+          "ps-03-notification-hub",
           "ps-07-audit-log"
         ]
       },
@@ -518,6 +523,7 @@
       "services": {
         "required": [],
         "optional": [
+          "ps-03-notification-hub",
           "ps-06-file-storage",
           "ps-07-audit-log",
           "ps-09-search"
@@ -554,6 +560,7 @@
         "required": [],
         "optional": [
           "ps-01-identity",
+          "ps-03-notification-hub",
           "ps-07-audit-log",
           "ps-11-customers"
         ]
@@ -995,6 +1002,7 @@
         "required": [],
         "optional": [
           "ps-01-identity",
+          "ps-03-notification-hub",
           "ps-07-audit-log",
           "ps-11-customers"
         ]

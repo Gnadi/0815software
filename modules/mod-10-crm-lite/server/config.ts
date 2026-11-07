@@ -79,6 +79,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       // PS-11 Customers — when set, a company created here is registered with
       // the stack's party master data so other modules mean the same party.
       customersUrl: env.CUSTOMERS_URL || undefined,
+      // PS-03, for notifications to people (server/people.ts).
+      notificationUrl: env.NOTIFICATION_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
   };

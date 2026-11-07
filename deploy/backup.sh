@@ -26,6 +26,18 @@ cd "$STACK_DIR"
 failed=''
 backed_up=''
 
+# Tell the administrators' phones too, through PS-03 when the stack has it
+# (platform/ps-03-notification-hub/scripts/ops-event.mjs). Best-effort: the
+# cron log and exit code stay the primary signal.
+notify_ops() {
+  for svc in $(docker compose ps --services --status running); do
+    if docker compose exec -T "$svc" node -e 'process.exit(require("fs").existsSync("scripts/ops-event.mjs") ? 0 : 1)' 2>/dev/null; then
+      docker compose exec -T "$svc" node scripts/ops-event.mjs backup-failed "$1" "$2" || true
+      return
+    fi
+  done
+}
+
 for svc in $(docker compose ps --services --status running); do
   # Caddy and the ticker hold no data and ship no backup script.
   if ! docker compose exec -T "$svc" node -e 'process.exit(require("fs").existsSync("scripts/backup.mjs") ? 0 : 1)' 2>/dev/null; then
@@ -42,11 +54,13 @@ done
 
 if [ -z "$backed_up" ]; then
   echo "[backup] nothing was backed up — is the stack running?" >&2
+  notify_ops "Nightly backup did not run" "Nothing was backed up — is the stack running?"
   exit 1
 fi
 
 echo "[backup] done $(date -u +%FT%TZ):$backed_up"
 if [ -n "$failed" ]; then
   echo "[backup] INCOMPLETE — failed:$failed" >&2
+  notify_ops "Nightly backup failed" "Not backed up:$failed"
   exit 1
 fi

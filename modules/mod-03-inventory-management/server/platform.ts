@@ -8,6 +8,8 @@ import { AuditClient } from '@0815software/platform-clients';
  */
 
 export interface PlatformConfig {
+  /** PS-03 — read by server/people.ts for notifications to people. */
+  notificationUrl?: string;
   auditUrl?: string;
   serviceToken?: string;
 }

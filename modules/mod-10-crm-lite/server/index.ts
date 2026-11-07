@@ -9,6 +9,10 @@ import { buildLoginVerifier, loginModeOf } from './sso.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
+import { buildPeople } from './people.js';
+import { startWatch } from './watch.js';
+import { watchCrm } from './inbox-rules.js';
+import { MODULE_SLUG } from './access.js';
 
 const config = configFromEnv();
 assertProductionConfig([
@@ -29,6 +33,18 @@ const candidates = [resolve(here, '../../client'), resolve(here, '../../dist/cli
 const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')));
 
 const app = createApp({ db, hardening: hardeningFromEnv(), auth: config.auth, staticDir, platform: buildPlatform(config.platform), verifyLogin: buildLoginVerifier(config.sso), loginMode: loginModeOf(config.sso), serviceToken: config.platform.serviceToken, shellOrigins: config.shellOrigins });
+
+
+// Notifications to people and the clock checks behind them
+// (server/inbox-rules.ts) — only with PS-03 wired; otherwise nothing runs.
+const people = buildPeople({
+  module: MODULE_SLUG,
+  notificationUrl: config.platform.notificationUrl,
+  identityUrl: config.sso.identityUrl,
+  identityOrg: config.sso.identityOrg,
+  serviceToken: config.platform.serviceToken,
+});
+startWatch(db, people, watchCrm);
 
 app.listen(config.port, () => {
   console.log(`[mod-10] crm lite API on http://localhost:${config.port}`);

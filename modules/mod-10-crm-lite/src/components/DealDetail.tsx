@@ -186,6 +186,22 @@ export function DealDetailView({
               <dd>{fmtEur(deal.expected_value_cents)}</dd>
               <dt>Created</dt>
               <dd>{fmtDateTime(deal.created_at)}</dd>
+              <dt>Owner</dt>
+              <dd>
+                {deal.owner ?? '—'}{' '}
+                <Can>
+                  <button
+                    className="btn btn--ghost mono"
+                    onClick={() => {
+                      const next = window.prompt('Hand this deal to (their sign-in email; empty for nobody):', deal.owner ?? '');
+                      if (next === null) return;
+                      void act(() => api.assignDeal(id, next.trim() || null));
+                    }}
+                  >
+                    HAND ON
+                  </button>
+                </Can>
+              </dd>
             </dl>
             {deal.note && <div className="tl-item__body">{deal.note}</div>}
           </div>

@@ -1,7 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { ACCESS_LEVELS, type AccessLevel } from '@0815software/platform-clients';
-import { MODULE_SLUG } from './access.js';
 import { INBOX_VERSION, MAX_INBOX_ITEMS, type InboxItem, type ModuleInbox } from '../shared/summary.js';
 
 /**
@@ -24,7 +23,7 @@ function tokenMatches(provided: unknown, expected: string | undefined): boolean 
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function inboxHandler(serviceToken: string | undefined, collect: InboxCollector) {
+export function inboxHandler(serviceToken: string | undefined, module: string, collect: InboxCollector) {
   return (req: Request, res: Response): void => {
     if (!tokenMatches(req.headers['x-service-token'], serviceToken)) {
       res.status(401).json({ error: 'Service token required' });
@@ -37,7 +36,7 @@ export function inboxHandler(serviceToken: string | undefined, collect: InboxCol
       return;
     }
     const { count, items } = collect(person, level);
-    const body: ModuleInbox = { version: INBOX_VERSION, module: MODULE_SLUG, count: Math.max(count, items.length), items: items.slice(0, MAX_INBOX_ITEMS) };
+    const body: ModuleInbox = { version: INBOX_VERSION, module, count: Math.max(count, items.length), items: items.slice(0, MAX_INBOX_ITEMS) };
     res.json(body);
   };
 }

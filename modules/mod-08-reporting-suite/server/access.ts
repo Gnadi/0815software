@@ -39,6 +39,10 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'POST', path: '/api/reports/:id/chart-preview', access: 'view' },
   // The time zone every relative date and every schedule is read in.
   { method: 'PUT', path: '/api/settings', access: 'manage' },
+  // A threshold on a figure is the person's own — any level that may read the
+  // report may ask to be told; removing touches only their own (alerts.ts).
+  { method: 'POST', path: '/api/reports/:id/alerts', access: 'view' },
+  { method: 'DELETE', path: '/api/alerts/:id', access: 'view' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

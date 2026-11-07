@@ -64,8 +64,14 @@ export interface StackSettings {
   defaults: Prefs;
   /** The email channel digests and push fallbacks go out on. */
   email_channel: string;
+  /**
+   * Who hears about the stack itself — a service not answering, a backup
+   * that failed (server/ops.ts). Emails; empty: nobody, by push.
+   */
+  ops_recipients: string[];
 }
 
+const EMAIL = /^[^\s@]+@[^\s@]+$/;
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,39}$/;
 const DIGEST_WINDOW_MIN = 180;
@@ -144,6 +150,7 @@ export function readSettings(db: Database.Database): StackSettings {
   return {
     defaults: { ...FACTORY_DEFAULTS, ...(stored.defaults ?? {}) },
     email_channel: stored.email_channel ?? 'transactional-email',
+    ops_recipients: stored.ops_recipients ?? [],
   };
 }
 
@@ -153,7 +160,15 @@ export function writeSettings(db: Database.Database, input: unknown, now: number
   const next: StackSettings = {
     defaults: 'defaults' in o ? parsePrefs(o.defaults, current.defaults) : current.defaults,
     email_channel: current.email_channel,
+    ops_recipients: current.ops_recipients,
   };
+  if ('ops_recipients' in o) {
+    const list = o.ops_recipients;
+    if (!Array.isArray(list) || list.length > 20 || !list.every((r) => typeof r === 'string' && EMAIL.test(r))) {
+      fail(422, 'Validation failed', [{ field: 'ops_recipients', message: 'must list up to 20 email addresses' }]);
+    }
+    next.ops_recipients = [...new Set((list as string[]).map((r) => r.trim().toLowerCase()))];
+  }
   if ('email_channel' in o) {
     if (typeof o.email_channel !== 'string' || !db.prepare('SELECT 1 FROM channels WHERE name = ?').get(o.email_channel)) {
       fail(422, 'Validation failed', [{ field: 'email_channel', message: 'must name an existing channel' }]);
@@ -257,7 +272,6 @@ export interface EventInput {
   idempotencyKey: string;
 }
 
-const EMAIL = /^[^\s@]+@[^\s@]+$/;
 
 export function parseEvent(body: Record<string, unknown>): EventInput {
   const errors: { field: string; message: string }[] = [];

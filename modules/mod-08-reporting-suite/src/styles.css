@@ -791,3 +791,30 @@ textarea.sql-input {
   padding-left: 1.5em;
   user-select: all;
 }
+
+/* ── "Tell me when …": a person's thresholds on a figure ─────────────── */
+.alerts {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.alerts__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.alerts__form .field__input {
+  width: auto;
+  min-width: 120px;
+}
+
+.alerts__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}

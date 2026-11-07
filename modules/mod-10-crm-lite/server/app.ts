@@ -41,16 +41,7 @@ import {
   updateContact,
   type ContactInput,
 } from './contacts.js';
-import {
-  createDeal,
-  dealDetail,
-  dealRow,
-  listDeals,
-  moveStage,
-  reopenDeal,
-  updateDeal,
-  type DealInput,
-} from './deals.js';
+import { createDeal, dealDetail, dealRow, listDeals, moveStage, reopenDeal, updateDeal, type DealInput, assignDeal } from './deals.js';
 import {
   activitiesForContact,
   createActivity,
@@ -61,6 +52,9 @@ import {
 } from './activities.js';
 import { computeMetrics } from './metrics.js';
 import { exportDealsCsv } from './csv.js';
+import { inboxHandler } from './inbox.js';
+import { collectInbox } from './inbox-rules.js';
+import { MODULE_SLUG as INBOX_MODULE } from './access.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -195,8 +189,10 @@ function validateActivity(input: Record<string, unknown>): ActivityInput {
   if (contactId === null && dealId === null) {
     errors.push({ field: 'link', message: 'An activity must be linked to a contact and/or a deal' });
   }
+  const owner = optText(input.owner, 'owner', errors, 320);
+  if (owner !== null && !/^[^\s@]+@[^\s@]+$/.test(owner)) errors.push({ field: 'owner', message: 'owner must be an email address' });
   if (errors.length > 0) fail(errors);
-  return { type, subject, body: bodyText, contactId, dealId, dueDate };
+  return { type, subject, body: bodyText, contactId, dealId, dueDate, owner };
 }
 
 export interface AppOptions {
@@ -340,6 +336,10 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   // What this module looks like on a shell's board (shared/summary.ts).
+  // What waits for one person here — for a shell's badge and "Waiting for
+  // you" page (server/inbox.ts, shared/summary.ts). The stack token only.
+  app.get('/api/inbox', inboxHandler(serviceToken, INBOX_MODULE, (person, level) => collectInbox(db, person, level)));
+
   app.get('/api/summary', (req, res, next) => {
   // Only ours when a machine token is actually presented.
     //
@@ -533,7 +533,19 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
 
   app.post('/api/deals', (req, res) => {
     const id = createDeal(db, validateDeal(body(req)));
+    // A new deal is looked after by whoever opened it, until it is handed on.
+    const writer = actorOf(res, auth);
+    if (writer.includes('@')) assignDeal(db, id, writer, writer);
     res.status(201).json(dealDetail(db, id));
+  });
+
+  // Hand a deal to a colleague (their PS-01 email), or to nobody.
+  app.post('/api/deals/:id/owner', (req, res) => {
+    const id = Number(req.params.id);
+    const raw = body(req).owner;
+    const owner = typeof raw === 'string' && raw.trim() !== '' ? raw.trim().toLowerCase() : null;
+    assignDeal(db, id, owner, actorOf(res, auth));
+    res.json(dealDetail(db, id));
   });
 
   app.get('/api/deals/:id', (req, res) => {
@@ -587,7 +599,10 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.post('/api/activities', (req, res) => {
-    const id = createActivity(db, validateActivity(body(req)));
+    const input = validateActivity(body(req));
+    // A follow-up nobody named an owner for is the writer's own.
+    const writer = actorOf(res, auth);
+    const id = createActivity(db, { ...input, owner: input.owner ?? (writer.includes('@') ? writer : null) });
     res.status(201).json(db.prepare(
       `SELECT a.*, k.name AS contact_name, d.title AS deal_title
        FROM activities a

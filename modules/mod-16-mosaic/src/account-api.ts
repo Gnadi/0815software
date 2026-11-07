@@ -98,8 +98,11 @@ export const accountApi = {
   resetFactor: (id: number) => call<unknown>(`/api/admin/users/${id}/mfa/reset`, { method: 'POST' }),
   signOutPerson: (id: number) => call<unknown>(`/api/admin/users/${id}/sessions/revoke`, { method: 'POST' }),
   setPolicy: (mfa_required: boolean) => call<unknown>('/api/admin/policy', { method: 'PUT', body: { mfa_required } }),
-  defaults: () => call<{ defaults: Prefs }>('/api/admin/notify-settings'),
+  defaults: () => call<{ defaults: Prefs; ops_recipients: string[] }>('/api/admin/notify-settings'),
   setDefaults: (defaults: Partial<Prefs>) => call<{ defaults: Prefs }>('/api/admin/notify-settings', { method: 'PUT', body: { defaults } }),
+  /** Who hears about the stack itself — outages, a failed backup. */
+  setOpsRecipients: (ops_recipients: string[]) =>
+    call<{ ops_recipients: string[] }>('/api/admin/notify-settings', { method: 'PUT', body: { ops_recipients } }),
 
   notifyConfig: () => call<{ available: boolean; public_key: string | null }>('/api/notify/config'),
   prefs: () => call<{ prefs: Prefs }>('/api/notify/prefs'),

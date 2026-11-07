@@ -1,3 +1,4 @@
+import { createAlert, deleteAlert, listAlerts } from './alerts.js';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
@@ -44,6 +45,9 @@ import { describeSource, runReportQuery, sourcePolicy } from './source-db.js';
 import { parseParamDefs, parseParamValues, resolveParams, validateParamDefs, validateParamValues } from './params.js';
 import { readSettings, writeSettings } from './settings.js';
 import { buildXlsx, pivotSheet, resultSheet } from './xlsx.js';
+import { inboxHandler } from './inbox.js';
+import { collectInbox } from './inbox-rules.js';
+import { MODULE_SLUG as INBOX_MODULE } from './access.js';
 
 /** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
 function likeTerm(term: string): string {
@@ -407,6 +411,10 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   }
 
   // What this module looks like on a shell's board (shared/summary.ts).
+  // What waits for one person here — for a shell's badge and "Waiting for
+  // you" page (server/inbox.ts, shared/summary.ts). The stack token only.
+  app.get('/api/inbox', inboxHandler(serviceToken, INBOX_MODULE, (person, level) => collectInbox(db, person, level)));
+
   app.get('/api/summary', (req, res, next) => {
   // Only ours when a machine token is actually presented.
     //
@@ -767,12 +775,28 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
       );
     } else {
       db.prepare(
-        `INSERT INTO schedules (report_id, interval, format, enabled, param_values, last_run_at, created_at)
-         VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-      ).run(report.id, interval, format, enabled, values, nowIso());
+        `INSERT INTO schedules (report_id, interval, format, enabled, param_values, last_run_at, created_at, created_by)
+         VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
+      ).run(report.id, interval, format, enabled, values, nowIso(), actorOf(res, auth));
     }
     const saved = db.prepare('SELECT * FROM schedules WHERE report_id = ?').get(report.id) as ScheduleRow;
     res.json(scheduleRow(db, saved));
+  });
+
+  // ── Alerts: a person's thresholds on a report's figure (server/alerts.ts) ──
+  app.get('/api/reports/:id/alerts', (req, res) => {
+    res.json({ alerts: listAlerts(db, Number(req.params.id), actorOf(res, auth)) });
+  });
+
+  app.post('/api/reports/:id/alerts', (req, res) => {
+    const report = db.prepare('SELECT id FROM reports WHERE id = ?').get(Number(req.params.id)) as { id: number } | undefined;
+    if (!report) throw new DomainError(404, 'Report not found');
+    res.status(201).json(createAlert(db, report.id, actorOf(res, auth), body(req), nowIso()));
+  });
+
+  app.delete('/api/alerts/:id', (req, res) => {
+    deleteAlert(db, Number(req.params.id), actorOf(res, auth));
+    res.json({ ok: true });
   });
 
   app.delete('/api/schedules/:id', (req, res) => {

@@ -1,5 +1,4 @@
 import { IdentityClient, NotificationClient, type AccessLevel, type NotifyUrgency } from '@0815software/platform-clients';
-import { MODULE_SLUG } from './access.js';
 
 /**
  * Telling PEOPLE that something waits for them (copy-in) — the module half of
@@ -19,6 +18,8 @@ import { MODULE_SLUG } from './access.js';
  */
 
 export interface PeopleConfig {
+  /** This module's registry slug: names it to PS-03, and its level at PS-01. */
+  module: string;
   notificationUrl?: string;
   identityUrl?: string;
   identityOrg?: string;
@@ -78,7 +79,7 @@ export function buildPeople(cfg: PeopleConfig, options: { fetch?: typeof fetch; 
     if (!identity || !cfg.identityOrg) return [];
     const hit = cache.get(level);
     if (hit && hit.until > now()) return hit.emails;
-    const { holders: emails } = await identity.holders(cfg.identityOrg, `module:${MODULE_SLUG}:${level}`);
+    const { holders: emails } = await identity.holders(cfg.identityOrg, `module:${cfg.module}:${level}`);
     cache.set(level, { emails, until: now() + HOLDERS_TTL_MS });
     return emails;
   };
@@ -93,7 +94,7 @@ export function buildPeople(cfg: PeopleConfig, options: { fetch?: typeof fetch; 
         const recipients = [...new Set([...named, ...byLevel].map((r) => r.toLowerCase()))].filter((r) => r !== actor);
         if (recipients.length === 0) return;
         await notifier.event({
-          module: MODULE_SLUG,
+          module: cfg.module,
           kind: event.kind,
           category: event.category,
           urgency: event.urgency,
@@ -103,9 +104,9 @@ export function buildPeople(cfg: PeopleConfig, options: { fetch?: typeof fetch; 
           detail: event.detail ?? null,
           href: event.href ?? null,
           oncall: event.oncall === true,
-          idempotency_key: `${MODULE_SLUG}:${event.key}`,
+          idempotency_key: `${cfg.module}:${event.key}`,
         });
-      })().catch((err: unknown) => console.warn(`[${MODULE_SLUG}] notification failed:`, err));
+      })().catch((err: unknown) => console.warn(`[${cfg.module}] notification failed:`, err));
       pending = Promise.all([pending, task]);
     },
     flush: () => pending.then(() => undefined),

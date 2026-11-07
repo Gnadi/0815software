@@ -11,6 +11,10 @@ import { openDb } from './db.js';
 import { ensureSourceDb, seedMeta } from './seed.js';
 import { startScheduler } from './scheduler.js';
 import { openSourceDb } from './source-db.js';
+import { buildPeople } from './people.js';
+import { startWatch } from './watch.js';
+import { watchReports } from './inbox-rules.js';
+import { MODULE_SLUG } from './access.js';
 
 const config = configFromEnv();
 assertProductionConfig([
@@ -48,6 +52,18 @@ startScheduler(
   { db, sourceDb, exportsDir: config.exportsDir, sourceViewsOnly: config.sourceViewsOnly },
   config.schedulerTickSeconds,
 );
+
+
+// Notifications to people and the clock checks behind them
+// (server/inbox-rules.ts) — only with PS-03 wired; otherwise nothing runs.
+const people = buildPeople({
+  module: MODULE_SLUG,
+  notificationUrl: config.platform.notificationUrl,
+  identityUrl: config.sso.identityUrl,
+  identityOrg: config.sso.identityOrg,
+  serviceToken: config.platform.serviceToken,
+});
+startWatch(db, people, watchReports);
 
 app.listen(config.port, () => {
   console.log(`[mod-08] reporting suite API on http://localhost:${config.port}`);

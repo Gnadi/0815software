@@ -39,6 +39,9 @@ import {
   purchaseOrderDetail,
   receivePurchaseOrder,
 } from './purchase-orders.js';
+import { inboxHandler } from './inbox.js';
+import { collectInbox } from './inbox-rules.js';
+import { MODULE_SLUG as INBOX_MODULE } from './access.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -250,6 +253,10 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   }
 
   // What this module looks like on a shell's board (shared/summary.ts).
+  // What waits for one person here — for a shell's badge and "Waiting for
+  // you" page (server/inbox.ts, shared/summary.ts). The stack token only.
+  app.get('/api/inbox', inboxHandler(serviceToken, INBOX_MODULE, (person, level) => collectInbox(db, person, level)));
+
   app.get('/api/summary', (req, res, next) => {
   // Only ours when a machine token is actually presented.
     //

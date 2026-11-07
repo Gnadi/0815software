@@ -107,6 +107,8 @@ export const api = {
     request<DealDetail>(`/api/deals/${id}/stage`, post({ stage, note })),
   reopenDeal: (id: number, stage: string, note?: string) =>
     request<DealDetail>(`/api/deals/${id}/reopen`, post({ stage, note })),
+  /** Hand the deal to a colleague (their sign-in email), or to nobody. */
+  assignDeal: (id: number, owner: string | null) => request<DealDetail>(`/api/deals/${id}/owner`, post({ owner })),
 
   activities: () => request<{ activities: Activity[] }>('/api/activities'),
   createActivity: (values: Record<string, unknown>) => request<Activity>('/api/activities', post(values)),

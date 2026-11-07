@@ -381,13 +381,18 @@ function Administration({ say, notifications }: { say: (t: string, bad?: boolean
   const [people, setPeople] = useState<Person[]>([]);
   const [required, setRequired] = useState(false);
   const [defaults, setDefaults] = useState<Prefs | null>(null);
+  const [ops, setOps] = useState('');
 
   const load = useCallback(async () => {
     try {
       const list = await accountApi.people();
       setPeople(list.users);
       setRequired(list.organization.mfa_required);
-      if (notifications) setDefaults((await accountApi.defaults()).defaults);
+      if (notifications) {
+        const settings = await accountApi.defaults();
+        setDefaults(settings.defaults);
+        setOps(settings.ops_recipients.join(', '));
+      }
     } catch (err) {
       say(message(err), true);
     }
@@ -458,6 +463,27 @@ function Administration({ say, notifications }: { say: (t: string, bad?: boolean
           </tbody>
         </table>
       </div>
+      {defaults && (
+        <form
+          className="account__form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const list = ops.split(/[\s,;]+/).filter(Boolean);
+            void accountApi
+              .setOpsRecipients(list)
+              .then(() => say('Saved. Outages and failed backups go to them, at any hour.'))
+              .catch((err) => say(message(err), true));
+          }}
+        >
+          <label className="field">
+            <span className="field__label mono">STACK ALERTS (A SERVICE DOWN, A FAILED BACKUP) GO TO</span>
+            <input className="field__input" value={ops} onChange={(e) => setOps(e.target.value)} placeholder="it@company.example, boss@company.example" />
+          </label>
+          <button className="btn mono" type="submit">
+            SAVE
+          </button>
+        </form>
+      )}
       {defaults && (
         <>
           <h4 className="account__heading mono">NOTIFICATION DEFAULTS FOR EVERYONE</h4>

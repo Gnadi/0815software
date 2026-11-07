@@ -72,6 +72,29 @@ export function openDb(path: string): Database.Database {
   // (the procedure in https://sqlite.org/lang_altertable.html#otheralter).
   rebuildIfOld(db, 'charts', "CHECK (kind IN ('bar', 'line'))", CHARTS_TABLE, 'id, report_id, name, kind, x_column, y_column, created_at', 'CREATE INDEX IF NOT EXISTS idx_charts_report ON charts (report_id)');
   rebuildIfOld(db, 'schedules', "CHECK (format IN ('csv'))", SCHEDULES_TABLE, 'id, report_id, interval, format, enabled, last_run_at, created_at');
+  // Who scheduled a report — told when a scheduled run is ready or failed.
+  if (!columns('schedules').includes('created_by')) db.exec('ALTER TABLE schedules ADD COLUMN created_by TEXT');
+  // A person's threshold on a figure (server/alerts.ts): checked on every run
+  // of the report, and every crossing appended — the notification reads that.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS report_alerts (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      report_id   INTEGER NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+      column_name TEXT    NOT NULL,
+      op          TEXT    NOT NULL CHECK (op IN ('above', 'below')),
+      threshold   REAL    NOT NULL,
+      owner       TEXT    NOT NULL,
+      created_at  TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_report_alerts_report ON report_alerts (report_id);
+    CREATE TABLE IF NOT EXISTS report_alert_hits (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      alert_id   INTEGER NOT NULL REFERENCES report_alerts(id) ON DELETE CASCADE,
+      run_id     INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+      value      REAL    NOT NULL,
+      created_at TEXT    NOT NULL
+    );
+  `);
 
   return db;
 }
