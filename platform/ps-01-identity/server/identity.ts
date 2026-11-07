@@ -50,6 +50,9 @@ export function mapUser(row: UserRow): User {
     email: row.email,
     name: row.name,
     status: row.status as User['status'],
+    // Whether the person has a second factor — never the factor itself. An
+    // administrator needs it to see who still signs in with a password alone.
+    mfa_enabled: (row as { totp_enabled_at?: string | null }).totp_enabled_at != null,
     created_at: row.created_at,
   };
 }

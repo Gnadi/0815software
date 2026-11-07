@@ -16,6 +16,7 @@ import type { AuthConfig } from '../server/auth.js';
 import { createApp as createIdentityApp } from '../../../platform/ps-01-identity/server/app.js';
 import { openDb as openIdentityDb } from '../../../platform/ps-01-identity/server/db.js';
 import { seed as seedIdentity } from '../../../platform/ps-01-identity/server/seed.js';
+import { base32Decode, totp } from '../../../platform/ps-01-identity/server/totp.js';
 
 const auth: AuthConfig = { username: 'admin', password: 'local-only', secret: 'test-secret', ttlHours: 1, secureCookie: false };
 
@@ -56,6 +57,34 @@ describe('mod-02 login via real PS-01 identity', () => {
   it('rejects a valid user who lacks platform:admin', async () => {
     // Seeded acme member authenticates at PS-01 but has no platform:admin.
     await login('member@acme.test', 'demo-member').expect(401);
+  });
+
+  it('asks for the second factor of an account that has one, and lets the right code in', async () => {
+    // Enrol the seeded administrator (who holds platform:admin) at the real
+    // PS-01, as they would in their account; no other test here signs them in.
+    const ps01 = (path: string, body: unknown, token?: string) =>
+      fetch(`${identityUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify(body),
+      }).then((r) => r.json() as Promise<Record<string, unknown>>);
+    const { token } = (await ps01('/api/login', { org_slug: 'acme', email: 'admin@acme.test', password: 'demo-admin' })) as {
+      token: string;
+    };
+    const setup = (await ps01('/api/me/mfa/totp/setup', { current_password: 'demo-admin' }, token)) as { secret: string };
+    const secret = base32Decode(setup.secret);
+    // The previous step's code, so the current one is still unspent for the login.
+    await ps01('/api/me/mfa/totp/confirm', { otp: totp(secret, Date.now() - 30_000) }, token);
+
+    const without = await login('admin@acme.test', 'demo-admin').expect(401);
+    expect(without.body.details).toEqual([{ field: 'otp', message: 'is required' }]);
+    const right = totp(secret, Date.now());
+    const wrong = await request(app)
+      .post('/api/login')
+      .send({ username: 'admin@acme.test', password: 'demo-admin', otp: right === '000000' ? '111111' : '000000' })
+      .expect(401);
+    expect(wrong.body.details).toEqual([{ field: 'otp', message: 'is invalid' }]);
+    await request(app).post('/api/login').send({ username: 'admin@acme.test', password: 'demo-admin', otp: right }).expect(200);
   });
 
   it('rejects the local admin creds now that SSO is in force', async () => {

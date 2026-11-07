@@ -79,7 +79,8 @@ foreign tenant) · **409** (conflict).
 | Method & path | Purpose |
 | ------------- | ------- |
 | `GET /api/health` | Liveness. |
-| `POST /api/login` | `{org_slug,email,password}` → `{token,user}` + session cookie. Repeated failures against one account slow every further attempt down (no lockout — see `server/throttle.ts`). |
+| `POST /api/login` | `{org_slug,email,password,otp?}` → `{token,user}` + session cookie. Repeated failures against one account slow every further attempt down (no lockout — see `server/throttle.ts`). |
+| `POST /api/login/mfa` | `{mfa_ticket,otp}` → `{token,user}`: the second half of a provider sign-in on an account with a second factor. |
 | `POST /api/logout` | Clear the session cookie. |
 | `GET /api/oauth/:provider/authorize` | `?org_slug=` → records a CSRF state nonce, 302 to the provider (or the mock IdP). `?redirect_uri=` must be same-site or allowlisted. |
 | `GET /api/oauth/:provider/callback` | Consumes the state (single-use, 10-minute TTL), resolves the identity, provisions-or-links the user, issues a session. |
@@ -92,6 +93,12 @@ foreign tenant) · **409** (conflict).
 | `POST /api/tokens/verify` | any | `{token}` → `{valid, claims?}` — **cross-service contract**. |
 | `GET /api/permissions` | any | The permission catalog. |
 | `POST /api/me/sessions/revoke` | any user | Invalidate all your sessions (bumps `token_version`); returns a fresh token for this caller. |
+| `GET /api/me/mfa` | any user | `{totp_enabled, enabled_at, recovery_codes_left}`. |
+| `POST /api/me/mfa/totp/setup` | any user | `{current_password}` → `{secret, otpauth_uri}` for the authenticator app (pending for 15 minutes). |
+| `POST /api/me/mfa/totp/confirm` | any user | `{otp}` — the first code switches the factor on, returns ten recovery codes **once**, signs out every other session. |
+| `POST /api/me/mfa/totp/disable` | any user | `{current_password, otp}` (a code or a recovery code). |
+| `POST /api/me/mfa/recovery-codes` | any user | `{current_password, otp}` → a fresh set of ten; the old set stops working. |
+| `POST /api/users/:id/mfa/reset` | `user:write` | Remove someone's factor (lost phone); signs them out. Not for yourself, not for an account above you. |
 | `POST /api/users/:id/sessions/revoke` | `user:write` | Invalidate all of a user's sessions. |
 | `GET /api/orgs` | `org:read` | The caller's organization. |
 | `POST /api/orgs` | `org:write` | Provision an organization (`{slug,name,owner?:{email,name,password}}`). Without an `owner` nobody can log into it. |
@@ -107,6 +114,49 @@ foreign tenant) · **409** (conflict).
 | `GET /api/api-keys` | `apikey:read` | List keys (prefixes only). |
 | `POST /api/api-keys` | `apikey:write` | Mint a key — secret returned **once**. |
 | `DELETE /api/api-keys/:id` | `apikey:write` | Revoke a key. |
+
+## Two-factor sign-in
+
+A person can add a second factor: a time-based one-time password (TOTP,
+RFC 6238 — six digits, 30 seconds, SHA-1) from any authenticator app
+(Google/Microsoft Authenticator, Aegis, 1Password, …). Implemented on Node's
+crypto in `server/totp.ts` and pinned to the RFC 4226/6238/4648 reference
+vectors (`test/totp.test.ts`); the flows live in `server/mfa.ts` and are
+pinned by `test/mfa.test.ts`.
+
+- **Login.** With a factor on the account, `POST /api/login` without `otp`
+  answers **401** with `details: [{field: "otp", message: "is required"}]` —
+  the signal a login form uses to show the code field. A wrong code is
+  `is invalid`, is counted by the same per-account backoff as a wrong
+  password, and goes on the trail as `mfa_failed`. The backoff is cleared
+  only once the code holds, never by the password alone.
+- **Every module.** A module that signs people in through PS-01
+  (`server/sso.ts`, copy-in) carries the code across like the password, and
+  answers with the same `details`; every login form shows the field when
+  asked. One enrolment protects every module the person can reach.
+- **Replay.** A code is accepted once: the step it belongs to is recorded and
+  that step and every earlier one are refused afterwards. One step of clock
+  drift either way is tolerated.
+- **Recovery codes.** Ten single-use codes at enrolment (stored as SHA-256),
+  usable wherever a code is asked for. Using one is on the trail with how many
+  are left.
+- **Provider sign-in (OAuth).** The provider proves the first factor only: for
+  an account with a factor the callback returns (or redirects with)
+  `mfa_ticket` instead of a session, valid five minutes, and
+  `POST /api/login/mfa` trades it plus a code for the session.
+- **Changes ask for the password again**, so a stolen session can neither
+  enrol the thief's phone nor switch the factor off. Switching it on signs out
+  every other session.
+- **Lost phone.** An administrator resets the factor
+  (`POST /api/users/:id/mfa/reset`), capped like the password reset. The user
+  list shows `mfa_enabled` for each person — never the secret.
+- **Not yet:** a per-organization "two-factor required" policy (it needs an
+  enrolment step inside the login), and a screen for setting it up — see
+  [`docs/MOBILE-PLAN.md`](../../docs/MOBILE-PLAN.md).
+
+The secret is stored as is, in the same class as the password hashes: the
+database is key material either way (see `server/mfa.ts` for why encrypting it
+under a key from the same environment buys nothing).
 
 ## Module permissions
 

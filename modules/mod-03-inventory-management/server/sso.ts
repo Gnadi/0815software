@@ -1,4 +1,10 @@
-import { accessLevelFor, IdentityClient, ServiceError, type AccessLevel } from '@0815software/platform-clients';
+import {
+  accessLevelFor,
+  IdentityClient,
+  secondFactorRefusal,
+  ServiceError,
+  type AccessLevel,
+} from '@0815software/platform-clients';
 import { MODULE_SLUG } from './access.js';
 
 /**
@@ -17,9 +23,13 @@ import { MODULE_SLUG } from './access.js';
  */
 export type LoginOutcome =
   | { ok: true; actor: string; access: AccessLevel }
-  | { ok: false; reason: 'rejected' | 'unavailable' }
+  /**
+   * `otp_required`: the password was right and the account has a second
+   * factor — the form asks for the code. `otp_invalid`: the code was wrong.
+   */
+  | { ok: false; reason: 'rejected' | 'unavailable' | 'otp_required' | 'otp_invalid' }
   | null;
-export type LoginVerifier = (username: unknown, password: unknown) => Promise<LoginOutcome>;
+export type LoginVerifier = (username: unknown, password: unknown, otp?: unknown) => Promise<LoginOutcome>;
 
 export interface SsoConfig {
   /** PS-01 base URL. Unset -> SSO off (local credentials). */
@@ -65,10 +75,13 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
   const org = target.org;
   const permission = cfg.identityPermission;
   const client = new IdentityClient({ baseUrl: target.url });
-  return async (username, password): Promise<LoginOutcome> => {
+  return async (username, password, otp): Promise<LoginOutcome> => {
     if (typeof username !== 'string' || typeof password !== 'string') return { ok: false, reason: 'rejected' };
     try {
-      const { token, user } = await client.login(org, username, password);
+      // The second factor (PS-01 server/mfa.ts) is checked there, not here:
+      // this module only carries the code across, as it does the password.
+      const code = typeof otp === 'string' && otp.trim() !== '' ? otp.trim() : undefined;
+      const { token, user } = await client.login(org, username, password, code);
       const verdict = await client.verify(token);
       if (!verdict.valid) return { ok: false, reason: 'rejected' };
       // PS-01 returns the principal's permissions on verify (Phase 1).
@@ -100,6 +113,8 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
       // permission, 422 for a malformed request. A 5xx is the service failing,
       // and a 429 is it declining to answer yet; neither says anything about
       // whether the password was right.
+      const factor = secondFactorRefusal(err);
+      if (factor !== null) return { ok: false, reason: factor === 'required' ? 'otp_required' : 'otp_invalid' };
       const verdictAboutTheCredential =
         err instanceof ServiceError && err.status >= 400 && err.status < 500 && err.status !== 429;
       if (verdictAboutTheCredential) return { ok: false, reason: 'rejected' };

@@ -602,17 +602,28 @@ export function createApp({ db, hardening, auth, seller, sellerSource, staticDir
   });
 
   app.post('/api/login', async (req, res) => {
-    const { username, password } = body(req);
+    const { username, password, otp } = body(req);
     // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
-    const viaSso = await verifyLogin(username, password);
+    const viaSso = await verifyLogin(username, password, otp);
     // An unreachable PS-01 is not a wrong password. Saying 401 here would tell
     // the user to check credentials that were never checked, and would let a
     // broken identity deployment look like a wave of bad logins; 503 says what
     // actually happened, to the user and to whatever is monitoring this.
     if (viaSso !== null && !viaSso.ok && viaSso.reason === 'unavailable') {
       res.status(503).json({ error: 'Identity service unavailable' });
+      return;
+    }
+    // The account has a second factor: the form shows the code field on
+    // `is required` and says the code was wrong on `is invalid`. Same answer
+    // shape as PS-01's, so a form reads one contract whichever it talks to.
+    if (viaSso !== null && !viaSso.ok && (viaSso.reason === 'otp_required' || viaSso.reason === 'otp_invalid')) {
+      const required = viaSso.reason === 'otp_required';
+      res.status(401).json({
+        error: required ? 'Second factor required' : 'Invalid code',
+        details: [{ field: 'otp', message: required ? 'is required' : 'is invalid' }],
+      });
       return;
     }
     // Who signed in: the PS-01 identity when SSO validated it, the local admin

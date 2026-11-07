@@ -4,6 +4,10 @@ import { api, ApiError, type AuthMode } from '../api';
 export function Login({ onSuccess }: { onSuccess: () => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  // Shown once PS-01 says the account has a second factor (an authenticator
+  // app's six digits, or one of the recovery codes).
+  const [otp, setOtp] = useState('');
+  const [needsCode, setNeedsCode] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
@@ -31,10 +35,16 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
     setBusy(true);
     setError('');
     try {
-      await api.login(username, password);
+      await api.login(username, password, needsCode ? otp : undefined);
       onSuccess();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Login failed');
+      const factor = err instanceof ApiError ? err.details.find((d) => d.field === 'otp') : undefined;
+      if (factor) {
+        setNeedsCode(true);
+        setError(factor.message === 'is required' ? '' : 'That code did not work. Enter the current one.');
+      } else {
+        setError(err instanceof ApiError ? err.message : 'Login failed');
+      }
     } finally {
       setBusy(false);
     }
@@ -65,6 +75,19 @@ export function Login({ onSuccess }: { onSuccess: () => void }) {
             autoComplete="current-password"
           />
         </label>
+        {needsCode && (
+          <label className="field">
+            <span className="field__label mono">CODE FROM YOUR AUTHENTICATOR APP</span>
+            <input
+              className="field__input"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
+              autoComplete="one-time-code"
+              placeholder="123456 · or a recovery code"
+              autoFocus
+            />
+          </label>
+        )}
         {error && <div className="login__error mono">{error}</div>}
         <button className="btn btn--primary" type="submit" disabled={busy}>
           {busy ? 'SIGNING IN…' : 'SIGN IN →'}

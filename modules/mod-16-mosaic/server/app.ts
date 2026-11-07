@@ -132,11 +132,19 @@ export function createApp({
   });
 
   app.post('/api/login', async (req, res) => {
-    const { username, password } = body(req);
-    const verdict = await verifyLogin(username, password);
+    const { username, password, otp } = body(req);
+    const verdict = await verifyLogin(username, password, otp);
     if (verdict === null) {
       if (!checkCredentials(auth, username, password)) throw new DomainError(401, 'Invalid credentials');
     } else if (!verdict.ok) {
+      // A second factor on the account: the form shows the code field on
+      // `is required`, and says the code was wrong on `is invalid`.
+      if (verdict.reason === 'otp_required' || verdict.reason === 'otp_invalid') {
+        const required = verdict.reason === 'otp_required';
+        throw new DomainError(401, required ? 'Second factor required' : 'Invalid code', [
+          { field: 'otp', message: required ? 'is required' : 'is invalid' },
+        ]);
+      }
       throw new DomainError(verdict.reason === 'unavailable' ? 503 : 401, 'Invalid credentials');
     }
     const actor = verdict?.ok ? verdict.actor : (username as string);

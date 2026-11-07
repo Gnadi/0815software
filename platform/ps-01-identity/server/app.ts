@@ -35,6 +35,19 @@ import {
 } from './identity.js';
 import { keySummary, mintApiKey, verifyApiKey, type ApiKeyRow } from './api-keys.js';
 import { verifyProvidedToken } from './tokens.js';
+import {
+  checkFactor,
+  clearSecondFactor,
+  consumeFactor,
+  hasSecondFactor,
+  mintMfaTicket,
+  PENDING_TTL_MS,
+  recoveryCodesLeft,
+  renewRecoveryCodes,
+  verifyMfaTicket,
+  type UserMfaRow,
+} from './mfa.js';
+import { base32Decode, matchStep, newTotpSecret, otpauthUri } from './totp.js';
 import { exportSubject } from './export.js';
 import {
   clearFailures,
@@ -238,6 +251,37 @@ export function createApp({
     return token;
   };
 
+  /**
+   * Pass only when the account has no second factor, or `otp` satisfies it.
+   * The two refusals differ on purpose: "required" is what a login form reads
+   * to show the code field (a module's `server/sso.ts` passes it through), and
+   * "invalid" is a failed guess, which goes on the throttle and on the trail
+   * like a wrong password does.
+   */
+  const secondFactorGate = (
+    req: Request,
+    user: UserMfaRow,
+    otp: unknown,
+    orgSlug: string,
+    email: string,
+    waited: number,
+  ): void => {
+    if (!hasSecondFactor(user)) return;
+    if (otp === undefined || otp === null || otp === '') {
+      fail(401, 'A second factor is required', [{ field: 'otp', message: 'is required' }]);
+    }
+    const verdict = checkFactor(db, user, otp, now());
+    if (!verdict.ok) {
+      recordFailure(db, orgSlug, email, throttle, now());
+      logEvent('mfa_failed', user.org_id, user.id, req, { delayed_ms: waited });
+      fail(401, 'Invalid code', [{ field: 'otp', message: 'is invalid' }]);
+    }
+    consumeFactor(db, user, verdict, now());
+    if (verdict.via === 'recovery') {
+      logEvent('recovery_code_used', user.org_id, user.id, req, { left: recoveryCodesLeft(db, user.id) });
+    }
+  };
+
   // ── Public routes ──────────────────────────────────────────────────
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
@@ -328,14 +372,55 @@ export function createApp({
         fail(401, 'Invalid organization, email or password');
       }
 
+      // With a second factor on the account, the password alone is half a
+      // login. Only after the code also holds does the backoff end — clearing
+      // it on the password would hand anyone who has the password a fresh
+      // budget of cheap guesses at the six digits.
+      secondFactorGate(req, account as UserMfaRow, b.otp, orgSlug, email, waited);
+
       // A correct password ends the backoff: the legitimate owner pays the
       // wait once, not for as long as someone else keeps guessing.
       clearFailures(db, orgSlug, email);
       pruneThrottle(db, throttle, now());
       const token = issueSession(res, account);
-      logEvent('login_ok', account.org_id, account.id, req);
+      logEvent('login_ok', account.org_id, account.id, req, hasSecondFactor(account) ? { mfa: true } : {});
       logEvent('token_issued', account.org_id, account.id, req);
       res.json({ token, user: mapUser(account) });
+    })().catch(next);
+  });
+
+  /**
+   * The second half of a provider sign-in on an account with a second factor:
+   * the callback handed out a ticket instead of a session (server/mfa.ts),
+   * and this trades ticket + code for the session. Throttled on the same key
+   * as the password form, so guessing the six digits here costs exactly what
+   * guessing them there does.
+   */
+  app.post('/api/login/mfa', (req, res, next) => {
+    void (async () => {
+      const b = body(req);
+      const ticket = verifyMfaTicket(session, b.mfa_ticket, now());
+      if (!ticket) fail(401, 'Invalid or expired sign-in ticket');
+      const user = userById.get(ticket.userId) as UserMfaRow | undefined;
+      const org = user ? (orgById.get(user.org_id) as OrgRow | undefined) : undefined;
+      if (
+        !user ||
+        !org ||
+        org.status !== 'active' ||
+        user.status !== 'active' ||
+        user.token_version !== ticket.tokenVersion ||
+        !hasSecondFactor(user)
+      ) {
+        fail(401, 'Invalid or expired sign-in ticket');
+      }
+      const waited = delayFor(failureCount(db, org.slug, user.email, throttle, now()), throttle);
+      if (waited > 0) await sleep(waited);
+      secondFactorGate(req, user, b.otp, org.slug, user.email, waited);
+      clearFailures(db, org.slug, user.email);
+      const token = issueSession(res, user);
+      logEvent('login_ok', user.org_id, user.id, req, { via: 'mfa_ticket', mfa: true });
+      logEvent('token_issued', user.org_id, user.id, req);
+      res.json({ token, user: mapUser(user) });
     })().catch(next);
   });
 
@@ -412,6 +497,17 @@ export function createApp({
       if (user.status !== 'active') {
         logEvent('login_fail', user.org_id, user.id, req, { via: `oauth:${provider}`, reason: 'account disabled' });
         fail(403, 'This account cannot sign in');
+      }
+      // The provider proved the first factor only. See `mintMfaTicket`.
+      if (hasSecondFactor(user)) {
+        const mfaTicket = mintMfaTicket(session, user, now());
+        if (stateRow.redirect_uri && isAllowedRedirect(stateRow.redirect_uri, redirectAllowlist, selfBaseUrl)) {
+          const sep = stateRow.redirect_uri.includes('?') ? '&' : '?';
+          res.redirect(302, `${stateRow.redirect_uri}${sep}mfa_ticket=${encodeURIComponent(mfaTicket)}`);
+        } else {
+          res.json({ mfa_required: true, mfa_ticket: mfaTicket });
+        }
+        return;
       }
       const token = issueSession(res, user);
       logEvent('login_ok', user.org_id, user.id, req, { via: `oauth:${provider}` });
@@ -517,6 +613,129 @@ export function createApp({
     const p = principalOf(res);
     if (p.kind !== 'user') fail(403, 'An API key has no sessions to revoke');
     revokeSessions(req, res, userRowOf(res));
+  });
+
+  // ── Two-factor: the person's own ───────────────────────────────────
+  // Every change to your own factor asks for the password again: a stolen
+  // session must not be able to enrol the thief's phone (which locks the
+  // owner out) or switch the factor off (which undoes it). See server/mfa.ts.
+  const selfMfa = (res: Response): UserMfaRow => {
+    const p = principalOf(res);
+    if (p.kind !== 'user') fail(403, 'An API key has no second factor');
+    return userById.get(p.userId) as UserMfaRow;
+  };
+
+  const requirePassword = async (req: Request, user: UserMfaRow, value: unknown): Promise<void> => {
+    if (!(await verifyPassword(typeof value === 'string' ? value : '', user.password_hash))) {
+      logEvent('password_change_denied', user.org_id, user.id, req, { during: 'mfa' });
+      fail(422, 'Validation failed', [{ field: 'current_password', message: 'is incorrect' }]);
+    }
+  };
+
+  /** The factor itself, or a recovery code — whoever turns it off must hold one of them. */
+  const requireFactor = (req: Request, user: UserMfaRow, otp: unknown): void => {
+    const verdict = checkFactor(db, user, otp, now());
+    if (!verdict.ok) {
+      logEvent('mfa_failed', user.org_id, user.id, req, { during: 'settings' });
+      fail(422, 'Validation failed', [{ field: 'otp', message: 'is invalid' }]);
+    }
+    consumeFactor(db, user, verdict, now());
+  };
+
+  app.get('/api/me/mfa', (_req, res) => {
+    const user = selfMfa(res);
+    res.json({
+      totp_enabled: hasSecondFactor(user),
+      enabled_at: user.totp_enabled_at,
+      recovery_codes_left: hasSecondFactor(user) ? recoveryCodesLeft(db, user.id) : 0,
+    });
+  });
+
+  app.post('/api/me/mfa/totp/setup', (req, res, next) => {
+    void (async () => {
+      const user = selfMfa(res);
+      if (hasSecondFactor(user)) fail(409, 'A second factor is already set up; turn it off first');
+      await requirePassword(req, user, body(req).current_password);
+      const secret = newTotpSecret();
+      db.prepare('UPDATE users SET totp_pending_secret = ?, totp_pending_at = ? WHERE id = ?').run(
+        secret,
+        nowIso(now()),
+        user.id,
+      );
+      const org = orgById.get(user.org_id) as OrgRow;
+      res.json({ secret, otpauth_uri: otpauthUri(secret, org.name, user.email), expires_in_s: PENDING_TTL_MS / 1000 });
+    })().catch(next);
+  });
+
+  app.post('/api/me/mfa/totp/confirm', (req, res) => {
+    const user = selfMfa(res);
+    if (hasSecondFactor(user)) fail(409, 'A second factor is already set up');
+    if (!user.totp_pending_secret || !user.totp_pending_at) fail(409, 'Start the setup first');
+    if (now() - Date.parse(user.totp_pending_at) > PENDING_TTL_MS) fail(409, 'The setup expired; start it again');
+    const otp = body(req).otp;
+    const step =
+      typeof otp === 'string' ? matchStep(base32Decode(user.totp_pending_secret), otp.replace(/\s/g, ''), now()) : null;
+    if (step === null) fail(422, 'Validation failed', [{ field: 'otp', message: 'is invalid' }]);
+    // Switching the factor on also signs out every other session: one taken
+    // before today was taken without it, and should not outlive the change.
+    db.prepare(
+      `UPDATE users SET totp_secret = totp_pending_secret, totp_enabled_at = ?, totp_last_step = ?,
+                        totp_pending_secret = NULL, totp_pending_at = NULL, token_version = token_version + 1
+       WHERE id = ?`,
+    ).run(nowIso(now()), step, user.id);
+    const codes = renewRecoveryCodes(db, user.id, now());
+    logEvent('mfa_enabled', user.org_id, user.id, req);
+    const fresh = userById.get(user.id) as UserRow;
+    res.json({ totp_enabled: true, recovery_codes: codes, token: issueSession(res, fresh) });
+  });
+
+  app.post('/api/me/mfa/totp/disable', (req, res, next) => {
+    void (async () => {
+      const user = selfMfa(res);
+      if (!hasSecondFactor(user)) fail(409, 'No second factor is set up');
+      const b = body(req);
+      await requirePassword(req, user, b.current_password);
+      requireFactor(req, user, b.otp);
+      clearSecondFactor(db, user.id);
+      logEvent('mfa_disabled', user.org_id, user.id, req);
+      res.json({ totp_enabled: false });
+    })().catch(next);
+  });
+
+  app.post('/api/me/mfa/recovery-codes', (req, res, next) => {
+    void (async () => {
+      const user = selfMfa(res);
+      if (!hasSecondFactor(user)) fail(409, 'No second factor is set up');
+      const b = body(req);
+      await requirePassword(req, user, b.current_password);
+      requireFactor(req, user, b.otp);
+      const codes = renewRecoveryCodes(db, user.id, now());
+      logEvent('recovery_codes_renewed', user.org_id, user.id, req);
+      res.json({ recovery_codes: codes });
+    })().catch(next);
+  });
+
+  /**
+   * "I lost my phone and my recovery codes." An administrator removes the
+   * factor; the person signs in with the password and sets it up again.
+   * Capped like the password reset (`requireNotAbove`): removing someone's
+   * factor is half of taking their account over. Not for yourself — that
+   * path skips the password and the code, which is precisely what
+   * `/api/me/mfa/totp/disable` exists to demand.
+   */
+  app.post('/api/users/:id/mfa/reset', (req, res) => {
+    require(res, 'user:write');
+    const user = requireUserInOrg(res, idParam(req));
+    const p = principalOf(res);
+    if (p.kind === 'user' && p.userId === user.id) {
+      fail(403, 'Turn your own second factor off in your account settings');
+    }
+    requireNotAbove(res, user);
+    const had = hasSecondFactor(user);
+    clearSecondFactor(db, user.id);
+    db.prepare('UPDATE users SET token_version = token_version + 1 WHERE id = ?').run(user.id);
+    logEvent('mfa_reset', user.org_id, user.id, req, { had_factor: had });
+    res.json({ user: mapUser(userById.get(user.id) as UserRow) });
   });
 
   app.post('/api/users/:id/sessions/revoke', (req, res) => {
@@ -788,6 +1007,9 @@ export function createApp({
              token_version = token_version + 1, status = 'disabled'
        WHERE id = ?`,
     ).run(`erased+${user.id}@invalid.example`, await hashPassword(randomBytes(24).toString('hex')), user.id);
+    // The factor and its recovery codes go too: nothing should be left that
+    // could ever complete a sign-in to this row.
+    clearSecondFactor(db, user.id);
     /**
      * The machine credentials go with the person.
      *

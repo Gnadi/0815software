@@ -143,3 +143,43 @@ describe('an SSO login gets the level PS-01 grants', () => {
     expect(outcome).toEqual({ ok: false, reason: 'rejected' });
   });
 });
+
+describe('an SSO login with a second factor', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A PS-01 whose one user has a second factor; the right code is 123456. */
+  function identityWithFactor() {
+    const sent: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', async (url: string | URL, init?: { body?: string }) => {
+      const path = new URL(String(url)).pathname;
+      const reply = (status: number, body: unknown) =>
+        new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+      if (path !== '/api/login') return reply(200, { valid: true, permissions: ['platform:admin'] });
+      const req = JSON.parse(init?.body ?? '{}') as Record<string, unknown>;
+      sent.push(req);
+      if (req.otp === undefined) {
+        return reply(401, { error: 'A second factor is required', details: [{ field: 'otp', message: 'is required' }] });
+      }
+      if (req.otp !== '123456') return reply(401, { error: 'Invalid code', details: [{ field: 'otp', message: 'is invalid' }] });
+      return reply(200, { token: 'ps01-token', user: { id: 1, email: 'ada@example' } });
+    });
+    return { verify: buildLoginVerifier({ identityUrl: 'http://identity.test', identityOrg: 'acme' }), sent };
+  }
+
+  it('asks for the code when PS-01 does — not "wrong password"', async () => {
+    const { verify } = identityWithFactor();
+    expect(await verify('ada@example', 'pw')).toEqual({ ok: false, reason: 'otp_required' });
+  });
+
+  it('says the code was wrong, and lets the right one in', async () => {
+    const { verify, sent } = identityWithFactor();
+    expect(await verify('ada@example', 'pw', '000000')).toEqual({ ok: false, reason: 'otp_invalid' });
+    expect(await verify('ada@example', 'pw', ' 123456 ')).toMatchObject({ ok: true, access: 'manage' });
+    // Carried across as typed (trimmed), never invented: a blank code is no code.
+    expect(sent.map((b) => b.otp)).toEqual(['000000', '123456']);
+    await verify('ada@example', 'pw', '   ');
+    expect(sent[2]).not.toHaveProperty('otp');
+  });
+});
