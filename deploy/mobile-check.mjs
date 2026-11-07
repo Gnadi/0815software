@@ -14,6 +14,7 @@
  *       checkbox; a link inside running text is exempt — WCAG 2.5.8),
  *   M3  form fields with a 16 px font or larger on a phone (iOS zooms in
  *       on anything smaller and does not zoom out again),
+ *   M4  a table shown as cards keeps every value on the screen,
  *   M7  the navigation reachable without scrolling sideways.
  *
  * Exits non-zero when a view fails, and writes a screenshot of it. Needs
@@ -144,6 +145,14 @@ function measure([phone, expected]) {
       if (r.right > vw + 1) wide.push(`${name(el)} (${Math.round(r.right)}px)`);
     }
   }
+  // A table laid out as cards must show every value on the screen — not
+  // off to the right inside its own scrolling box, which M1 cannot see.
+  const offCard = [];
+  for (const cell of document.querySelectorAll('table.table--cards td')) {
+    if (!visible(cell)) continue;
+    const r = cell.getBoundingClientRect();
+    if (r.right > vw + 1) offCard.push(`${cell.getAttribute('data-label') || 'cell'} (${Math.round(r.right)}px)`);
+  }
   const small = [];
   const tiny = [];
   if (phone) {
@@ -163,6 +172,8 @@ function measure([phone, expected]) {
   }
   return {
     overflow: Math.max(doc.scrollWidth, window.innerWidth) - vw,
+    offCard: [...new Set(offCard)].slice(0, 5),
+    offCardCount: offCard.length,
     wide: [...new Set(wide)].slice(0, 8),
     small: [...new Set(small)].slice(0, 8),
     smallCount: small.length,
@@ -182,6 +193,7 @@ async function checkModule(browser, id) {
         const m = await page.evaluate(measure, [vp.phone, vp.width]);
         const problems = [];
         if (m.overflow > 1) problems.push(`M1 page scrolls sideways by ${m.overflow}px: ${m.wide.join(', ')}`);
+        if (vp.phone && m.offCardCount > 0) problems.push(`M4 ${m.offCardCount} card value(s) off the screen: ${m.offCard.join(', ')}`);
         if (vp.phone && m.smallCount > 0) problems.push(`M2 ${m.smallCount} control(s) under 44px: ${m.small.join(', ')}`);
         if (vp.phone && m.tiny.length > 0) problems.push(`M3 fields under 16px: ${m.tiny.join(', ')}`);
         if (problems.length > 0) {
@@ -213,6 +225,7 @@ async function checkModule(browser, id) {
         const m = await page.evaluate(measure, [vp.phone, vp.width]);
         const problems = [];
         if (m.overflow > 1) problems.push(`M1 page scrolls sideways by ${m.overflow}px: ${m.wide.join(', ')}`);
+        if (vp.phone && m.offCardCount > 0) problems.push(`M4 ${m.offCardCount} card value(s) off the screen: ${m.offCard.join(', ')}`);
         if (vp.phone && m.smallCount > 0) problems.push(`M2 ${m.smallCount} control(s) under 44px: ${m.small.join(', ')}`);
         if (vp.phone && m.tiny.length > 0) problems.push(`M3 fields under 16px: ${m.tiny.join(', ')}`);
         if (problems.length > 0) {

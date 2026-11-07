@@ -130,6 +130,14 @@
   }
 
   /* ── Tables become cards ─────────────────────────────────────────── */
+  /* A desktop table usually insists on a minimum width (".table
+     { min-width: 720px }") so its columns stay readable; a card list must
+     not, or the values sit off to the right inside the scrolling box. */
+  table.table--cards {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
   table.table--cards,
   table.table--cards tbody,
   table.table--cards tr,
