@@ -163,7 +163,10 @@ export type PushFetch = (
 ) => Promise<{ status: number }>;
 
 export const defaultPushFetch: PushFetch = async (url, init) => {
-  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(10_000) });
+  // `manual`: the endpoint was checked against the push services' hosts, a
+  // redirect target was not. A push service has no reason to redirect, and
+  // following a 307 would re-send the POST wherever it points.
+  const res = await fetch(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(10_000) });
   return { status: res.status };
 };
 
@@ -227,7 +230,9 @@ export function isAllowedPushEndpoint(endpoint: string, allowed: readonly string
   } catch {
     return false;
   }
-  if (url.protocol !== 'https:') return false;
+  // Port too: the host list says which servers, and a port of the caller's
+  // choosing on one of them is not a push service.
+  if (url.protocol !== 'https:' || url.port !== '') return false;
   const host = url.hostname.toLowerCase();
   return allowed.some((pattern) =>
     pattern.startsWith('*.') ? host.endsWith(pattern.slice(1)) && host.length > pattern.length - 1 : host === pattern,

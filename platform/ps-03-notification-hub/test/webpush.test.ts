@@ -127,6 +127,7 @@ describe('delivery', () => {
     expect(isAllowedPushEndpoint('https://web.push.apple.com/abc', DEFAULT_PUSH_HOSTS)).toBe(true);
     expect(isAllowedPushEndpoint('https://db5p.notify.windows.com/w/?token=1', DEFAULT_PUSH_HOSTS)).toBe(true);
     expect(isAllowedPushEndpoint('https://notify.windows.com.evil.test/', DEFAULT_PUSH_HOSTS)).toBe(false);
+    expect(isAllowedPushEndpoint('https://fcm.googleapis.com:8443/fcm/send/1', DEFAULT_PUSH_HOSTS)).toBe(false);
     expect(isAllowedPushEndpoint('http://fcm.googleapis.com/x', DEFAULT_PUSH_HOSTS)).toBe(false);
     expect(isAllowedPushEndpoint('https://169.254.169.254/latest', DEFAULT_PUSH_HOSTS)).toBe(false);
     expect(isAllowedPushEndpoint('not a url', DEFAULT_PUSH_HOSTS)).toBe(false);

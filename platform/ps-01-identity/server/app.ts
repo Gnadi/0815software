@@ -294,8 +294,8 @@ export function createApp({
     if (hasSecondFactor(user)) {
       if (noCode) fail(401, 'A second factor is required', [{ field: 'otp', message: 'is required' }]);
       const verdict = checkFactor(db, user, otp, now());
-      if (!verdict.ok) return wrongCode();
-      consumeFactor(db, user, verdict, now());
+      // A code another request spent a moment ago is a replay, and counts as one.
+      if (!verdict.ok || !consumeFactor(db, user, verdict, now())) return wrongCode();
       if (verdict.via === 'recovery') {
         const left = recoveryCodesLeft(db, user.id);
         logEvent('recovery_code_used', user.org_id, user.id, req, { left });
@@ -759,11 +759,10 @@ export function createApp({
   /** The factor itself, or a recovery code — whoever turns it off must hold one of them. */
   const requireFactor = (req: Request, user: UserMfaRow, otp: unknown): void => {
     const verdict = checkFactor(db, user, otp, now());
-    if (!verdict.ok) {
+    if (!consumeFactor(db, user, verdict, now())) {
       logEvent('mfa_failed', user.org_id, user.id, req, { during: 'settings' });
       fail(422, 'Validation failed', [{ field: 'otp', message: 'is invalid' }]);
     }
-    consumeFactor(db, user, verdict, now());
   };
 
   app.get('/api/me/mfa', (_req, res) => {

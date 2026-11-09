@@ -22,11 +22,11 @@ import {
  * stack exposed to the internet with password-only logins is one reused
  * password away from someone else's invoices.
  *
- * The factor is opt-in per person. Making it mandatory per organization needs
- * an enrolment step inside the login flow and is the next step
- * (docs/MOBILE-PLAN.md); until then an administrator can see who has it
- * (`mfa_enabled` on the user list) and reset it for someone who lost their
- * phone (`POST /api/users/:id/mfa/reset`).
+ * The factor is opt-in per person, unless the organization requires it
+ * (`mfa_required`, `PATCH /api/orgs/current`): then a person without one sets
+ * it up inside the sign-in (`secondFactorGate` in app.ts). An administrator
+ * sees who has it (`mfa_enabled` on the user list) and resets it for someone
+ * who lost their phone (`POST /api/users/:id/mfa/reset`).
  *
  * The TOTP secret is stored as is. Encrypting it under a key from this
  * service's own environment would protect nothing against someone who holds
@@ -89,17 +89,29 @@ export function checkFactor(db: Database.Database, user: UserMfaRow, input: unkn
   return found === null ? { ok: false } : { ok: true, via: 'recovery', codeId: found };
 }
 
-/** Spend what `checkFactor` accepted: advance the replay guard or burn the recovery code. */
-export function consumeFactor(db: Database.Database, user: UserMfaRow, verdict: FactorVerdict, nowMs: number): void {
-  if (!verdict.ok) return;
+/**
+ * Spend what `checkFactor` accepted: advance the replay guard or burn the
+ * recovery code. Returns false when another request spent it first.
+ *
+ * The spend is itself a check, not a follow-up to one: callers load the user
+ * row, then await scrypt, then call `checkFactor` with that row — so two
+ * logins racing with the same code both see the OLD `totp_last_step` and both
+ * pass. Only one conditional UPDATE can win; the loser is a replay.
+ */
+export function consumeFactor(db: Database.Database, user: UserMfaRow, verdict: FactorVerdict, nowMs: number): boolean {
+  if (!verdict.ok) return false;
   if (verdict.via === 'totp') {
-    db.prepare('UPDATE users SET totp_last_step = ? WHERE id = ?').run(verdict.step, user.id);
-  } else {
-    db.prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ? AND used_at IS NULL').run(
-      nowIso(nowMs),
-      verdict.codeId,
+    return (
+      db
+        .prepare('UPDATE users SET totp_last_step = ? WHERE id = ? AND (totp_last_step IS NULL OR totp_last_step < ?)')
+        .run(verdict.step, user.id, verdict.step).changes === 1
     );
   }
+  return (
+    db
+      .prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ? AND used_at IS NULL')
+      .run(nowIso(nowMs), verdict.codeId).changes === 1
+  );
 }
 
 /** Replace every recovery code of a user with a fresh set; the plain codes are returned once. */

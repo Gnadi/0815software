@@ -299,3 +299,21 @@ describe('turning it off, renewing codes, the administrator reset', () => {
     expect(db.prepare('SELECT COUNT(*) AS n FROM recovery_codes WHERE user_id = ?').get(member.id)).toEqual({ n: 0 });
   });
 });
+
+describe('concurrent use of one code', () => {
+  // The login reads the account, then awaits scrypt, then checks the code.
+  // Two requests racing with the same code both read the old replay guard
+  // before either spends it — unless spending is itself the check.
+  it('lets one of two simultaneous logins with the same TOTP through, not both', async () => {
+    const { secret } = await enrol();
+    const code = codeFor(secret);
+    const [a, b] = await Promise.all([signIn({ otp: code }), signIn({ otp: code })]);
+    expect([a.status, b.status].sort()).toEqual([200, 401]);
+  });
+
+  it('spends a recovery code once, however many logins race with it', async () => {
+    const { codes } = await enrol();
+    const [a, b] = await Promise.all([signIn({ otp: codes[0] }), signIn({ otp: codes[0] })]);
+    expect([a.status, b.status].sort()).toEqual([200, 401]);
+  });
+});
