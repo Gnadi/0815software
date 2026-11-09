@@ -41,6 +41,14 @@ paths:
       security: []
       responses:
         '200': { description: Success }
+  /api/login/mfa:
+    post:
+      summary: Complete a provider sign-in with the second factor
+      tags: [ps-01-identity]
+      security: []
+      responses:
+        '200': { description: Success }
+        '401': { description: Invalid ticket or code }
   /api/logout:
     post:
       summary: Create logout
@@ -87,6 +95,60 @@ paths:
       responses:
         '200': { description: Success }
         '401': { description: Authentication required }
+  /api/me/mfa:
+    get:
+      summary: Second-factor status of the caller
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/me/mfa/totp/setup:
+    post:
+      summary: Start TOTP enrolment (password required)
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/me/mfa/totp/confirm:
+    post:
+      summary: Confirm TOTP enrolment with the first code
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/me/mfa/totp/disable:
+    post:
+      summary: Turn the second factor off (password and code required)
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/me/mfa/recovery-codes:
+    post:
+      summary: Replace the recovery codes (password and code required)
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+  /api/users/{id}/mfa/reset:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: integer }
+    post:
+      summary: Remove a user's second factor (lost phone)
+      tags: [ps-01-identity]
+      security: [{adminSession: []}]
+      responses:
+        '200': { description: Success }
+        '401': { description: Authentication required }
+        '403': { description: Insufficient permission }
   /api/permissions:
     get:
       summary: Get permissions

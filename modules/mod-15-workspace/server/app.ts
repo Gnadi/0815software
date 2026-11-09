@@ -30,7 +30,8 @@ import type { PeerClient } from './peers.js';
 import type { ModuleSessions } from './sessions.js';
 import { createHandoff, isRedeemPath, requestedAccess, safeServiceTokenEqual, signOutResponse } from './handoff.js';
 import { createGrants, type Grants } from './grants.js';
-import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
+import { accountRouter, collectShellInbox } from './account.js';
+import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier, deviceOf, secondFactorAnswer } from './sso.js';
 import { CATALOGUE } from '../shared/catalogue.js';
 import { ACTIONS, actionById } from '../shared/actions.js';
 import { isModulePath } from '../shared/summary.js';
@@ -56,6 +57,10 @@ export interface AppOptions {
   peers: PeerClient;
   /** Per-user sessions held for those modules, for running actions as them. */
   sessions: ModuleSessions;
+  /** PS-01, for the account page (server/account.ts); null = local sign-in. */
+  identityUrl?: string | null;
+  /** PS-03 and the stack's service token, for notifications to people. */
+  notification?: { url: string; serviceToken: string } | null;
   /** Absolute path to the built client (dist/client). Omit to serve API only. */
   staticDir?: string;
   /** Optional Platform Services integration; defaults to a no-op (standalone). */
@@ -115,6 +120,8 @@ export function createApp({
   grants = createGrants({ sso: loginMode.sso, ttlMs: auth.ttlHours * 3600_000 }),
   serviceToken,
   shellOrigins = [],
+  identityUrl = null,
+  notification = null,
 }: AppOptions): express.Express {
   const app = express();
   const handoff = shellOrigins.length > 0 ? createHandoff(auth) : null;
@@ -221,11 +228,17 @@ export function createApp({
   }
 
   app.post('/api/login', async (req, res) => {
-    const { username, password } = body(req);
-    const verdict = await verifyLogin(username, password);
+    const { username, password, otp } = body(req);
+    const verdict = await verifyLogin(username, password, otp, deviceOf(req));
     if (verdict === null) {
       if (!checkCredentials(auth, username, password)) throw new DomainError(401, 'Invalid credentials');
     } else if (!verdict.ok) {
+      // A second factor on the account: the form shows the code field on
+      // `is required`, and says the code was wrong on `is invalid`.
+      if (typeof verdict.reason === 'string' && verdict.reason.startsWith('otp_')) {
+        res.status(401).json(secondFactorAnswer(verdict));
+        return;
+      }
       throw new DomainError(verdict.reason === 'unavailable' ? 503 : 401, 'Invalid credentials');
     }
     const actor = verdict?.ok ? verdict.actor : (username as string);
@@ -241,11 +254,35 @@ export function createApp({
     // them into other modules (grants.ts).
     if (verdict?.ok) grants.remember(actor, verdict.permissions);
     res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
-    res.json({ ok: true, username: actor, access });
+    res.json({ ok: true, username: actor, access, ...(verdict?.ok && verdict.recoveryCodes ? { recovery_codes: verdict.recoveryCodes } : {}) });
   });
 
   // ── Everything below requires a valid session ────────────────────────
   app.use('/api', requireAuth(auth));
+
+  // The person's account, notifications and what waits for them (server/account.ts).
+  // The PS-01 token is the one `sessions` already holds for the activity feed.
+  app.use(
+    '/api',
+    accountRouter({
+      identity: identityUrl ? { url: identityUrl } : null,
+      notification,
+      vault: {
+        remember: (actor, token) => sessions.rememberIdentity(actor, token),
+        tokenFor: (actor) => sessions.identityFor(actor),
+        // Only the token: the module sessions held for the person stay.
+        forget: (actor) => sessions.forgetIdentity(actor),
+      },
+      actorOf: (res) => actorOf(res, auth),
+      inbox: (actor) =>
+        collectShellInbox(
+          actor,
+          CATALOGUE.filter((entry) => entry.id !== 'mod-15-workspace' && peers.has(entry.id)),
+          (who, moduleId) => grants.levelFor(who, moduleId),
+          (moduleId, who, access) => peers.inbox(moduleId, who, access),
+        ),
+    }),
+  );
 
   app.post('/api/logout', (_req, res) => {
     // Drop any module sessions held for this person: they were obtained so the

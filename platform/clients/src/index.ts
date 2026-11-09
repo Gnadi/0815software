@@ -11,8 +11,11 @@ export type { ClientOptions, FetchLike } from './http.js';
 export * from './types.js';
 
 export { IdentityClient } from './identity.js';
+export { secondFactorRefusal, secondFactorSetup } from './identity.js';
+export type { IdentityUser } from './identity.js';
 export { WorkflowClient } from './workflow.js';
 export { NotificationClient } from './notification.js';
+export type { NotifyEventInput, NotifyPrefs, NotifyUrgency, NotificationEntry, PushSubscriptionInput } from './notification.js';
 export { AiClient } from './ai.js';
 export { IntegrationClient } from './integration.js';
 export { FilesClient } from './files.js';

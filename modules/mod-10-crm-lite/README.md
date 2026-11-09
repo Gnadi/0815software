@@ -238,6 +238,15 @@ TLS-terminating reverse proxy and set `COOKIE_SECURE=true`. The database
 is a single file — back it up by copying it (WAL mode; a plain copy while
 stopped is safest).
 
+## Notifications and the inbox
+
+What waits for one person here (`GET /api/inbox`, the shells' badge and
+"Waiting for you") and who is told what through PS-03 — the module's rules in
+[`server/inbox-rules.ts`](./server/inbox-rules.ts), pinned by
+`test/inbox-rules.test.ts`: follow-ups due today or overdue wait for their owner; today's are in the morning briefing; a deal handed to someone (`POST /api/deals/:id/owner`, append-only) is told now. Counted from the rows on every request,
+told once per occasion (docs/NOTIFICATIONS-PLAN.md). Without `NOTIFICATION_URL`
+nothing is sent.
+
 ## Out of scope
 
 CRM Lite is deliberately small. It does **not** include, and will not

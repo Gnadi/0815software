@@ -1,3 +1,4 @@
+import { createAlert, deleteAlert, listAlerts } from './alerts.js';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { hardeningMiddleware, type HardeningConfig } from './hardening.js';
 import type Database from 'better-sqlite3';
@@ -34,7 +35,7 @@ import { moduleSummary } from './summary.js';
 import { renderChartSvg } from './charts.js';
 import { resultToCsv } from './csv.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
-import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
+import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier, deviceOf, secondFactorAnswer } from './sso.js';
 import { DomainError, nowIso } from './errors.js';
 import { computePivot } from './pivot.js';
 import { checkReportSql, QUERY_POLICY, type PolicyOptions } from './query-policy.js';
@@ -44,6 +45,9 @@ import { describeSource, runReportQuery, sourcePolicy } from './source-db.js';
 import { parseParamDefs, parseParamValues, resolveParams, validateParamDefs, validateParamValues } from './params.js';
 import { readSettings, writeSettings } from './settings.js';
 import { buildXlsx, pivotSheet, resultSheet } from './xlsx.js';
+import { inboxHandler } from './inbox.js';
+import { collectInbox } from './inbox-rules.js';
+import { MODULE_SLUG as INBOX_MODULE } from './access.js';
 
 /** A LIKE pattern that matches the term literally — see the ESCAPE clauses below. */
 function likeTerm(term: string): string {
@@ -310,17 +314,24 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   });
 
   app.post('/api/login', async (req, res) => {
-    const { username, password } = body(req);
+    const { username, password, otp } = body(req);
     // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
-    const viaSso = await verifyLogin(username, password);
+    const viaSso = await verifyLogin(username, password, otp, deviceOf(req));
     // An unreachable PS-01 is not a wrong password. Saying 401 here would tell
     // the user to check credentials that were never checked, and would let a
     // broken identity deployment look like a wave of bad logins; 503 says what
     // actually happened, to the user and to whatever is monitoring this.
     if (viaSso !== null && !viaSso.ok && viaSso.reason === 'unavailable') {
       res.status(503).json({ error: 'Identity service unavailable' });
+      return;
+    }
+    // The account has a second factor: the form shows the code field on
+    // `is required` and says the code was wrong on `is invalid`. Same answer
+    // shape as PS-01's, so a form reads one contract whichever it talks to.
+    if (viaSso !== null && !viaSso.ok && typeof viaSso.reason === 'string' && viaSso.reason.startsWith('otp_')) {
+      res.status(401).json(secondFactorAnswer(viaSso));
       return;
     }
     // Who signed in: the PS-01 identity when SSO validated it, the local admin
@@ -342,7 +353,7 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
     // a PS-01 identity gets what its module permissions grant.
     const access = viaSso !== null && viaSso.ok ? viaSso.access : 'manage';
     res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
-    res.json({ ok: true, username: actor, access });
+    res.json({ ok: true, username: actor, access, ...(viaSso?.ok && viaSso.recoveryCodes ? { recovery_codes: viaSso.recoveryCodes } : {}) });
   });
 
   // ── Public chart embed: HMAC-signed per chart id, NO session ─────────
@@ -400,6 +411,10 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
   }
 
   // What this module looks like on a shell's board (shared/summary.ts).
+  // What waits for one person here — for a shell's badge and "Waiting for
+  // you" page (server/inbox.ts, shared/summary.ts). The stack token only.
+  app.get('/api/inbox', inboxHandler(serviceToken, INBOX_MODULE, (person, level) => collectInbox(db, person, level)));
+
   app.get('/api/summary', (req, res, next) => {
   // Only ours when a machine token is actually presented.
     //
@@ -760,12 +775,28 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
       );
     } else {
       db.prepare(
-        `INSERT INTO schedules (report_id, interval, format, enabled, param_values, last_run_at, created_at)
-         VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-      ).run(report.id, interval, format, enabled, values, nowIso());
+        `INSERT INTO schedules (report_id, interval, format, enabled, param_values, last_run_at, created_at, created_by)
+         VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`,
+      ).run(report.id, interval, format, enabled, values, nowIso(), actorOf(res, auth));
     }
     const saved = db.prepare('SELECT * FROM schedules WHERE report_id = ?').get(report.id) as ScheduleRow;
     res.json(scheduleRow(db, saved));
+  });
+
+  // ── Alerts: a person's thresholds on a report's figure (server/alerts.ts) ──
+  app.get('/api/reports/:id/alerts', (req, res) => {
+    res.json({ alerts: listAlerts(db, Number(req.params.id), actorOf(res, auth)) });
+  });
+
+  app.post('/api/reports/:id/alerts', (req, res) => {
+    const report = db.prepare('SELECT id FROM reports WHERE id = ?').get(Number(req.params.id)) as { id: number } | undefined;
+    if (!report) throw new DomainError(404, 'Report not found');
+    res.status(201).json(createAlert(db, report.id, actorOf(res, auth), body(req), nowIso()));
+  });
+
+  app.delete('/api/alerts/:id', (req, res) => {
+    deleteAlert(db, Number(req.params.id), actorOf(res, auth));
+    res.json({ ok: true });
   });
 
   app.delete('/api/schedules/:id', (req, res) => {
@@ -816,7 +847,15 @@ export function createApp({ db, hardening, sourceDb, sourceViewsOnly = false, au
 
   // ── Static client (production build) ─────────────────────────────────
   if (staticDir) {
-    app.use(express.static(staticDir));
+    app.use(
+      express.static(staticDir, {
+        // The service worker and the page that loads it are checked on every
+        // visit, so a new deployment reaches an installed app on its next start.
+        setHeaders(res, file) {
+          if (file.endsWith('sw.js') || file.endsWith('index.html') || file.endsWith('.webmanifest')) res.setHeader('Cache-Control', 'no-cache');
+        },
+      }),
+    );
     app.use((req, res, next) => {
       if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/embed')) {
         res.sendFile('index.html', { root: staticDir });

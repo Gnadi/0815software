@@ -10,6 +10,10 @@ import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
 import { startReminderScheduler } from './reminders.js';
+import { buildPeople } from './people.js';
+import { startWatch } from './watch.js';
+import { watchTime } from './inbox-rules.js';
+import { MODULE_SLUG } from './access.js';
 
 const config = configFromEnv();
 assertProductionConfig([
@@ -31,6 +35,18 @@ const staticDir = candidates.find((dir) => existsSync(resolve(dir, 'index.html')
 
 const platform = buildPlatform(config.platform);
 const app = createApp({ db, hardening: hardeningFromEnv(), auth: config.auth, staticDir, platform, verifyLogin: buildLoginVerifier(config.sso), loginMode: loginModeOf(config.sso), serviceToken: config.platform.serviceToken, shellOrigins: config.shellOrigins });
+
+
+// Notifications to people and the clock checks behind them
+// (server/inbox-rules.ts) — only with PS-03 wired; otherwise nothing runs.
+const people = buildPeople({
+  module: MODULE_SLUG,
+  notificationUrl: config.platform.notificationUrl,
+  identityUrl: config.sso.identityUrl,
+  identityOrg: config.sso.identityOrg,
+  serviceToken: config.platform.serviceToken,
+});
+startWatch(db, people, watchTime);
 
 app.listen(config.port, () => {
   console.log(`[mod-11] time tracking API on http://localhost:${config.port}`);

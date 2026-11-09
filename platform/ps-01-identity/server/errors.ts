@@ -12,11 +12,14 @@ import type { FieldError } from '../shared/types.js';
 export class DomainError extends Error {
   status: number;
   details: FieldError[];
-  constructor(status: number, message: string, details: FieldError[] = []) {
+  /** Further top-level fields of the error body (the second-factor setup). */
+  extra: Record<string, unknown>;
+  constructor(status: number, message: string, details: FieldError[] = [], extra: Record<string, unknown> = {}) {
     super(message);
     this.name = 'DomainError';
     this.status = status;
     this.details = details;
+    this.extra = extra;
   }
 }
 

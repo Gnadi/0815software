@@ -61,8 +61,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export type AuthMode = { sso: false } | { sso: true; org: string };
 
 export const api = {
-  login: (username: string, password: string) =>
-    request<{ ok: true }>('/api/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  login: (username: string, password: string, otp?: string) =>
+    request<{ ok: true; recovery_codes?: string[] }>('/api/login', { method: 'POST', body: JSON.stringify({ username, password, ...(otp ? { otp } : {}) }) }),
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
   /** Which credentials this deployment accepts — readable before signing in. */
   authMode: () => request<AuthMode>('/api/auth-mode'),

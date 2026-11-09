@@ -187,6 +187,28 @@ docker compose ps            # every container should become healthy
 DNS for the platform domain **and every module subdomain** must point at the host
 before the first start, or Caddy cannot complete the ACME challenge.
 
+### Phones, push and two-factor sign-in
+
+Reaching the stack from outside the office is the point of serving it over
+HTTPS on its own domain — so, before people use it on their phones:
+
+- **Require two-factor sign-in** (a shell → Account → Administration). Each
+  person sets it up at their next sign-in, in whichever module they open.
+- **Push** works out of the box when PS-03 is in the stack: the generator
+  mints `PS03_VAPID_PRIVATE_KEY` (keep it — rotating it orphans every
+  device's subscription) and sets `VAPID_SUBJECT` to the ACME contact.
+  PS-03 must reach the browsers' push services (`fcm.googleapis.com`,
+  `updates.push.services.mozilla.com`, `web.push.apple.com`,
+  `*.notify.windows.com`) through the host's firewall.
+- **Who hears about the stack itself** — a module down, a failed backup — is
+  set in Account → Administration ("Stack alerts go to"). With the
+  monitoring profile, Alertmanager sends there as well as to the operator's
+  receiver.
+- **MOD-07 shop orders** are announced to `ORDER_NOTIFY_RECIPIENTS`
+  (comma-separated emails) — the shop signs its staff in itself.
+- **Every module installs as an app** ("Add to Home Screen"). On an iPhone,
+  push only reaches the installed app, never a Safari tab.
+
 ## 5. Upgrade
 
 ```sh

@@ -16,3 +16,7 @@ backup.env
 backup-status.json
 .backup-work/
 /deploy/restore-*/
+
+# Screenshots deploy/mobile-check.mjs leaves of views that fail on a phone.
+deploy/mobile-shots/
+mobile-shots/

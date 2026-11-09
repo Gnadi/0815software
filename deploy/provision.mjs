@@ -330,8 +330,14 @@ export function planStack(options, { secret = newSecret, now = () => new Date() 
       env[secretName] =
         secretName === STACK_MACHINE_TOKEN ? '${PLATFORM_SERVICE_TOKEN}' : `\${${prefix}${secretName}}`;
     }
+    if (service.id === 'ps-03-notification-hub') {
+      // Push services reject a VAPID token without a contact (RFC 8292 §2.1).
+      env.VAPID_SUBJECT = `mailto:${options.acmeEmail ?? `ops@${options.domain}`}`;
+    }
     if (service.id === 'ps-01-identity') {
       env.SELF_BASE_URL = `https://${options.domain}${service.routePrefix}`;
+      // Security events to the person (new device, factor off, …) go through PS-03.
+      if (serviceById.has('ps-03-notification-hub')) env.NOTIFICATION_URL = internalUrlOf(serviceById.get('ps-03-notification-hub'));
     } else if (serviceById.has('ps-01-identity')) {
       // Identity seam on: PS-01-issued sessions are accepted by this service.
       env.IDENTITY_URL = internalUrlOf(serviceById.get('ps-01-identity'));
@@ -530,6 +536,14 @@ export function renderCompose(plan, buildContext) {
     restart: 'unless-stopped',
     volumes: ['./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro', 'alertmanager-data:/alertmanager'],
     networks: ['platform'],
+    // The stack token PS-03 accepts alerts with, written to a file at start —
+    // never into alertmanager.yml, which is meant to be edited and shared.
+    environment: { STACK_TOKEN: '${PLATFORM_SERVICE_TOKEN}' },
+    entrypoint: ['/bin/sh', '-c'],
+    command: [
+      'umask 077 && printf %s "$$STACK_TOKEN" > /alertmanager/stack-token && ' +
+        'exec /bin/alertmanager --config.file=/etc/alertmanager/alertmanager.yml --storage.path=/alertmanager',
+    ],
   };
   services.blackbox = {
     image: 'prom/blackbox-exporter:v0.25.0',
@@ -807,9 +821,23 @@ route:
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 12h
-
+${plan.services.some((s) => s.service.id === 'ps-03-notification-hub') ? `  # ALSO to the administrators' phones through PS-03 (its ops recipients are
+  # set in a shell's Account → Administration). In addition, never instead:
+  # \`continue: true\` keeps the operator receiver above the primary path.
+  routes:
+    - receiver: phones
+      continue: true
+` : ''}
 receivers:
-  - name: operator
+${plan.services.some((s) => s.service.id === 'ps-03-notification-hub') ? `  - name: phones
+    webhook_configs:
+      - url: ${internalUrlOf(plan.services.find((s) => s.service.id === 'ps-03-notification-hub').service)}/api/alerts/alertmanager
+        send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /alertmanager/stack-token
+` : ''}  - name: operator
     # Replace with a real target. Examples:
     #
     # email_configs:

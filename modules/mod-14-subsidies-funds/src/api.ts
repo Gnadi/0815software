@@ -58,8 +58,8 @@ export const EXPORT_URL = '/api/export/applications.csv';
 export type AuthMode = { sso: false } | { sso: true; org: string };
 
 export const api = {
-  login: (username: string, password: string) =>
-    request<{ ok: true; admin: string }>('/api/login', post({ username, password })),
+  login: (username: string, password: string, otp?: string) =>
+    request<{ ok: true; recovery_codes?: string[]; admin: string }>('/api/login', post({ username, password, ...(otp ? { otp } : {}) })),
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
   /** Which credentials this deployment accepts — readable before signing in. */
   authMode: () => request<AuthMode>('/api/auth-mode'),

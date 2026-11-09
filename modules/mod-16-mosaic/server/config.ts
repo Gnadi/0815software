@@ -171,6 +171,9 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       // narrow by a customer and no feed to read — it writes what a person did
       // to their own screen, and reads nothing back.
       auditUrl: env.AUDIT_URL || undefined,
+      // PS-03, for the person's notifications: devices, briefing and wrap-up,
+      // what waits for them (server/account.ts).
+      notificationUrl: env.NOTIFICATION_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
   };

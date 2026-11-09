@@ -229,6 +229,12 @@ export interface MatchSettings {
   receiving_warehouse: string | null;
   /** Also match the invoice line by line, when MOD-04 sends its lines. */
   line_matching: boolean;
+  /**
+   * A PO submitted for approval at or above this total (cents) reaches the
+   * approvers at once; below it, in their next briefing or wrap-up. Null:
+   * always in the digest. The administrator's call (docs/NOTIFICATIONS-PLAN.md).
+   */
+  notify_now_from_cents: number | null;
 }
 
 /** One line of what has been invoiced against the PO so far, as MOD-04 sends it. */

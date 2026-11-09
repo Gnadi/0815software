@@ -18,6 +18,8 @@ import { AuditClient, FilesClient, SearchClient, ServiceError } from '@0815softw
  */
 
 export interface PlatformConfig {
+  /** PS-03 — read by server/people.ts for notifications to people. */
+  notificationUrl?: string;
   filesUrl?: string;
   auditUrl?: string;
   searchUrl?: string;

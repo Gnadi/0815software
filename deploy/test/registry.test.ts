@@ -255,6 +255,9 @@ describe.each(services.map((s: any) => [s.id, s] as const))('service %s does not
       // undecryptable, and the recovery is a new key exchange with the bank on
       // paper. It must be in the registry so provisioning declares it.
       'EBICS_KEY_SECRET',
+      // PS-03's Web Push key (RFC 8292). Rotating it orphans every device
+      // subscription in the stack: browsers subscribed to the old public key.
+      'VAPID_PRIVATE_KEY',
     ]);
     const fromCode = [...read].filter((name) => secretish.has(name)).sort();
     expect([...svc.secrets].sort()).toEqual(fromCode);

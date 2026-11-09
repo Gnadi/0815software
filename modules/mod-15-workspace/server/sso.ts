@@ -1,4 +1,11 @@
-import { accessLevelFor, IdentityClient, ServiceError, type AccessLevel } from '@0815software/platform-clients';
+import {
+  accessLevelFor,
+  IdentityClient,
+  secondFactorRefusal,
+  secondFactorSetup,
+  ServiceError,
+  type AccessLevel,
+} from '@0815software/platform-clients';
 import { MODULE_SLUG } from './access.js';
 
 /**
@@ -21,6 +28,8 @@ export type LoginOutcome =
       actor: string;
       /** What PS-01 says they may do in this module. */
       access: AccessLevel;
+      /** Set when this sign-in enrolled the second factor: shown to the person once. */
+      recoveryCodes: string[] | null;
       /**
        * The PS-01 session token that validated this login.
        *
@@ -42,9 +51,30 @@ export type LoginOutcome =
        */
       permissions: string[];
     }
-  | { ok: false; reason: 'rejected' | 'unavailable' }
+  /**
+   * `otp_required`: the password was right and the account has a second
+   * factor — the form asks for the code. `otp_setup`: the organization
+   * requires one this person has not set up — `setup` carries the QR code's
+   * content, and the next code switches it on. `otp_invalid`: the code was
+   * wrong (with `setup` again while enrolling, so the QR code stays shown).
+   */
+  | {
+      ok: false;
+      reason: 'rejected' | 'unavailable' | 'otp_required' | 'otp_invalid' | 'otp_setup';
+      setup?: { secret: string; otpauth_uri: string } | null;
+    }
   | null;
-export type LoginVerifier = (username: unknown, password: unknown) => Promise<LoginOutcome>;
+/** What the browser said about itself — PS-01 tells the person about a new device. */
+export interface LoginDevice {
+  user_agent?: string;
+  ip?: string;
+}
+export type LoginVerifier = (
+  username: unknown,
+  password: unknown,
+  otp?: unknown,
+  device?: LoginDevice,
+) => Promise<LoginOutcome>;
 
 export interface SsoConfig {
   /** PS-01 base URL. Unset -> SSO off (local credentials). */
@@ -90,10 +120,13 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
   const org = target.org;
   const permission = cfg.identityPermission;
   const client = new IdentityClient({ baseUrl: target.url });
-  return async (username, password): Promise<LoginOutcome> => {
+  return async (username, password, otp, device): Promise<LoginOutcome> => {
     if (typeof username !== 'string' || typeof password !== 'string') return { ok: false, reason: 'rejected' };
     try {
-      const { token, user } = await client.login(org, username, password);
+      // The second factor (PS-01 server/mfa.ts) is checked there, not here:
+      // this module only carries the code across, as it does the password.
+      const code = typeof otp === 'string' && otp.trim() !== '' ? otp.trim() : undefined;
+      const { token, user, recovery_codes } = await client.login(org, username, password, code, device);
       const verdict = await client.verify(token);
       if (!verdict.valid) return { ok: false, reason: 'rejected' };
       // PS-01 returns the principal's permissions on verify (Phase 1).
@@ -108,7 +141,7 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
       if (access === null) return { ok: false, reason: 'rejected' };
       // The PS-01 email is the identity worth recording: stable, unique within
       // the organization, and readable by whoever reads the trail later.
-      return { ok: true, actor: user.email, access, identityToken: token, permissions: perms };
+      return { ok: true, actor: user.email, access, recoveryCodes: recovery_codes ?? null, identityToken: token, permissions: perms };
     } catch (err) {
       // Both fail closed — SSO, once configured, is never silently bypassed by
       // the local fallback. They are not the same answer to the caller though.
@@ -125,6 +158,11 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
       // permission, 422 for a malformed request. A 5xx is the service failing,
       // and a 429 is it declining to answer yet; neither says anything about
       // whether the password was right.
+      const factor = secondFactorRefusal(err);
+      if (factor !== null) {
+        const reason = factor === 'required' ? 'otp_required' : factor === 'setup' ? 'otp_setup' : 'otp_invalid';
+        return { ok: false, reason, setup: secondFactorSetup(err) };
+      }
       const verdictAboutTheCredential =
         err instanceof ServiceError && err.status >= 400 && err.status < 500 && err.status !== 429;
       if (verdictAboutTheCredential) return { ok: false, reason: 'rejected' };
@@ -132,4 +170,30 @@ export function buildLoginVerifier(cfg: SsoConfig): LoginVerifier {
       return { ok: false, reason: 'unavailable' };
     }
   };
+}
+
+/** The device hint a login carries to PS-01: what the browser says it is. */
+export function deviceOf(req: { headers: Record<string, unknown>; ip?: string }): LoginDevice {
+  const ua = req.headers['user-agent'];
+  return { ...(typeof ua === 'string' ? { user_agent: ua.slice(0, 400) } : {}), ...(req.ip ? { ip: req.ip } : {}) };
+}
+
+/**
+ * The 401 a login form reads to ask for the code, show the QR code to set
+ * one up, or say the code was wrong — PS-01's contract, with the setup in the
+ * `otp` detail so every form finds it in the one place it already looks.
+ */
+export function secondFactorAnswer(outcome: { reason: string; setup?: { secret: string; otpauth_uri: string } | null }): {
+  error: string;
+  details: { field: string; message: string; setup?: { secret: string; otpauth_uri: string } }[];
+} {
+  const message =
+    outcome.reason === 'otp_required' ? 'is required' : outcome.reason === 'otp_setup' ? 'must be set up' : 'is invalid';
+  const error =
+    outcome.reason === 'otp_required'
+      ? 'Second factor required'
+      : outcome.reason === 'otp_setup'
+        ? 'Set up two-factor sign-in to continue'
+        : 'Invalid code';
+  return { error, details: [{ field: 'otp', message, ...(outcome.setup ? { setup: outcome.setup } : {}) }] };
 }

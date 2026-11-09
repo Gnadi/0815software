@@ -381,6 +381,15 @@ This is an *internal* tool — put it behind your VPN or reverse proxy.
 - Not a fit for serverless platforms: SQLite wants a persistent
   filesystem.
 
+## Notifications and the inbox
+
+What waits for one person here (`GET /api/inbox`, the shells' badge and
+"Waiting for you") and who is told what through PS-03 — the module's rules in
+[`server/inbox-rules.ts`](./server/inbox-rules.ts), pinned by
+`test/inbox-rules.test.ts`: submitted POs wait for the approvers (`manage`, never the submitter) and are told at once from the amount the administrator sets in the matching settings, else in the digest; the final approval or a rejection reaches the submitter now; goods received, in the digest. Counted from the rows on every request,
+told once per occasion (docs/NOTIFICATIONS-PLAN.md). Without `NOTIFICATION_URL`
+nothing is sent.
+
 ## Out of scope
 
 Kept out deliberately to stay a 4–6 week module. If you need any of

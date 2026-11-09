@@ -79,6 +79,8 @@ export interface DealRow {
 }
 
 export interface DealDetail extends DealRow {
+  /** Who looks after it — the latest assignment (server/deals.ts), or nobody. */
+  owner: string | null;
   stage_events: StageEvent[];
   activities: Activity[];
 }

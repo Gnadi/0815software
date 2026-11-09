@@ -1,6 +1,7 @@
 import type { AuthConfig } from './auth.js';
 import { egressPolicyFromEnv, type EgressPolicy } from './egress.js';
 import type { TwilioConfig } from './providers/twilio-sms.js';
+import { DEFAULT_PUSH_HOSTS, vapidPublicKey } from './webpush.js';
 
 export interface ServerConfig {
   /** Which chat-webhook targets a channel may post to. */
@@ -16,6 +17,33 @@ export interface ServerConfig {
   tickIntervalMs: number;
   /** Days to keep terminal (sent/dead) messages; pruned on tick. 0 = keep. */
   retentionDays: number;
+  /**
+   * The stack's VAPID key pair (RFC 8292), private half. Unset = no push:
+   * events still reach people by mail and digest.
+   */
+  vapid: { privateKey: string; subject: string } | null;
+  /** Push services a browser subscription may point at. */
+  pushAllowedHosts: string[];
+}
+
+/**
+ * The VAPID private key: a 32-byte P-256 scalar, base64url — or 64 hex
+ * characters, which is what `deploy/provision.mjs` mints for every secret.
+ * Anything else stops the start, since a key that cannot sign would let every
+ * push fail one by one in the logs instead of once, here.
+ */
+function vapidKeyFromEnv(raw: string | undefined): string | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const value = raw.trim();
+  const bytes = /^[0-9a-f]{64}$/i.test(value) ? Buffer.from(value, 'hex') : Buffer.from(value, 'base64url');
+  if (bytes.length !== 32) throw new Error('VAPID_PRIVATE_KEY must be 32 bytes, as base64url or 64 hex characters');
+  const key = bytes.toString('base64url');
+  try {
+    vapidPublicKey(key);
+  } catch {
+    throw new Error('VAPID_PRIVATE_KEY is not a valid P-256 private key');
+  }
+  return key;
 }
 
 /**
@@ -72,5 +100,19 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
     twilio,
     tickIntervalMs: numberFromEnv('TICK_INTERVAL_MS', env.TICK_INTERVAL_MS, 0, 0, 86400000),
     retentionDays: numberFromEnv('RETENTION_DAYS', env.RETENTION_DAYS, 0, 0, 3650),
+    vapid: (() => {
+      const privateKey = vapidKeyFromEnv(env.VAPID_PRIVATE_KEY);
+      if (!privateKey) return null;
+      const subject = env.VAPID_SUBJECT?.trim() || 'mailto:notifications@localhost';
+      if (!/^(mailto:|https:)/.test(subject)) throw new Error('VAPID_SUBJECT must be a mailto: or https: URL');
+      return { privateKey, subject };
+    })(),
+    pushAllowedHosts: [
+      ...DEFAULT_PUSH_HOSTS,
+      ...(env.PUSH_ALLOWED_HOSTS ?? '')
+        .split(',')
+        .map((h) => h.trim().toLowerCase())
+        .filter(Boolean),
+    ],
   };
 }

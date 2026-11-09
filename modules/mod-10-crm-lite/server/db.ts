@@ -102,6 +102,21 @@ export function openDb(path: string): Database.Database {
   // wired. Null in a standalone deployment, which is why it is nullable.
   const columns = (table: string): string[] =>
     (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name);
+  // Who a follow-up is for — the person reminded when it falls due. Set when
+  // it is written, like the rest of the row; null on older ones (nobody).
+  if (!columns('activities').includes('owner')) db.exec('ALTER TABLE activities ADD COLUMN owner TEXT');
+  // Who looks after a deal: append-only, the current owner is the latest row
+  // (derived, never a column that could disagree with its own history).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS deal_assignments (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      deal_id    INTEGER NOT NULL REFERENCES deals(id) ON DELETE CASCADE,
+      owner      TEXT,
+      actor      TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_deal_assignments_deal ON deal_assignments (deal_id, id);
+  `);
   if (!columns('companies').includes('party_id')) {
     db.exec('ALTER TABLE companies ADD COLUMN party_id INTEGER');
     db.exec('CREATE INDEX IF NOT EXISTS idx_companies_party ON companies (party_id)');

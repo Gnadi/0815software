@@ -198,14 +198,22 @@ describe('the monitoring containers', () => {
     expect(compose).toContain('  prometheus-data:');
   });
 
-  it('does not route alerts through the stack it is watching', () => {
+  it('does not route alerts ONLY through the stack it is watching', () => {
     // PS-03 could send the mail, and would be unable to exactly when it counts.
-    // The generated file explains that in a comment; what must not appear is a
-    // receiver actually pointing back into the stack.
+    // So the operator's receiver stays the primary route and the one the
+    // operator must fill in; PS-03 (the administrators' phones) may only be an
+    // ADDITIONAL route that lets the alert carry on to the operator.
     const config = renderAlertmanager(plan);
-    const receivers = config.slice(config.indexOf('receivers:'));
-    expect(receivers).not.toMatch(/ps0\d|:40\d\d/);
+    expect(config).toMatch(/route:\n  receiver: operator\n/);
     expect(config).toContain(PLACEHOLDER); // the receiver is the operator's to fill in
+    const operator = config.slice(config.indexOf('  - name: operator'));
+    expect(operator).not.toMatch(/ps0\d|:40\d\d/);
+    if (config.includes('name: phones')) {
+      expect(config).toMatch(/- receiver: phones\n      continue: true/);
+      // The token is read from a file, never written into this shared file.
+      expect(config).toContain('credentials_file:');
+      expect(config).not.toMatch(/credentials: /);
+    }
   });
 
   it('probes with a config the blackbox exporter understands', () => {

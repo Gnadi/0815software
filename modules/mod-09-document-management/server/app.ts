@@ -75,6 +75,8 @@ import {
 } from './retention.js';
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
+import { inboxHandler } from './inbox.js';
+import { collectInbox } from './inbox-rules.js';
 
 interface UserRow {
   id: number;
@@ -233,6 +235,10 @@ export function createApp({
     const b = Buffer.from(serviceToken ?? '');
     return a.length === b.length && timingSafeEqual(a, b);
   };
+
+  // What waits for one person here — for a shell's badge and "Waiting for
+  // you" page (server/inbox.ts, shared/summary.ts). The stack token only.
+  app.get('/api/inbox', inboxHandler(serviceToken, 'document-management', (person, level) => collectInbox(db, person, level)));
 
   app.get('/api/summary', (req, res, next) => {
   // Only ours when a machine token is actually presented.
@@ -708,7 +714,15 @@ export function createApp({
 
   // ── Static client (production build) ─────────────────────────────────
   if (staticDir) {
-    app.use(express.static(staticDir));
+    app.use(
+      express.static(staticDir, {
+        // The service worker and the page that loads it are checked on every
+        // visit, so a new deployment reaches an installed app on its next start.
+        setHeaders(res, file) {
+          if (file.endsWith('sw.js') || file.endsWith('index.html') || file.endsWith('.webmanifest')) res.setHeader('Cache-Control', 'no-cache');
+        },
+      }),
+    );
     app.use((req, res, next) => {
       if (req.method === 'GET' && !req.path.startsWith('/api')) {
         res.sendFile('index.html', { root: staticDir });

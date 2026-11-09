@@ -54,6 +54,8 @@ import { noopPlatform, type PlatformHooks } from './platform.js';
 import { likeTerm } from './store.js';
 import { parseSummaryContext } from '../shared/summary.js';
 import { moduleSummary } from './summary.js';
+import { inboxHandler } from './inbox.js';
+import { collectInbox } from './inbox-rules.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -158,9 +160,11 @@ export interface AppOptions {
    * staff, so it is not embeddable.
    */
   serviceToken?: string;
+  /** Who is told of a new shop order, and sees open ones waiting (ORDER_NOTIFY_RECIPIENTS). */
+  orderNotifyRecipients?: string[];
 }
 
-export function createApp({ db, hardening, auth, staticDir, platform = noopPlatform, serviceToken }: AppOptions): express.Express {
+export function createApp({ db, hardening, auth, staticDir, platform = noopPlatform, serviceToken, orderNotifyRecipients = [] }: AppOptions): express.Express {
   const app = express();
 
   // Transport hardening: security headers, a default-deny CORS policy and
@@ -357,6 +361,10 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     const b = Buffer.from(serviceToken ?? '');
     return a.length === b.length && timingSafeEqual(a, b);
   };
+
+  // What waits for one person here — for a shell's badge and "Waiting for
+  // you" page (server/inbox.ts, shared/summary.ts). The stack token only.
+  app.get('/api/inbox', inboxHandler(serviceToken, 'storefront', (person, level) => collectInbox(db, person, level, orderNotifyRecipients)));
 
   app.get('/api/summary', (req, res, next) => {
   // Only ours when a machine token is actually presented.
@@ -615,7 +623,15 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
 
   // ── Static client (production build) ─────────────────────────────────
   if (staticDir) {
-    app.use(express.static(staticDir));
+    app.use(
+      express.static(staticDir, {
+        // The service worker and the page that loads it are checked on every
+        // visit, so a new deployment reaches an installed app on its next start.
+        setHeaders(res, file) {
+          if (file.endsWith('sw.js') || file.endsWith('index.html') || file.endsWith('.webmanifest')) res.setHeader('Cache-Control', 'no-cache');
+        },
+      }),
+    );
     app.use((req, res, next) => {
       if (req.method === 'GET' && !req.path.startsWith('/api')) {
         res.sendFile('index.html', { root: staticDir });

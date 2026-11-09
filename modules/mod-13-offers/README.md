@@ -392,3 +392,13 @@ who, and only because it holds the machine token and was named here.
 With both unset — the default, and what a standalone install runs — the summary
 endpoint is closed, the handoff routes are not mounted, and framing is denied
 outright. See [`docs/SHELL-CONTRACT.md`](../../docs/SHELL-CONTRACT.md).
+
+## Notifications and the inbox
+
+What waits for one person here (`GET /api/inbox`, the shells' badge and
+"Waiting for you") and who is told what through PS-03 — the module's rules in
+[`server/inbox-rules.ts`](./server/inbox-rules.ts), pinned by
+`test/inbox-rules.test.ts`: offers about to lapse wait for whoever sent them; an acceptance is told now, a rejection and a lapsing offer in the digest. Counted from the rows on every request,
+told once per occasion (docs/NOTIFICATIONS-PLAN.md). Without `NOTIFICATION_URL`
+nothing is sent.
+

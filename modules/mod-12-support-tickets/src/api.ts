@@ -101,8 +101,8 @@ export const api = {
     `/api/public/tickets/${encodeURIComponent(ref)}/attachments/${id}?token=${encodeURIComponent(token)}`,
 
   // ── Agent session ──────────────────────────────────────────────────
-  login: (username: string, password: string) =>
-    request<{ ok: true; agent: string }>('/api/login', post({ username, password })),
+  login: (username: string, password: string, otp?: string) =>
+    request<{ ok: true; recovery_codes?: string[]; agent: string }>('/api/login', post({ username, password, ...(otp ? { otp } : {}) })),
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
   /** Which credentials this deployment accepts — readable before signing in. */
   authMode: () => request<AuthMode>('/api/auth-mode'),

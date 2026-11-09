@@ -55,6 +55,10 @@ export function exportSubject(
     records.auth_events = db
       .prepare('SELECT id, type, ip, meta, created_at FROM auth_events WHERE user_id = ? ORDER BY id')
       .all(user.id);
+    // The coarse device labels kept to spot a new one ("Safari on iOS").
+    records.known_devices = db
+      .prepare('SELECT label, first_seen, last_seen FROM known_devices WHERE user_id = ? ORDER BY id')
+      .all(user.id);
     records.api_keys = db
       .prepare('SELECT id, name, prefix, created_at, last_used_at, revoked_at FROM api_keys WHERE created_by = ? ORDER BY id')
       .all(user.id);

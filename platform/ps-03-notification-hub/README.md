@@ -30,6 +30,46 @@ only).
   delivered on `POST /api/tick` with an exponential backoff schedule and
   dead-lettering after `MAX_ATTEMPTS`. Idempotency keys dedupe sends.
 
+## People, not only addresses
+
+Besides delivering a message to an address, PS-03 decides whether a PERSON
+should be interrupted — now, in the morning briefing or the end-of-day
+wrap-up, or not at all — and on which device (docs/NOTIFICATIONS-PLAN.md).
+
+- **Web Push** on Node's crypto: message encryption per RFC 8291
+  (`aes128gcm`, RFC 8188) and VAPID per RFC 8292 (`server/webpush.ts`),
+  pinned byte for byte to the RFC 8291 Appendix A vector. Endpoints are
+  limited to the browsers' push services (`PUSH_ALLOWED_HOSTS` adds more).
+- **Events** from the modules (`POST /api/events`, service token): module,
+  kind, category, urgency `now` · `digest` · `badge`, recipients, a title safe
+  on a lock screen and a detail that is not. The person who caused it is
+  never told; the same key for the same person is one notification.
+- **Preferences** per person over the administrator's defaults: briefing and
+  wrap-up times, working days, quiet hours, push / mail / both, details on the
+  lock screen, muted categories. Security and on-call events pass quiet hours;
+  security events pass mutes.
+- **The tick** pushes what is due, falls back to mail when no device takes
+  it, sends each digest once per person, kind and local date, drops dead
+  subscriptions, and forgets handled notifications after 60 days.
+- **The stack about itself** (`server/ops.ts`): Alertmanager's webhook and
+  `POST /api/ops/events` (a failed backup) reach the administrators named in
+  `ops_recipients`, through quiet hours — in addition to the operator's own
+  alert channel, never instead of it.
+
+| Method & path | Auth | Purpose |
+| --- | --- | --- |
+| `GET /api/push/public-key` | none | The VAPID public key browsers subscribe with (null without `VAPID_PRIVATE_KEY`). |
+| `POST /api/events` | service token | Report an event for people. |
+| `POST /api/push/subscriptions` · `GET` · `POST …/remove` | service token | A person's devices (a shell on their behalf). |
+| `GET/PUT /api/prefs` | service token | A person's preferences (overrides only are stored). |
+| `GET/PUT /api/notify/settings` | service token | Defaults, mail channel, `ops_recipients`. |
+| `GET /api/notifications` | service token | A person's recent notifications. |
+| `POST /api/ops/events` · `POST /api/alerts/alertmanager` | service token (Bearer for Alertmanager) | The stack about itself. |
+
+Settings: `VAPID_PRIVATE_KEY` (32 bytes, base64url or 64 hex characters —
+unset means no push, mail and digests only; rotating it orphans every
+subscription), `VAPID_SUBJECT` (`mailto:` or `https:`), `PUSH_ALLOWED_HOSTS`.
+
 ## Stack
 
 | Layer   | Choice                                      |

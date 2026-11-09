@@ -69,6 +69,73 @@ export const MIGRATIONS: Migration[] = [
     `);
     },
   },
+  {
+    id: 2,
+    name: 'person-notifications',
+    up(db) {
+      // server/notify.ts: devices, preferences, events addressed to a person,
+      // and which digests went out. A digest row is claimed BEFORE it is
+      // sent, so two overlapping ticks cannot both send the morning briefing.
+      db.exec(`
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        recipient    TEXT    NOT NULL,
+        endpoint     TEXT    NOT NULL UNIQUE,
+        p256dh       TEXT    NOT NULL,
+        auth         TEXT    NOT NULL,
+        device       TEXT,
+        created_at   TEXT    NOT NULL,
+        last_sent_at TEXT,
+        failures     INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_push_subscriptions_recipient ON push_subscriptions(recipient);
+
+      CREATE TABLE IF NOT EXISTS notify_settings (
+        id         INTEGER PRIMARY KEY CHECK (id = 1),
+        settings   TEXT    NOT NULL,
+        updated_at TEXT    NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS notify_prefs (
+        recipient  TEXT PRIMARY KEY,
+        prefs      TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS notify_events (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        module          TEXT    NOT NULL,
+        kind            TEXT    NOT NULL,
+        category        TEXT    NOT NULL,
+        urgency         TEXT    NOT NULL CHECK (urgency IN ('now','digest','badge')),
+        oncall          INTEGER NOT NULL DEFAULT 0,
+        security        INTEGER NOT NULL DEFAULT 0,
+        recipient       TEXT    NOT NULL,
+        title           TEXT    NOT NULL,
+        detail          TEXT,
+        href            TEXT,
+        idempotency_key TEXT    NOT NULL,
+        state           TEXT    NOT NULL
+                        CHECK (state IN ('pending','digest','pushed','emailed','counted','muted','digested')),
+        created_at      TEXT    NOT NULL,
+        delivered_at    TEXT,
+        UNIQUE (recipient, idempotency_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_notify_events_state ON notify_events(state, recipient);
+      CREATE INDEX IF NOT EXISTS idx_notify_events_recipient ON notify_events(recipient, id);
+
+      CREATE TABLE IF NOT EXISTS notify_digests (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        recipient  TEXT    NOT NULL,
+        kind       TEXT    NOT NULL CHECK (kind IN ('briefing','wrapup')),
+        local_date TEXT    NOT NULL,
+        item_count INTEGER NOT NULL,
+        created_at TEXT    NOT NULL,
+        UNIQUE (recipient, kind, local_date)
+      );
+    `);
+    },
+  },
 ];
 
 /** Open (or create) the database, apply pragmas, and run pending migrations. */

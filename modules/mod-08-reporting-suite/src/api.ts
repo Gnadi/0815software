@@ -87,8 +87,8 @@ export interface SourceSchema {
 export type AuthMode = { sso: false } | { sso: true; org: string };
 
 export const api = {
-  login: (username: string, password: string) =>
-    request<{ ok: true }>('/api/login', post({ username, password })),
+  login: (username: string, password: string, otp?: string) =>
+    request<{ ok: true; recovery_codes?: string[] }>('/api/login', post({ username, password, ...(otp ? { otp } : {}) })),
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
   /** Which credentials this deployment accepts — readable before signing in. */
   authMode: () => request<AuthMode>('/api/auth-mode'),
@@ -125,6 +125,12 @@ export const api = {
   upsertSchedule: (reportId: number, values: Record<string, unknown>) =>
     request<ScheduleRow>(`/api/schedules/report/${reportId}`, put(values)),
   deleteSchedule: (id: number) => request<{ ok: true }>(`/api/schedules/${id}`, { method: 'DELETE' }),
+
+  /** My thresholds on this report's figures (server/alerts.ts). */
+  alerts: (reportId: number) => request<{ alerts: ReportAlert[] }>(`/api/reports/${reportId}/alerts`),
+  createAlert: (reportId: number, values: { column: string; op: 'above' | 'below'; threshold: number }) =>
+    request<ReportAlert>(`/api/reports/${reportId}/alerts`, post(values)),
+  deleteAlert: (id: number) => request<{ ok: true }>(`/api/alerts/${id}`, { method: 'DELETE' }),
   runSchedule: (id: number) => request<Run>(`/api/schedules/${id}/run-now`, post()),
 
   runs: (reportId?: number) =>
@@ -165,4 +171,13 @@ export function errorText(err: unknown, fallback: string): string {
   if (!(err instanceof Error)) return fallback;
   const details = err instanceof ApiError ? err.details.map((d) => d.message) : [];
   return [err.message, ...details].join(' — ');
+}
+
+export interface ReportAlert {
+  id: number;
+  report_id: number;
+  column_name: string;
+  op: 'above' | 'below';
+  threshold: number;
+  created_at: string;
 }

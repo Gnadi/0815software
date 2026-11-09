@@ -33,7 +33,7 @@ import { DomainError, nowIso, poDetail, receiptsOf, receivedByLine, requireRow }
  *   says how many lines hold it on their own.
  */
 
-export const DEFAULT_MATCH_SETTINGS: MatchSettings = { tolerance_percent: 2, tolerance_cap_cents: 5000, receiving_warehouse: null, line_matching: true };
+export const DEFAULT_MATCH_SETTINGS: MatchSettings = { tolerance_percent: 2, tolerance_cap_cents: 5000, receiving_warehouse: null, line_matching: true, notify_now_from_cents: null };
 
 export function readMatchSettings(db: Database.Database): MatchSettings {
   const row = db.prepare('SELECT settings FROM procurement_settings WHERE id = 1').get() as { settings: string } | undefined;
@@ -61,8 +61,14 @@ export function validateMatchSettings(input: Record<string, unknown>): MatchSett
   }
   const lineMatching = input.line_matching ?? DEFAULT_MATCH_SETTINGS.line_matching;
   if (typeof lineMatching !== 'boolean') errors.push({ field: 'line_matching', message: 'line_matching is true or false' });
+  const rawNow = input.notify_now_from_cents;
+  let notifyNow: number | null = null;
+  if (rawNow !== undefined && rawNow !== null && rawNow !== '') {
+    notifyNow = Number(rawNow);
+    if (!Number.isInteger(notifyNow) || notifyNow < 0) errors.push({ field: 'notify_now_from_cents', message: 'notify_now_from_cents is whole cents, 0 or more, or empty' });
+  }
   if (errors.length > 0) throw new DomainError(422, 'Validation failed', errors);
-  return { tolerance_percent: percent, tolerance_cap_cents: cap, receiving_warehouse: warehouse, line_matching: lineMatching as boolean };
+  return { tolerance_percent: percent, tolerance_cap_cents: cap, receiving_warehouse: warehouse, line_matching: lineMatching as boolean, notify_now_from_cents: notifyNow };
 }
 
 export function writeMatchSettings(db: Database.Database, settings: MatchSettings, actor: string): void {

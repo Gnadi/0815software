@@ -24,7 +24,7 @@ import { moduleSummary } from './summary.js';
 import { dealTransfer } from './transfer-export.js';
 import { DomainError } from './domain.js';
 import { noopPlatform, type PlatformHooks } from './platform.js';
-import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
+import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier, deviceOf, secondFactorAnswer } from './sso.js';
 import {
   createCompany,
   deleteCompany,
@@ -41,16 +41,7 @@ import {
   updateContact,
   type ContactInput,
 } from './contacts.js';
-import {
-  createDeal,
-  dealDetail,
-  dealRow,
-  listDeals,
-  moveStage,
-  reopenDeal,
-  updateDeal,
-  type DealInput,
-} from './deals.js';
+import { createDeal, dealDetail, dealRow, listDeals, moveStage, reopenDeal, updateDeal, type DealInput, assignDeal } from './deals.js';
 import {
   activitiesForContact,
   createActivity,
@@ -61,6 +52,9 @@ import {
 } from './activities.js';
 import { computeMetrics } from './metrics.js';
 import { exportDealsCsv } from './csv.js';
+import { inboxHandler } from './inbox.js';
+import { collectInbox } from './inbox-rules.js';
+import { MODULE_SLUG as INBOX_MODULE } from './access.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -195,8 +189,10 @@ function validateActivity(input: Record<string, unknown>): ActivityInput {
   if (contactId === null && dealId === null) {
     errors.push({ field: 'link', message: 'An activity must be linked to a contact and/or a deal' });
   }
+  const owner = optText(input.owner, 'owner', errors, 320);
+  if (owner !== null && !/^[^\s@]+@[^\s@]+$/.test(owner)) errors.push({ field: 'owner', message: 'owner must be an email address' });
   if (errors.length > 0) fail(errors);
-  return { type, subject, body: bodyText, contactId, dealId, dueDate };
+  return { type, subject, body: bodyText, contactId, dealId, dueDate, owner };
 }
 
 export interface AppOptions {
@@ -271,17 +267,24 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.post('/api/login', async (req, res) => {
-    const { username, password } = body(req);
+    const { username, password, otp } = body(req);
     // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
-    const viaSso = await verifyLogin(username, password);
+    const viaSso = await verifyLogin(username, password, otp, deviceOf(req));
     // An unreachable PS-01 is not a wrong password. Saying 401 here would tell
     // the user to check credentials that were never checked, and would let a
     // broken identity deployment look like a wave of bad logins; 503 says what
     // actually happened, to the user and to whatever is monitoring this.
     if (viaSso !== null && !viaSso.ok && viaSso.reason === 'unavailable') {
       res.status(503).json({ error: 'Identity service unavailable' });
+      return;
+    }
+    // The account has a second factor: the form shows the code field on
+    // `is required` and says the code was wrong on `is invalid`. Same answer
+    // shape as PS-01's, so a form reads one contract whichever it talks to.
+    if (viaSso !== null && !viaSso.ok && typeof viaSso.reason === 'string' && viaSso.reason.startsWith('otp_')) {
+      res.status(401).json(secondFactorAnswer(viaSso));
       return;
     }
     // Who signed in: the PS-01 identity when SSO validated it, the local admin
@@ -303,7 +306,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     // a PS-01 identity gets what its module permissions grant.
     const access = viaSso !== null && viaSso.ok ? viaSso.access : 'manage';
     res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
-    res.json({ ok: true, username: actor, access });
+    res.json({ ok: true, username: actor, access, ...(viaSso?.ok && viaSso.recoveryCodes ? { recovery_codes: viaSso.recoveryCodes } : {}) });
   });
 
   // ── Machine-to-machine ───────────────────────────────────────────────
@@ -333,6 +336,10 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   // What this module looks like on a shell's board (shared/summary.ts).
+  // What waits for one person here — for a shell's badge and "Waiting for
+  // you" page (server/inbox.ts, shared/summary.ts). The stack token only.
+  app.get('/api/inbox', inboxHandler(serviceToken, INBOX_MODULE, (person, level) => collectInbox(db, person, level)));
+
   app.get('/api/summary', (req, res, next) => {
   // Only ours when a machine token is actually presented.
     //
@@ -526,7 +533,19 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
 
   app.post('/api/deals', (req, res) => {
     const id = createDeal(db, validateDeal(body(req)));
+    // A new deal is looked after by whoever opened it, until it is handed on.
+    const writer = actorOf(res, auth);
+    if (writer.includes('@')) assignDeal(db, id, writer, writer);
     res.status(201).json(dealDetail(db, id));
+  });
+
+  // Hand a deal to a colleague (their PS-01 email), or to nobody.
+  app.post('/api/deals/:id/owner', (req, res) => {
+    const id = Number(req.params.id);
+    const raw = body(req).owner;
+    const owner = typeof raw === 'string' && raw.trim() !== '' ? raw.trim().toLowerCase() : null;
+    assignDeal(db, id, owner, actorOf(res, auth));
+    res.json(dealDetail(db, id));
   });
 
   app.get('/api/deals/:id', (req, res) => {
@@ -580,7 +599,10 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.post('/api/activities', (req, res) => {
-    const id = createActivity(db, validateActivity(body(req)));
+    const input = validateActivity(body(req));
+    // A follow-up nobody named an owner for is the writer's own.
+    const writer = actorOf(res, auth);
+    const id = createActivity(db, { ...input, owner: input.owner ?? (writer.includes('@') ? writer : null) });
     res.status(201).json(db.prepare(
       `SELECT a.*, k.name AS contact_name, d.title AS deal_title
        FROM activities a
@@ -626,7 +648,15 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
 
   // ── Static client (production build) ─────────────────────────────────
   if (staticDir) {
-    app.use(express.static(staticDir));
+    app.use(
+      express.static(staticDir, {
+        // The service worker and the page that loads it are checked on every
+        // visit, so a new deployment reaches an installed app on its next start.
+        setHeaders(res, file) {
+          if (file.endsWith('sw.js') || file.endsWith('index.html') || file.endsWith('.webmanifest')) res.setHeader('Cache-Control', 'no-cache');
+        },
+      }),
+    );
     app.use((req, res, next) => {
       if (req.method === 'GET' && !req.path.startsWith('/api')) {
         res.sendFile('index.html', { root: staticDir });

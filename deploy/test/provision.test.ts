@@ -124,7 +124,8 @@ describe('service resolution', () => {
 
   it('brings up one service for a one-service module', () => {
     expect(idsOf(planStack(args('--modules', 'mod-01-customer-portal')))).toEqual(['ps-07-audit-log']);
-    expect(idsOf(planStack(args('--modules', 'mod-07-storefront')))).toEqual(['ps-08-payments']);
+    // The shop also tells its staff of new orders through PS-03.
+    expect(idsOf(planStack(args('--modules', 'mod-07-storefront')))).toEqual(['ps-03-notification-hub', 'ps-08-payments']);
   });
 
   it('never pulls in PS-01 for a module that cannot use SSO', () => {
@@ -411,9 +412,9 @@ describe('rendered artifacts', () => {
     for (const artifact of ['docker-compose.yml', 'Caddyfile'] as const) {
       const referenced = [...files[artifact].matchAll(/\$\{?([A-Z][A-Z0-9_]*)\}?/g)].map((m) => m[1]);
       const undefinedVars = [...new Set(referenced)].filter((name) => !defined.has(name)).sort();
-      // $$url / $$SERVICE_TOKEN in the ticker command are shell vars escaped
-      // for Compose, not interpolations.
-      expect(undefinedVars.filter((n) => !['url', 'SERVICE_TOKEN'].includes(n)), artifact).toEqual([]);
+      // $$url / $$SERVICE_TOKEN in the ticker command and $$STACK_TOKEN in
+      // Alertmanager's are shell vars escaped for Compose, not interpolations.
+      expect(undefinedVars.filter((n) => !['url', 'SERVICE_TOKEN', 'STACK_TOKEN'].includes(n)), artifact).toEqual([]);
     }
   });
 

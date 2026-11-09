@@ -12,6 +12,10 @@ import { setBusinessTimeZone } from './business-date.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
+import { buildPeople } from './people.js';
+import { startWatch } from './watch.js';
+import { watchInvoicing } from './inbox-rules.js';
+import { MODULE_SLUG } from './access.js';
 
 const config = configFromEnv();
 assertProductionConfig([
@@ -64,6 +68,18 @@ const app = createApp({
 // the seller is resolved (Settings, PS-11, env), because the seeded invoices
 // freeze it like any issued invoice does.
 seed(db, config.seller);
+
+
+// Notifications to people and the clock checks behind them
+// (server/inbox-rules.ts) — only with PS-03 wired; otherwise nothing runs.
+const people = buildPeople({
+  module: MODULE_SLUG,
+  notificationUrl: config.platform.notificationUrl,
+  identityUrl: config.sso.identityUrl,
+  identityOrg: config.sso.identityOrg,
+  serviceToken: config.platform.serviceToken,
+});
+startWatch(db, people, watchInvoicing);
 
 app.listen(config.port, () => {
   console.log(`[mod-04] invoice & billing API on http://localhost:${config.port}`);

@@ -139,6 +139,10 @@ archives is ever touched — a NAS share can be shared with other things.
 - `BACKUP_ALERT_URL` — a JSON POST when a run fails (`{ text, message, stack,
   host, status, errors, at }`), which Slack/Mattermost incoming webhooks and
   n8n understand. A failed `verify` exits non-zero and logs, but sends nothing.
+- **The administrators' phones** — when the stack runs PS-03, a failed run is
+  also sent as an ops event to the recipients set under Account →
+  Administration (push, or mail when no device takes it). Best-effort: PS-03
+  being down is a likely reason for the failure in the first place.
 - `BACKUP_HEARTBEAT_URL` — fetched after every success. Point it at a
   healthchecks.io check or an Uptime Kuma push monitor with a 26-hour period.
   This is the only way to hear about a backup that **never ran**: the host was
@@ -234,7 +238,8 @@ target keep history the host cannot erase:
   Litestream) would close that, at the cost of a new dependency.
 - **Multipart S3 uploads.** Archives above 5 GiB need a mounted-folder or
   SFTP target.
-- **Push notifications** (ntfy, a phone app, Teams cards). Failures reach a
-  JSON webhook; anything else is wired up on the receiving side.
+- **Push to anything but PS-03** (ntfy, Teams cards). Failures reach a JSON
+  webhook and, when the stack runs PS-03, the ops recipients' phones; anything
+  else is wired up on the receiving side.
 - **Backing up `backup.env`.** It cannot be inside the archives it opens; it
   belongs in the password manager.

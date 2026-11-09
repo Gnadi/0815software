@@ -117,6 +117,7 @@ export function dealDetail(db: Database.Database, id: number): DealDetail {
   const deal = getDealRow(db, id);
   return {
     ...toRow(db, deal),
+    owner: dealOwner(db, id),
     stage_events: stageEvents(db, id),
     activities: activitiesForDeal(db, id),
   };
@@ -236,4 +237,22 @@ export function reopenDeal(db: Database.Database, id: number, toStage: string, n
     appendStageEvent(db, id, deal.stage, toStage, 'reopen', note, when);
     db.prepare('UPDATE deals SET stage = ? WHERE id = ?').run(toStage, id);
   })();
+}
+
+/** Who looks after a deal now: the latest assignment, or nobody. */
+export function dealOwner(db: Database.Database, dealId: number): string | null {
+  const row = db.prepare('SELECT owner FROM deal_assignments WHERE deal_id = ? ORDER BY id DESC LIMIT 1').get(dealId) as
+    | { owner: string | null }
+    | undefined;
+  return row?.owner ?? null;
+}
+
+/** Hand a deal to someone (an email) or to nobody. Appended; a no-op is refused. */
+export function assignDeal(db: Database.Database, dealId: number, owner: string | null, actor: string, at = nowIso()): void {
+  getDealRow(db, dealId);
+  if (owner !== null && (!/^[^\s@]+@[^\s@]+$/.test(owner) || owner.length > 320)) {
+    throw new DomainError(422, 'Validation failed', [{ field: 'owner', message: 'must be an email address or null' }]);
+  }
+  if (dealOwner(db, dealId) === owner) throw new DomainError(409, owner ? `The deal already belongs to ${owner}` : 'The deal has no owner');
+  db.prepare('INSERT INTO deal_assignments (deal_id, owner, actor, created_at) VALUES (?, ?, ?, ?)').run(dealId, owner, actor, at);
 }

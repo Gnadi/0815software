@@ -338,6 +338,36 @@ describe('backup run → folder target and S3 target', () => {
     expect(JSON.stringify(fake.alerts[0])).toContain('mod09');
   });
 
+  it('a failed run also reaches the administrators through PS-03 when the stack runs it', async () => {
+    const { root } = makeContainers({ failMod09: true });
+    // PS-03 ships scripts/ops-event.mjs (and no backup script in this fixture);
+    // the stand-in records what it was asked to send instead of posting it.
+    mkdirSync(join(root, 'ps03', 'app', 'scripts'), { recursive: true });
+    writeFileSync(
+      join(root, 'ps03', 'app', 'scripts', 'ops-event.mjs'),
+      "import { writeFileSync } from 'node:fs'; writeFileSync('../ops-event.json', JSON.stringify(process.argv.slice(2)));",
+    );
+    const services = JSON.parse(readFileSync(join(root, 'services.json'), 'utf8'));
+    writeFileSync(join(root, 'services.json'), JSON.stringify({ ...services, ps03: { running: true, node: true } }));
+    const stack = makeStack('stack', { BACKUP_TARGETS: makeFolderTarget() });
+    expect((await runBackup(stack)).ok).toBe(false);
+    const [kind, title, detail] = JSON.parse(readFileSync(join(root, 'ps03', 'ops-event.json'), 'utf8')) as string[];
+    expect(kind).toBe('backup-failed');
+    expect(title).toBe('Nightly backup failed');
+    expect(detail).toMatch(/snapshot of mod09 failed/);
+  });
+
+  it('a successful run sends no ops event', async () => {
+    const { root } = makeContainers();
+    mkdirSync(join(root, 'ps03', 'app', 'scripts'), { recursive: true });
+    writeFileSync(join(root, 'ps03', 'app', 'scripts', 'ops-event.mjs'), "import { writeFileSync } from 'node:fs'; writeFileSync('../ops-event.json', '[]');");
+    const services = JSON.parse(readFileSync(join(root, 'services.json'), 'utf8'));
+    writeFileSync(join(root, 'services.json'), JSON.stringify({ ...services, ps03: { running: true, node: true } }));
+    const stack = makeStack('stack', { BACKUP_TARGETS: makeFolderTarget() });
+    expect((await runBackup(stack)).ok).toBe(true);
+    expect(existsSync(join(root, 'ps03', 'ops-event.json'))).toBe(false);
+  });
+
   it('with no target configured, it snapshots locally but fails loudly', async () => {
     makeContainers();
     const stack = makeStack('stack', { BACKUP_TARGETS: '' });

@@ -19,7 +19,7 @@ import { moduleSummary } from './summary.js';
 import { exportRange } from './csv.js';
 import { importTransfer } from './transfer-import.js';
 import { noopPlatform, OfferFetchError, type PlatformHooks } from './platform.js';
-import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
+import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier, deviceOf, secondFactorAnswer } from './sso.js';
 import { EXPORT_PROFILES, getProfile } from './export-profiles.js';
 import { assertMayRecordFor, employeeOf } from './ownership.js';
 import { discardTimer, readTimerSettings, runningTimer, runningTimers, startTimer, stopTimer, timerSettingsStamp, updateTimer, validateTimerSettings, writeTimerSettings, type TimerInput } from './timer.js';
@@ -124,6 +124,9 @@ import {
   type EntryInput,
   type ProjectInput,
 } from './tracking.js';
+import { inboxHandler } from './inbox.js';
+import { collectInbox } from './inbox-rules.js';
+import { MODULE_SLUG as INBOX_MODULE } from './access.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -312,17 +315,24 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   });
 
   app.post('/api/login', async (req, res) => {
-    const { username, password } = body(req);
+    const { username, password, otp } = body(req);
     // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
-    const viaSso = await verifyLogin(username, password);
+    const viaSso = await verifyLogin(username, password, otp, deviceOf(req));
     // An unreachable PS-01 is not a wrong password. Saying 401 here would tell
     // the user to check credentials that were never checked, and would let a
     // broken identity deployment look like a wave of bad logins; 503 says what
     // actually happened, to the user and to whatever is monitoring this.
     if (viaSso !== null && !viaSso.ok && viaSso.reason === 'unavailable') {
       res.status(503).json({ error: 'Identity service unavailable' });
+      return;
+    }
+    // The account has a second factor: the form shows the code field on
+    // `is required` and says the code was wrong on `is invalid`. Same answer
+    // shape as PS-01's, so a form reads one contract whichever it talks to.
+    if (viaSso !== null && !viaSso.ok && typeof viaSso.reason === 'string' && viaSso.reason.startsWith('otp_')) {
+      res.status(401).json(secondFactorAnswer(viaSso));
       return;
     }
     // Who signed in: the PS-01 identity when SSO validated it, the local admin
@@ -344,7 +354,7 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
     // a PS-01 identity gets what its module permissions grant.
     const access = viaSso !== null && viaSso.ok ? viaSso.access : 'manage';
     res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
-    res.json({ ok: true, username: actor, access });
+    res.json({ ok: true, username: actor, access, ...(viaSso?.ok && viaSso.recoveryCodes ? { recovery_codes: viaSso.recoveryCodes } : {}) });
   });
 
   // ── Machine-to-machine ───────────────────────────────────────────────
@@ -359,6 +369,10 @@ export function createApp({ db, hardening, auth, staticDir, platform = noopPlatf
   }
 
   // What this module looks like on a shell's board (shared/summary.ts).
+  // What waits for one person here — for a shell's badge and "Waiting for
+  // you" page (server/inbox.ts, shared/summary.ts). The stack token only.
+  app.get('/api/inbox', inboxHandler(serviceToken, INBOX_MODULE, (person, level) => collectInbox(db, person, level)));
+
   app.get('/api/summary', (req, res, next) => {
   // Only ours when a machine token is actually presented.
     //

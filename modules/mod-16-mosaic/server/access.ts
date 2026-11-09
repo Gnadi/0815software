@@ -34,6 +34,23 @@ export const ACCESS_RULES: readonly AccessRule[] = [
   { method: 'POST', path: '/api/boards/:id/panes', access: 'view' },
   { method: 'DELETE', path: '/api/boards/:id/panes/:paneId', access: 'view' },
   { method: 'PUT', path: '/api/boards/:id/layout', access: 'view' },
+  // The person's own account and notifications: their own business at any
+  // level. PS-01 and PS-03 decide what each call may do (server/account.ts) —
+  // the administration routes included, which PS-01 refuses to anyone without
+  // `user:write` there.
+  { method: 'POST', path: '/api/account/mfa/setup', access: 'view' },
+  { method: 'POST', path: '/api/account/mfa/confirm', access: 'view' },
+  { method: 'POST', path: '/api/account/mfa/disable', access: 'view' },
+  { method: 'POST', path: '/api/account/mfa/recovery-codes', access: 'view' },
+  { method: 'POST', path: '/api/account/password', access: 'view' },
+  { method: 'POST', path: '/api/account/sessions/revoke', access: 'view' },
+  { method: 'POST', path: '/api/admin/users/:id/mfa/reset', access: 'view' },
+  { method: 'POST', path: '/api/admin/users/:id/sessions/revoke', access: 'view' },
+  { method: 'PUT', path: '/api/admin/policy', access: 'view' },
+  { method: 'PUT', path: '/api/admin/notify-settings', access: 'view' },
+  { method: 'PUT', path: '/api/notify/prefs', access: 'view' },
+  { method: 'POST', path: '/api/notify/devices', access: 'view' },
+  { method: 'POST', path: '/api/notify/devices/remove', access: 'view' },
 ];
 
 export const accessPolicy = compileAccessPolicy(ACCESS_RULES);

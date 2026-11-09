@@ -7,6 +7,7 @@ import {
   clearedCookie,
   createToken,
   nowIso,
+  parseBearer,
   SERVICE_HEADER,
   sessionCookie,
   requireAuth,
@@ -25,6 +26,21 @@ import { enqueue, mapChannel, mapMessage, tick, type ChannelRow, type MessageRow
 import { buildResolver } from './providers/registry.js';
 import type { FetchLike, ProviderResolver } from './providers/index.js';
 import { exportSubject } from './export.js';
+import { fromAlertmanager, parseOps, recordOps } from './ops.js';
+import {
+  effectivePrefs,
+  notifyTick,
+  parseEvent,
+  readOverrides,
+  readSettings,
+  recordEvent,
+  saveSubscription,
+  writeOverrides,
+  writeSettings,
+  type NotifyDeps,
+  type SubscriptionRow,
+} from './notify.js';
+import { DEFAULT_PUSH_HOSTS, vapidPublicKey, type PushFetch } from './webpush.js';
 
 export interface AppOptions {
   db: Database.Database;
@@ -47,6 +63,12 @@ export interface AppOptions {
   hardening?: HardeningConfig;
   /** Emit one JSON log line per request (default false; index.ts passes true). */
   logRequests?: boolean;
+  /** The stack's VAPID key (RFC 8292); null = push off, mail and digests only. */
+  vapid?: { privateKey: string; subject: string } | null;
+  /** Push services a subscription may point at. */
+  pushAllowedHosts?: string[];
+  /** Injectable fetch for push delivery (tests). */
+  pushFetch?: PushFetch;
 }
 
 function idParam(req: Request): number | null {
@@ -167,6 +189,136 @@ export function createApp(opts: AppOptions): express.Express {
       now: now(),
     });
     res.status(enqueued.created ? 201 : 200).json({ message: mapMessage(enqueued.message) });
+  });
+
+  // ── Person notifications (service token) ───────────────────────────
+  // Called by the modules (events) and by the shells on behalf of the person
+  // signed into them (devices, preferences, the feed). The shell has checked
+  // who that person is; this service trusts the stack's service token for it,
+  // exactly as it trusts it for `/api/send`. See server/notify.ts.
+  const requireService = (req: Request): void => {
+    const verdict = checkServiceToken(auth, req.headers[SERVICE_HEADER]);
+    if (verdict === 'missing') fail(401, 'Service token required');
+    if (verdict === 'bad') fail(403, 'Invalid service token');
+  };
+  const recipientOf = (value: unknown): string => {
+    const r = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    if (!/^[^\s@]+@[^\s@]+$/.test(r) || r.length > 320) {
+      fail(422, 'Validation failed', [{ field: 'recipient', message: 'must be an email address' }]);
+    }
+    return r;
+  };
+  const pushHosts = opts.pushAllowedHosts ?? DEFAULT_PUSH_HOSTS;
+  const notifyDeps: NotifyDeps = { vapid: opts.vapid ?? null, pushFetch: opts.pushFetch };
+
+  // Public: a browser needs it to subscribe, and it is a public key.
+  app.get('/api/push/public-key', (_req, res) => {
+    res.json({ public_key: opts.vapid ? vapidPublicKey(opts.vapid.privateKey) : null });
+  });
+
+  app.post('/api/events', (req, res) => {
+    requireService(req);
+    const input = parseEvent(body(req));
+    res.status(201).json(recordEvent(db, input, now()));
+  });
+
+  app.post('/api/push/subscriptions', (req, res) => {
+    requireService(req);
+    if (!opts.vapid) fail(409, 'Push is not configured on this stack (VAPID_PRIVATE_KEY)');
+    const b = body(req);
+    const row = saveSubscription(
+      db,
+      recipientOf(b.recipient),
+      b.subscription,
+      typeof b.device === 'string' ? b.device : null,
+      pushHosts,
+      now(),
+    );
+    res.status(201).json({ device: { id: row.id, device: row.device, created_at: row.created_at } });
+  });
+
+  app.get('/api/push/subscriptions', (req, res) => {
+    requireService(req);
+    const rows = db
+      .prepare('SELECT * FROM push_subscriptions WHERE recipient = ? ORDER BY id')
+      .all(recipientOf(req.query.recipient)) as SubscriptionRow[];
+    // Never the endpoint or the keys: the list is for "which devices get my pushes".
+    res.json({ devices: rows.map((r) => ({ id: r.id, device: r.device, created_at: r.created_at, last_sent_at: r.last_sent_at })) });
+  });
+
+  /**
+   * Stop pushing to a device (`endpoint`), or to every device of the person
+   * (no endpoint) — the shells call the second on "sign out everywhere".
+   */
+  app.post('/api/push/subscriptions/remove', (req, res) => {
+    requireService(req);
+    const b = body(req);
+    const recipient = recipientOf(b.recipient);
+    const removed =
+      typeof b.endpoint === 'string'
+        ? db.prepare('DELETE FROM push_subscriptions WHERE recipient = ? AND endpoint = ?').run(recipient, b.endpoint).changes
+        : typeof b.id === 'number'
+          ? db.prepare('DELETE FROM push_subscriptions WHERE recipient = ? AND id = ?').run(recipient, b.id).changes
+          : // "Everywhere else": the device asking keeps its own subscription.
+            db
+              .prepare('DELETE FROM push_subscriptions WHERE recipient = ? AND endpoint IS NOT ?')
+              .run(recipient, typeof b.except_endpoint === 'string' ? b.except_endpoint : null).changes;
+    res.json({ removed });
+  });
+
+  app.get('/api/prefs', (req, res) => {
+    requireService(req);
+    const recipient = recipientOf(req.query.recipient);
+    res.json({ prefs: effectivePrefs(db, recipient), overrides: readOverrides(db, recipient), defaults: readSettings(db).defaults });
+  });
+
+  app.put('/api/prefs', (req, res) => {
+    requireService(req);
+    const b = body(req);
+    res.json({ prefs: writeOverrides(db, recipientOf(b.recipient), b.prefs, now()) });
+  });
+
+  /** The stack's defaults. The shell lets only an administrator reach this. */
+  app.get('/api/notify/settings', (req, res) => {
+    requireService(req);
+    res.json(readSettings(db));
+  });
+
+  app.put('/api/notify/settings', (req, res) => {
+    requireService(req);
+    res.json(writeSettings(db, body(req), now()));
+  });
+
+  // ── The stack about itself (server/ops.ts) ──────────────────────────
+  app.post('/api/ops/events', (req, res) => {
+    requireService(req);
+    res.status(201).json(recordOps(db, parseOps(body(req)), now()));
+  });
+
+  /**
+   * Alertmanager's webhook. It presents the stack token as a Bearer
+   * credential (`http_config.authorization`), not as our header.
+   */
+  app.post('/api/alerts/alertmanager', (req, res) => {
+    const verdict = checkServiceToken(auth, parseBearer(req.headers.authorization) ?? req.headers[SERVICE_HEADER]);
+    if (verdict === 'missing') fail(401, 'Service token required');
+    if (verdict === 'bad') fail(403, 'Invalid service token');
+    let recorded = 0;
+    for (const event of fromAlertmanager(body(req))) recorded += recordOps(db, event, now()).recorded;
+    res.json({ recorded });
+  });
+
+  /** The person's recent notifications, newest first — the in-app list. */
+  app.get('/api/notifications', (req, res) => {
+    requireService(req);
+    const recipient = recipientOf(req.query.recipient);
+    const rows = db
+      .prepare(
+        `SELECT id, module, kind, category, urgency, title, detail, href, state, created_at, delivered_at
+           FROM notify_events WHERE recipient = ? AND state != 'muted' ORDER BY id DESC LIMIT 50`,
+      )
+      .all(recipient);
+    res.json({ notifications: rows });
   });
 
   // ── Admin gate ─────────────────────────────────────────────────────
@@ -299,7 +451,10 @@ export function createApp(opts: AppOptions): express.Express {
   });
 
   app.post('/api/tick', async (_req, res) => {
-    res.json(await tick(db, resolve, now(), opts.retentionDays ?? 0, { egress: opts.egress, resolveHost: opts.resolveHost }));
+    // People first: what they are owed by mail is queued here and drained below.
+    const notify = await notifyTick(db, notifyDeps, now());
+    const queue = await tick(db, resolve, now(), opts.retentionDays ?? 0, { egress: opts.egress, resolveHost: opts.resolveHost });
+    res.json({ ...queue, notify });
   });
 
   // ── Terminal error middleware ──────────────────────────────────────

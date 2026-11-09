@@ -29,7 +29,8 @@
  *  4. The archive is encrypted (lib/backup-crypto.mjs) and copied to every
  *     target in BACKUP_TARGETS; each target then applies retention.
  *  5. backup-status.json records the outcome. A failure POSTs to
- *     BACKUP_ALERT_URL; a success pings BACKUP_HEARTBEAT_URL, whose silence is
+ *     BACKUP_ALERT_URL and, when the stack runs PS-03, reaches the admins'
+ *     phones as an ops event; a success pings BACKUP_HEARTBEAT_URL, whose silence is
  *     what tells you about the backup that never ran at all.
  *
  * Exit code 0 only when every container was snapshotted AND every target holds
@@ -369,8 +370,36 @@ export async function runBackup(stackDir, { localOnly = false, now = new Date() 
         (err) => warn(`alert could not be sent to BACKUP_ALERT_URL: ${err.message}`),
       );
     }
+    await notifyOps(stackDir, status.services.backedUp.length === 0 ? 'Nightly backup did not run' : 'Nightly backup failed', errors.join('; '));
   }
   return status;
+}
+
+/**
+ * Tell the stack's administrators' phones too, through PS-03 when the stack
+ * has it (platform/ps-03-notification-hub/scripts/ops-event.mjs → its ops
+ * recipients, by push or mail). Best-effort: the log, exit code and
+ * BACKUP_ALERT_URL stay the primary signal, and a stack without PS-03 — or
+ * with PS-03 down, the likely reason the backup failed — just skips this.
+ */
+async function notifyOps(stackDir, title, detail) {
+  let running;
+  try {
+    running = (await compose(stackDir, ['ps', '--services', '--status', 'running'])).split('\n').map((s) => s.trim()).filter(Boolean);
+  } catch {
+    return;
+  }
+  for (const svc of running) {
+    try {
+      await compose(stackDir, ['exec', '-T', svc, 'node', '-e', 'process.exit(require("fs").existsSync("scripts/ops-event.mjs") ? 0 : 1)']);
+    } catch {
+      continue;
+    }
+    await compose(stackDir, ['exec', '-T', svc, 'node', 'scripts/ops-event.mjs', 'backup-failed', title, detail]).catch((err) =>
+      warn(`administrators could not be notified through ${svc}: ${err.message}`),
+    );
+    return;
+  }
 }
 
 // ── check / list / verify ────────────────────────────────────────────────────

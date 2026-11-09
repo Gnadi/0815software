@@ -2,6 +2,8 @@ import type { AuthConfig } from './auth.js';
 import type { PlatformConfig } from './platform.js';
 
 export interface ServerConfig {
+  /** ORDER_NOTIFY_RECIPIENTS: who is told of a new shop order. */
+  orderNotifyRecipients: string[];
   port: number;
   databasePath: string;
   auth: AuthConfig;
@@ -53,8 +55,16 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       secureCookie: env.COOKIE_SECURE !== undefined ? env.COOKIE_SECURE === 'true' : env.NODE_ENV === 'production',
     },
     // PS-08 Payments — optional; unset means standalone (orders placed unpaid).
+    // Who hears of a new shop order, now and at any hour (server/inbox-rules.ts).
+    // The shop signs its staff in itself, so they are named here, not looked up.
+    orderNotifyRecipients: (env.ORDER_NOTIFY_RECIPIENTS ?? '')
+      .split(',')
+      .map((r) => r.trim().toLowerCase())
+      .filter((r) => r.includes('@')),
     platform: {
       paymentsUrl: env.PAYMENTS_URL || undefined,
+      // PS-03, for notifications to people (server/people.ts).
+      notificationUrl: env.NOTIFICATION_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
   };

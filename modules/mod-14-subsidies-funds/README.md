@@ -313,6 +313,15 @@ volume at `DATABASE_PATH`. Put it behind TLS and set `COOKIE_SECURE=true`.
 
 ---
 
+## Notifications and the inbox
+
+What waits for one person here (`GET /api/inbox`, the shells' badge and
+"Waiting for you") and who is told what through PS-03 — the module's rules in
+[`server/inbox-rules.ts`](./server/inbox-rules.ts), pinned by
+`test/inbox-rules.test.ts`: deadlines within 14 days wait for whoever opened the application (overdue ones also for `manage`); 14 and 3 days ahead in the digest, once passed now. Counted from the rows on every request,
+told once per occasion (docs/NOTIFICATIONS-PLAN.md). Without `NOTIFICATION_URL`
+nothing is sent.
+
 ## Out of scope (deliberately)
 
 - **Grantor / administrator features.** No third-party payouts, no applicant

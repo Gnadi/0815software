@@ -11,7 +11,8 @@
       "urlEnv": "IDENTITY_URL",
       "tickDriven": false,
       "secrets": [
-        "SESSION_SECRET"
+        "SESSION_SECRET",
+        "SERVICE_TOKEN"
       ]
     },
     {
@@ -39,7 +40,8 @@
       "secrets": [
         "SESSION_SECRET",
         "ADMIN_PASSWORD",
-        "SERVICE_TOKEN"
+        "SERVICE_TOKEN",
+        "VAPID_PRIVATE_KEY"
       ]
     },
     {
@@ -204,7 +206,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -238,7 +240,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -253,6 +255,7 @@
         "required": [],
         "optional": [
           "ps-01-identity",
+          "ps-03-notification-hub",
           "ps-07-audit-log"
         ]
       },
@@ -272,7 +275,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -356,7 +359,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": true,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -390,7 +393,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -426,7 +429,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       },
       "peers": {
         "optional": [
@@ -448,12 +451,15 @@
       "services": {
         "required": [],
         "optional": [
+          "ps-03-notification-hub",
           "ps-08-payments"
         ]
       },
       "env": {
         "required": [],
-        "optional": [],
+        "optional": [
+          "ORDER_NOTIFY_RECIPIENTS"
+        ],
         "secrets": [
           "ADMIN_PASSWORD",
           "SESSION_SECRET"
@@ -465,7 +471,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -480,6 +486,7 @@
         "required": [],
         "optional": [
           "ps-01-identity",
+          "ps-03-notification-hub",
           "ps-07-audit-log"
         ]
       },
@@ -502,7 +509,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": true,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -516,6 +523,7 @@
       "services": {
         "required": [],
         "optional": [
+          "ps-03-notification-hub",
           "ps-06-file-storage",
           "ps-07-audit-log",
           "ps-09-search"
@@ -537,7 +545,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -552,6 +560,7 @@
         "required": [],
         "optional": [
           "ps-01-identity",
+          "ps-03-notification-hub",
           "ps-07-audit-log",
           "ps-11-customers"
         ]
@@ -572,7 +581,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -658,7 +667,7 @@
         "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -700,7 +709,7 @@
         "needsPublicBaseUrl": true,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       },
       "peers": {
         "optional": [
@@ -743,7 +752,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       }
     },
     {
@@ -873,6 +882,7 @@
         "required": [],
         "optional": [
           "ps-01-identity",
+          "ps-03-notification-hub",
           "ps-07-audit-log"
         ]
       },
@@ -992,6 +1002,7 @@
         "required": [],
         "optional": [
           "ps-01-identity",
+          "ps-03-notification-hub",
           "ps-07-audit-log",
           "ps-11-customers"
         ]
@@ -1016,7 +1027,7 @@
         "needsPublicBaseUrl": false,
         "acceptsSourceDb": false,
         "publishesReportViews": false,
-        "installable": false
+        "installable": true
       },
       "peers": {
         "optional": [

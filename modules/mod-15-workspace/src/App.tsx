@@ -7,6 +7,9 @@ import { WidgetBody } from './components/WidgetBody';
 import { WidgetPicker } from './components/WidgetPicker';
 import type { ActivityEvent, Board as BoardModel, PeerSummary, ShellContext, Widget, WidgetPlacement } from '../shared/types';
 import { FRAME_ALLOW, forgetOffline, isOffline, keepOffline, offlineUrl, readOffline, signOutOfModules } from './frame';
+import { Account } from './components/Account';
+import { Inbox } from './components/Inbox';
+import { accountApi, disablePush, setBadge } from './account-api';
 
 /**
  * The Workspace shell.
@@ -67,6 +70,10 @@ export function App() {
   const [picking, setPicking] = useState(false);
   const [embed, setEmbed] = useState<Embed | null>(null);
   const [toast, setToast] = useState<{ text: string; bad?: boolean } | null>(null);
+  /** The account page or "waiting for you", over the board. */
+  const [sheet, setSheet] = useState<'account' | 'inbox' | null>(null);
+  /** What waits for this person across the modules — the badge's number. */
+  const [waiting, setWaiting] = useState<number | null>(null);
 
   const say = useCallback((text: string, bad = false) => {
     setToast({ text, bad });
@@ -163,7 +170,10 @@ export function App() {
   }, [offline, boot]);
 
   const signOut = useCallback(() => {
-    void signOutOfModules(catalogue?.modules ?? [])
+    // A shared phone must stop showing this person's notifications too.
+    void disablePush()
+      .catch(() => undefined)
+      .then(() => signOutOfModules(catalogue?.modules ?? []))
       .then(() => api.logout())
       .catch(() => undefined)
       .then(() => {
@@ -306,6 +316,46 @@ export function App() {
     [guard, moduleMap, say],
   );
 
+  const recount = useCallback(() => {
+    accountApi
+      .inboxCount()
+      .then(({ count }) => {
+        setWaiting(count);
+        setBadge(count);
+      })
+      .catch(() => setWaiting(null));
+  }, []);
+
+  // The badge follows what the modules count: on start, when the app comes
+  // back into view, and every few minutes while it is open.
+  useEffect(() => {
+    if (!ready || offline) return;
+    recount();
+    const visible = () => document.visibilityState === 'visible' && recount();
+    document.addEventListener('visibilitychange', visible);
+    const timer = window.setInterval(recount, 5 * 60_000);
+    return () => {
+      document.removeEventListener('visibilitychange', visible);
+      window.clearInterval(timer);
+    };
+  }, [ready, offline, recount]);
+
+  // A tapped notification opens the module it is about: `?open=<module>` on a
+  // cold start, a message from the service worker when the app was open.
+  useEffect(() => {
+    if (!ready) return;
+    const wanted = new URLSearchParams(window.location.search).get('open');
+    if (wanted) {
+      void open(wanted, '/');
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'open' && typeof event.data.module === 'string') void open(event.data.module, '/');
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
+  }, [ready, open]);
+
   const runAction = useCallback(
     async (actionId: string, itemId: string) => {
       try {
@@ -424,6 +474,12 @@ export function App() {
           onChange={(next) => void changeContext(next)}
         />
 
+        <button className="ws__tab mono" onClick={() => setSheet('inbox')} title="What waits for you in the modules">
+          WAITING{waiting !== null ? ` · ${waiting}` : ''}
+        </button>
+        <button className="ws__tab mono" onClick={() => setSheet('account')}>
+          ACCOUNT
+        </button>
         <button className="ws__tab mono" onClick={() => setPicking(true)}>
           ADD WIDGET
         </button>
@@ -527,6 +583,19 @@ export function App() {
         </div>
       )}
 
+      {sheet === 'account' && <Account onClose={() => setSheet(null)} onSignInAgain={signOut} />}
+      {sheet === 'inbox' && (
+        <Inbox
+          onOpen={(moduleId) => {
+            setSheet(null);
+            void open(moduleId, '/');
+          }}
+          onClose={() => {
+            setSheet(null);
+            recount();
+          }}
+        />
+      )}
       {toast && <div className={`toast mono${toast.bad ? ' toast--bad' : ''}`}>{toast.text}</div>}
     </div>
   );

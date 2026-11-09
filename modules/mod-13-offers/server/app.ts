@@ -28,7 +28,7 @@ import { moduleSummary } from './summary.js';
 import { offerTransfer } from './transfer-export.js';
 import { importTransfer } from './transfer-import.js';
 import type { DocumentTransfer } from '../shared/transfer.js';
-import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier } from './sso.js';
+import { LOCAL_LOGIN, nullVerifier, type LoginMode, type LoginVerifier, deviceOf, secondFactorAnswer } from './sso.js';
 import {
   createDraft,
   decideOffer,
@@ -49,6 +49,9 @@ import {
 import { renderOfferPdf } from './pdf.js';
 import { verifyOfferToken } from './tokens.js';
 import { likeTerm } from './offers.js';
+import { inboxHandler } from './inbox.js';
+import { collectInbox } from './inbox-rules.js';
+import { MODULE_SLUG as INBOX_MODULE } from './access.js';
 
 // ── Tiny validation helpers ────────────────────────────────────────────
 
@@ -269,17 +272,24 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
   });
 
   app.post('/api/login', async (req, res) => {
-    const { username, password } = body(req);
+    const { username, password, otp } = body(req);
     // SSO seam: when IDENTITY_URL is set, PS-01 validates the credentials;
     // otherwise the local admin credentials do. Either way the module mints
     // its own session below, so the rest of the request path is unchanged.
-    const viaSso = await verifyLogin(username, password);
+    const viaSso = await verifyLogin(username, password, otp, deviceOf(req));
     // An unreachable PS-01 is not a wrong password. Saying 401 here would tell
     // the user to check credentials that were never checked, and would let a
     // broken identity deployment look like a wave of bad logins; 503 says what
     // actually happened, to the user and to whatever is monitoring this.
     if (viaSso !== null && !viaSso.ok && viaSso.reason === 'unavailable') {
       res.status(503).json({ error: 'Identity service unavailable' });
+      return;
+    }
+    // The account has a second factor: the form shows the code field on
+    // `is required` and says the code was wrong on `is invalid`. Same answer
+    // shape as PS-01's, so a form reads one contract whichever it talks to.
+    if (viaSso !== null && !viaSso.ok && typeof viaSso.reason === 'string' && viaSso.reason.startsWith('otp_')) {
+      res.status(401).json(secondFactorAnswer(viaSso));
       return;
     }
     // Who signed in: the PS-01 identity when SSO validated it, the local admin
@@ -301,7 +311,7 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
     // a PS-01 identity gets what its module permissions grant.
     const access = viaSso !== null && viaSso.ok ? viaSso.access : 'manage';
     res.setHeader('Set-Cookie', sessionCookie(auth, createToken(auth, actor, Date.now(), access)));
-    res.json({ ok: true, username: actor, access });
+    res.json({ ok: true, username: actor, access, ...(viaSso?.ok && viaSso.recoveryCodes ? { recovery_codes: viaSso.recoveryCodes } : {}) });
   });
 
   // ── Public acceptance link (no login) ────────────────────────────────
@@ -375,6 +385,10 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
   });
 
   // What this module looks like on a shell's board (shared/summary.ts).
+  // What waits for one person here — for a shell's badge and "Waiting for
+  // you" page (server/inbox.ts, shared/summary.ts). The stack token only.
+  app.get('/api/inbox', inboxHandler(serviceToken, INBOX_MODULE, (person, level) => collectInbox(db, person, level)));
+
   app.get('/api/summary', (req, res, next) => {
   // Only ours when a machine token is actually presented.
     //
@@ -746,7 +760,15 @@ export function createApp({ db, hardening, auth, seller, publicBaseUrl, clock, s
 
   // ── Static client (production build) ─────────────────────────────────
   if (staticDir) {
-    app.use(express.static(staticDir));
+    app.use(
+      express.static(staticDir, {
+        // The service worker and the page that loads it are checked on every
+        // visit, so a new deployment reaches an installed app on its next start.
+        setHeaders(res, file) {
+          if (file.endsWith('sw.js') || file.endsWith('index.html') || file.endsWith('.webmanifest')) res.setHeader('Cache-Control', 'no-cache');
+        },
+      }),
+    );
     app.use((req, res, next) => {
       if (req.method === 'GET' && !req.path.startsWith('/api')) {
         res.sendFile('index.html', { root: staticDir });

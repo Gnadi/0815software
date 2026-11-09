@@ -1,11 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { ACCESS_LEVELS, type AccessLevel } from '@0815software/platform-clients';
 import { ACCESS_RULES, MODULE_SLUG } from '../server/access.js';
 import { COOKIE_NAME, createToken, readToken, requireAuth, type AuthConfig } from '../server/auth.js';
-import { buildLoginVerifier } from '../server/sso.js';
+import { buildLoginVerifier, deviceOf, secondFactorAnswer } from '../server/sso.js';
 
 /**
  * Access levels: what a signed-in person may do here, and the one place that
@@ -96,8 +96,14 @@ describe('the gate', () => {
 describe('server/access.ts', () => {
   it('names only routes this module actually has', () => {
     const app = readFileSync(new URL('../server/app.ts', import.meta.url), 'utf8');
+    // A shell mounts its account routes from server/account.ts, under /api.
+    const accountFile = new URL('../server/account.ts', import.meta.url);
+    const account = existsSync(accountFile) ? readFileSync(accountFile, 'utf8') : '';
     for (const rule of ACCESS_RULES) {
-      expect(app, `${rule.method} ${rule.path}`).toContain(`app.${rule.method.toLowerCase()}('${rule.path}'`);
+      const method = rule.method.toLowerCase();
+      const mounted = account.includes(`router.${method}(\n    '${rule.path.replace(/^\/api/, '')}'`) ||
+        account.includes(`router.${method}('${rule.path.replace(/^\/api/, '')}'`);
+      expect(mounted || app.includes(`app.${method}('${rule.path}'`), `${rule.method} ${rule.path}`).toBe(true);
     }
   });
 
@@ -141,5 +147,82 @@ describe('an SSO login gets the level PS-01 grants', () => {
   it('no grant on this module is a rejected login', async () => {
     const outcome = await identity(['org:read', 'module:some-other-module:manage'])('ada@example', 'pw');
     expect(outcome).toEqual({ ok: false, reason: 'rejected' });
+  });
+});
+
+describe('an SSO login with a second factor', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** A PS-01 whose one user has a second factor; the right code is 123456. */
+  function identityWithFactor() {
+    const sent: Record<string, unknown>[] = [];
+    vi.stubGlobal('fetch', async (url: string | URL, init?: { body?: string }) => {
+      const path = new URL(String(url)).pathname;
+      const reply = (status: number, body: unknown) =>
+        new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+      if (path !== '/api/login') return reply(200, { valid: true, permissions: ['platform:admin'] });
+      const req = JSON.parse(init?.body ?? '{}') as Record<string, unknown>;
+      sent.push(req);
+      if (req.otp === undefined) {
+        return reply(401, { error: 'A second factor is required', details: [{ field: 'otp', message: 'is required' }] });
+      }
+      if (req.otp !== '123456') return reply(401, { error: 'Invalid code', details: [{ field: 'otp', message: 'is invalid' }] });
+      return reply(200, { token: 'ps01-token', user: { id: 1, email: 'ada@example' } });
+    });
+    return { verify: buildLoginVerifier({ identityUrl: 'http://identity.test', identityOrg: 'acme' }), sent };
+  }
+
+  it('asks for the code when PS-01 does — not "wrong password"', async () => {
+    const { verify } = identityWithFactor();
+    expect(await verify('ada@example', 'pw')).toEqual({ ok: false, reason: 'otp_required', setup: null });
+  });
+
+  it('says the code was wrong, and lets the right one in', async () => {
+    const { verify, sent } = identityWithFactor();
+    expect(await verify('ada@example', 'pw', '000000')).toEqual({ ok: false, reason: 'otp_invalid', setup: null });
+    expect(await verify('ada@example', 'pw', ' 123456 ')).toMatchObject({ ok: true, access: 'manage' });
+    // Carried across as typed (trimmed), never invented: a blank code is no code.
+    expect(sent.map((b) => b.otp)).toEqual(['000000', '123456']);
+    await verify('ada@example', 'pw', '   ');
+    expect(sent[2]).not.toHaveProperty('otp');
+  });
+});
+
+describe('an SSO login in an organization that requires a second factor', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('carries the setup (QR content) out, and the recovery codes once it is done', async () => {
+    const setup = { secret: 'JBSWY3DPEHPK3PXP', otpauth_uri: 'otpauth://totp/Acme:ada?secret=JBSWY3DPEHPK3PXP' };
+    vi.stubGlobal('fetch', async (url: string | URL, init?: { body?: string }) => {
+      const path = new URL(String(url)).pathname;
+      const reply = (status: number, body: unknown) =>
+        new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+      if (path !== '/api/login') return reply(200, { valid: true, permissions: ['platform:admin'] });
+      const req = JSON.parse(init?.body ?? '{}') as Record<string, unknown>;
+      expect(req.device).toEqual({ user_agent: 'Phone/1.0', ip: '203.0.113.7' });
+      if (req.otp === undefined) {
+        return reply(401, { error: 'Set up', details: [{ field: 'otp', message: 'must be set up' }], mfa_setup: setup });
+      }
+      return reply(200, { token: 't', user: { id: 1, email: 'ada@example' }, recovery_codes: ['aaaaa-bbbbb'] });
+    });
+    const verify = buildLoginVerifier({ identityUrl: 'http://identity.test', identityOrg: 'acme' });
+    const device = { user_agent: 'Phone/1.0', ip: '203.0.113.7' };
+    expect(await verify('ada@example', 'pw', undefined, device)).toEqual({ ok: false, reason: 'otp_setup', setup });
+    expect(await verify('ada@example', 'pw', '123456', device)).toMatchObject({ ok: true, recoveryCodes: ['aaaaa-bbbbb'] });
+  });
+
+  it('answers a form in the one shape it reads', () => {
+    const setup = { secret: 'S', otpauth_uri: 'otpauth://totp/x?secret=S' };
+    expect(secondFactorAnswer({ reason: 'otp_setup', setup })).toEqual({
+      error: 'Set up two-factor sign-in to continue',
+      details: [{ field: 'otp', message: 'must be set up', setup }],
+    });
+    expect(secondFactorAnswer({ reason: 'otp_required' }).details).toEqual([{ field: 'otp', message: 'is required' }]);
+    expect(secondFactorAnswer({ reason: 'otp_invalid', setup: null }).details).toEqual([{ field: 'otp', message: 'is invalid' }]);
+    expect(deviceOf({ headers: { 'user-agent': 'UA' }, ip: '1.2.3.4' })).toEqual({ user_agent: 'UA', ip: '1.2.3.4' });
   });
 });

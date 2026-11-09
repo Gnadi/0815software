@@ -1,3 +1,4 @@
+import { checkAlerts } from './alerts.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type Database from 'better-sqlite3';
@@ -104,7 +105,9 @@ export function executeRun(
       error: null,
       params: Object.keys(bound).length > 0 ? JSON.stringify(bound) : null,
     });
-    return Number(info.lastInsertRowid);
+    const runId = Number(info.lastInsertRowid);
+    checkAlerts(ctx.db, report.id, runId, result.rows[0], nowIso());
+    return runId;
   } catch (err) {
     const info = insert.run({
       report_id: report.id,

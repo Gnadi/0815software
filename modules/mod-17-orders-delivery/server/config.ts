@@ -87,6 +87,8 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): ServerConfi
       // PS-11 Customers — the stack's `self` party becomes the letterhead
       // (below Settings, above SELLER_*). Unset, no call is ever made.
       customersUrl: env.CUSTOMERS_URL || undefined,
+      // PS-03, for notifications to people (server/people.ts).
+      notificationUrl: env.NOTIFICATION_URL || undefined,
       serviceToken: env.PLATFORM_SERVICE_TOKEN || undefined,
     },
     // Same variables and placeholders as MOD-04 and MOD-13, so a stack sets

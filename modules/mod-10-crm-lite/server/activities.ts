@@ -18,6 +18,8 @@ export interface ActivityInput {
   dealId: number | null;
   dueDate: string | null;
   createdAt?: string;
+  /** Who the follow-up is for (an email); the writer when not said. */
+  owner?: string | null;
 }
 
 export function getActivity(db: Database.Database, id: number): Activity {
@@ -80,8 +82,8 @@ export function createActivity(db: Database.Database, input: ActivityInput): num
   }
   const info = db
     .prepare(
-      `INSERT INTO activities (type, subject, body, contact_id, deal_id, due_date, done, done_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?)`,
+      `INSERT INTO activities (type, subject, body, contact_id, deal_id, due_date, done, done_at, created_at, owner)
+       VALUES (?, ?, ?, ?, ?, ?, 0, NULL, ?, ?)`,
     )
     .run(
       input.type,
@@ -91,6 +93,7 @@ export function createActivity(db: Database.Database, input: ActivityInput): num
       input.dealId,
       input.dueDate,
       input.createdAt ?? nowIso(),
+      input.owner ?? null,
     );
   return Number(info.lastInsertRowid);
 }

@@ -110,8 +110,8 @@ export const api = {
   applyReceivables: (
     applications: { booking_key: string; invoice_id: number; amount_cents: number; date?: string; note?: string }[],
   ) => request<{ outcomes: ReceivableOutcome[] }>('/api/receivables/apply', post({ applications })),
-  login: (username: string, password: string) =>
-    request<{ ok: true }>('/api/login', post({ username, password })),
+  login: (username: string, password: string, otp?: string) =>
+    request<{ ok: true; recovery_codes?: string[] }>('/api/login', post({ username, password, ...(otp ? { otp } : {}) })),
   logout: () => request<{ ok: true }>('/api/logout', { method: 'POST' }),
   /** Which credentials this deployment accepts — readable before signing in. */
   authMode: () => request<AuthMode>('/api/auth-mode'),

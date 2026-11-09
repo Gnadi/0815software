@@ -10,6 +10,10 @@ import { buildLoginVerifier, loginModeOf } from './sso.js';
 import { configFromEnv } from './config.js';
 import { openDb } from './db.js';
 import { seed } from './seed.js';
+import { buildPeople } from './people.js';
+import { startWatch } from './watch.js';
+import { watchOffers } from './inbox-rules.js';
+import { MODULE_SLUG } from './access.js';
 
 const config = configFromEnv();
 assertProductionConfig([
@@ -52,6 +56,18 @@ const app = createApp({
   serviceToken: config.platform.serviceToken,
   shellOrigins: config.shellOrigins,
 });
+
+
+// Notifications to people and the clock checks behind them
+// (server/inbox-rules.ts) — only with PS-03 wired; otherwise nothing runs.
+const people = buildPeople({
+  module: MODULE_SLUG,
+  notificationUrl: config.platform.notificationUrl,
+  identityUrl: config.sso.identityUrl,
+  identityOrg: config.sso.identityOrg,
+  serviceToken: config.platform.serviceToken,
+});
+startWatch(db, people, watchOffers);
 
 app.listen(config.port, () => {
   console.log(`[mod-13] offers API on http://localhost:${config.port}`);
