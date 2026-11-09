@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Tell the stack's administrators something about the stack, from inside the
- * PS-03 container — what deploy/backup.sh calls when a nightly backup failed:
+ * PS-03 container — what deploy/backup.mjs calls when a nightly backup failed:
  *
  *   docker compose exec -T <ps-03> node scripts/ops-event.mjs <kind> <title> [detail]
  *

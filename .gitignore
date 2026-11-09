@@ -10,6 +10,12 @@ node_modules/
 .DS_Store
 *.log
 .astro/
+# Backup configuration and leftovers of the reference stack in deploy/ — backup.env
+# holds the archive passphrase and target credentials (deploy/backup.mjs).
+backup.env
+backup-status.json
+.backup-work/
+/deploy/restore-*/
 
 # Screenshots deploy/mobile-check.mjs leaves of views that fail on a phone.
 deploy/mobile-shots/

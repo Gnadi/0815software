@@ -20,7 +20,7 @@
  * rendered artifacts offline, with no Docker.
  */
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -34,6 +34,7 @@ import {
   subdomainFor,
 } from '../modules/registry.mjs';
 import { toYaml } from './lib/yaml.mjs';
+import { CONFIG_FILE as BACKUP_CONFIG, renderConfig as renderBackupConfig } from './lib/backup-config.mjs';
 
 export const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
@@ -1163,36 +1164,47 @@ their own.
 
 ## Backups
 
+Where backups go is set in \`backup.env\` beside this file. It came with a
+generated passphrase and **no target**, so set one before the first night:
+
 \`\`\`sh
-<repo>/deploy/backup.sh "$(pwd)"     # run from THIS directory
+node <repo>/deploy/backup.mjs setup "$(pwd)"    # asks: NAS folder, SFTP or S3? writes backup.env
+node <repo>/deploy/backup.mjs check "$(pwd)"    # every target writable? --test-alert sends a test alert
 \`\`\`
 
-Pass this stack's directory. Without it the script backs up the reference
-stack inside the repository instead of yours. Schedule it from the host's
-cron, e.g.
+Then schedule the nightly run and a weekly restore drill from the host's cron:
 
 \`\`\`
-0 2 * * *  <repo>/deploy/backup.sh <this directory> >> backup.log 2>&1
+0 2 * * *  <repo>/deploy/backup.sh <this directory> >> <this directory>/backup.log 2>&1
+0 5 * * 0  node <repo>/deploy/backup.mjs verify <this directory> >> <this directory>/backup.log 2>&1
 \`\`\`
 
-It asks the stack which containers are running and snapshots every one that
-can back itself up — the services AND the modules, which is where this
-customer's invoices, offers and tickets actually are. Each snapshot is
-online-consistent (better-sqlite3's backup API, never a file copy of a live
-database) and lands in \`/data/backups\` on that container's own volume. A
-module that keeps files beside its database copies those alongside.
+Each run snapshots every container that can back itself up (online-consistent,
+never a file copy of a live database), packs the snapshots together with this
+directory's \`.env\`, compose file and manifest into ONE archive, encrypts it
+with \`BACKUP_PASSPHRASE\` and copies it to every target in \`BACKUP_TARGETS\`
+— a mounted NAS folder, \`sftp://user@nas/path\` or \`s3://bucket/prefix\`.
+Retention (7 daily, 4 weekly, 12 monthly by default) runs on each target; the
+last few snapshots also stay on each volume for a quick rollback. A failure
+POSTs to \`BACKUP_ALERT_URL\`; \`BACKUP_HEARTBEAT_URL\` is pinged on success, so
+a monitor notices when backups stop altogether. The outcome of the last run is
+in \`backup-status.json\`.
 
-**Restore** = stop the container, replace \`/data/data.db\` with a snapshot (and
-the files directory beside it, where there is one), start it again; pending
-schema migrations apply on boot.
+**Keep \`BACKUP_PASSPHRASE\` somewhere other than this host** — a password
+manager, a sealed envelope. It is the one thing a restore cannot do without.
+\`backup.env\` itself is never put into an archive, and a re-provision never
+overwrites it.
 
-Two steps this does not do for you, and both matter:
+**Restore** (same host after a bad update, or a new host after losing this
+one — put \`backup.env\` back first):
 
-- **Copy the snapshots off this host.** They sit on the same volumes as the
-  originals — which survives a bad deploy, not a lost disk. Add an rsync or
-  restic job to another machine; that is what makes this a backup.
-- **Back \`.env\` up separately.** It holds the secrets, and a restored volume
-  is useless with the wrong \`SESSION_SECRET\`.
+\`\`\`sh
+node <repo>/deploy/backup.mjs list    "$(pwd)"
+node <repo>/deploy/backup.mjs restore "$(pwd)"                  # unpack the newest beside the stack
+node <repo>/deploy/backup.mjs restore "$(pwd)" --apply --yes    # …and write it into the volumes
+\`\`\`
+
+Full runbook: \`docs/BACKUP-RESTORE.md\` in the repository.
 ${
   plan.services.some(({ service }) => service.secrets.includes('EBICS_KEY_SECRET'))
     ? `
@@ -1270,7 +1282,22 @@ export function writeStack(plan, outDir, { force = false } = {}) {
     if (name.includes('/')) mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, contents);
   }
-  return { dir: abs, files: Object.keys(files) };
+  // Secrets: readable by the operator only.
+  chmodSync(join(abs, '.env'), 0o600);
+  const written = Object.keys(files);
+
+  // backup.env is written once and never again. Its passphrase encrypts every
+  // archive already on the NAS; a re-provision (--force) that replaced it
+  // would make all of them unopenable, and it holds the target the operator
+  // configured by hand. Targets start empty: until one is set, the nightly
+  // run snapshots locally and fails loudly, which is the honest state.
+  const backupConfig = join(abs, BACKUP_CONFIG);
+  if (!existsSync(backupConfig)) {
+    writeFileSync(backupConfig, renderBackupConfig({ BACKUP_PASSPHRASE: newSecret(24) }), { mode: 0o600 });
+    chmodSync(backupConfig, 0o600);
+    written.push(BACKUP_CONFIG);
+  }
+  return { dir: abs, files: written };
 }
 
 // ── CLI entry point ──────────────────────────────────────────────────────────
@@ -1316,6 +1343,7 @@ function summarize(plan, written) {
   if (plan.placeholders.length > 0) out.push(`    $EDITOR ${join(rel, '.env')}`);
   out.push(`    node ${relative(process.cwd(), join(REPO_ROOT, 'deploy/smoke-stack.mjs'))} --manifest ${join(rel, 'manifest.json')}`);
   out.push(`    docker compose -f ${join(rel, 'docker-compose.yml')} up -d --build`);
+  out.push(`    node ${relative(process.cwd(), join(REPO_ROOT, 'deploy/backup.mjs'))} setup ${rel}    # where backups go (NAS, SFTP, S3)`);
   out.push('');
   return out.join('\n');
 }

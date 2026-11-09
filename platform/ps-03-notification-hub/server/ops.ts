@@ -5,7 +5,7 @@ import { readSettings, recordEvent } from './notify.js';
 /**
  * The stack telling its administrators about itself: a service that stopped
  * answering (Prometheus → Alertmanager → here), a nightly backup that failed
- * (deploy/backup.sh → here). To the stack's `ops_recipients`, now and through
+ * (deploy/backup.mjs → here). To the stack's `ops_recipients`, now and through
  * quiet hours — an outage at 2 a.m. is the case on-call exists for.
  *
  * In ADDITION to the operator's own alert channel, never instead of it: an
@@ -46,7 +46,7 @@ export function recordOps(db: Database.Database, event: OpsEvent, now: number): 
   );
 }
 
-/** One `POST /api/ops/events` body (deploy/backup.sh). */
+/** One `POST /api/ops/events` body (deploy/backup.mjs). */
 export function parseOps(body: Record<string, unknown>): OpsEvent {
   const kind = typeof body.kind === 'string' && /^[a-z0-9-]{1,60}$/.test(body.kind) ? body.kind : null;
   const title = typeof body.title === 'string' && body.title.trim() ? body.title.trim() : null;

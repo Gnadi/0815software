@@ -5,7 +5,7 @@
  * secret is ever a default or reused, the mod-08 source-database rules, and
  * the refusal to clobber — is tested directly.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -548,6 +548,7 @@ describe('writeStack', () => {
       '.env',
       'Caddyfile',
       'README.md',
+      'backup.env',
       'docker-compose.yml',
       'manifest.json',
       'monitoring/alertmanager.yml',
@@ -558,6 +559,26 @@ describe('writeStack', () => {
     expect(readFileSync(join(dir, 'manifest.json'), 'utf8')).toContain('mod-13-offers');
     // The nested directory has to be created, not assumed.
     expect(readFileSync(join(dir, 'monitoring', 'prometheus.yml'), 'utf8')).toContain('job_name: platform-services');
+  });
+
+  it('writes backup.env with a fresh passphrase, readable by the operator only — and never overwrites it', () => {
+    const dir = scratch();
+    writeStack(planStack(twoModules()), dir);
+    const first = readFileSync(join(dir, 'backup.env'), 'utf8');
+    const passphrase = /^BACKUP_PASSPHRASE=(.+)$/m.exec(first)?.[1] ?? '';
+    expect(passphrase).toMatch(/^[0-9a-f]{48}$/);
+    expect(first).toMatch(/^BACKUP_TARGETS=$/m); // no target yet: the nightly run fails loudly until one is set
+    for (const secret of ['backup.env', '.env']) {
+      expect(statSync(join(dir, secret)).mode & 0o077, secret).toBe(0);
+    }
+    expect(writeStack(planStack(twoModules()), scratch()).files).toContain('backup.env');
+
+    // A re-provision must keep it: that passphrase opens every archive already on the NAS.
+    writeFileSync(join(dir, 'backup.env'), first.replace('BACKUP_TARGETS=', 'BACKUP_TARGETS=/mnt/nas'));
+    const again = writeStack(planStack(twoModules()), dir, { force: true });
+    expect(again.files).not.toContain('backup.env');
+    expect(readFileSync(join(dir, 'backup.env'), 'utf8')).toContain('BACKUP_TARGETS=/mnt/nas');
+    expect(readFileSync(join(dir, 'backup.env'), 'utf8')).toContain(`BACKUP_PASSPHRASE=${passphrase}`);
   });
 
   it('creates the directory when it does not exist', () => {

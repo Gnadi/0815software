@@ -186,7 +186,7 @@ Tabelle sagt, was sinnvoll ist, nicht was schon existiert.
 | Anlass | Empfänger | Stufe | Badge |
 | --- | --- | --- | --- |
 | Ein Dienst des Stacks antwortet nicht (`/api/ready`) | Admins | S · Bereitschaft | – |
-| Nächtliche Sicherung fehlgeschlagen (`scripts/backup.mjs`) | Admins | S | – |
+| Nächtliche Sicherung fehlgeschlagen (`deploy/backup.mjs`) | Admins | S | – |
 
 ### MOD-05 Verzeichnis, MOD-15 Workspace, MOD-16 Mosaik
 
@@ -324,7 +324,7 @@ Badge-Zahl fällt, sobald die Sache erledigt ist.
 | --- | --- | --- |
 | Web Push (RFC 8291 + RFC 8292) auf Node-`crypto` | PS-03 `server/webpush.ts` | RFC 8291 Anhang A, Byte für Byte; VAPID-Signatur |
 | Ereignisse, Vorlieben, Ruhezeiten, Briefing und Tagesabschluss, Mail-Ersatz | PS-03 `server/notify.ts` | `test/notify.test.ts` (inkl. Entschlüsseln der Nachricht wie im Browser) |
-| Betrieb: Alertmanager und fehlgeschlagene Sicherung | PS-03 `server/ops.ts`, `deploy/backup.sh`, generiertes `monitoring/alertmanager.yml` | `test/ops.test.ts`, `deploy/test/monitoring.test.ts` |
+| Betrieb: Alertmanager und fehlgeschlagene Sicherung | PS-03 `server/ops.ts`, `deploy/backup.mjs`, generiertes `monitoring/alertmanager.yml` | `test/ops.test.ts`, `deploy/test/monitoring.test.ts` |
 | Badge-Zahl, „Wartet auf dich“ | `GET /api/inbox` jedes Moduls (`server/inbox.ts`, `server/inbox-rules.ts`), summiert von den Shells | Copy-in `test/people.test.ts`, je Modul `test/inbox-rules.test.ts` |
 | Ereignisse aus den Modulen | `server/watch.ts` liest die Append-only-Protokolle, `server/people.ts` meldet an PS-03 | je Modul `test/inbox-rules.test.ts` |
 | „Alle mit Stufe X“ als Empfänger | PS-01 `GET /api/directory/holders` | PS-01 `test/directory.test.ts` |
